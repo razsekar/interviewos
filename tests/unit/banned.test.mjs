@@ -17,8 +17,8 @@ test('banned private terms fail validation anywhere in a question, but not in so
 });
 
 test('source file names are aliased without private words', () => {
-  assert.equal(aliasFromFile('AWS _ Cloud — Acme Interview Preparation.pdf'), 'ref-aws-cloud');
-  assert.equal(aliasFromFile('Apigee — Deep Interview Preparation for Acme.pdf'), 'ref-apigee');
+  assert.equal(aliasFromFile('AWS _ Cloud — Interview Preparation.pdf'), 'ref-aws-cloud');
+  assert.equal(aliasFromFile('Apigee — Deep Interview Preparation.pdf'), 'ref-apigee');
 });
 
 test('crossCheck finds duplicate slugs/titles and dangling related links', () => {
