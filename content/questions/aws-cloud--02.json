@@ -1,0 +1,642 @@
+{
+  "category": "aws-cloud",
+  "questions": [
+    {
+      "slug": "what-is-api-gateway",
+      "title": "What is Amazon API Gateway and what does it provide?",
+      "topic": "API Layer",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "api-gateway",
+        "apis",
+        "throttling",
+        "auth"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-cloud",
+          "pages": [
+            5
+          ]
+        }
+      ],
+      "quick": "API Gateway is a managed service for publishing and managing APIs. It sits in front of backends such as Lambda, ECS services or any HTTP endpoint and provides routing, authentication integration (IAM, Cognito, JWT or Lambda authorizers), throttling and quotas, request validation, monitoring and, depending on the API type, caching and usage plans. It scales without servers to manage. I'd use it when I want API management features, not just load balancing, and I'd watch cost and added latency at very high volume.",
+      "revision": "API Gateway = managed front door for APIs: routing, auth integration, throttling, validation, monitoring, with Lambda or HTTP backends. Choose it for API management features.",
+      "detailed": "**Amazon API Gateway** is a managed service that exposes backend functionality as APIs and applies cross-cutting policies before requests reach your code.\n\n## What it provides\n- **Routing and integration** to Lambda, HTTP backends (via public endpoints or private integrations) and some AWS services.\n- **Authentication and authorisation**: IAM auth, Amazon Cognito or JWT authorisers, custom Lambda authorisers.\n- **Throttling and quotas**: rate and burst limits, and usage plans with API keys (REST APIs) for partner-style access.\n- **Request/response handling**: validation, transformations (more in REST APIs), CORS, custom domains and stages.\n- **Observability**: access logs, metrics and tracing integration.\n- **Edge-friendly options**: REST API endpoints can be regional, edge-optimised or private; response caching is available on REST APIs.\n\n## Main API types\n| Type | Notes |\n|---|---|\n| HTTP API | Simpler, lower-cost, lower-latency option with JWT authorisers; fewer features |\n| REST API | Richer feature set (usage plans, request validation, caching, WAF association, more) |\n| WebSocket API | Persistent bidirectional connections |\n\nCheck the current feature comparison in the AWS docs when choosing, since support evolves.\n\n## Example flow\nBrowser -> CloudFront -> API Gateway -> Lambda or an ECS service -> data stores.\n\n## Trade-offs and mistakes\n- Per-request pricing and extra hop can be less attractive than an ALB for very high-volume, simple routing.\n- Payload and integration timeout constraints apply; do not push very large or long-running requests through it without checking quotas.\n- Duplicating authentication in both the gateway and every service without a clear model leads to gaps.\n- Using it as a place for business logic rather than only cross-cutting policy.",
+      "followUps": [
+        "REST API vs HTTP API: how do you choose?",
+        "How do Lambda authorisers work and how are results cached?",
+        "How would you protect an API Gateway endpoint from abuse?"
+      ],
+      "related": [
+        "api-gateway-vs-cloudfront",
+        "alb-vs-api-gateway"
+      ]
+    },
+    {
+      "slug": "api-gateway-vs-cloudfront",
+      "title": "API Gateway vs CloudFront: what is the difference and can they work together?",
+      "topic": "API Layer",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "api-gateway",
+        "cloudfront",
+        "caching",
+        "waf"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-cloud",
+          "pages": [
+            5,
+            6
+          ]
+        }
+      ],
+      "quick": "They solve different problems. CloudFront is a CDN: it delivers and caches content from edge locations. API Gateway is an API management front end: routing, auth integration, throttling, validation and backend integration. They combine well: CloudFront at the edge gives global TLS termination, caching and WAF, while API Gateway applies API policies before Lambda or ECS. I'd skip one of them if its features aren't needed, for example no CloudFront for a purely internal API.",
+      "revision": "CloudFront = edge delivery and caching; API Gateway = API management and integration. Often chained: CloudFront in front of API Gateway for edge benefits plus API policies.",
+      "detailed": "The confusion arises because both sit in front of backends and both can cache. Their primary purposes differ.\n\n| Aspect | CloudFront | API Gateway |\n|---|---|---|\n| Primary job | Content delivery, edge caching | Publish, secure and manage APIs |\n| Location | Global edge network | Regional service (edge-optimised REST endpoints use CloudFront internally) |\n| Strengths | Latency, static assets, origin offload, TLS at edge, WAF | Auth integration, throttling, usage plans, validation, Lambda integration |\n| Origins | S3, ALB, API Gateway, custom HTTP | Lambda, HTTP services, some AWS services |\n| Typical content | JS, CSS, images, video, cacheable API GETs | Application APIs |\n\n{{diagram:chain}}\n\n## When to combine them\n- Public website with static assets plus APIs on one domain: CloudFront routes ```/assets/*``` to S3 and ```/api/*``` to API Gateway.\n- You want edge caching of GET responses, a single WAF attachment point and consistent domain and TLS handling.\n- You want to hide the API origin and require a custom header or origin access so clients cannot bypass the CDN.\n\n## When one is enough\n- Purely static site: CloudFront and S3, no API Gateway.\n- Internal service-to-service API: API Gateway (private) or ALB, no CDN.\n- Simple containerised API with no gateway features needed: CloudFront (optional) plus ALB.\n\n## Common mistakes\n- Caching personalised API responses at the edge with an unsafe cache key.\n- Throttling only at one layer and leaving the other path open (direct calls to the API Gateway URL).\n- Forgetting that WAF, auth and caching can each be configured in two places; define which layer owns which responsibility.",
+      "diagrams": [
+        {
+          "id": "chain",
+          "title": "CloudFront in front of API Gateway",
+          "alt": "A user request reaches CloudFront, passes WAF filtering, and static paths are served from S3 while API paths go to API Gateway, which invokes a Lambda function or an ECS service.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "u",
+              "label": "User"
+            },
+            {
+              "id": "c",
+              "label": "CloudFront"
+            },
+            {
+              "id": "w",
+              "label": "WAF"
+            },
+            {
+              "id": "s",
+              "label": "S3 assets"
+            },
+            {
+              "id": "g",
+              "label": "API Gateway"
+            },
+            {
+              "id": "b",
+              "label": "Lambda or ECS"
+            }
+          ],
+          "edges": [
+            {
+              "from": "u",
+              "to": "c"
+            },
+            {
+              "from": "w",
+              "to": "c",
+              "label": "attached"
+            },
+            {
+              "from": "c",
+              "to": "s",
+              "label": "/assets"
+            },
+            {
+              "from": "c",
+              "to": "g",
+              "label": "/api"
+            },
+            {
+              "from": "g",
+              "to": "b"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you stop clients bypassing CloudFront and calling the API directly?",
+        "Where should rate limiting live in this chain?",
+        "Would you cache API responses at CloudFront or API Gateway?"
+      ],
+      "related": [
+        "what-is-api-gateway",
+        "alb-vs-api-gateway",
+        "what-is-a-cdn"
+      ]
+    },
+    {
+      "slug": "what-is-alb",
+      "title": "What is an Application Load Balancer and how does it route traffic?",
+      "topic": "API Layer",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "alb",
+        "load-balancing",
+        "routing",
+        "health-checks"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-cloud",
+          "pages": [
+            12
+          ]
+        }
+      ],
+      "quick": "An Application Load Balancer distributes HTTP and HTTPS traffic across targets such as ECS tasks, EC2 instances or Lambda functions, spread over multiple Availability Zones. It performs health checks, so unhealthy targets stop receiving traffic. It routes at layer 7 using host, path, header or query rules, for example sending /api/vehicles to one service and /api/finance to another. It also terminates TLS, and integrates with Auto Scaling and WAF.",
+      "revision": "ALB = layer-7 HTTP/HTTPS load balancer across multi-AZ targets, with health checks, host/path routing, TLS termination and WAF/Auto Scaling integration.",
+      "detailed": "An **Application Load Balancer (ALB)** works at the HTTP/HTTPS layer. Clients connect to it; it forwards requests to a **target group** of healthy targets.\n\n{{diagram:alb}}\n\n## Key capabilities\n- **Content-based routing**: listener rules on host name, path, headers, query strings or methods. For example:\n  - ```/api/vehicles/*``` to the Vehicle service target group\n  - ```/api/finance/*``` to the Finance service target group\n- **Health checks** per target group; failing targets are taken out of rotation.\n- **Multi-AZ**: the ALB runs nodes in each enabled AZ; targets in several AZs give resilience.\n- **TLS termination** with ACM certificates, plus redirects from HTTP to HTTPS.\n- **Integrations**: ECS service discovery of tasks as targets, Auto Scaling, WAF, authentication actions with OIDC or Cognito, access logs.\n- **Targets**: instances, IP addresses, Lambda functions.\n\n## ALB vs other load balancers\n| Type | Layer | Use |\n|---|---|---|\n| ALB | 7 (HTTP/HTTPS, gRPC) | Web apps and microservice routing |\n| NLB | 4 (TCP/UDP/TLS) | Very high throughput, static IPs, non-HTTP protocols |\n| Gateway Load Balancer | 3 | Third-party network appliances |\n\n## Practical tips and mistakes\n- Place the ALB in public subnets (if internet-facing) and targets in private subnets, with the target security group only allowing traffic from the ALB's security group.\n- Make health-check endpoints cheap and meaningful; checking a heavy dependency can cause cascading removal of healthy tasks.\n- Tune deregistration delay for graceful shutdown during deployments.\n- An ALB is regional; for global performance put CloudFront in front rather than expecting one ALB to serve the world.",
+      "diagrams": [
+        {
+          "id": "alb",
+          "title": "ALB routing to services",
+          "alt": "An internet-facing ALB receives requests and routes them by path to target groups. Requests for the vehicles path go to Vehicle service tasks and requests for the finance path go to Finance service tasks, each running as several ECS tasks.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "i",
+              "label": "Internet"
+            },
+            {
+              "id": "a",
+              "label": "ALB"
+            },
+            {
+              "id": "v",
+              "label": "Vehicle service tasks"
+            },
+            {
+              "id": "f",
+              "label": "Finance service tasks"
+            }
+          ],
+          "edges": [
+            {
+              "from": "i",
+              "to": "a"
+            },
+            {
+              "from": "a",
+              "to": "v",
+              "label": "/api/vehicles"
+            },
+            {
+              "from": "a",
+              "to": "f",
+              "label": "/api/finance"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "ALB vs NLB: when would you pick NLB?",
+        "How do health checks interact with deployments?",
+        "Why keep targets in private subnets?"
+      ],
+      "related": [
+        "alb-vs-api-gateway",
+        "high-availability-design",
+        "vpc-fundamentals"
+      ]
+    },
+    {
+      "slug": "alb-vs-api-gateway",
+      "title": "ALB vs API Gateway: which one fronts my service?",
+      "topic": "API Layer",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "alb",
+        "api-gateway",
+        "routing",
+        "cost"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-cloud",
+          "pages": [
+            12
+          ]
+        }
+      ],
+      "quick": "An ALB is primarily a load balancer: it spreads HTTP traffic across healthy containers or instances with path and host routing. API Gateway is primarily API management: auth integration, throttling, usage plans, request validation and easy Lambda integration. For a containerised NestJS API with steady traffic I often start with ALB because it is simple and cost-effective; I choose API Gateway when I need those management features or serverless backends. They can coexist, with API Gateway reaching a private ALB.",
+      "revision": "ALB = load balancing and routing for steady service traffic; API Gateway = API management (auth, throttling, usage plans). Pick by needed features; they can coexist.",
+      "detailed": "Both can accept HTTP requests and forward them to a backend, so choose based on **required features**, traffic profile and cost.\n\n| Question | ALB | API Gateway |\n|---|---|---|\n| Core job | Distribute traffic across targets, health-check them | Expose and manage APIs |\n| Backends | EC2, ECS, IP targets, Lambda | Lambda, HTTP endpoints, AWS services |\n| Auth | OIDC/Cognito action, or app-level | IAM, Cognito/JWT, Lambda authorisers |\n| Throttling / usage plans | Not provided natively (use WAF rate rules or app logic) | Built in |\n| Request validation / transformation | Minimal | Available (more in REST APIs) |\n| Pricing shape | Hourly plus capacity units | Per request (plus data) |\n| Operating style | You size targets and scale them | Fully managed and elastic |\n\n## Guidance\n- **ALB** fits long-running ECS/EC2 services, microservice path routing, high steady request volumes, WebSocket and gRPC support, and low added complexity.\n- **API Gateway** fits Lambda-based APIs, external partner APIs needing keys and quotas, and cases where centralised API policy is valuable.\n- **Both**: API Gateway with a VPC link to a private ALB lets you expose private container services through managed API features.\n\n## Common mistakes\n- Picking API Gateway for a very high-volume, simple API without modelling per-request cost.\n- Picking ALB then rebuilding throttling, key management and auth ad hoc.\n- Stacking CloudFront, API Gateway and ALB for a simple app, adding hops and complexity without a requirement behind each.\n\nVerify current limits (timeouts, payload sizes) for each service in the documentation before committing to a design.",
+      "followUps": [
+        "How would you rate limit clients if you chose ALB?",
+        "How does API Gateway reach a private ALB?",
+        "Which would you pick for an internal microservice-to-microservice API?"
+      ],
+      "related": [
+        "what-is-api-gateway",
+        "what-is-alb",
+        "api-gateway-vs-cloudfront"
+      ]
+    },
+    {
+      "slug": "ecs-vs-lambda-for-apis",
+      "title": "ECS vs Lambda for a backend API: how do you decide?",
+      "topic": "Compute",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "ecs",
+        "lambda",
+        "nestjs",
+        "api",
+        "trade-offs"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-cloud",
+          "pages": [
+            7,
+            8
+          ]
+        }
+      ],
+      "quick": "For a NestJS enterprise API with predictable, long-running traffic, I'd lean towards ECS on Fargate: persistent processes, connection pooling, consistent latency and full runtime control. For lightweight endpoints, bursty or low-volume traffic and event-driven jobs, Lambda is strong because it scales to zero and needs little operations. I decide on traffic shape, latency targets, connection needs, execution time, team skills and cost modelling, and I'm comfortable mixing both.",
+      "revision": "ECS for steady, long-running, connection-heavy services (NestJS); Lambda for bursty, short, event-driven work. Decide by traffic shape, latency, duration and modelled cost.",
+      "detailed": "Neither is universally better. Use these dimensions:\n\n| Dimension | ECS (Fargate) favoured when | Lambda favoured when |\n|---|---|---|\n| Traffic | Steady, predictable, high volume | Spiky, low, or unpredictable |\n| Latency | Tight tail latency without cold starts | Cold starts acceptable or mitigated |\n| Duration | Long-running or streaming requests | Short invocations |\n| State and connections | Pooled DB connections, in-memory caches, WebSockets | Stateless handlers; use RDS Proxy if DB-bound |\n| Framework fit | Full NestJS/Express app with many modules | Small handlers, bundles kept lean |\n| Operations | Container build, task sizing, scaling policies | Minimal infrastructure |\n| Cost | Pay for running tasks even when idle | Pay per invocation; can be costlier at sustained high load |\n| Local parity | Same container locally and in cloud | Harder to reproduce locally |\n\n## Reasoning example\nAn example vehicle-catalogue API serving steady daytime traffic, using Postgres and an in-process validation pipeline, suits ECS: warm processes, pooled connections and a straightforward container pipeline. An example \"generate PDF brochure on request\" job or an S3-triggered image pipeline suits Lambda or a queue consumer.\n\n## Running NestJS on Lambda\nPossible, but you carry the framework bootstrap cost into each cold start, and you must handle the Lambda event adapter. It works for smaller apps, but it is rarely the default for large modular APIs.\n\n## Common mistakes\n- Choosing by fashion (\"serverless first\") rather than by measured needs.\n- Ignoring database connection limits when Lambda concurrency climbs.\n- Comparing only compute price and ignoring operational time.\n\nPilot with load tests and a cost model using real request volume before standardising.",
+      "followUps": [
+        "How would you run a NestJS app on Lambda, and what are the downsides?",
+        "What would make you migrate an API from Lambda to ECS?",
+        "How do you size and auto scale ECS tasks?"
+      ],
+      "related": [
+        "ec2-vs-ecs-vs-lambda",
+        "lambda-limitations",
+        "deploy-nestjs-on-aws"
+      ]
+    },
+    {
+      "slug": "what-is-rds",
+      "title": "What is Amazon RDS and what does it manage for you?",
+      "topic": "Databases",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "rds",
+        "postgresql",
+        "mysql",
+        "managed-database"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-cloud",
+          "pages": [
+            8
+          ]
+        }
+      ],
+      "quick": "Amazon RDS is a managed relational database service. It runs engines like PostgreSQL, MySQL, MariaDB, SQL Server and Oracle, and handles provisioning, automated backups, patching windows, monitoring and optional Multi-AZ failover, so I don't administer the underlying servers. I still own schema design, indexing, query performance, security configuration and capacity choices. Aurora is the AWS-built, cloud-optimised relational option compatible with MySQL and PostgreSQL. I'd keep RDS in private subnets and encrypt it.",
+      "revision": "RDS = managed relational databases with backups, patching, monitoring and Multi-AZ failover. You still own schema, queries, sizing and security configuration.",
+      "detailed": "**Amazon RDS** lets you run a relational database without managing hardware or most database administration.\n\n## What AWS handles\n- Instance provisioning and storage management.\n- Automated backups with point-in-time recovery within a retention window, plus manual snapshots.\n- Minor version patching through maintenance windows (you schedule and plan major upgrades).\n- Monitoring integration (CloudWatch metrics, Performance Insights, enhanced monitoring).\n- **Multi-AZ** deployments for higher availability.\n- Encryption at rest with KMS and TLS in transit.\n\n## What you still own\n- Data model, indexes and query tuning.\n- Choosing instance class, storage type and size.\n- Connection management and pooling.\n- Network exposure (subnets, security groups).\n- Access control, parameter settings, upgrade planning and restore testing.\n\n## Engine options\nRDS supports PostgreSQL, MySQL, MariaDB, Oracle and SQL Server. **Amazon Aurora** is a related engine family, compatible with MySQL and PostgreSQL, with a distributed storage layer, faster replica handling and its own scaling features; it is often chosen for demanding workloads but has its own pricing model.\n\n## RDS vs self-managed on EC2\n| Aspect | RDS | Database on EC2 |\n|---|---|---|\n| Ops effort | Low | High (backups, patching, HA are yours) |\n| Control | Limited OS and extension access | Full |\n| HA/backup | Built-in options | You design them |\n\n## Common mistakes\n- Public accessibility enabled on the instance.\n- Never testing restores.\n- Using a database as a queue or cache and scaling the instance to compensate.\n- Ignoring connection limits when many app instances or Lambdas connect.",
+      "followUps": [
+        "RDS vs Aurora: when would you choose Aurora?",
+        "How do backups and point-in-time recovery work?",
+        "Why might you put RDS Proxy in front of the database?"
+      ],
+      "related": [
+        "scale-rds",
+        "public-vs-private-subnets",
+        "multi-az-vs-multi-region"
+      ]
+    },
+    {
+      "slug": "scale-rds",
+      "title": "How do you scale an RDS database?",
+      "topic": "Databases",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "rds",
+        "read-replicas",
+        "caching",
+        "scaling",
+        "connection-pooling"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-cloud",
+          "pages": [
+            8
+          ]
+        }
+      ],
+      "quick": "I scale RDS in layers, starting with the cheapest fix. First, optimise queries and indexes and add connection pooling. Second, cache hot reads in Redis. Third, scale up the instance for more CPU, memory and IOPS. Fourth, add read replicas to offload read traffic, accepting replication lag, while writes still go to the primary. For write limits I'd consider partitioning, Aurora features, or sharding as a last resort. Multi-AZ improves availability, not read scale.",
+      "revision": "Optimise queries and pool connections, cache reads, scale up, add read replicas for reads (lag!), then partition or shard writes. Multi-AZ is availability, not scaling.",
+      "detailed": "Treat database scaling as a ladder; climb only as needed.\n\n{{diagram:ladder}}\n\n## 1. Fix the workload\n- Add or correct **indexes**, remove N+1 queries and heavy scans, examine slow query logs and Performance Insights.\n- Use **connection pooling** (application pools, PgBouncer, or RDS Proxy) so many app instances or Lambdas do not exhaust connections.\n\n## 2. Cache\nPut Redis (ElastiCache) in front for hot, repeatable reads such as catalogue lookups. This often removes the largest load for the least effort, provided you handle invalidation and TTLs.\n\n## 3. Vertical scaling\nMove to a larger instance class or faster storage. Simple, usually involves a brief disruption, and has an upper limit.\n\n## 4. Read replicas\nReplicas receive changes asynchronously and serve read-only queries.\n- Route reporting and read-heavy endpoints to replicas.\n- Beware **replication lag**: do not use replicas for reads that must reflect a just-completed write (read-your-writes).\n- Replicas can also be cross-Region for locality or DR.\n\n## 5. Beyond a single writer\n- Partition large tables, archive old data.\n- Consider Aurora features, or a different data store for specific access patterns (key-value, search).\n- **Sharding** across databases is powerful but adds major application complexity.\n\n## Multi-AZ vs read replicas\n| | Multi-AZ | Read replica |\n|---|---|---|\n| Purpose | Availability / failover | Read scaling |\n| Replication | Synchronous (standby) | Asynchronous |\n| Serves reads | Typically not in the classic setup | Yes |\n\n## Common mistakes\nScaling up before fixing queries; sending all reads to replicas without handling lag; forgetting that replicas do not help write throughput.",
+      "diagrams": [
+        {
+          "id": "ladder",
+          "title": "RDS scaling approach",
+          "alt": "Application requests first pass through a Redis cache. Cache misses and writes go to the RDS primary instance, while read-only queries can be directed to one or more read replicas that replicate asynchronously from the primary.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "a",
+              "label": "Application"
+            },
+            {
+              "id": "r",
+              "label": "Redis cache"
+            },
+            {
+              "id": "p",
+              "label": "RDS primary"
+            },
+            {
+              "id": "x",
+              "label": "Read replica"
+            }
+          ],
+          "edges": [
+            {
+              "from": "a",
+              "to": "r",
+              "label": "cache first"
+            },
+            {
+              "from": "a",
+              "to": "p",
+              "label": "writes"
+            },
+            {
+              "from": "a",
+              "to": "x",
+              "label": "reads"
+            },
+            {
+              "from": "p",
+              "to": "x",
+              "label": "async replication"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you handle replication lag in the application?",
+        "When would you shard instead of scaling vertically?",
+        "What does RDS Proxy help with?"
+      ],
+      "related": [
+        "what-is-rds",
+        "what-is-elasticache",
+        "multi-az-vs-multi-region"
+      ]
+    },
+    {
+      "slug": "what-is-elasticache",
+      "title": "What is ElastiCache and when do you use it?",
+      "topic": "Databases",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "elasticache",
+        "redis",
+        "caching",
+        "cache-aside"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-cloud",
+          "pages": [
+            9
+          ]
+        }
+      ],
+      "quick": "ElastiCache is AWS's managed in-memory caching service, most commonly running Redis-compatible engines or Memcached. I use it with a cache-aside pattern: the API checks the cache, and on a miss reads the database and stores the result with a TTL. It helps with hot reads, sessions, rate limiting, short-lived state and sometimes distributed locks. It cuts latency and database load, but I have to manage invalidation, memory sizing and failure behaviour, and avoid treating it as the source of truth.",
+      "revision": "ElastiCache = managed in-memory cache (Redis-compatible or Memcached). Cache-aside with TTLs cuts latency and database load; handle invalidation and failure, don't treat as source of truth.",
+      "detailed": "**Amazon ElastiCache** provides managed in-memory data stores. The most-used choice is a Redis-compatible engine; Memcached is a simpler, multi-threaded cache without persistence or rich data types.\n\n## Cache-aside flow\n```ts\nasync function getVehicle(id: string) {\n  const key = `vehicle:${id}`;\n  const cached = await redis.get(key);\n  if (cached) return JSON.parse(cached);\n\n  const vehicle = await db.vehicles.findById(id);   // source of truth\n  await redis.set(key, JSON.stringify(vehicle), 'EX', 300); // 5-minute TTL\n  return vehicle;\n}\n```\n\n## Good fits\n- Repeated reads of rarely changing data (catalogues, configuration).\n- Session data where short-lived server-side state is appropriate.\n- **Rate limiting** counters and token buckets.\n- Leaderboards, queues of ephemeral work, pub/sub, and carefully designed distributed locks.\n- Temporary application state.\n\n## Operational features\n- Replication groups with replicas and automatic failover across AZs.\n- Cluster mode for sharding data over multiple nodes.\n- Encryption at rest and in transit, authentication, VPC placement.\n\n## Trade-offs and pitfalls\n- **Invalidation**: stale data if TTLs are long or writes do not update the cache.\n- **Stampede**: many requests rebuild the same expired key at once; use jittered TTLs, request coalescing or locking.\n- **Memory limits and eviction**: size nodes and choose an eviction policy deliberately.\n- **Hidden dependency**: if the app cannot function without it, you have made it a critical tier.\n- Distributed locks need careful expiry and fencing; not a drop-in correctness guarantee.\n\nRedis-compatible choices have evolved (for example the Valkey engine); confirm current engine options when designing.",
+      "followUps": [
+        "Redis vs Memcached: how do you choose?",
+        "How do you prevent a cache stampede?",
+        "How would you invalidate cached data when the source changes?"
+      ],
+      "related": [
+        "redis-failure",
+        "scale-rds",
+        "async-work-with-queues"
+      ]
+    },
+    {
+      "slug": "redis-failure",
+      "title": "What happens if Redis goes down?",
+      "topic": "Databases",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "redis",
+        "resilience",
+        "graceful-degradation",
+        "circuit-breaker"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-cloud",
+          "pages": [
+            9
+          ]
+        }
+      ],
+      "quick": "It depends on what I used Redis for. If it's a pure cache, the system should degrade gracefully: treat errors as cache misses, read from the source of truth, and protect the database with rate limits, request coalescing, short timeouts and a circuit breaker so a cache outage doesn't become a database outage. I'd run a multi-AZ replication group with failover, alarm on it, and load-test the miss path. If I stored durable data or sessions there, I'd need persistence or a different design.",
+      "revision": "Treat Redis as a performance layer: on failure fall back to the source of truth with timeouts, coalescing and rate limits so the database survives. Use Multi-AZ failover.",
+      "detailed": "The real question is whether Redis is a **cache** or a **system of record**. Design so that it is a cache wherever possible.\n\n{{diagram:fallback}}\n\n## Preparation\n- **Replication group across AZs with automatic failover**, so a node or AZ failure usually promotes a replica quickly (clients may see a short disruption and must reconnect).\n- **Short client timeouts and bounded retries** so slow Redis does not stall every request.\n- **Circuit breaker**: after repeated failures, stop calling Redis for a short period and go straight to the database.\n- Alarms on connection errors, evictions, memory, CPU and replication lag.\n\n## Behaviour during failure\n- Cache errors are treated as misses; the request reads from the database.\n- Protect the database from the sudden miss flood (a \"thundering herd\"):\n  - **Request coalescing** (single flight): one in-flight rebuild per key.\n  - **Rate limiting or load shedding** for expensive endpoints.\n  - Serve **stale data** where acceptable, or a reduced response.\n  - Autoscale the database tier only if it can; otherwise shed load.\n- Features that depend on Redis state (rate limiting, sessions) need an explicit policy: fail open or fail closed, chosen per risk.\n\n## Recovery\nA restarted cache is cold, so refill gradually or pre-warm hot keys, and stagger TTLs to avoid synchronised expiry.\n\n## Common mistakes\n- Never testing the no-cache path under production-like load, so the database collapses.\n- Retrying aggressively and amplifying the outage.\n- Storing authoritative data in Redis without persistence and backups.\n- Failing open on rate limits for security-sensitive endpoints without thinking it through.\n\nRun a game-day: disable the cache in a test environment and watch latency, error rates and database saturation.",
+      "diagrams": [
+        {
+          "id": "fallback",
+          "title": "Request path when Redis fails",
+          "alt": "The API first tries Redis. If Redis is unavailable or slow, a circuit breaker routes the request to the database with request coalescing and rate limiting protecting it. Replica failover restores the cache over time.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "a",
+              "label": "API"
+            },
+            {
+              "id": "b",
+              "label": "Circuit breaker"
+            },
+            {
+              "id": "r",
+              "label": "Redis cluster"
+            },
+            {
+              "id": "g",
+              "label": "Coalescing and rate limit"
+            },
+            {
+              "id": "d",
+              "label": "Database"
+            }
+          ],
+          "edges": [
+            {
+              "from": "a",
+              "to": "b"
+            },
+            {
+              "from": "b",
+              "to": "r",
+              "label": "healthy"
+            },
+            {
+              "from": "b",
+              "to": "g",
+              "label": "Redis failing"
+            },
+            {
+              "from": "g",
+              "to": "d"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Should rate limiting fail open or closed when Redis is down?",
+        "How do you prevent a thundering herd after a cache restart?",
+        "Would you ever store sessions in Redis? What are the risks?"
+      ],
+      "related": [
+        "what-is-elasticache",
+        "scale-rds",
+        "ten-x-traffic-spike"
+      ]
+    },
+    {
+      "slug": "vpc-fundamentals",
+      "title": "What is a VPC and what are its main building blocks?",
+      "topic": "Networking & Security",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "vpc",
+        "subnets",
+        "routing",
+        "security-groups",
+        "nat"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-cloud",
+          "pages": [
+            9,
+            10
+          ]
+        }
+      ],
+      "quick": "A Virtual Private Cloud is an isolated virtual network in AWS where I define the IP range, subnets, routing and security boundaries. Subnets live in a single Availability Zone, and route tables decide where traffic goes: an internet gateway for public subnets, a NAT gateway for private subnets' outbound access. Security groups act as stateful firewalls on resources, with network ACLs as a coarser subnet layer. I'd place load balancers in public subnets and services and databases in private ones across multiple AZs.",
+      "revision": "VPC = your isolated AWS network: CIDR, subnets per AZ, route tables, internet/NAT gateways, security groups and NACLs. Public edge, private app and data tiers.",
+      "detailed": "A **VPC** is a logically isolated network within a Region. You choose its private IP range (CIDR) and then carve it up.\n\n{{diagram:vpc}}\n\n## Building blocks\n| Component | Role |\n|---|---|\n| Subnet | A slice of the VPC CIDR in **one** Availability Zone |\n| Route table | Rules deciding where subnet traffic goes |\n| Internet gateway (IGW) | Connects a VPC to the internet |\n| NAT gateway | Lets private resources initiate outbound internet connections without being reachable inbound |\n| Security group | Stateful allow-list firewall attached to network interfaces/resources |\n| Network ACL | Stateless, subnet-level allow/deny rules, a coarse extra layer |\n| VPC endpoints | Private access to AWS services (e.g. S3, ECR) without traversing the internet |\n\n## Typical layout\n- **Public subnets** (in each AZ): internet-facing ALB and NAT gateways.\n- **Private app subnets**: ECS tasks or EC2 instances.\n- **Private data subnets**: RDS and ElastiCache, accepting traffic only from the app tier.\n- Replicate the layout across at least two AZs.\n\n## Security group chaining\nInstead of using IP ranges, allow the database security group to accept traffic from the application security group, which in turn accepts traffic only from the ALB security group.\n\n## Common mistakes\n- Overlapping CIDR ranges that make later peering or VPN impossible.\n- Making everything public for convenience.\n- Using NAT gateways for all AWS-service traffic and paying for avoidable data processing; gateway/interface endpoints can help.\n- Single-AZ designs, including a single NAT gateway, creating hidden single points of failure.",
+      "diagrams": [
+        {
+          "id": "vpc",
+          "title": "VPC with public and private tiers",
+          "alt": "Inside a VPC, a public subnet holds an internet-facing application load balancer. A private application subnet holds ECS services that receive traffic from the load balancer. A private data subnet holds the RDS database, reachable only from the application tier.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "i",
+              "label": "Internet"
+            },
+            {
+              "id": "g",
+              "label": "Internet gateway"
+            },
+            {
+              "id": "a",
+              "label": "ALB in public subnet"
+            },
+            {
+              "id": "e",
+              "label": "ECS in private app subnet"
+            },
+            {
+              "id": "r",
+              "label": "RDS in private data subnet"
+            }
+          ],
+          "edges": [
+            {
+              "from": "i",
+              "to": "g"
+            },
+            {
+              "from": "g",
+              "to": "a"
+            },
+            {
+              "from": "a",
+              "to": "e"
+            },
+            {
+              "from": "e",
+              "to": "r"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Security groups vs network ACLs: what is the difference?",
+        "What are VPC endpoints and why use them?",
+        "How would you connect an on-premises network to a VPC?"
+      ],
+      "related": [
+        "public-vs-private-subnets",
+        "what-is-alb",
+        "security-groups-vs-nacls"
+      ]
+    },
+    {
+      "slug": "public-vs-private-subnets",
+      "title": "Public vs private subnets: where should each component live, and why keep databases private?",
+      "topic": "Networking & Security",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "subnets",
+        "vpc",
+        "security",
+        "rds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-cloud",
+          "pages": [
+            10
+          ]
+        }
+      ],
+      "quick": "A public subnet has a route to an internet gateway, so resources there can be reachable from the internet if they have public IPs and permissive security groups. I put only internet-facing entry points there, like the load balancer. A private subnet has no direct inbound internet route; application services and databases live there, reaching out through NAT or VPC endpoints when needed. Databases stay private to shrink the attack surface and ensure only authorised application layers can connect.",
+      "revision": "Public subnet = route to an internet gateway; private = no direct inbound internet. Only edge entry points go public; apps and databases stay private to reduce attack surface.",
+      "detailed": "What makes a subnet \"public\" is its **route table**: it has a route to an **internet gateway**. Reachability from the internet additionally requires a public IP and security-group rules that allow it. A private subnet lacks the internet-gateway route.\n\n| Aspect | Public subnet | Private subnet |\n|---|---|---|\n| Route to IGW | Yes | No |\n| Typical residents | Internet-facing ALB, NAT gateway, bastion alternatives | App tasks, databases, caches, internal services |\n| Inbound from internet | Possible when allowed | Not directly |\n| Outbound to internet | Via IGW | Via NAT gateway or egress-only gateway (IPv6) |\n\n## Why databases should be private\n- **Smaller attack surface**: no public endpoint to scan, brute-force or exploit.\n- **Controlled access**: security groups allow connections only from the app tier, and only on the database port.\n- **Defence in depth**: even a leaked credential is harder to use from outside the network.\n- **Compliance**: many security standards expect data stores to be non-public.\n\nFor administration, prefer **AWS Systems Manager Session Manager** or a controlled VPN/bastion approach over opening the database publicly.\n\n## Outbound access from private subnets\n- **NAT gateway** (placed in a public subnet) for general internet egress; it has hourly and data processing costs.\n- **VPC endpoints** to reach S3, ECR, Secrets Manager and others without going through NAT, which improves security and can cut cost.\n\n## Common mistakes\n- Setting an RDS instance \"publicly accessible\" for quick debugging and forgetting it.\n- A security group open to ```0.0.0.0/0``` on database ports.\n- One NAT gateway in a single AZ becoming a hidden dependency for all private subnets.\n- Assuming \"private subnet\" alone equals secure; IAM, TLS and security groups still matter.",
+      "followUps": [
+        "How do ECS tasks in private subnets pull images from ECR?",
+        "How would you let an engineer query a private database safely?",
+        "Why might you run a NAT gateway per AZ?"
+      ],
+      "related": [
+        "vpc-fundamentals",
+        "what-is-rds",
+        "security-groups-vs-nacls"
+      ]
+    }
+  ]
+}

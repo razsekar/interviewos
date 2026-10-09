@@ -1,0 +1,246 @@
+{
+  "category": "web-accessibility",
+  "questions": [
+    {
+      "slug": "keyboard-accessibility",
+      "title": "Why is keyboard accessibility important and what should a keyboard user be able to do?",
+      "topic": "Keyboard & Focus",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "keyboard",
+        "focus",
+        "tab-order"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-wcag-web-accessibility",
+          "pages": [
+            4,
+            5
+          ]
+        }
+      ],
+      "quick": "Many people navigate without a mouse: screen-reader users, people with motor impairments, switch and voice-control users, and power users. Every function must work from the keyboard, with no traps. Tab and Shift+Tab move between controls in a logical order, Enter activates links and buttons, Space activates buttons and checkboxes, arrow keys move within composite widgets like tabs, menus and radio groups, and Escape dismisses dialogs and popups. Native controls give most of this free, so I use them first and test by unplugging the mouse.",
+      "revision": "All functionality must work by keyboard in a logical order with visible focus and no traps. Native controls provide the behavior; custom widgets must reproduce it.",
+      "detailed": "Keyboard operability (WCAG 2.1.1) underpins most assistive technology: screen readers, switch devices, voice control and sip-and-puff systems all emulate keyboard input in some way. If something does not work from the keyboard, it commonly does not work for them either.\n\n## Expected interactions\n\n| Key | Typical behavior |\n|---|---|\n| Tab / Shift+Tab | Move to next or previous focusable element |\n| Enter | Activate links and buttons |\n| Space | Activate buttons, toggle checkboxes |\n| Arrow keys | Move within tabs, menus, radio groups, listboxes (use roving focus or `aria-activedescendant`) |\n| Escape | Close dialogs, menus and popups |\n| Home / End | Jump to first or last item in some widgets |\n\n## Principles\n\n- **Logical focus order** (2.4.3): follows DOM order, so avoid positive `tabindex` values and CSS reordering that disconnects visual and DOM order.\n- **No keyboard trap** (2.1.2): focus must be able to leave every component.\n- **Skip link**: a first-focusable link such as \"Skip to main content\" bypasses repeated navigation (2.4.1).\n- **Single-key shortcuts** (2.1.4): must be turnable off or remappable, since they conflict with speech input.\n- Do not remove the focus outline without a replacement.\n\n## Roving tabindex in React\n\n```tsx\nfunction Tabs({ items }: { items: string[] }) {\n  const [active, setActive] = React.useState(0);\n  const refs = React.useRef<(HTMLButtonElement | null)[]>([]);\n\n  const onKeyDown = (e: React.KeyboardEvent) => {\n    let next = active;\n    if (e.key === \"ArrowRight\") next = (active + 1) % items.length;\n    else if (e.key === \"ArrowLeft\") next = (active - 1 + items.length) % items.length;\n    else return;\n    e.preventDefault();\n    setActive(next);\n    refs.current[next]?.focus();\n  };\n\n  return (\n    <div role=\"tablist\" onKeyDown={onKeyDown}>\n      {items.map((label, i) => (\n        <button\n          key={label}\n          ref={(el) => { refs.current[i] = el; }}\n          role=\"tab\"\n          aria-selected={i === active}\n          tabIndex={i === active ? 0 : -1}\n        >\n          {label}\n        </button>\n      ))}\n    </div>\n  );\n}\n```\n\nA real tabs implementation also needs `aria-controls` and `tabpanel` elements. Follow the ARIA Authoring Practices Guide.\n\n## Common mistakes\n\nClick handlers on non-interactive elements, hover-only menus, off-screen content that remains focusable, and custom components that capture Tab.",
+      "followUps": [
+        "What is a keyboard trap and how can you find one?",
+        "When do you use tabindex 0 versus -1?",
+        "How do you let keyboard users bypass the repeated header?"
+      ],
+      "related": [
+        "focus-visible-and-not-obscured",
+        "semantic-html-vs-div-soup"
+      ]
+    },
+    {
+      "slug": "focus-visible-and-not-obscured",
+      "title": "How do you meet the focus visible and focus not obscured requirements?",
+      "topic": "Keyboard & Focus",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "focus",
+        "wcag-2.4.7",
+        "wcag-2.4.11",
+        "sticky-header"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-wcag-web-accessibility",
+          "pages": [
+            2,
+            3
+          ]
+        }
+      ],
+      "quick": "Keyboard users must always see where focus is, so every focusable element needs a clearly visible indicator with adequate contrast. I style :focus-visible instead of removing outlines. WCAG 2.2 adds that a focused element must not be entirely hidden by author-created content, such as a sticky header, cookie banner or chat widget. A sticky header that covers a tabbed-to link fails. I fix it with scroll-padding-top or scroll-margin, and test by tabbing through the page.",
+      "revision": "Never remove the focus indicator; style :focus-visible with enough contrast. In 2.2, sticky headers, banners and chat widgets must not completely cover the focused element.",
+      "detailed": "## Focus visible (2.4.7, AA)\n\nAny keyboard-operable control must show a visible focus indicator. Browsers provide a default outline, and the most common failure is `outline: none` with nothing in its place. The modern approach is `:focus-visible`, which shows the ring for keyboard focus and generally not for mouse clicks on buttons.\n\n```css\n:focus-visible {\n  outline: 3px solid #1a1a1a;\n  outline-offset: 2px;\n}\n/* Optional second ring so it works on light and dark backgrounds */\n:focus-visible {\n  box-shadow: 0 0 0 5px #ffffff;\n}\n```\n\nThe indicator should also satisfy the 3:1 non-text contrast guidance against adjacent colors. Test in forced-colors mode, where outlines are preserved but box-shadow is not.\n\n## Focus not obscured, minimum (2.4.11, AA, new in 2.2)\n\nWhen a component receives keyboard focus, it must not be **entirely** hidden by author-created content. Partially covered is allowed at AA (the AAA version, 2.4.12, requires no part to be hidden). Typical offenders are:\n\n- sticky or fixed headers and footers,\n- cookie or consent banners,\n- chat launchers and floating action buttons,\n- non-modal popups.\n\n## Fixes\n\n```css\nhtml {\n  scroll-padding-top: 5rem;   /* height of the sticky header */\n  scroll-padding-bottom: 4rem;\n}\n```\n\n`scroll-padding` makes the browser scroll focused elements into the visible region of the scroll container, not behind the fixed bar. Consent banners can be made dismissible or non-overlapping, and floating widgets can avoid covering the main content.\n\n## Testing\n\nTab through long pages with sticky elements present and at narrow widths and 200% zoom, since overlays take proportionally more space on small viewports.\n\n## Related note\n\nFocus Appearance (2.4.13) in WCAG 2.2 is AAA, with size and contrast requirements for the indicator.",
+      "followUps": [
+        "Why use :focus-visible rather than :focus?",
+        "How does scroll-padding help with sticky headers?",
+        "What is the difference between 2.4.11 and 2.4.12?"
+      ],
+      "related": [
+        "keyboard-accessibility",
+        "wcag-22-key-requirements"
+      ]
+    },
+    {
+      "slug": "target-size-and-dragging-alternatives",
+      "title": "What do the WCAG 2.2 target size and dragging requirements mean?",
+      "topic": "WCAG 2.2",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "target-size",
+        "dragging",
+        "wcag-2.5.8",
+        "wcag-2.5.7",
+        "touch"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-wcag-web-accessibility",
+          "pages": [
+            3
+          ]
+        }
+      ],
+      "quick": "Target Size (Minimum) at AA says pointer targets should be at least 24 by 24 CSS pixels. Exceptions include sufficient spacing around smaller targets, inline links within text, user-agent-controlled controls, and cases where it is essential. Dragging Movements says anything done by dragging, such as a slider, a sortable list or a map pan, needs a single-pointer alternative like buttons or tap-to-select, unless dragging is essential. Both help people with tremor, limited dexterity, or who use a head pointer.",
+      "revision": "Targets should be at least 24 by 24 CSS px, or spaced so a 24px circle fits, with exceptions. Provide a click or tap alternative to any drag-only interaction.",
+      "detailed": "Both criteria are Level AA and new in WCAG 2.2. They focus on users who struggle with precision or sustained pointer actions, including tremor, limited fine motor control, and touch users with large fingers.\n\n## Target Size (Minimum), 2.5.8\n\nThe general rule is that a pointer target is at least **24 by 24 CSS pixels**. Exceptions:\n\n- **Spacing**: smaller targets pass if a 24px-diameter circle centered on each does not overlap another target or its circle.\n- **Equivalent**: another control on the same page performs the same function and is large enough.\n- **Inline**: targets within a sentence or limited by line height, such as links in a paragraph.\n- **User agent**: size is controlled by the browser, such as a default checkbox that has not been restyled.\n- **Essential**: the size is legally or functionally required.\n\nThe 24px figure is a minimum. The enhanced criterion, 2.5.5 at AAA, asks for 44 by 44, and many design systems target 44 to 48 px for touch.\n\n```css\n.icon-btn {\n  min-width: 24px;\n  min-height: 24px;\n  padding: 10px;            /* typical touch targets are larger than the icon */\n}\n```\n\nNote that a small icon with generous padding that is clickable counts, because the target is the interactive area, not just the glyph.\n\n## Dragging Movements, 2.5.7\n\nAny functionality that uses dragging must also be operable with a **single pointer without dragging**, unless dragging is essential.\n\nExamples of alternatives:\n\n- A range slider plus a number input or increment buttons.\n- A sortable list with Move up and Move down buttons.\n- A map with zoom and pan buttons.\n- Drag and drop upload plus a Choose file button.\n\nKeyboard support is also needed under 2.1.1, but it does not by itself satisfy 2.5.7, since the alternative must work for pointer users who cannot drag.\n\n## Common mistakes\n\nTiny close icons, dense icon toolbars with no spacing, carousels controlled only by swipe, and color pickers that only work by dragging.",
+      "followUps": [
+        "Name two exceptions to the 24 by 24 px requirement.",
+        "How would you make a trim comparison slider compliant?",
+        "Is keyboard support enough for the dragging criterion?"
+      ],
+      "related": [
+        "wcag-22-key-requirements",
+        "keyboard-accessibility"
+      ]
+    },
+    {
+      "slug": "alt-text-for-images",
+      "title": "How do you write good alt text, and when should it be empty?",
+      "topic": "Text Alternatives",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "alt-text",
+        "images",
+        "screen-readers"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-wcag-web-accessibility",
+          "pages": [
+            5,
+            6
+          ]
+        }
+      ],
+      "quick": "Alt text should convey the information or function of an image in context, not describe every pixel or repeat the filename. For an informative image I write a short equivalent, for example, \"Blue SUV viewed from the side\". For a purely decorative image I use an empty alt, so screen readers skip it. For an image inside a link or button, the alt describes the destination or action. Complex charts need a longer description nearby. I never omit the alt attribute altogether.",
+      "revision": "Alt text conveys purpose in context. Informative images get a concise equivalent, decorative images get alt empty, linked images describe the action, and complex images get a longer description.",
+      "detailed": "Alt text (WCAG 1.1.1, Level A) provides a text equivalent for non-text content. The right text depends on **why the image is there**, not only what it shows.\n\n## Decision guide\n\n| Image role | What to do | Example |\n|---|---|---|\n| Informative | Short text conveying the information | `alt=\"Blue SUV viewed from the side\"` |\n| Decorative | Empty alt so it is ignored | `alt=\"\"` |\n| Functional (inside a link or button) | Describe the action or destination | `alt=\"Find a dealer\"` |\n| Complex (chart, diagram) | Short alt plus long description on the page | Summary, then a data table |\n| Text in image | Reproduce the text (and avoid it where possible) | Alt equal to the text |\n| Redundant with adjacent text | Often empty, to avoid duplicates | Icon beside a visible label |\n\n```html\n<img src=\"/images/suv-side.webp\" alt=\"Blue SUV viewed from the side\">\n<img src=\"/images/pattern.svg\" alt=\"\">\n<a href=\"/dealers\"><img src=\"/icons/pin.svg\" alt=\"Find a dealer\"></a>\n```\n\n## Writing tips\n\n- Be concise. Many teams aim for a sentence or less, but there is no fixed limit.\n- Skip \"image of\" or \"picture of\", since the role is announced already.\n- Include text that appears in the image.\n- Consider context: the same photo may need different alt text on a trim comparison page versus a news article.\n- For product imagery, include relevant attributes such as body style or color if they matter to the user, and avoid marketing fluff.\n\n## Important details\n\n- A missing `alt` attribute is worse than an empty one, because screen readers may read the file name.\n- CSS background images are not exposed, so use `<img>` if the image carries meaning.\n- Inline SVG needs `role=\"img\"` and a `<title>` or `aria-label` if meaningful, or `aria-hidden=\"true\"` if decorative.\n- Video needs captions and, where applicable, audio description (a separate set of criteria).\n\n## Common mistakes\n\nFilenames as alt, keyword stuffing, identical alt on every carousel image, and CMS fields that let authors skip alt with no guidance. Add an alt field requirement and an explicit \"decorative\" toggle to the CMS.",
+      "followUps": [
+        "How would you handle alt text for thousands of CMS-managed vehicle images?",
+        "When is an empty alt attribute appropriate?",
+        "How do you handle a complex chart?"
+      ],
+      "related": [
+        "accessible-name",
+        "screen-readers-and-assistive-tech"
+      ]
+    },
+    {
+      "slug": "screen-readers-and-assistive-tech",
+      "title": "How do screen readers work and what do they depend on?",
+      "topic": "Assistive Technology",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "screen-reader",
+        "nvda",
+        "voiceover",
+        "accessibility-tree"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-wcag-web-accessibility",
+          "pages": [
+            5
+          ]
+        }
+      ],
+      "quick": "A screen reader converts the page's accessibility tree into speech or braille. The browser builds that tree from the DOM, exposing each element's role, name, state and value. So screen readers rely on semantic structure, headings and landmarks, accessible names, form labels, alternative text and ARIA states. Users navigate by headings, landmarks, links and form controls, not only linearly. Common ones are NVDA and JAWS on Windows, VoiceOver on macOS and iOS, and TalkBack on Android, and behavior differs between combinations.",
+      "revision": "Screen readers read the browser's accessibility tree: role, name, state, value. Good semantics, labels and structure drive the experience, and results differ by screen reader and browser.",
+      "detailed": "A screen reader is software that renders digital content as synthesized speech or braille. It does not read the visual page. It reads the **accessibility tree**, which the browser derives from the DOM, computed styles and ARIA.\n\n```text\nDOM + CSS + ARIA  ->  accessibility tree (role, name, state, value)  ->  screen reader  ->  speech / braille\n```\n\n## How users navigate\n\nExperienced users seldom read top to bottom. They jump by:\n\n- headings (the page outline),\n- landmarks (`main`, `nav`, `search`),\n- links, buttons and form fields lists,\n- tables, with row and column header announcements,\n- find-in-page.\n\nThis is why heading structure, landmark regions and descriptive link text are structural concerns, not cosmetic ones.\n\n## Common screen readers\n\n| Screen reader | Platform | Typical browser pairing |\n|---|---|---|\n| NVDA | Windows (free) | Firefox, Chrome |\n| JAWS | Windows (commercial) | Chrome, Edge |\n| VoiceOver | macOS, iOS | Safari |\n| TalkBack | Android | Chrome |\n\nPairings are common, not exclusive, and support for ARIA features can vary between combinations, so test the primary ones for your audience.\n\n## Things that affect output\n\n- Missing or wrong accessible names.\n- Dynamic updates not announced, which need live regions or focus management.\n- `aria-hidden` and `display: none` hiding content from the tree, while a visually hidden class can still be read.\n- Focus moving unexpectedly after route changes in single-page apps.\n\n## Example of a live announcement\n\n```html\n<div role=\"status\" aria-live=\"polite\" id=\"results-status\"></div>\n```\n\nUpdating its text to \"12 dealers found\" is announced without moving focus.\n\n## Common mistakes\n\nAssuming that \"looks right\" means \"sounds right\", testing with only one screen reader, and reading text visually instead of listening to the output.",
+      "followUps": [
+        "Which screen reader and browser combinations would you test?",
+        "What is a live region and when would you use one?",
+        "How do users navigate a page with a screen reader?"
+      ],
+      "related": [
+        "testing-accessibility-methods",
+        "accessible-name"
+      ]
+    },
+    {
+      "slug": "accessible-form-labels",
+      "title": "How do you make form controls accessible?",
+      "topic": "Accessible Forms",
+      "difficulty": "beginner",
+      "type": "coding",
+      "tags": [
+        "forms",
+        "labels",
+        "autocomplete",
+        "react"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-wcag-web-accessibility",
+          "pages": [
+            6
+          ]
+        }
+      ],
+      "quick": "Every control needs a visible label programmatically associated with it, using a label element with for, or htmlFor in React, or wrapping the input. Required state is exposed with required and communicated in text, not only an asterisk or color. Group related controls with fieldset and legend, give instructions through aria-describedby, and add autocomplete tokens so browsers can fill known data, like postal-code. Placeholder is not a label. I also keep the labels visible and ensure the control's name contains the visible text.",
+      "revision": "Use a visible label tied to its input with for/id, expose required and hints programmatically, group with fieldset and legend, add autocomplete, and never use placeholder as the label.",
+      "detailed": "Forms are among the most frequent sources of accessibility failures, and they directly relate to WCAG criteria for labels or instructions (3.3.2), name, role and value (4.1.2), input purpose (1.3.5, via `autocomplete`) and info and relationships (1.3.1).\n\n## A correct dealer search field in React\n\n```tsx\nimport { useId } from \"react\";\n\nexport function DealerSearch() {\n  const hintId = useId();\n  const inputId = useId();\n  return (\n    <form>\n      <label htmlFor={inputId}>Postal code</label>\n      <input\n        id={inputId}\n        name=\"postalCode\"\n        autoComplete=\"postal-code\"\n        inputMode=\"text\"\n        required\n        aria-describedby={hintId}\n      />\n      <p id={hintId}>Enter the postal code where you want to find a dealer.</p>\n      <button type=\"submit\">Find dealers</button>\n    </form>\n  );\n}\n```\n\n`useId` produces unique, SSR-safe ids so labels never collide in a micro-frontend page where several copies of a component can mount.\n\n## Checklist\n\n- **Visible label** for every control, placed consistently. Avoid placeholder-only labels because they vanish and often have poor contrast.\n- **Association** via `label`/`for` or by nesting. `aria-label` is a fallback when no visible label is possible.\n- **Grouping**: radio buttons and related checkboxes use `fieldset` and `legend`.\n- **Required fields**: use the `required` attribute (or `aria-required`), and say \"required\" in text or explain the asterisk convention.\n- **Instructions and formats** linked with `aria-describedby`.\n- **Autocomplete** tokens for personal data (`given-name`, `email`, `postal-code`) to support users with cognitive or motor difficulty.\n- **Correct input types** (`email`, `tel`) for appropriate keyboards and validation.\n- **Do not block paste** in fields like passwords or codes.\n\n## Common mistakes\n\n- Label text next to the field with no programmatic link.\n- Using a `div` as a field.\n- Labels that change on focus with floating-label patterns and low contrast.\n- Disabled submit buttons that give no explanation of what to fix.",
+      "followUps": [
+        "Why is placeholder not a substitute for a label?",
+        "How do you group a set of radio buttons?",
+        "What does the autocomplete attribute do for accessibility?"
+      ],
+      "related": [
+        "accessible-form-errors",
+        "accessible-name"
+      ]
+    },
+    {
+      "slug": "accessible-form-errors",
+      "title": "How do you implement accessible form validation and error messages?",
+      "topic": "Accessible Forms",
+      "difficulty": "intermediate",
+      "type": "coding",
+      "tags": [
+        "forms",
+        "errors",
+        "aria-invalid",
+        "aria-describedby",
+        "focus-management"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-wcag-web-accessibility",
+          "pages": [
+            6
+          ]
+        }
+      ],
+      "quick": "I identify errors in text, not only by color, and tie each message to its field with aria-describedby and aria-invalid. On submit with several errors, I show an error summary at the top that links to each field, and move focus to it, or to the first invalid field. I preserve the user's input, state what went wrong and how to fix it, and announce dynamic messages through a live region if validating inline. Avoid disappearing messages and generic text such as \"Invalid input\".",
+      "revision": "Say what is wrong in text, link each message with aria-describedby, set aria-invalid, show a focused error summary linking to fields, and keep entered data.",
+      "detailed": "Relevant criteria include Error Identification (3.3.1), Labels or Instructions (3.3.2), Error Suggestion (3.3.3), Error Prevention for legal or financial submissions (3.3.4) and Status Messages (4.1.3).\n\n## Pattern\n\n1. Validate on submit (and optionally on blur after the first attempt).\n2. Render a **summary** with links to each invalid field and move focus to it.\n3. Render an inline message adjacent to each field, linked with `aria-describedby`.\n4. Mark invalid fields with `aria-invalid=\"true\"`.\n5. Keep what the user typed.\n\n## React example\n\n```tsx\nimport { useRef, useState } from \"react\";\n\ntype Errors = { email?: string };\n\nexport function EnquiryForm() {\n  const [errors, setErrors] = useState<Errors>({});\n  const summaryRef = useRef<HTMLDivElement>(null);\n\n  function onSubmit(e: React.FormEvent<HTMLFormElement>) {\n    e.preventDefault();\n    const email = String(new FormData(e.currentTarget).get(\"email\") ?? \"\");\n    const next: Errors = {};\n    if (!/^[^@\\s]+@[^@\\s]+$/.test(email)) {\n      next.email = \"Enter an email address, for example name@example.com.\";\n    }\n    setErrors(next);\n    if (Object.keys(next).length) {\n      // wait for render, then move focus to the summary\n      requestAnimationFrame(() => summaryRef.current?.focus());\n    }\n  }\n\n  return (\n    <form onSubmit={onSubmit} noValidate>\n      {errors.email && (\n        <div ref={summaryRef} tabIndex={-1} role=\"alert\" className=\"error-summary\">\n          <h2>There is a problem</h2>\n          <ul>\n            <li><a href=\"#email\">{errors.email}</a></li>\n          </ul>\n        </div>\n      )}\n\n      <label htmlFor=\"email\">Email</label>\n      <input\n        id=\"email\"\n        name=\"email\"\n        type=\"email\"\n        autoComplete=\"email\"\n        aria-invalid={errors.email ? \"true\" : undefined}\n        aria-describedby={errors.email ? \"email-error\" : undefined}\n      />\n      {errors.email && (\n        <p id=\"email-error\"><strong>Error:</strong> {errors.email}</p>\n      )}\n      <button type=\"submit\">Send enquiry</button>\n    </form>\n  );\n}\n```\n\nThe `Error:` prefix and message text mean that the error does not rely on color. A red border may be added as an extra cue.\n\n## Notes and trade-offs\n\n- `noValidate` disables native bubbles so that you control the messages. Native constraint validation is acceptable if its messages are clear and tested.\n- Use either `role=\"alert\"` or moving focus for the summary, not usually both with excessive noise. Test the announcement in a screen reader.\n- Inline validation on every keystroke can be disruptive. Prefer validating after blur or submit.\n- Include the format and an example, and for destructive or financial actions provide review, confirmation or undo.\n\n## Common mistakes\n\nRed border only, tooltip-only errors, errors that vanish on a timer, a focus reset to the top of the page, and clearing the form on failure.",
+      "followUps": [
+        "Should focus move to the summary or the first invalid field?",
+        "What is the difference between role=alert and aria-live=polite?",
+        "How do you validate accessibly on the server side?"
+      ],
+      "related": [
+        "accessible-form-labels",
+        "screen-readers-and-assistive-tech"
+      ]
+    }
+  ]
+}

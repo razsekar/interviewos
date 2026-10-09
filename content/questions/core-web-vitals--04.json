@@ -1,0 +1,517 @@
+{
+  "category": "core-web-vitals",
+  "questions": [
+    {
+      "slug": "scenario-lcp-4s-to-under-2-5s",
+      "title": "Scenario: a page has a 4-second LCP. How do you get it under 2.5 seconds?",
+      "topic": "Scenarios",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "lcp",
+        "scenario",
+        "ttfb",
+        "cdn",
+        "images",
+        "render-blocking"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-core-web-vitals",
+          "pages": [
+            21,
+            22
+          ]
+        }
+      ],
+      "quick": "I would measure before changing anything. First confirm in field data that the p75 LCP is about 4 seconds and for which segments. Identify the LCP element and split the time into TTFB, load delay, load duration and render delay. Then fix the largest part: CDN and server caching for TTFB, discoverability and priority for the hero, modern right-sized images, removing render-blocking CSS and JavaScript, trimming bundles and fonts. Re-test in lab and verify in RUM.",
+      "revision": "Measure first, find the LCP element and dominant sub-part, fix that (TTFB, discovery, image, blocking resources, JS), then confirm p75 in RUM.",
+      "detailed": "**Start by not guessing.** A 4 s p75 LCP is on the boundary of \"poor\", and the fix depends on where the 1.5 s of excess time is.\n\n## Step 1: Scope and identify\nCheck field data by template, device and region. Find the LCP element (hero image, headline, or something else). If only mobile fails, think network, image size and CPU.\n\n## Step 2: Decompose\nGet TTFB, resource load delay, load duration and render delay (PageSpeed Insights, DevTools, or RUM attribution).\n\n## Step 3: Act on the largest slice (illustrative scenarios)\n| Finding | Actions |\n|---|---|\n| TTFB about 1.8 s | CDN-cache HTML or use ISR/stale-while-revalidate, remove redirects, cache API calls behind SSR, stream HTML, check cold starts |\n| Load delay about 1.0 s | Put the hero in server HTML, drop lazy attribute, add `fetchpriority=\"high\"`, preload only if not discoverable, avoid JS-injected hero |\n| Load duration about 1.0 s | Resize to layout width, AVIF/WebP, `srcset`, better compression, CDN image service |\n| Render delay about 0.8 s | Inline critical CSS, defer non-critical CSS/JS, reduce hydration, split bundles, fix font blocking |\n\n## Step 4: General hygiene\n- Reduce JavaScript (code splitting, tree shaking, defer third parties).\n- Optimise fonts (WOFF2, subset, `font-display`).\n- Use SSR/SSG where client rendering is the cause.\n\n## Step 5: Validate\nRe-test in lab with the same throttling, ship behind a release tag, then watch p75 LCP in RUM and CrUX. Add a CI budget so the gain is kept.\n\n## What a strong answer shows\n- Evidence-led: measure, then change.\n- Understanding that different sub-parts need different fixes.\n- A verification and regression-prevention plan.\n\n## Common mistakes\n- Applying a long list of generic tips without finding the bottleneck.\n- Declaring success from a lab run on a fast network.\n- Fixing the home page when the failing template is something else.",
+      "followUps": [
+        "What if TTFB is already good but LCP is still 4 s?",
+        "How would you prove the improvement to stakeholders?",
+        "Which two changes would you try first, and why?"
+      ],
+      "related": [
+        "diagnose-poor-lcp-in-production",
+        "how-to-improve-lcp"
+      ]
+    },
+    {
+      "slug": "scenario-inp-400ms",
+      "title": "Scenario: INP is 400 ms in production. What do you do?",
+      "topic": "Scenarios",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "inp",
+        "scenario",
+        "long-tasks",
+        "react-profiler",
+        "third-party"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-core-web-vitals",
+          "pages": [
+            22
+          ]
+        }
+      ],
+      "quick": "I would first identify which interactions and pages produce the slow INP, using RUM attribution with the interaction target and its phase breakdown. Then I reproduce on throttled CPU with the DevTools Performance panel and React Profiler to find long tasks, expensive handlers and unnecessary renders. I reduce synchronous work, split long tasks and yield, optimise state and component updates, defer analytics and third-party processing, and validate with real-user data rather than only local tests.",
+      "revision": "INP 400ms: find the slow interaction via RUM, reproduce throttled, profile phases, cut or split work, defer third parties, validate at p75.",
+      "detailed": "400 ms is in the \"needs improvement\" band (200 to 500 ms), so the target is to bring p75 under 200 ms.\n\n## 1. Find the culprit interactions\nUse RUM attribution to list the worst interaction targets (for example the \"Configure\" button, a filter input, a menu). Check whether the problem is concentrated on certain pages or devices.\n\n## 2. Reproduce\nUse DevTools with 4x to 6x CPU throttling and the Interactions track. Record the phase split: input delay, processing, presentation.\n\n## 3. Hypothesis by phase\n- **Input delay high**: something else holds the main thread (hydration, third-party tasks, timers). Break up or defer that work.\n- **Processing high**: heavy handler or re-rendering. Profile with the React Profiler: who re-rendered and why?\n- **Presentation high**: huge DOM or layout thrash. Virtualise, simplify DOM, avoid forced reflow.\n\n## 4. Fixes (pick by evidence)\n- Move expensive logic out of the handler or to a Web Worker.\n- Break work into chunks and yield (`scheduler.yield()` or `setTimeout` fallback).\n- Provide instant visual feedback, then do the heavy work.\n- Use `startTransition` / `useDeferredValue` for non-urgent updates.\n- Fix state placement, split context, virtualise long lists, memoise only where profiling proves it helps.\n- Defer analytics and non-critical third-party code.\n\n## 5. Validate and protect\nRe-measure under the same throttling, ship, and watch p75 INP in RUM. Add a regression check using lab interaction tests for key flows and a budget on long tasks or Total Blocking Time as a proxy.\n\n## Example (illustrative)\nSelecting a trim level re-renders the entire configurator because selection lives in a root context, and a tag fires synchronous analytics on every selection. Moving the state to the relevant subtree and queuing analytics reduces handler time from 380 ms to under 100 ms.\n\n## Common mistakes\n- Optimising before finding the interaction.\n- Relying on local desktop testing.\n- Adding memoisation everywhere without evidence.",
+      "followUps": [
+        "What if the field data says 400 ms but you cannot reproduce it?",
+        "Which phase is hardest to fix and why?",
+        "What lab proxy would you gate on in CI?"
+      ],
+      "related": [
+        "diagnose-poor-inp",
+        "how-to-improve-inp"
+      ]
+    },
+    {
+      "slug": "scenario-cls-0-3",
+      "title": "Scenario: CLS is 0.3. How do you find and fix the shifts?",
+      "topic": "Scenarios",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "cls",
+        "scenario",
+        "layout-shift",
+        "banners",
+        "fonts"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-core-web-vitals",
+          "pages": [
+            22
+          ]
+        }
+      ],
+      "quick": "A CLS of 0.3 is poor, since above 0.25 counts as poor. I would find which elements shift and why, using the DevTools Layout Shift regions, Lighthouse and RUM attribution on layout-shift sources. Then I check image dimensions, dynamic banners and consent bars, ads and embeds, font swaps, asynchronously loaded components and skeletons. I reserve space with dimensions, aspect-ratio and min-height, and change how dynamic content is inserted so existing content does not move. Then I verify in field data.",
+      "revision": "CLS 0.3 is poor: identify shifting elements via DevTools or RUM, reserve space for images, banners, ads, fonts and async UI, then verify in the field.",
+      "detailed": "CLS above 0.25 is \"poor\"; the target is 0.1 or less at p75.\n\n## 1. Locate the shifts\n- DevTools Performance: the **Layout Shifts** track and highlighted regions show which nodes moved.\n- Lighthouse: \"Avoid large layout shifts\" lists elements.\n- RUM: `layout-shift` entries and the web-vitals attribution (largest shift target and time) show real-user causes, including shifts that happen after load.\n\n## 2. Classify\n| Observed | Likely cause | Fix |\n|---|---|---|\n| Content jumps when images load | Missing dimensions | `width`/`height` or `aspect-ratio` |\n| Page pushed down after load | Injected banner, consent bar, promo | Reserved slot, or overlay, or load before first paint |\n| Ads or embeds resize | Unknown slot size | Fixed or min-height slot, collapse safely |\n| Text reflows | Font swap | Preload critical font, metric-matched fallback, `font-display` |\n| Section appears after API call | Client-side async content | Reserve height, skeleton matching final size, SSR the shell |\n| Sticky header changes height | Late-applied styles or script | Stabilise in CSS |\n\n```css\n.hero-media { aspect-ratio: 16 / 9; width: 100%; }\n.promo-slot { min-height: 80px; }           /* reserve space for late banner */\n.skeleton-card { height: 320px; }            /* match final card height */\n```\n\n## 3. Change the insertion pattern\nDo not insert new content above existing visible content unless the user asked for it. Animate with `transform`, not `top` or `height`.\n\n## 4. Verify\nReload with cache disabled and throttling, scroll through the page, trigger consent banners and late widgets, then watch p75 CLS in RUM, segmented by device and template.\n\n## Example (illustrative)\nA promotional banner script inserts a 90 px bar after 1.2 s on a narrow screen, shifting the whole page. Reserving 90 px (or showing it as an overlay) brings the shift to near zero.\n\n## Common mistakes\n- Fixing the shift that appears in lab while real users see later ones.\n- Forgetting mobile layouts, where shifts are proportionally larger.",
+      "followUps": [
+        "Why might field CLS be higher than lab CLS?",
+        "How do you handle an ad slot with variable creative sizes?",
+        "Does lazy loading increase CLS?"
+      ],
+      "related": [
+        "what-is-cls",
+        "causes-and-fixes-for-cls"
+      ]
+    },
+    {
+      "slug": "enterprise-performance-governance",
+      "title": "How do you establish performance governance for a large enterprise web platform?",
+      "topic": "Governance & Measurement",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "governance",
+        "performance-budget",
+        "ci-cd",
+        "rum",
+        "ownership",
+        "architecture"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-core-web-vitals",
+          "pages": [
+            22,
+            23
+          ]
+        }
+      ],
+      "quick": "I would treat performance as a platform-level engineering concern. Define measurable standards: Core Web Vitals targets, JavaScript and image budgets, API latency and a third-party budget. Automate checks in CI/CD with bundle-size and lab tests, monitor production with RUM segmented by template, device and region, and set alerts. Assign clear ownership of regressions, run regular reviews, and make performance part of architecture review and definition of done for new features and tags.",
+      "revision": "Governance = standards and budgets, CI checks, production RUM and alerting, clear ownership, and performance in architecture review.",
+      "detailed": "At enterprise scale, many teams ship to the same pages, so performance degrades through accumulated small changes unless there are guardrails and accountability.\n\n{{diagram:governance}}\n\n## Components\n1. **Standards**: Core Web Vitals targets at p75 per template and device; JS, CSS and image budgets; API latency SLOs; a third-party budget; related quality gates such as accessibility, so optimisation does not remove semantics or focus behaviour.\n2. **Prevention (CI/CD)**: bundle-size diffs, Lighthouse CI or similar on pull requests and preview deployments, dependency review for heavy packages, image checks in the pipeline.\n3. **Detection (production)**: RUM with route, device, region and release dimensions; dashboards and alerts on p75 changes; synthetic monitoring of key journeys.\n4. **Ownership**: each template or MFE has a named owner; regressions get a triage path with response expectations; an escalation route to the platform team.\n5. **Process**: performance review in architecture and design reviews, a documented exception process (owner, reason, expiry), post-release performance reviews, shared dashboards.\n6. **Enablement**: reusable image, font and script-loading components, an approved tag list, documentation and training, so the fast path is the easy path.\n\n## Metrics for the programme itself\nPercent of templates passing CWV, time to detect and fix regressions, budget exceptions open, bundle size trend.\n\n## Trade-offs\nStrict gates slow teams if thresholds are noisy; use warnings first, stabilise measurement, then enforce. Central ownership improves consistency but must not become a bottleneck.\n\n## Common mistakes\n- Governance via a one-off audit instead of continuous automation.\n- No owner for cross-cutting causes such as the tag manager.\n- Gating on flaky lab metrics.",
+      "diagrams": [
+        {
+          "id": "governance",
+          "title": "Performance governance loop",
+          "alt": "Performance standards feed CI/CD checks, which gate releases that go to production, where real user monitoring detects regressions and feeds ownership and review back into the standards.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "s",
+              "label": "Standards and budgets"
+            },
+            {
+              "id": "c",
+              "label": "CI/CD checks"
+            },
+            {
+              "id": "p",
+              "label": "Production release"
+            },
+            {
+              "id": "r",
+              "label": "RUM and alerts"
+            },
+            {
+              "id": "o",
+              "label": "Ownership and review"
+            }
+          ],
+          "edges": [
+            {
+              "from": "s",
+              "to": "c"
+            },
+            {
+              "from": "c",
+              "to": "p"
+            },
+            {
+              "from": "p",
+              "to": "r"
+            },
+            {
+              "from": "r",
+              "to": "o"
+            },
+            {
+              "from": "o",
+              "to": "s"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you handle a team that exceeds its budget for a business reason?",
+        "How do you avoid noisy CI performance gates?",
+        "Who owns a regression caused by a tag?"
+      ],
+      "related": [
+        "performance-budgets",
+        "lab-vs-rum-data"
+      ]
+    },
+    {
+      "slug": "core-web-vitals-and-aws-delivery-chain",
+      "title": "How does an AWS delivery architecture influence Core Web Vitals?",
+      "topic": "Platform Connections",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "aws",
+        "cloudfront",
+        "s3",
+        "api-gateway",
+        "redis",
+        "ssr"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-core-web-vitals",
+          "pages": [
+            23,
+            24
+          ]
+        }
+      ],
+      "quick": "Each layer in a typical AWS chain contributes to a metric. Route 53 resolves DNS, CloudFront caches and delivers from edge locations, lowering latency and TTFB; WAF filters traffic at the edge; S3 holds static assets, and an SSR or container compute layer produces HTML. API Gateway and backend services drive API latency, while a cache like ElastiCache Redis cuts database time. SSR or SSG improves first content, and React controls client execution, which governs INP.",
+      "revision": "AWS chain: Route 53 DNS, CloudFront edge caching, WAF, S3 and SSR compute, API Gateway, backends, Redis. Edge and cache cut TTFB; React governs INP.",
+      "detailed": "Core Web Vitals are shaped by the whole delivery chain, not just the front-end bundle. A typical (illustrative) AWS arrangement:\n\n{{diagram:aws-chain}}\n\n## What each layer contributes\n| Layer | Role | Vitals effect |\n|---|---|---|\n| Route 53 | DNS, latency or geo routing | Faster resolution, routing to nearby regions |\n| CloudFront | CDN: caching, compression, HTTP/2/3, TLS at the edge | Lower latency and TTFB, faster assets and images |\n| WAF | Edge filtering and bot protection | Small added latency; keeps abusive traffic off the origin |\n| S3 | Static asset and prebuilt page storage | Efficient delivery when fronted by CloudFront |\n| SSR compute (containers, Lambda, etc.) | Renders HTML on demand | TTFB depends on render time, cold starts and cacheability |\n| API Gateway and services | Data APIs | API latency feeds SSR time and client waterfalls |\n| Redis (e.g. ElastiCache) / RDS | Cached and persistent data | Cache reduces DB latency and tail latency |\n\n## Practical levers\n- Cache HTML and assets in CloudFront with sensible cache keys, compression and long TTLs for hashed assets; use origin shield or similar to protect the origin where relevant.\n- Prefer static or incrementally regenerated pages for stable content; reserve SSR for what needs it.\n- Keep SSR compute warm or use provisioned capacity if cold starts show up in TTFB.\n- Cache expensive API results in Redis; aggregate calls to avoid waterfalls.\n- Image delivery through an image service or CloudFront with resizing.\n- Observe: CloudFront cache hit ratio, origin latency, and RUM by region.\n\n## Trade-offs\nEdge logic and cache layers add configuration complexity and invalidation risk; each hop adds potential latency if not cached.\n\n## Common mistakes\n- Reading CloudFront metrics as proof of good user vitals.\n- No cache key discipline, producing low hit ratio.\n- Ignoring regional users far from the origin region.",
+      "diagrams": [
+        {
+          "id": "aws-chain",
+          "title": "Delivery chain on AWS",
+          "alt": "Request flow from user through Route 53 and CloudFront with WAF to S3 static assets or an SSR compute layer, then API Gateway, backend APIs and finally Redis and RDS.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "u",
+              "label": "User"
+            },
+            {
+              "id": "r",
+              "label": "Route 53"
+            },
+            {
+              "id": "c",
+              "label": "CloudFront + WAF"
+            },
+            {
+              "id": "s",
+              "label": "S3 / SSR app"
+            },
+            {
+              "id": "a",
+              "label": "API Gateway"
+            },
+            {
+              "id": "b",
+              "label": "Backend APIs"
+            },
+            {
+              "id": "d",
+              "label": "Redis / RDS"
+            }
+          ],
+          "edges": [
+            {
+              "from": "u",
+              "to": "r"
+            },
+            {
+              "from": "r",
+              "to": "c"
+            },
+            {
+              "from": "c",
+              "to": "s"
+            },
+            {
+              "from": "s",
+              "to": "a"
+            },
+            {
+              "from": "a",
+              "to": "b"
+            },
+            {
+              "from": "b",
+              "to": "d"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Where would cold starts show up in the vitals?",
+        "How would you compare regional performance after adding a new edge configuration?",
+        "What would you cache at CloudFront versus Redis?"
+      ],
+      "related": [
+        "how-cdn-improves-core-web-vitals",
+        "caching-layers-and-performance"
+      ]
+    },
+    {
+      "slug": "core-web-vitals-and-mach-architecture",
+      "title": "How does a MACH (composable) architecture affect Core Web Vitals?",
+      "topic": "Platform Connections",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "mach",
+        "composable",
+        "bff",
+        "api-latency",
+        "waterfall",
+        "headless"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-core-web-vitals",
+          "pages": [
+            24
+          ]
+        }
+      ],
+      "quick": "MACH, microservices, API-first, cloud-native and headless, gives flexibility, but it can add many network hops: a React front end calling a BFF, which calls several microservices and a headless CMS. Each hop adds latency and failure modes, which show up as slow TTFB or client-side waterfalls and late content. I would balance composability with performance using API aggregation through a BFF, caching at CDN and service layers, efficient contracts, parallel calls, and the right rendering strategy.",
+      "revision": "MACH adds hops that can inflate TTFB and waterfalls. Counter with BFF aggregation, caching, lean contracts, parallel fetching and suitable SSR/SSG.",
+      "detailed": "Composable architectures split capabilities across services and vendors. Users still experience a single page, so the sum of the latencies matters.\n\n{{diagram:mach-hops}}\n\n## Where performance can degrade\n- **TTFB**: SSR waits on a chain of services.\n- **LCP**: content depends on API responses that arrive after hydration (client waterfall).\n- **INP**: huge JSON payloads processed on the client; many client-side orchestration calls.\n- **CLS**: modules render at different times without reserved space.\n- **Tail latency**: the slowest dependency determines p75 and p95.\n\n## Mitigations\n| Technique | Benefit |\n|---|---|\n| BFF / API aggregation | One tailored response instead of many client calls |\n| Parallelise and prefetch on the server | Avoid serial waterfalls |\n| Caching at CDN, BFF and service layers | Removes repeat work; use stale-while-revalidate |\n| Lean contracts (field selection, GraphQL or tailored endpoints, pagination) | Smaller payloads and less client processing |\n| SSG/ISR for content, SSR or edge for dynamic parts | Static speed where possible |\n| Timeouts, fallbacks, circuit breakers | A slow dependency does not stall the page |\n| Fragment-level degrade (show page without optional modules) | Resilient first view |\n| Distributed tracing plus RUM | Link user-visible slowness to a specific service |\n\n## Example (illustrative)\nA model page needs CMS content, pricing, inventory and offers. Calling four services sequentially from the browser produces a visible waterfall. A BFF fetches them in parallel at the server, caches the stable parts, and returns one payload, while price and stock load separately into a reserved area.\n\n## Trade-offs\nAggregation adds a component to maintain and can create coupling; caching complicates freshness. Decide per data type how stale is acceptable.\n\n## Common mistakes\n- Treating composability as free.\n- Letting the front end orchestrate many services directly.\n- No end-to-end tracing across hops.",
+      "diagrams": [
+        {
+          "id": "mach-hops",
+          "title": "Hop chain in a composable stack",
+          "alt": "A browser React app calls a micro frontend and a BFF, which calls an API and microservices backed by a headless CMS; each hop adds latency.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "r",
+              "label": "React front end"
+            },
+            {
+              "id": "m",
+              "label": "Micro frontend"
+            },
+            {
+              "id": "b",
+              "label": "BFF"
+            },
+            {
+              "id": "a",
+              "label": "API layer"
+            },
+            {
+              "id": "s",
+              "label": "Microservices"
+            },
+            {
+              "id": "c",
+              "label": "Headless CMS"
+            }
+          ],
+          "edges": [
+            {
+              "from": "r",
+              "to": "m"
+            },
+            {
+              "from": "m",
+              "to": "b"
+            },
+            {
+              "from": "b",
+              "to": "a"
+            },
+            {
+              "from": "a",
+              "to": "s"
+            },
+            {
+              "from": "a",
+              "to": "c"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "What is a BFF and how does it help vitals?",
+        "How would you stop one slow service delaying the whole page?",
+        "How would you trace a slow user experience to a backend call?"
+      ],
+      "related": [
+        "core-web-vitals-and-aem-headless-cms",
+        "core-web-vitals-and-aws-delivery-chain"
+      ]
+    },
+    {
+      "slug": "core-web-vitals-and-aem-headless-cms",
+      "title": "How do you optimise Core Web Vitals when content comes from AEM or another headless CMS?",
+      "topic": "Platform Connections",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "aem",
+        "headless-cms",
+        "content-api",
+        "ssr",
+        "ssg",
+        "cdn"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-core-web-vitals",
+          "pages": [
+            24,
+            25
+          ]
+        }
+      ],
+      "quick": "With a CMS such as AEM, the main risks are slow content APIs, uncached responses, heavy images from the DAM and large client rendering. I would put a cache and CDN in front of the content API, pre-render with SSG or ISR and on-demand revalidation on publish, use SSR where needed, and serve DAM images through responsive, optimised renditions with correct dimensions. Then keep React and third-party JavaScript lean and measure real-user vitals per template.",
+      "revision": "CMS-driven sites: cache content APIs and CDN, SSG/ISR with publish-triggered revalidation, optimised DAM renditions, lean JS, RUM per template.",
+      "detailed": "Whether pages are authored in AEM (either with its traditional rendering or as a headless source) or another CMS, performance depends on how content reaches the browser.\n\n{{diagram:cms-flow}}\n\n## Typical headless flow (illustrative)\nAEM content APIs, then a cache and CDN layer, then SSR or SSG rendering in a React app, then the browser.\n\n## Where to optimise\n| Area | Action |\n|---|---|\n| Content API latency | Cache responses, request only needed fields, avoid chained requests, use persisted queries where available |\n| Caching | CDN in front of publish or API tier, TTL plus purge on publish, cache key discipline |\n| Rendering | SSG or ISR for editorial pages with **on-demand revalidation** from publish events; SSR/edge for dynamic pages |\n| Images | Use DAM renditions or an image service with responsive sizes, modern formats, explicit dimensions; ensure the LCP image has priority |\n| JavaScript | Component-level code splitting; avoid shipping the whole component library on every page |\n| Layout stability | Components from the CMS should declare sizes or aspect-ratios; slots reserved for late modules |\n| Editorial controls | Guardrails so authors cannot add heavyweight embeds or unoptimised assets |\n| Authoring preview | Keep preview paths separate from production caching |\n\n## Governance links\nContent templates and authoring components should carry performance defaults (image sizing, lazy attributes, no blocking embeds), so performance is built into what authors can do.\n\n## Trade-offs\nAggressive caching vs freshness for time-sensitive content (offers, legal text); mitigate with purge or short TTL for those components. Dispatcher or edge caching configuration must be understood and monitored.\n\n## Common mistakes\n- Fetching CMS content client-side after load, causing blank states and shifts.\n- Using the original DAM asset instead of a sized rendition.\n- Letting every authored page embed arbitrary scripts.",
+      "diagrams": [
+        {
+          "id": "cms-flow",
+          "title": "Headless CMS delivery path",
+          "alt": "Content flows from the CMS through a content API, a cache and CDN layer and an SSR or SSG render step to the React app in the browser.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "a",
+              "label": "AEM / headless CMS"
+            },
+            {
+              "id": "b",
+              "label": "Content API"
+            },
+            {
+              "id": "c",
+              "label": "Cache + CDN"
+            },
+            {
+              "id": "d",
+              "label": "SSR / SSG"
+            },
+            {
+              "id": "e",
+              "label": "React in browser"
+            }
+          ],
+          "edges": [
+            {
+              "from": "a",
+              "to": "b"
+            },
+            {
+              "from": "b",
+              "to": "c"
+            },
+            {
+              "from": "c",
+              "to": "d"
+            },
+            {
+              "from": "d",
+              "to": "e"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you trigger regeneration when an author publishes?",
+        "How do you keep authors from adding heavy components?",
+        "How would you serve DAM images efficiently?"
+      ],
+      "related": [
+        "core-web-vitals-and-mach-architecture",
+        "ssg-and-isr-and-core-web-vitals"
+      ]
+    },
+    {
+      "slug": "ensuring-good-core-web-vitals-for-a-global-website",
+      "title": "How would you ensure good Core Web Vitals for a large global website?",
+      "topic": "Scenarios",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "global-site",
+        "architecture",
+        "strategy",
+        "cdn",
+        "rum",
+        "governance"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-core-web-vitals",
+          "pages": [
+            25,
+            26
+          ]
+        }
+      ],
+      "quick": "I would treat performance as an architectural requirement. First set budgets for LCP, INP and CLS at the 75th percentile. Then optimise the whole delivery chain: CDN and edge caching and fast server response, appropriate SSR or SSG, image and critical resource prioritisation for LCP, less JavaScript and fewer long tasks for INP, and reserved space and stable fonts for CLS. Control third parties, and combine CI lab checks with real-user monitoring across devices, networks and regions.",
+      "revision": "Budgets first, then optimise the whole chain: edge and TTFB, rendering, images, JS, layout stability, third parties; CI lab checks plus global RUM.",
+      "detailed": "This is the integrating answer: structure it as **targets, chain, metrics, governance**.\n\n## 1. Targets and budgets\nLCP ≤ 2.5 s, INP ≤ 200 ms, CLS ≤ 0.1 at p75, tracked per template, device class and region. Add JS, image and third-party budgets.\n\n## 2. Delivery chain\n- **Edge**: CDN with high hit ratio, compression, HTTP/2/3, image optimisation, regional routing.\n- **Origin**: fast SSR or static output, cached API calls, aggregated backends, no blocking waterfalls.\n- **Rendering choice**: SSG/ISR for editorial and catalogue content, SSR or edge rendering for dynamic parts, CSR for authenticated app-like flows.\n\n## 3. Per-metric tactics\n| Metric | Tactics |\n|---|---|\n| LCP | Low TTFB, discoverable and prioritised hero, optimised responsive images, minimal render blocking, preloaded critical font |\n| INP | Smaller bundles, code splitting, broken-up long tasks, efficient React updates, deferred analytics |\n| CLS | Dimensions and aspect-ratio, reserved slots, stable fonts, no late insertion above content |\n\n## 4. Ecosystem\nControl third parties and experiments, share dependencies in micro frontend setups, keep CMS authoring within performance guardrails.\n\n## 5. Measure and govern\n- CI: bundle-size and Lighthouse checks on pull requests.\n- Production: RUM segmented by region, network and device, with alerts.\n- Process: named owners, exception handling, regular reviews, performance included in architecture review.\n\n## Global considerations\nUsers far from origins, variable networks and lower-end devices dominate the tail at p75, so test on throttled mid-range profiles, look at regional RUM, and avoid assuming developers' conditions.\n\n## Common mistakes\n- A one-time optimisation sprint with no budgets or monitoring.\n- Treating performance as only a front-end topic.\n- Reporting only global averages that hide a failing region.",
+      "followUps": [
+        "How would you prioritise if all three metrics are failing?",
+        "How do regional differences change your approach?",
+        "What would be in the first 30 days of this programme?"
+      ],
+      "related": [
+        "enterprise-performance-governance",
+        "scenario-lcp-4s-to-under-2-5s",
+        "lcp-vs-inp-vs-cls"
+      ]
+    }
+  ]
+}

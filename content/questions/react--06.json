@@ -1,0 +1,418 @@
+{
+  "category": "react",
+  "questions": [
+    {
+      "slug": "react-accessibility-practices",
+      "title": "How do you make a React application accessible?",
+      "topic": "Accessibility",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "react",
+        "accessibility",
+        "a11y",
+        "wcag",
+        "forms"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-react-js",
+          "pages": [
+            16,
+            17
+          ]
+        }
+      ],
+      "quick": "I start with semantic HTML, such as real buttons, links, headings and landmarks, then add labels for every form control, full keyboard operability, visible focus, and logical focus management on route changes and dialogs. I check color contrast, give images useful alt text, make errors clear and programmatically associated with fields, and use ARIA only where native elements fall short. I verify with automated tools like axe and eslint-plugin-jsx-a11y, plus manual keyboard and screen reader checks, against WCAG.",
+      "revision": "Semantic HTML, labels, keyboard support, visible focus, focus management, contrast and clear errors, with ARIA only when needed, verified by automated and manual testing.",
+      "detailed": "**Short answer:** accessibility in React is mostly good HTML plus deliberate focus and state handling. Components are just a way of producing the DOM; assistive technologies and keyboards interact with that DOM, so the output must be correct.\n\n## Core practices\n\n- **Semantic elements:** use `<button>` for actions, `<a href>` for navigation, `<nav>`, `<main>`, headings in order. A `<div onClick>` is not focusable and has no role.\n- **Labels:** every input needs an associated label.\n- **Keyboard:** everything operable by mouse must work with Tab, Enter, Space and Escape where relevant, with no keyboard traps.\n- **Visible focus:** do not remove outlines without a clear replacement.\n- **Focus management:** in single-page apps, route changes do not reload the page, so move focus to the new page heading or announce the change. Modals must trap focus and return it on close.\n- **Contrast and sizing:** meet WCAG contrast ratios, support zoom and reduced motion (`prefers-reduced-motion`).\n- **Text alternatives:** meaningful `alt` text, or `alt=\"\"` for decorative images.\n- **Errors and status:** associate messages with fields and announce dynamic updates.\n\n```jsx\nfunction EmailField({ error }) {\n  const id = useId();\n  return (\n    <div>\n      <label htmlFor={id}>Email</label>\n      <input\n        id={id}\n        type=\"email\"\n        aria-invalid={!!error}\n        aria-describedby={error ? `${id}-err` : undefined}\n      />\n      {error && <p id={`${id}-err`} role=\"alert\">{error}</p>}\n    </div>\n  );\n}\n```\n\n`useId` generates stable, SSR-safe IDs, avoiding duplicates when a component is reused.\n\n## Testing\n\n| Method | Catches |\n|---|---|\n| `eslint-plugin-jsx-a11y` | Static mistakes in JSX |\n| axe / Lighthouse in CI | A subset of issues, commonly said to be a minority of all problems |\n| Keyboard-only walkthrough | Traps, missing focus, bad order |\n| Screen reader checks | Naming, announcements, structure |\n| Testing Library queries by role | Forces accessible markup in tests |\n\n## Common mistakes\n\nRelying on automated scans alone, using placeholder text as a label, and building custom dropdowns from scratch rather than using a tested accessible library.",
+      "followUps": [
+        "How do you manage focus after a route change in a SPA?",
+        "How would you build an accessible modal dialog?",
+        "What does WCAG conformance level AA require in broad terms?"
+      ],
+      "related": [
+        "react-aria-overuse",
+        "react-testing-strategy"
+      ]
+    },
+    {
+      "slug": "react-aria-overuse",
+      "title": "Why shouldn't we overuse ARIA?",
+      "topic": "Accessibility",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "react",
+        "accessibility",
+        "aria",
+        "semantic-html"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-react-js",
+          "pages": [
+            17
+          ]
+        }
+      ],
+      "quick": "Because ARIA only changes what assistive technologies are told; it adds no behavior. A native button already has the role, focus and keyboard handling, while a div with role button still needs all of that coded by hand. Wrong or redundant ARIA can make things worse than none, since it overrides correct native semantics. The first rule of ARIA is to use a native element if one exists, and add ARIA only for gaps such as custom widgets, live regions or relationships.",
+      "revision": "ARIA changes semantics only, not behavior. Prefer native elements; wrong ARIA can override correct semantics and make the page less accessible than no ARIA.",
+      "detailed": "**Short answer:** native HTML elements come with built-in roles, states, focus behavior and keyboard interaction. ARIA (Accessible Rich Internet Applications) attributes only modify the accessibility tree; they do not make an element focusable or keyboard-operable. So ARIA should fill gaps, not replace correct HTML.\n\n## Native versus ARIA\n\n```jsx\n// Poor: needs role, tabIndex, key handling for Enter and Space\n<div role=\"button\" tabIndex={0} onClick={save}\n     onKeyDown={e => (e.key === 'Enter' || e.key === ' ') && save()}>\n  Save\n</div>\n\n// Better: all of that is built in\n<button type=\"button\" onClick={save}>Save</button>\n```\n\n## Rules of thumb\n\n1. Use a native element if one exists with the semantics you need.\n2. Do not change native semantics unless you must (`<h2 role=\"tab\">` is a smell).\n3. All interactive ARIA controls must be keyboard operable and follow the expected pattern.\n4. Do not hide focusable elements with `aria-hidden=\"true\"`.\n5. Interactive elements need an accessible name.\n\n## Where ARIA is appropriate\n\n| Need | Example |\n|---|---|\n| Relationships | `aria-describedby`, `aria-labelledby`, `aria-controls` |\n| State of custom widgets | `aria-expanded`, `aria-selected`, `aria-current` |\n| Dynamic announcements | `aria-live`, `role=\"status\"`, `role=\"alert\"` |\n| Custom components with no HTML equivalent | tabs, comboboxes, tree views (follow the ARIA Authoring Practices patterns) |\n| Labels where visible text is absent | `aria-label` on an icon-only button |\n\n## Common mistakes\n\n- Redundant roles like `<button role=\"button\">` or `<nav role=\"navigation\">`.\n- `aria-label` that contradicts visible text, which hurts voice-control users.\n- Setting `aria-expanded` but never updating it from state.\n- Building complex widgets from scratch. Prefer accessible headless libraries (for example Radix UI or React Aria) that implement the patterns correctly.\n\n\"No ARIA is better than bad ARIA\" is a widely repeated summary of the guidance.",
+      "followUps": [
+        "When would you genuinely need role and aria attributes?",
+        "How would you give an icon-only button an accessible name?",
+        "What is the accessibility tree?"
+      ],
+      "related": [
+        "react-accessibility-practices"
+      ]
+    },
+    {
+      "slug": "react-seo-optimization",
+      "title": "How do you optimize a React application for SEO?",
+      "topic": "SEO",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "react",
+        "seo",
+        "ssr",
+        "ssg",
+        "metadata"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-react-js",
+          "pages": [
+            17
+          ]
+        }
+      ],
+      "quick": "For public pages I make sure meaningful content is in the HTML the crawler first receives, using SSR or SSG through a framework like Next.js. Then the page basics: unique titles and meta descriptions, canonical URLs, Open Graph tags, structured data, a sitemap, sensible robots directives, crawlable links using real anchor tags, clean URLs, correct status codes, and fast Core Web Vitals. Authenticated areas typically do not need SEO and can stay client-rendered.",
+      "revision": "Deliver real content in initial HTML via SSR/SSG, then add titles, meta, canonicals, structured data, sitemaps, crawlable links, correct status codes and good performance.",
+      "detailed": "**Short answer:** search engines work best when each URL returns meaningful HTML quickly, with clear metadata and links. In React that usually means server rendering or static generation for public routes, plus the same on-page fundamentals as any site.\n\n## Checklist\n\n| Area | Practice |\n|---|---|\n| Content in HTML | SSR, SSG or ISR for public pages so headings and text are present without JS |\n| Metadata | Unique `<title>` and meta description per route; frameworks provide APIs (for example Next.js metadata, or `react-helmet-async` in older setups) |\n| Canonical URLs | `<link rel=\"canonical\">` to avoid duplicate-content ambiguity from parameters or locale variants |\n| Social previews | Open Graph and Twitter card tags; many link-preview bots do not run JavaScript |\n| Structured data | JSON-LD (Product, Article, Organization, BreadcrumbList) matching visible content |\n| Crawl control | `sitemap.xml`, `robots.txt`, `noindex` where appropriate |\n| Links | Use `<a href>` (or router `Link`, which renders anchors). Click handlers on divs are not crawlable links |\n| URLs | Clean, stable, readable paths; use history-based routing instead of hash fragments |\n| Status codes | Real 404 and 301/308 responses from the server, not a \"not found\" screen served with 200 |\n| i18n | `hreflang` annotations for language/region variants |\n| Performance | Good Core Web Vitals, optimized images, minimal JS |\n\n```jsx\n// Next.js app router example\nexport const metadata = {\n  title: 'Model X specifications',\n  description: 'Dimensions, engines and trims for Model X.',\n  alternates: { canonical: '/models/model-x' },\n};\n```\n\n## Verification\n\nCheck with URL inspection tools from search engines, view the raw HTML response (`curl`), and run Lighthouse. Monitor indexing coverage and real-user vitals over time.\n\n## Common mistakes\n\nSetting titles only client-side, soft 404s, infinite scroll without paginated URLs, blocking JavaScript or API endpoints in robots rules, and shipping duplicate pages under many URLs.",
+      "followUps": [
+        "How do you serve correct 404 status codes in an SSR app?",
+        "How would you handle SEO for faceted dealer search pages?",
+        "What is structured data and how do you validate it?"
+      ],
+      "related": [
+        "react-seo-csr-problems",
+        "ssr-choose-rendering-strategy-per-route"
+      ]
+    },
+    {
+      "slug": "react-seo-csr-problems",
+      "title": "Why can pure client-side rendering be problematic for SEO?",
+      "topic": "SEO",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "react",
+        "seo",
+        "csr",
+        "crawling"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-react-js",
+          "pages": [
+            17
+          ]
+        }
+      ],
+      "quick": "Major search engines can execute JavaScript, but it is a slower, two-stage process: they fetch the HTML, then queue the page for rendering. With pure CSR the initial HTML has no content, so indexing may be delayed, depends on scripts and API calls succeeding, and can break for crawlers or link-preview bots that do not run JavaScript. Titles, canonicals and status codes set late on the client are also unreliable. Server-rendered or static HTML gives a fast, dependable representation.",
+      "revision": "Crawlers can render JS but later and less reliably; empty CSR HTML delays indexing and breaks bots that skip JS. SSR or static HTML makes content dependable.",
+      "detailed": "**Short answer:** it is not that search engines cannot index CSR pages; it is that depending on client-side rendering adds delay, cost and failure points to something that SSR or static HTML delivers immediately.\n\n## What happens with a CSR page\n\n{{diagram:crawl}}\n\n1. The crawler requests the URL and receives a near-empty HTML shell.\n2. Content is not visible until JavaScript downloads, executes and fetches data.\n3. For JS-capable engines, the page is placed in a rendering queue; indexing of the real content may happen later.\n4. If scripts fail, are blocked, time out or throw, the engine sees little or nothing.\n\n## Concrete risks\n\n- **Delayed or incomplete indexing,** especially for large sites with limited crawl budget.\n- **Non-JS consumers:** many social, messaging and link-preview crawlers and some other search engines read only the initial HTML, so shared links show no title or image.\n- **Metadata timing:** titles, canonical tags and `noindex` set after render may be missed or inconsistent.\n- **Status codes:** a SPA that returns 200 for every path produces \"soft 404\" pages.\n- **Discoverability:** links created by click handlers rather than anchors are not followed.\n- **Performance:** slow JavaScript hurts Core Web Vitals, which are themselves a signal.\n\n## When CSR is still fine\n\nAuthenticated dashboards, internal tools and pages that should not be indexed at all. There SEO is irrelevant, and the simplicity of CSR is a benefit.\n\n## Remedies\n\n| Option | Note |\n|---|---|\n| SSR or SSG/ISR via a framework | Usually the best fix for public routes |\n| Prerendering at build | Works for mostly static routes |\n| Dynamic rendering for bots | Treated by search engines as a workaround, not a long-term solution |\n| Fix CSR basics | Real anchors, History API routes, server-set metadata and status codes |\n\nConfirm results by inspecting the rendered HTML in search console tools rather than assuming.",
+      "diagrams": [
+        {
+          "id": "crawl",
+          "title": "Crawler handling of a CSR page",
+          "alt": "A crawler fetches an empty HTML shell, queues it for rendering, executes JavaScript and API calls, and only then sees the real content for indexing. Bots that do not run JavaScript stop after the empty shell.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "f",
+              "label": "Crawler fetches HTML shell"
+            },
+            {
+              "id": "nojs",
+              "label": "Non-JS bot stops: no content"
+            },
+            {
+              "id": "q",
+              "label": "Render queue"
+            },
+            {
+              "id": "run",
+              "label": "Run JS and call APIs"
+            },
+            {
+              "id": "idx",
+              "label": "Index real content"
+            }
+          ],
+          "edges": [
+            {
+              "from": "f",
+              "to": "nojs",
+              "label": "no JS support"
+            },
+            {
+              "from": "f",
+              "to": "q",
+              "label": "JS-capable"
+            },
+            {
+              "from": "q",
+              "to": "run"
+            },
+            {
+              "from": "run",
+              "to": "idx"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How can you verify what a crawler actually sees?",
+        "Is dynamic rendering for bots recommended?",
+        "How does crawl budget relate to JavaScript rendering?"
+      ],
+      "related": [
+        "react-seo-optimization",
+        "ssr-csr-vs-ssr"
+      ]
+    },
+    {
+      "slug": "react-testing-strategy",
+      "title": "How do you test React applications, and how do unit, integration and E2E tests differ?",
+      "topic": "Testing",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "react",
+        "testing",
+        "unit",
+        "integration",
+        "e2e",
+        "testing-library"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-react-js",
+          "pages": [
+            17,
+            18
+          ]
+        }
+      ],
+      "quick": "I use layers. Unit tests cover isolated logic like utilities, reducers and custom hooks. Integration or component tests render real components together with a Testing Library, simulate user actions and assert visible behavior, with the network mocked. A small number of end-to-end tests in Playwright or Cypress cover critical journeys through the real stack. Most of the confidence comes from integration tests, since they are close to user behavior but still fast.",
+      "revision": "Unit tests check isolated logic, integration tests check components working together, E2E tests check full user journeys. Weight toward integration tests, with few E2E.",
+      "detailed": "**Short answer:** each level trades speed and precision against realism. A healthy suite has many fast, focused tests and few slow, broad ones, with most effort in component-level integration tests that assert what users see.\n\n## The levels\n\n| Level | Scope | Tools (examples) | Speed | Typical failure signal |\n|---|---|---|---|---|\n| Unit | One function, reducer or hook | Vitest or Jest | Very fast | Logic bug in isolation |\n| Integration / component | Several components, state, routing, mocked network | React Testing Library + MSW | Fast | UI behavior broken |\n| E2E | Browser, real or staged backend | Playwright, Cypress | Slow, more flaky | A user journey is broken |\n\nAlso worth having: contract tests between frontend and API, visual regression for the design system, and accessibility checks.\n\n## Example of an integration test\n\n```jsx\ntest('shows validation error then submits', async () => {\n  const user = userEvent.setup();\n  render(<ContactForm />);\n\n  await user.click(screen.getByRole('button', { name: /send/i }));\n  expect(await screen.findByText(/email is required/i)).toBeInTheDocument();\n\n  await user.type(screen.getByLabelText(/email/i), 'a@example.com');\n  await user.click(screen.getByRole('button', { name: /send/i }));\n  expect(await screen.findByText(/thanks/i)).toBeInTheDocument();\n});\n```\n\n## Principles\n\n- **Test behavior, not implementation:** query by role, label and text, not by component state or CSS classes. Refactors then do not break tests.\n- **Mock at the network boundary** (MSW) rather than mocking your own modules.\n- **Keep E2E for critical paths** such as sign-in, checkout or lead submission, to limit cost and flakiness.\n- **Make tests deterministic:** control time, randomness and test data.\n- Use `data-testid` only as a last resort.\n\n## Common mistakes\n\nSnapshot-testing everything, asserting internal state, over-mocking so tests pass while the app is broken, and an inverted pyramid of mostly slow E2E tests.",
+      "followUps": [
+        "Why do Testing Library queries prefer roles and labels?",
+        "What would you cover with E2E tests and what would you leave out?",
+        "How do you test a custom hook?",
+        "How do you avoid flaky E2E tests?"
+      ],
+      "related": [
+        "react-accessibility-practices",
+        "react-strict-mode"
+      ]
+    },
+    {
+      "slug": "react-strict-mode",
+      "title": "What is React Strict Mode?",
+      "topic": "Advanced React",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "react",
+        "strict-mode",
+        "effects",
+        "development"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-react-js",
+          "pages": [
+            18
+          ]
+        }
+      ],
+      "quick": "Strict Mode is a development-only wrapper component that helps find bugs by intentionally exercising code more than once. React renders components twice to expose impure rendering, and in React 18 and later it also mounts, unmounts and remounts each component once to check that effects clean up properly. It has no effect in production builds and no visible UI. If something breaks under Strict Mode, that usually points to an impure render or a missing cleanup, which I fix rather than disable the mode.",
+      "revision": "Strict Mode is a dev-only checker that double-invokes renders and re-runs effect setup and cleanup to expose impurity and missing cleanup. It does nothing in production.",
+      "detailed": "**Short answer:** `<StrictMode>` enables extra development-time checks for its subtree. It renders no UI and is stripped of behavior in production builds. Its purpose is to surface bugs that become real under concurrent rendering, fast refresh and future features that may reuse state.\n\n```jsx\ncreateRoot(document.getElementById('root')).render(\n  <StrictMode>\n    <App />\n  </StrictMode>\n);\n```\n\n## What it does in development\n\n- **Double-invokes render functions,** including component bodies, `useState`/`useMemo` initializers and reducers, to reveal impure logic such as mutating props or module-level variables during render.\n- **Re-runs effects once:** after mounting, React simulates unmount and remount (setup, cleanup, setup again) to test that effects are symmetrical.\n- **Re-runs ref callbacks** similarly in recent versions.\n- **Warns about deprecated APIs,** such as legacy string refs and legacy context.\n\n## Why the effect check matters\n\nAn effect should be able to start, stop and start again. Typical bug it reveals:\n\n```jsx\nuseEffect(() => {\n  const ws = new WebSocket(url);\n  ws.onmessage = handle;\n  // missing cleanup: two sockets stay open in development\n}, [url]);\n\n// fixed\nuseEffect(() => {\n  const ws = new WebSocket(url);\n  ws.onmessage = handle;\n  return () => ws.close();\n}, [url]);\n```\n\nThis also explains duplicate network calls seen only in development: the effect ran twice by design. The fix is cleanup (abort the request, ignore stale results) or using a data library, not removing Strict Mode.\n\n## Details to state carefully\n\n- Exact checks differ by React version, so describe them as \"commonly\" including these behaviors.\n- Double rendering applies to pure computations; side effects belong in event handlers or effects.\n- Production does not double-invoke anything.\n\n## Common mistakes\n\nDisabling Strict Mode to silence warnings, using refs to skip the second effect run, and believing double logs indicate a performance problem.",
+      "followUps": [
+        "Why do I see my effect run twice in development?",
+        "What does it mean for a component to be pure?",
+        "How does Strict Mode relate to concurrent rendering?"
+      ],
+      "related": [
+        "react-concurrent-rendering",
+        "react-prevent-duplicate-api-calls"
+      ]
+    },
+    {
+      "slug": "react-concurrent-rendering",
+      "title": "What is concurrent rendering in React?",
+      "topic": "Advanced React",
+      "difficulty": "advanced",
+      "type": "conceptual",
+      "tags": [
+        "react",
+        "concurrent",
+        "scheduler",
+        "react-18",
+        "transitions"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-react-js",
+          "pages": [
+            18
+          ]
+        }
+      ],
+      "quick": "Concurrent rendering means React can prepare a new UI tree in a way that can be interrupted, paused or abandoned, so urgent work like typing or clicking is not blocked by a long non-urgent render. React assigns update priorities and yields to the browser between units of work. It is opt-in per update through features such as useTransition, useDeferredValue and Suspense, and it works with createRoot in React 18 and later. It improves responsiveness; it does not make rendering itself faster.",
+      "revision": "Concurrent rendering lets React interrupt and prioritize rendering work so urgent input stays responsive. It is enabled through createRoot and used via transitions, deferred values and Suspense.",
+      "detailed": "**Short answer:** before React 18, once React started rendering an update it had to finish it, blocking the main thread. With concurrent rendering, React can render in the background, pause to handle something more urgent, and discard stale work. Commits to the DOM stay atomic: the user never sees a half-rendered tree.\n\n{{diagram:sched}}\n\n## Key ideas\n\n- **Interruptible render phase.** Rendering (calling components) can be paused and restarted; the commit phase (DOM updates and layout effects) is synchronous. This is why render must be pure: it may run multiple times or be thrown away.\n- **Priorities.** Updates from discrete events (clicks, key presses) are urgent. Updates wrapped in a transition are non-urgent and can be interrupted by urgent ones.\n- **Opt-in behavior.** Using `createRoot` enables the new architecture and automatic batching; concurrency features take effect when you use them.\n\n## Features built on it\n\n| Feature | Purpose |\n|---|---|\n| `useTransition` / `startTransition` | Mark a state update as non-urgent |\n| `useDeferredValue` | Let a derived value lag behind |\n| Suspense for data and code | Show fallbacks while parts are not ready, without blocking others |\n| Streaming SSR and selective hydration | Hydrate parts of the page as they arrive, prioritizing what the user interacts with |\n\n## What it does not do\n\n- It does not make slow components cheaper; an expensive render is still expensive, only no longer blocking input.\n- It does not move work to another thread; JavaScript still runs on the main thread, in slices.\n- It does not change behavior for code that follows the rules of React, but impure render logic or unsafe external-store reads can show bugs (Strict Mode helps reveal these; `useSyncExternalStore` is the tool for external stores).\n\n## Common mistake\n\nExpecting a performance gain from upgrading alone. Gains come from marking updates correctly and reducing expensive rendering.",
+      "diagrams": [
+        {
+          "id": "sched",
+          "title": "Urgent update interrupting a transition",
+          "alt": "React starts rendering a non-urgent transition update. A typing event arrives, so React pauses the transition, renders and commits the urgent update first, then resumes the transition and commits it.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "t",
+              "label": "Start non-urgent transition render"
+            },
+            {
+              "id": "e",
+              "label": "Urgent input arrives"
+            },
+            {
+              "id": "p",
+              "label": "Pause transition"
+            },
+            {
+              "id": "u",
+              "label": "Render and commit urgent update"
+            },
+            {
+              "id": "r",
+              "label": "Resume and commit transition"
+            }
+          ],
+          "edges": [
+            {
+              "from": "t",
+              "to": "e"
+            },
+            {
+              "from": "e",
+              "to": "p"
+            },
+            {
+              "from": "p",
+              "to": "u"
+            },
+            {
+              "from": "u",
+              "to": "r"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Why must render functions be pure with concurrent rendering?",
+        "What is tearing and how does useSyncExternalStore address it?",
+        "How is this different from using a web worker?"
+      ],
+      "related": [
+        "react-usetransition",
+        "react-usedeferredvalue",
+        "react-strict-mode"
+      ]
+    },
+    {
+      "slug": "react-usetransition",
+      "title": "What is useTransition and when do you use it?",
+      "topic": "Advanced React",
+      "difficulty": "advanced",
+      "type": "coding",
+      "tags": [
+        "react",
+        "useTransition",
+        "concurrent",
+        "performance"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-react-js",
+          "pages": [
+            18
+          ]
+        }
+      ],
+      "quick": "useTransition returns an isPending flag and a startTransition function. State updates wrapped in startTransition are treated as non-urgent, so React can interrupt that render if something urgent, like typing, happens. I use it when an update triggers a heavy re-render, such as switching a tab or filtering a large list, and I want the input to stay responsive. I can also use isPending to show a subtle loading hint. It does not delay the state update itself or reduce render cost.",
+      "revision": "useTransition marks state updates as non-urgent so urgent interactions stay responsive; isPending shows progress. It prioritizes work, it does not make rendering cheaper.",
+      "detailed": "**Short answer:** `const [isPending, startTransition] = useTransition()` lets you mark a state update as a transition. React renders it at lower priority and can interrupt it for urgent updates, keeping the UI responsive.\n\n```jsx\nfunction Search({ items }) {\n  const [query, setQuery] = useState('');\n  const [filter, setFilter] = useState('');\n  const [isPending, startTransition] = useTransition();\n\n  function onChange(e) {\n    setQuery(e.target.value);                       // urgent: keep input responsive\n    startTransition(() => setFilter(e.target.value)); // non-urgent: expensive list\n  }\n\n  return (\n    <>\n      <input value={query} onChange={onChange} />\n      {isPending && <span>Updating...</span>}\n      <ResultList items={items} filter={filter} />\n    </>\n  );\n}\n```\n\nTyping updates the input immediately; the heavy list can lag and is restarted if the user keeps typing.\n\n## When it fits\n\n- Tab or route switches that render a lot of UI.\n- Filtering or sorting large lists.\n- Any update where you own the `setState` call and the slow part is rendering.\n\n## When it does not fit\n\n- **Controlled text inputs:** the input's own value must be updated urgently, not inside a transition.\n- **Work outside React,** such as a slow synchronous function in an event handler, which still blocks.\n- **When you only receive a value** (a prop) rather than owning the setter; use `useDeferredValue` instead.\n- **Network latency:** a transition does not speed up requests, though combined with Suspense it can keep the old UI visible instead of showing a fallback.\n\n## Rules and behavior\n\n- The callback should synchronously call state setters; updates scheduled after an `await` need to be wrapped again in newer patterns, depending on the React version.\n- Transitions can be interrupted or superseded, so render must be pure.\n- Pair with `React.memo` or fewer rendered nodes if the transition itself is still very heavy; virtualization addresses the root cause for huge lists.\n\n## Common mistake\n\nWrapping everything in `startTransition` \"for performance\". Mark only updates that are genuinely less important than the interaction.",
+      "followUps": [
+        "How does a transition interact with Suspense?",
+        "useTransition vs debouncing?",
+        "Why can't you wrap a controlled input's setState in a transition?"
+      ],
+      "related": [
+        "react-usedeferredvalue",
+        "react-concurrent-rendering"
+      ]
+    },
+    {
+      "slug": "react-usedeferredvalue",
+      "title": "What is useDeferredValue and how does it differ from useTransition?",
+      "topic": "Advanced React",
+      "difficulty": "advanced",
+      "type": "comparison",
+      "tags": [
+        "react",
+        "useDeferredValue",
+        "concurrent",
+        "performance"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-react-js",
+          "pages": [
+            18,
+            19
+          ]
+        }
+      ],
+      "quick": "useDeferredValue takes a value and returns a version that can lag behind it. During an urgent update, React first re-renders with the old deferred value, keeping things responsive, then re-renders in the background with the new one, and that background render can be interrupted. I use it when I receive a value, such as a search prop, and cannot wrap the setter in a transition, to keep an expensive child list from blocking typing. It pairs well with memo on the slow component.",
+      "revision": "useDeferredValue gives a lagging copy of a value so expensive derived UI re-renders at low priority. Use it for values you receive; use useTransition where you own the setter.",
+      "detailed": "**Short answer:** `const deferred = useDeferredValue(value)` returns `value` on the first render and later lets `deferred` lag behind while React renders the new value in an interruptible background pass.\n\n```jsx\nfunction SearchPage() {\n  const [query, setQuery] = useState('');\n  const deferredQuery = useDeferredValue(query);\n  const isStale = query !== deferredQuery;\n\n  return (\n    <>\n      <input value={query} onChange={e => setQuery(e.target.value)} />\n      <div style={{ opacity: isStale ? 0.6 : 1 }}>\n        <SlowResults query={deferredQuery} />\n      </div>\n    </>\n  );\n}\n\nconst SlowResults = memo(function SlowResults({ query }) { /* heavy render */ });\n```\n\nWhy `memo` matters: when `query` changes, the first pass re-renders the parent with an unchanged `deferredQuery`; `memo` lets React skip `SlowResults` in that urgent pass. Without it, the expensive child still renders on every keystroke.\n\n## useDeferredValue vs useTransition\n\n| | `useTransition` | `useDeferredValue` |\n|---|---|---|\n| Wraps | The state *update* | A *value* |\n| Use when | You own the `setState` call | You receive the value (props, a third-party hook) |\n| Pending flag | `isPending` provided | Compare current and deferred value |\n| Effect | The transition update is low priority | The derived render is low priority |\n\n## Behavior notes\n\n- It is not a fixed delay like debounce; React adapts to device speed and renders as soon as it can, and abandons outdated renders.\n- It does not reduce network requests. If `deferred` drives a fetch, you still request per value, so combine it with debouncing or a query library when needed.\n- With Suspense, a deferred value can keep the previous content on screen instead of flashing a fallback.\n- It does not help if the slow part is outside React rendering.\n\n## Common mistakes\n\nDeferring without memoizing the slow subtree, using it to fake debouncing for API calls, and deferring values that are cheap to render.",
+      "followUps": [
+        "Why is memo important when using useDeferredValue?",
+        "useDeferredValue vs debounce for a search box?",
+        "Does useDeferredValue reduce network requests?"
+      ],
+      "related": [
+        "react-usetransition",
+        "react-concurrent-rendering"
+      ]
+    }
+  ]
+}

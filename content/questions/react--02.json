@@ -1,0 +1,308 @@
+{
+  "category": "react",
+  "questions": [
+    {
+      "slug": "react-hooks-overview",
+      "title": "What are React Hooks and what rules govern them?",
+      "topic": "Hooks",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "react",
+        "hooks",
+        "rules-of-hooks"
+      ],
+      "sourceType": "enhanced",
+      "quick": "Hooks are functions that let function components use React features such as state, effects, context, refs and memoization. Common ones are useState, useEffect, useContext, useRef, useMemo and useCallback. They follow two rules: call them only at the top level of a component or custom hook, never inside loops, conditions or nested functions, and call them only from React function components or other hooks. React tracks hooks by call order, so the order must be the same every render.",
+      "revision": "Hooks give function components state, effects and more. Rules: call them at the top level, in the same order every render, only from components or custom hooks.",
+      "detailed": "Hooks are functions, whose names start with `use`, that let function components \"hook into\" React features without writing classes.\n\n## Common built-in hooks\n\n| Hook | Purpose |\n|---|---|\n| `useState` / `useReducer` | Local state |\n| `useEffect` / `useLayoutEffect` | Synchronize with external systems |\n| `useContext` | Read a context value |\n| `useRef` | Mutable value or DOM reference that survives renders |\n| `useMemo` / `useCallback` | Memoize a value or function |\n| `useTransition` / `useDeferredValue` | Keep UI responsive during expensive updates |\n\n## Rules of Hooks\n\n1. **Only call hooks at the top level.** Not inside conditions, loops, nested functions or after an early return.\n2. **Only call hooks from React functions**: function components or custom hooks.\n\n```jsx\nfunction Profile({ id }) {\n  // Wrong: conditional hook call changes the call order\n  // if (id) { const [data, setData] = useState(null); }\n\n  const [data, setData] = useState(null); // Correct\n  if (!id) return null;                   // Early return AFTER hooks\n  return <p>{data?.name}</p>;\n}\n```\n\n## Why the rules exist\n\nReact does not identify hooks by name. It stores each component's hook state in an ordered list and matches calls by **position**. If a hook is skipped in one render, every later hook reads the wrong slot. The ESLint plugin `eslint-plugin-react-hooks` enforces these rules and also checks effect dependencies.\n\n## Why hooks were introduced\n\n- Reuse stateful logic without wrapper hell (custom hooks replace many HOC and render-prop patterns).\n- Group related logic together rather than splitting it across lifecycle methods.\n- Avoid class pitfalls such as `this` binding.\n\n## Common mistakes\n\n- Calling a hook in a callback such as an `onClick` handler.\n- Ignoring the lint rule for dependencies.\n- Treating custom hooks as shared state; each call gets its own state.",
+      "followUps": [
+        "Why can hooks not be called conditionally?",
+        "What is a custom hook?",
+        "Do custom hooks share state between components that call them?"
+      ],
+      "related": [
+        "usestate-hook",
+        "useeffect-hook",
+        "custom-hooks"
+      ],
+      "sources": [
+        {
+          "file": "ref-react-js",
+          "pages": [
+            4
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "usestate-hook",
+      "title": "How does useState work?",
+      "topic": "Hooks",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "react",
+        "hooks",
+        "useState",
+        "batching"
+      ],
+      "sourceType": "enhanced",
+      "quick": "useState returns a pair: the current state value and a setter. Calling the setter schedules a re-render with the new value. State is a snapshot for each render, so reading it right after calling the setter still gives the old value. When the next state depends on the previous one, I pass an updater function like setCount(c => c + 1). React batches multiple updates in an event handler into one render, and a lazy initializer function avoids repeating expensive setup.",
+      "revision": "useState returns [value, setter]. The setter schedules a re-render; state is a per-render snapshot. Use the updater form when the next state depends on the previous.",
+      "detailed": "`useState` adds a piece of state to a function component. It returns the current value and a setter function.\n\n```jsx\nconst [count, setCount] = useState(0);\n```\n\nReact remembers the value between renders. Calling `setCount` schedules a re-render, and the next render receives the updated value.\n\n## State is a snapshot\n\nInside a single render, the state variable has a fixed value. Calling the setter does not change it in the current render:\n\n```jsx\nfunction handleClick() {\n  setCount(count + 1);\n  setCount(count + 1);   // both use the same snapshot: count increases by 1, not 2\n}\n\nfunction handleClickCorrect() {\n  setCount((c) => c + 1);\n  setCount((c) => c + 1); // updater form chains: increases by 2\n}\n```\n\nUse the **updater form** whenever the new state depends on the previous state, especially in async callbacks and intervals.\n\n## Other details\n\n- **Batching**: React groups multiple updates from one event (and in React 18+, in timeouts and promises too) into a single re-render.\n- **Lazy initial state**: pass a function to avoid recomputing expensive initialization each render: `useState(() => readFromStorage())`.\n- **Bail-out**: setting state to a value identical (by `Object.is`) to the current one lets React skip re-rendering children and effects.\n- **Objects and arrays**: the setter replaces state, it does not merge. Spread existing fields when updating objects.\n- **Independent state variables**: prefer several `useState` calls for unrelated values, or `useReducer` for complex transitions.\n\n## Common mistakes\n\n- Mutating an object in state and calling the setter with the same reference, so React sees no change.\n- Reading state right after the setter and expecting the new value.\n- Storing derived values in state instead of computing them during render.",
+      "followUps": [
+        "Why does calling setCount(count + 1) twice only increment once?",
+        "What is lazy initialization in useState?",
+        "When would you choose useReducer over useState?"
+      ],
+      "related": [
+        "state",
+        "immutable-state-updates",
+        "react-hooks-overview"
+      ],
+      "sources": [
+        {
+          "file": "ref-react-js",
+          "pages": [
+            4
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "immutable-state-updates",
+      "title": "Why should you not mutate state directly in React?",
+      "topic": "Hooks",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "react",
+        "state",
+        "immutability",
+        "useState"
+      ],
+      "sourceType": "enhanced",
+      "quick": "React detects state changes by comparing references, and it renders a snapshot of state each time. If I mutate an object in place, the reference stays the same, so setState may bail out and the UI will not update. Mutation also corrupts previous snapshots, which breaks memoization, effect dependencies, and debugging tools. I create new objects and arrays instead, using spread, map and filter, or a helper like Immer for deeply nested updates.",
+      "revision": "Mutating state keeps the same reference, so React may skip the update and memoization or effect checks break. Always create new objects and arrays.",
+      "detailed": "Treat state as **read-only**. To change it, give React a new value rather than modifying the existing one.\n\n```jsx\n// Bad: mutates the existing object, then re-sets the same reference\nuser.name = 'Asha';\nsetUser(user);\n\n// Good: new object, original untouched\nsetUser((prev) => ({ ...prev, name: 'Asha' }));\n```\n\n## Why mutation causes problems\n\n1. **No update may happen.** React compares the new and old state with `Object.is`. The same reference means \"unchanged\", so the re-render can be skipped.\n2. **Memoization breaks.** `React.memo`, `useMemo`, `useCallback` and effect dependency arrays compare by reference; a mutated object looks unchanged and stale results remain.\n3. **Snapshots get corrupted.** Handlers and effects from earlier renders hold references to old state. Mutation changes what they see unexpectedly.\n4. **Debugging and features suffer.** Time-travel debugging, undo and predictable change tracking rely on distinct values.\n\n## Immutable update patterns\n\n| Task | Pattern |\n|---|---|\n| Update object field | `{ ...obj, field: value }` |\n| Add to array | `[...arr, item]` |\n| Remove from array | `arr.filter((x) => x.id !== id)` |\n| Replace item | `arr.map((x) => (x.id === id ? { ...x, done: true } : x))` |\n| Nested object | Copy each level that changes, or use Immer |\n\nAvoid mutating array methods on state (`push`, `splice`, `sort`, `reverse`) unless you copy first: `[...arr].sort()` (or `toSorted()` where available).\n\n## Notes\n\n- Copying is shallow and cheap: unchanged nested objects keep their references, which also helps memoization.\n- Local variables created during the same render can be mutated safely; the rule applies to state and props.\n- Libraries such as Immer let you write mutating-looking code that produces immutable results.\n\n## Common mistake\n\nSpreading only the top level when a nested field changes, which mutates the nested object shared with the old state.",
+      "followUps": [
+        "How would you update a deeply nested field immutably?",
+        "Why does sorting an array in state cause bugs?",
+        "What does Immer do?"
+      ],
+      "related": [
+        "usestate-hook",
+        "state",
+        "react-memo"
+      ],
+      "sources": [
+        {
+          "file": "ref-react-js",
+          "pages": [
+            4
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "useeffect-hook",
+      "title": "What is useEffect and when should you use it?",
+      "topic": "Hooks",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "react",
+        "hooks",
+        "useEffect",
+        "side-effects"
+      ],
+      "sourceType": "enhanced",
+      "quick": "useEffect lets a component synchronize with something outside React, such as a network request, subscription, timer, browser API or a non-React widget. React runs the effect after rendering commits to the screen, and re-runs it when its dependencies change. I do not use effects for things I can calculate during render, or for responding to user events, which belong in event handlers. Effects should describe how to start synchronizing and how to stop through cleanup.",
+      "revision": "useEffect synchronizes a component with external systems after commit. Not for derived values or event responses; declare dependencies and clean up.",
+      "detailed": "`useEffect` runs code **after** React has rendered and committed changes to the screen. Its purpose is to synchronize a component with systems outside React: the network, timers, subscriptions, browser APIs, analytics, or third-party widgets.\n\n```jsx\nfunction UserProfile({ userId }) {\n  const [user, setUser] = useState(null);\n\n  useEffect(() => {\n    const controller = new AbortController();\n    fetch(`/api/users/${userId}`, { signal: controller.signal })\n      .then((r) => r.json())\n      .then(setUser)\n      .catch((e) => { if (e.name !== 'AbortError') console.error(e); });\n    return () => controller.abort();   // cleanup\n  }, [userId]);\n\n  return <p>{user?.name}</p>;\n}\n```\n\n## Mental model\n\nThink \"synchronize\" rather than \"lifecycle\". The effect describes how to connect to something for the current props and state; React re-synchronizes when the values it uses change.\n\n## When to use an effect\n\n- Subscribing to external events or stores\n- Starting and stopping timers or connections\n- Imperatively controlling non-React widgets\n- Fetching data in simple apps without a data library (although a data-fetching library or framework loader is usually better)\n\n## When not to use one\n\n| Situation | Better approach |\n|---|---|\n| Computing a value from props or state | Calculate during render (`useMemo` only if expensive) |\n| Reacting to a click or submit | Event handler |\n| Resetting state when a prop changes | Use a `key`, or restructure state |\n| Syncing two pieces of state | Lift state or derive one from the other |\n\n## Timing\n\n- `useEffect` typically runs after paint.\n- `useLayoutEffect` runs before paint, for measuring layout; use it sparingly.\n- Effects run on the client only, not during server rendering.\n\n## Common mistakes\n\n- Missing or incorrect dependencies, producing stale values.\n- Fetching without handling race conditions or cancellation.\n- Using effects to update state that could be derived, causing extra renders.",
+      "followUps": [
+        "Why is an effect not the right place to respond to a button click?",
+        "How do you avoid race conditions when fetching in an effect?",
+        "What is the difference between useEffect and useLayoutEffect?"
+      ],
+      "related": [
+        "useeffect-dependency-array",
+        "useeffect-cleanup",
+        "derived-state-vs-effects"
+      ],
+      "sources": [
+        {
+          "file": "ref-react-js",
+          "pages": [
+            4,
+            5
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "useeffect-dependency-array",
+      "title": "What does the useEffect dependency array do, and what does an empty array mean?",
+      "topic": "Hooks",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "react",
+        "hooks",
+        "useEffect",
+        "dependencies",
+        "strict-mode"
+      ],
+      "sourceType": "enhanced",
+      "quick": "The dependency array lists every reactive value the effect reads, such as props, state and values derived from them. React re-runs the effect after a render only if one of those values changed. With no array the effect runs after every render, and with an empty array it has no reactive dependencies, so it is set up on mount and cleaned up on unmount. In development Strict Mode deliberately mounts, unmounts and remounts once, so effects must be safe to run more than once.",
+      "revision": "The array lists reactive values the effect reads; React re-syncs when they change. Empty means no reactive deps, but Strict Mode still runs setup and cleanup an extra time.",
+      "detailed": "The dependency array tells React which **reactive values** (props, state, and anything derived from them during render) the effect uses. When any of them changes between renders, React cleans up the previous effect and runs it again.\n\n```jsx\nuseEffect(() => {\n  document.title = `${count} unread`;\n}, [count]);          // re-runs only when count changes\n```\n\n## Three forms\n\n| Form | When the effect runs |\n|---|---|\n| `useEffect(fn)` | After every render |\n| `useEffect(fn, [])` | After mount; cleanup on unmount (no reactive dependencies) |\n| `useEffect(fn, [a, b])` | After mount and whenever `a` or `b` changes |\n\n## Dependencies are not a choice\n\nThe array should reflect what the effect reads. Omitting a value to avoid re-runs causes **stale closures**: the effect keeps using old values from an earlier render.\n\n```jsx\n// Bug: interval always logs the initial count (0)\nuseEffect(() => {\n  const id = setInterval(() => console.log(count), 1000);\n  return () => clearInterval(id);\n}, []);\n```\n\nFix by adding `count` to the array, by using an updater (`setCount(c => c + 1)`) when setting state, or by restructuring.\n\n## The empty array and Strict Mode\n\n`[]` does not mean \"runs exactly once\". In development, React Strict Mode intentionally mounts, unmounts and remounts a component once to expose effects that are not resilient. If an effect breaks when it runs setup, cleanup, setup again, the effect needs proper cleanup. Treat this as a bug detector, not as something to work around.\n\n## Objects and functions as dependencies\n\nObjects and functions created during render are new on every render, so they re-trigger effects. Move them inside the effect, outside the component, or memoize them if appropriate.\n\n## Common mistakes\n\n- Disabling the exhaustive-deps lint rule instead of fixing the design.\n- Relying on an empty array to guarantee a single run.\n- Putting a mutable ref's `.current` in the array expecting it to trigger updates.",
+      "followUps": [
+        "What is a stale closure in an effect?",
+        "Why does Strict Mode run effects twice in development?",
+        "How do you avoid an effect re-running because of an object dependency?"
+      ],
+      "related": [
+        "useeffect-hook",
+        "useeffect-cleanup",
+        "useref-hook"
+      ],
+      "sources": [
+        {
+          "file": "ref-react-js",
+          "pages": [
+            5
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "useeffect-cleanup",
+      "title": "What is the cleanup function in useEffect?",
+      "topic": "Hooks",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "react",
+        "hooks",
+        "useEffect",
+        "cleanup"
+      ],
+      "sourceType": "enhanced",
+      "quick": "The function an effect returns is its cleanup. React calls it before re-running the effect with new dependencies and when the component unmounts. I use it to undo what the setup did: unsubscribe, clear timers, remove event listeners, close connections, or abort in-flight requests. Writing cleanup properly makes the effect symmetrical, which prevents leaks and race conditions and keeps it safe under Strict Mode's extra development mount and unmount.",
+      "revision": "An effect's returned cleanup runs before the next effect run and on unmount. It must reverse the setup: unsubscribe, clear timers, remove listeners, abort requests.",
+      "detailed": "An effect can return a function. React calls it to undo the effect's work, **before** running the effect again with new dependencies and when the component unmounts.\n\n```jsx\nuseEffect(() => {\n  function onResize() { setWidth(window.innerWidth); }\n  window.addEventListener('resize', onResize);\n  return () => window.removeEventListener('resize', onResize);\n}, []);\n```\n\n## What belongs in cleanup\n\n- Removing event listeners\n- Unsubscribing from stores, sockets or observers\n- Clearing `setTimeout` / `setInterval`\n- Aborting fetches with `AbortController` or ignoring stale results\n- Disconnecting third-party widgets\n\n## Sequence\n\n1. Render with new dependency values.\n2. React runs the **previous** effect's cleanup (using the values from that previous render).\n3. React runs the new effect.\n\nOn unmount only the last cleanup runs.\n\n## Preventing race conditions\n\nWhen `userId` changes quickly, an older request may resolve after a newer one. Cleanup solves this:\n\n```jsx\nuseEffect(() => {\n  let ignore = false;\n  fetchUser(userId).then((u) => { if (!ignore) setUser(u); });\n  return () => { ignore = true; };\n}, [userId]);\n```\n\n## Strict Mode connection\n\nIn development, Strict Mode runs setup, cleanup, setup for a freshly mounted component. If cleanup correctly reverses setup, the second cycle is harmless. If you see duplicate subscriptions or double requests, missing cleanup is a common cause.\n\n## Common mistakes\n\n- Forgetting to remove listeners, causing leaks and duplicate handlers.\n- Cleanup that does not mirror the setup (for example removing a different function reference).\n- Calling state setters after unmount without guarding long-running async work.",
+      "followUps": [
+        "When exactly does React run the cleanup function?",
+        "How do you cancel an in-flight fetch in an effect?",
+        "What problems does Strict Mode reveal about cleanup?"
+      ],
+      "related": [
+        "useeffect-hook",
+        "useeffect-dependency-array",
+        "derived-state-vs-effects"
+      ],
+      "sources": [
+        {
+          "file": "ref-react-js",
+          "pages": [
+            5
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "derived-state-vs-effects",
+      "title": "Why should you avoid using useEffect for derived values?",
+      "topic": "Hooks",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "react",
+        "hooks",
+        "useEffect",
+        "derived-state",
+        "anti-pattern"
+      ],
+      "sourceType": "enhanced",
+      "quick": "If a value can be calculated from props or state, I compute it during render instead of storing it in state and syncing it with an effect. The effect approach renders once with stale data, then again after the effect sets state, which causes extra renders, flicker, and a second source of truth that can drift. For an expensive calculation I would wrap the computation in useMemo, not move it to an effect. Effects are for talking to external systems.",
+      "revision": "Compute derived values during render. State plus an effect to sync it causes an extra render with stale data and duplicate sources of truth.",
+      "detailed": "A common anti-pattern is copying derived data into state and keeping it updated with an effect.\n\n```jsx\n// Anti-pattern\nfunction Results({ items, query }) {\n  const [filtered, setFiltered] = useState([]);\n  useEffect(() => {\n    setFiltered(items.filter((i) => i.name.includes(query)));\n  }, [items, query]);\n  return <List items={filtered} />;\n}\n\n// Better: derive during render\nfunction Results({ items, query }) {\n  const filtered = items.filter((i) => i.name.includes(query));\n  return <List items={filtered} />;\n}\n```\n\n## What goes wrong with the effect version\n\n1. **Extra render**: React renders with the old `filtered`, commits, runs the effect, then renders again.\n2. **Stale or flickering UI**: for one render the list does not match the query.\n3. **Two sources of truth**: `filtered` can drift if the sync logic has gaps.\n4. **More code and more dependencies** to maintain.\n\n## Better options\n\n| Need | Approach |\n|---|---|\n| Cheap derived value | Plain calculation in render |\n| Expensive derived value | `useMemo` (after measuring) |\n| Reset state when a prop changes | `key` on the component, or store IDs not copies |\n| Respond to a user action | Event handler |\n| Share state between components | Lift state up |\n| Subscribe to an external store | `useSyncExternalStore` or a library |\n\n## Legitimate effect use\n\nAn effect is right when the component must synchronize with something outside React, such as a subscription, a network request, or a DOM API that has no declarative equivalent.\n\n## Heuristic\n\nAsk: \"Is this happening because the component was **displayed**, or because the user **did** something?\" Display-driven synchronization with outside systems may need an effect. User-driven logic belongs in event handlers. Pure data transformations belong in render.",
+      "followUps": [
+        "How would you reset a form when the selected record changes without an effect?",
+        "When is useMemo appropriate for derived data?",
+        "What is useSyncExternalStore for?"
+      ],
+      "related": [
+        "useeffect-hook",
+        "usememo-hook",
+        "state"
+      ],
+      "sources": [
+        {
+          "file": "ref-react-js",
+          "pages": [
+            5
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "useref-hook",
+      "title": "What is useRef and when would you use it?",
+      "topic": "Hooks",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "react",
+        "hooks",
+        "useRef",
+        "dom"
+      ],
+      "sourceType": "new",
+      "quick": "useRef returns a stable object with a current property that persists across renders. Changing ref.current does not trigger a re-render, unlike state. I use it to hold a DOM node for focusing or measuring, and to store mutable values that should not affect rendering, such as timer ids, the previous value, or the latest callback. I avoid reading or writing refs during rendering for anything that affects output, because React cannot track those changes.",
+      "revision": "useRef gives a persistent mutable box (.current) that does not trigger re-renders. Use it for DOM nodes and non-visual values like timer ids.",
+      "detailed": "`useRef` returns a plain object `{ current: initialValue }` that React keeps the same across renders. Changing `ref.current` does **not** cause a re-render.\n\n```jsx\nfunction SearchBox() {\n  const inputRef = useRef(null);\n  return (\n    <>\n      <input ref={inputRef} />\n      <button onClick={() => inputRef.current?.focus()}>Focus</button>\n    </>\n  );\n}\n```\n\n## Two main uses\n\n1. **Access a DOM node** by passing the ref to an element's `ref` attribute: focus, scroll, measure, or integrate a non-React library.\n2. **Store a mutable value** that is not part of the visual output: timer or interval ids, an AbortController, previous values, \"is mounted\" flags, or the latest callback.\n\n```jsx\nconst intervalId = useRef(null);\nfunction start() { intervalId.current = setInterval(tick, 1000); }\nfunction stop() { clearInterval(intervalId.current); }\n```\n\n## Ref vs state\n\n| | State | Ref |\n|---|---|---|\n| Triggers re-render on change | Yes | No |\n| Value is read during render | Yes | Avoid |\n| Persists across renders | Yes | Yes |\n| Typical content | UI data | DOM nodes, ids, handles |\n\nIf a value should appear on screen, it must be state. If changing it should not update the UI, a ref is appropriate.\n\n## Guidelines\n\n- Do not read or write `ref.current` during rendering (apart from lazy initialization), since React cannot track it and results become unpredictable.\n- Modify refs in event handlers and effects.\n- Prefer declarative approaches over manipulating the DOM through refs when possible.\n- To expose a DOM node from a custom component, forward the ref (in React 19 `ref` can be passed as a regular prop to function components; in older versions use `forwardRef`).\n\n## Common mistakes\n\n- Using a ref for data that should update the UI.\n- Expecting a ref's change to re-run an effect that lists `ref.current` as a dependency.",
+      "followUps": [
+        "Why does changing ref.current not cause a re-render?",
+        "How do you expose a DOM node of a child component to its parent?",
+        "How would you store the previous value of a prop with a ref?"
+      ],
+      "related": [
+        "usestate-hook",
+        "useeffect-dependency-array",
+        "react-hooks-overview"
+      ],
+      "sources": []
+    },
+    {
+      "slug": "custom-hooks",
+      "title": "What are custom hooks and when should you create one?",
+      "topic": "Hooks",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "react",
+        "hooks",
+        "custom-hooks",
+        "reuse"
+      ],
+      "sourceType": "new",
+      "quick": "A custom hook is a function whose name starts with use and that calls other hooks, so I can reuse stateful logic across components. Each component calling it gets its own independent state; it shares logic, not state. I extract one when the same combination of state and effects appears more than once, or when it gives a clearer name to a piece of behavior like useDebouncedValue or useOnlineStatus. They replace many HOC and render-prop patterns, and I test them in isolation.",
+      "revision": "A custom hook is a use-prefixed function composing built-in hooks to reuse stateful logic. Each caller gets its own state; logic is shared, state is not.",
+      "detailed": "A custom hook is a regular JavaScript function whose name starts with `use` and that calls other hooks. It packages stateful logic so several components can reuse it.\n\n```jsx\nfunction useDebouncedValue(value, delay = 300) {\n  const [debounced, setDebounced] = useState(value);\n  useEffect(() => {\n    const id = setTimeout(() => setDebounced(value), delay);\n    return () => clearTimeout(id);\n  }, [value, delay]);\n  return debounced;\n}\n\nfunction DealerSearch() {\n  const [query, setQuery] = useState('');\n  const debouncedQuery = useDebouncedValue(query);\n  // use debouncedQuery to drive the request\n  return <input value={query} onChange={(e) => setQuery(e.target.value)} />;\n}\n```\n\n## Key properties\n\n- **Logic is shared, state is not.** Two components calling `useDebouncedValue` each get independent state.\n- **Naming matters.** The `use` prefix lets React tooling and the lint rules recognize hooks and enforce the Rules of Hooks.\n- **They can return anything**: values, arrays, objects or functions.\n- **They compose.** Custom hooks can call other custom hooks.\n\n## When to extract one\n\n- The same combination of state and effects is duplicated.\n- A component mixes UI with a complex piece of behavior, and a descriptive name would make it clearer (`useOnlineStatus`, `useLocalStorage`).\n- You want to isolate subscriptions or browser APIs behind a clean interface that is easy to test.\n\n## When not to\n\n- For a single use that is clearer inline.\n- To wrap a one-line call with no real abstraction.\n- To share **state** between components; for that, lift state up, use context, or an external store.\n\n## Testing\n\nTest custom hooks through the components that use them or with a hook-testing helper such as `renderHook` from React Testing Library.\n\n## Common mistakes\n\n- Names without the `use` prefix, so linting does not apply.\n- Returning unstable objects or functions every render, which can trigger effects in consumers.",
+      "followUps": [
+        "Do two components using the same custom hook share state?",
+        "How would you test a custom hook?",
+        "What is the difference between a custom hook and a utility function?"
+      ],
+      "related": [
+        "react-hooks-overview",
+        "useeffect-hook",
+        "usememo-hook"
+      ],
+      "sources": []
+    }
+  ]
+}

@@ -1,0 +1,367 @@
+{
+  "category": "cdp-analytics-experimentation",
+  "questions": [
+    {
+      "slug": "analytics-event-design",
+      "title": "What is an analytics event and how do you design a good event contract?",
+      "topic": "Event Design",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "analytics",
+        "events",
+        "schema"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-cdp-analytics-a-b-testing",
+          "pages": [
+            5
+          ]
+        }
+      ],
+      "quick": "An event records an action worth measuring, such as dealer_search_submitted or lead_form_submitted. A good contract has a consistent, descriptive name, a unique event ID, a timestamp, page or source context, and typed properties. I would name events after meaningful user actions, track success states rather than just clicks, keep personal data out of properties, version the schema, and validate events in tests and at ingestion so teams cannot drift apart silently.",
+      "revision": "An event is a named, timestamped, typed record of a user action. Good contracts use consistent names, unique IDs, versioning, no PII, and measure outcomes, not just clicks.",
+      "detailed": "An **analytics event** represents something that happened that the business wants to measure. Quality analytics starts with deliberate event design, not with adding tags wherever a developer needs them.\n\n## Example event contract (illustrative, not a vendor format)\n\n```json\n{\n  \"event_name\": \"dealer_search_submitted\",\n  \"event_id\": \"evt-example-123\",\n  \"timestamp\": \"2026-10-09T08:00:00Z\",\n  \"schema_version\": \"1.0\",\n  \"page_type\": \"dealer-search\",\n  \"locale\": \"en-US\",\n  \"properties\": {\n    \"search_method\": \"postal-code\"\n  }\n}\n```\n\n## Design guidelines\n\n- **Name by user action and object.** Use a consistent convention such as `object_action` in snake_case: `vehicle_details_viewed`, `lead_form_submitted`.\n- **Separate attempt from success.** `lead_form_started`, `lead_form_submitted` and a validation-failure event tell different stories; the business conversion is the successful submission, ideally confirmed by the backend.\n- **Prefer a few events with properties** over many near-duplicate event names (`search_submitted` with a `search_method` property rather than one event per method).\n- **Keep property values bounded.** Enumerations or controlled vocabularies are easier to analyse than free text.\n- **Include context once.** Page type, locale and app version can come from a shared context object rather than being repeated by each team.\n- **Do not include PII or secrets.** No emails, tokens or free-form user input in client events.\n- **Make events testable.** Provide a schema and automated checks in CI, plus a debug view for QA.\n\n## Common mistakes\n\n- Tracking button clicks when the real goal is a completed, valid lead\n- Changing the meaning of an existing event without a version bump\n- Different teams naming the same action differently\n- Firing events from both a component and a wrapper, causing duplicates",
+      "diagrams": [],
+      "followUps": [
+        "Would you track a click or a successful submission as the conversion?",
+        "How do you evolve an event schema without breaking dashboards?",
+        "How would you test tracking in CI?"
+      ],
+      "related": [
+        "event-governance-taxonomy",
+        "preventing-duplicate-analytics-events",
+        "cdp-ingestion-and-data-quality"
+      ]
+    },
+    {
+      "slug": "event-governance-taxonomy",
+      "title": "Why is event governance and a shared taxonomy important?",
+      "topic": "Event Design",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "analytics",
+        "governance",
+        "taxonomy"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-cdp-analytics-a-b-testing",
+          "pages": [
+            5,
+            8,
+            9
+          ]
+        }
+      ],
+      "quick": "Without governance, different teams name and define the same action differently, so metrics disagree and dashboards cannot be trusted. I would create a shared event taxonomy, document property types and meanings, assign owners, validate events against schemas, and manage versions for compatibility. It matters most with independently deployed teams such as micro frontends, because nothing else keeps their events consistent. Governance should be light enough that teams still ship quickly.",
+      "revision": "Governance keeps event names, definitions and schemas consistent across teams: taxonomy, documented types, owners, automated validation and versioning.",
+      "detailed": "**Event governance** is the set of rules and processes that keep analytics events consistent, trustworthy and compliant as many teams change the site.\n\n## Why it matters\n\n- **Comparable metrics.** If one team calls it `form_submit` and another `lead_submitted`, a funnel across both is wrong or impossible.\n- **Trust.** Once stakeholders find two numbers for the same thing, they stop trusting any of them.\n- **Safe change.** Renaming or repurposing an event can silently break dashboards, experiments and CDP audiences.\n- **Privacy.** A review step catches PII or sensitive properties before they ship.\n\n## Components of a governance model\n\n| Element | Purpose |\n|---|---|\n| Taxonomy and naming convention | One vocabulary for actions, objects and properties |\n| Tracking plan / data dictionary | Definition, type, allowed values and owner for each event |\n| Schema validation | Automated checks in CI and at the collector |\n| Ownership | A named team accountable for each event |\n| Versioning and deprecation | Additive changes by default; planned retirement |\n| Release validation | Tracking tests as part of the definition of done |\n| Privacy review | Check for PII and consent purpose |\n\n## Governance in a micro frontend setup\n\nEach domain team deploys independently. A central contract (shared envelope, naming rules, core events) plus domain-owned events balances consistency with autonomy. A shared library or platform shell can attach common context such as page type, locale and consent state.\n\n## Anti-patterns\n\n- A spreadsheet tracking plan nobody enforces\n- A central team that must approve every event, becoming a bottleneck\n- Allowing arbitrary free-form event names from any tag manager user\n\nThe practical goal is guardrails that are automated, not meetings.",
+      "diagrams": [],
+      "followUps": [
+        "How do you enforce a tracking plan automatically?",
+        "How do you retire an event that dashboards still use?",
+        "Who should own event definitions in a federated organisation?"
+      ],
+      "related": [
+        "analytics-event-design",
+        "analytics-for-micro-frontends",
+        "cdp-ingestion-and-data-quality"
+      ]
+    },
+    {
+      "slug": "preventing-duplicate-analytics-events",
+      "title": "How do you prevent duplicate analytics events?",
+      "topic": "Event Design",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "analytics",
+        "deduplication",
+        "spa",
+        "idempotency"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-cdp-analytics-a-b-testing",
+          "pages": [
+            9,
+            10
+          ]
+        }
+      ],
+      "quick": "I would find the cause first. Duplicates usually come from multiple tags or libraries firing the same event, single-page app route changes or re-renders triggering handlers more than once, retries on network failure, or micro frontends each sending page views. Prevention is a single owner for each event type, a unique event ID so the collector can deduplicate, idempotent retries, firing from the right lifecycle point, and automated tests that count events per user action.",
+      "revision": "Fix at the source: one owner per event, unique event IDs for server-side dedupe, idempotent retries, correct lifecycle hooks, and tests that assert exactly one event per action.",
+      "detailed": "Duplicate events inflate page views and conversions, and can wrongly show an experiment variant as better if one arm is affected more than the other.\n\n## Typical causes\n\n- Two tags firing the same event (hard-coded call plus a tag-manager rule)\n- Single-page app route changes or component re-renders triggering page-view or click handlers repeatedly\n- Event handlers added on every render and never removed\n- Retries after a timeout when the first request actually succeeded\n- Several micro frontends each emitting their own page view\n- Double submission of a form (user double-click, no disabled state)\n\n## Prevention\n\n1. **Single ownership.** Exactly one component (for example the shell) emits page views; one place emits each business event.\n2. **Correct lifecycle.** Fire on the intended action or on a route change, not inside render logic.\n3. **Unique `event_id`** generated at event creation, reused on retry. The collector keeps recently seen IDs and drops repeats.\n4. **Idempotent processing** so replays do not double count.\n5. **Server-confirmed business events.** Emit `lead_form_submitted` from the backend after the lead is stored, in addition to or instead of a client event.\n6. **UI safeguards.** Disable the submit button while a request is pending.\n7. **Tests.** Automate a check that one user action produces one event, and monitor the ratio of events to server-side records.\n\n```ts\nfunction track(name: string, props: Record<string, unknown>) {\n  const event = { event_name: name, event_id: crypto.randomUUID(), props };\n  send(event); // retries must resend the same event object, same event_id\n}\n```\n\n## Detection\n\nCompare analytics conversions with backend records (CRM leads), watch for exact-duplicate events within milliseconds, and alert on unexpected jumps after releases.",
+      "diagrams": [],
+      "followUps": [
+        "How would the collector detect duplicates at scale?",
+        "Should the browser or the backend emit the conversion event?",
+        "How can duplicates bias an A/B test?"
+      ],
+      "related": [
+        "analytics-event-design",
+        "analytics-for-micro-frontends",
+        "scenario-page-views-vs-crm-leads"
+      ]
+    },
+    {
+      "slug": "what-is-ab-testing",
+      "title": "What is A/B testing and how does a sound experiment work?",
+      "topic": "A/B Testing Fundamentals",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "ab-testing",
+        "experimentation"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-cdp-analytics-a-b-testing",
+          "pages": [
+            5,
+            6
+          ]
+        }
+      ],
+      "quick": "A/B testing is a controlled experiment that compares two experiences on a pre-defined metric. Eligible users are randomly assigned to a control or a variant, so differences in outcome can be attributed to the change rather than to who saw it. I would state a hypothesis, choose a primary metric and guardrails, work out the sample size and duration up front, track exposure, and analyse with the planned method before shipping, only if the evidence supports it.",
+      "revision": "A/B testing randomly assigns eligible users to control or variant and compares a pre-defined metric, giving causal evidence about one change if the design is valid.",
+      "detailed": "An **A/B test** is a randomised controlled experiment. Users are randomly assigned to the control (A, the existing experience) or a variant (B, the change), and the difference in a pre-defined outcome is estimated with its uncertainty.\n\n## Why randomisation matters\n\nComparing this month with last month, or users who clicked with users who did not, mixes the effect of the change with seasonality, campaigns and self-selection. Random assignment makes the groups comparable on average, so a difference can reasonably be attributed to the change.\n\n## Lifecycle\n\n1. **Hypothesis.** \"A shorter enquiry form will increase valid submissions without lowering lead quality.\"\n2. **Metrics.** One primary metric, plus guardrails such as latency, errors and lead quality.\n3. **Eligibility and unit.** Who can enter, and what is randomised (user, session, device)?\n4. **Sizing.** Baseline rate, minimum detectable effect, significance level and power determine sample size and duration.\n5. **Run.** Stable assignment, exposure logging, no mid-test changes.\n6. **Validate.** Check sample ratio, event completeness and data quality.\n7. **Analyse** with the pre-registered method.\n8. **Decide and roll out** based on effect size, uncertainty, guardrails and cost.\n\n## Example (hypothetical)\n\nControl shows an \"Explore Vehicle\" button; the variant shows \"Request Information\". The primary metric is qualified enquiry submissions per exposed visitor. The winner is determined by measured results, never assumed in advance.\n\n## Limits\n\n- A single test estimates one change in one context and period; effects may not generalise.\n- A statistically significant result can still be too small to matter commercially.\n- A/B tests need enough traffic; low-volume pages may be better served by qualitative research or larger changes.",
+      "diagrams": [],
+      "followUps": [
+        "Why can't we just compare before and after the release?",
+        "What is the unit of randomisation and why does it matter?",
+        "When is an A/B test the wrong tool?"
+      ],
+      "related": [
+        "hypothesis-randomization-control-treatment",
+        "conversion-rate-math",
+        "statistical-significance-p-values"
+      ]
+    },
+    {
+      "slug": "conversion-rate-math",
+      "title": "How do you calculate and compare conversion rates, and is a higher observed rate proof of improvement?",
+      "topic": "A/B Testing Fundamentals",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "ab-testing",
+        "conversion-rate",
+        "statistics"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-cdp-analytics-a-b-testing",
+          "pages": [
+            6
+          ]
+        }
+      ],
+      "quick": "Conversion rate is conversions divided by eligible visitors, times 100. With 80 conversions from 1,000 visitors it is 8%; 95 from 1,000 is 9.5%. The absolute difference is 1.5 percentage points and the relative lift is 18.75%. But that is only an observed difference. With these numbers a standard two-proportion test gives a p-value of roughly 0.24, so the data is consistent with no real difference. I would report the estimate with a confidence interval.",
+      "revision": "Rate = conversions / eligible visitors. Report absolute (percentage points) and relative lift, but 8% vs 9.5% on 1,000 each is not statistically convincing.",
+      "detailed": "**Conversion rate** = conversions / eligible visitors, usually shown as a percentage. The denominator must be the population that could convert and was exposed.\n\n## Worked example\n\n- Control: 80 conversions from 1,000 visitors, so 80 / 1000 = 8.0%.\n- Variant: 95 conversions from 1,000 visitors, so 95 / 1000 = 9.5%.\n- **Absolute difference:** 9.5 - 8.0 = 1.5 percentage points.\n- **Relative lift:** (9.5 - 8.0) / 8.0 = 0.1875, or 18.75%.\n\nAlways say \"percentage points\" for absolute changes. \"1.5%\" is ambiguous between a point difference and a relative one.\n\n## Is it significant?\n\nA two-proportion z-test is a common check. The pooled rate is (80 + 95) / 2000 = 8.75%. The standard error of the difference is sqrt(0.0875 x 0.9125 x (1/1000 + 1/1000)), which is about 0.0126. The z-statistic is 0.015 / 0.0126, about 1.19, giving a two-sided p-value around 0.24.\n\nSo an 18.75% relative lift on 1,000 visitors per arm is quite consistent with random variation. The 95% confidence interval for the difference runs from roughly -1.0 to +4.0 percentage points (about, using the unpooled standard error), which includes zero and also includes sizeable gains.\n\n## Takeaways\n\n- Observed differences are not proof; uncertainty depends on sample size and baseline.\n- Report an effect estimate with an interval, not just a winner label.\n- Relative lifts look big when baselines are small. Always show the baseline too.\n- Make sure the numerator and denominator are defined identically in both arms, and that conversions are attributed to exposed users only.\n\nWith more traffic the same rates would give much stronger evidence, which is why sample size is planned in advance.",
+      "diagrams": [],
+      "followUps": [
+        "What sample size would you need to detect that difference?",
+        "Why report percentage points rather than percent?",
+        "How would you build a confidence interval for the difference?"
+      ],
+      "related": [
+        "statistical-significance-p-values",
+        "power-mde-sample-size",
+        "what-is-ab-testing"
+      ]
+    },
+    {
+      "slug": "hypothesis-randomization-control-treatment",
+      "title": "What are hypotheses, randomisation, and control and treatment groups?",
+      "topic": "A/B Testing Fundamentals",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "ab-testing",
+        "randomization",
+        "hypothesis"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-cdp-analytics-a-b-testing",
+          "pages": [
+            6,
+            7,
+            10
+          ]
+        }
+      ],
+      "quick": "The control group gets the existing experience and the treatment group gets the change. A hypothesis is a testable prediction, for example that a simplified enquiry form increases completed submissions without increasing invalid leads. Randomisation assigns eligible users to groups by chance so that, on average, the groups differ only by the treatment. Statistically there is also a null hypothesis, usually that the change has no effect, and the test measures evidence against it.",
+      "revision": "Control = existing experience, treatment = change. Randomly assign eligible users so groups are comparable; state a testable hypothesis and a null before looking at data.",
+      "detailed": "## Hypothesis\n\nA good product hypothesis names the change, the expected effect, the metric and the reason: \"Reducing the enquiry form from eight fields to four will increase valid submissions per visitor, because fewer fields reduce effort, and will not reduce lead quality.\"\n\nStatistically there is a **null hypothesis** (H0), commonly \"the true difference in the primary metric is zero\", and an **alternative** (H1: the difference is not zero, or is positive for a one-sided test). The test asks how surprising the data would be if H0 were true.\n\n## Control and treatment\n\n- **Control (A):** the current experience, the baseline.\n- **Treatment or variant (B):** the change. Tests can have several variants (A/B/n), which increases multiple-comparison concerns.\n\n## Randomisation\n\nUsers (or another unit) are assigned by chance, commonly by hashing a stable ID with an experiment key. This removes systematic differences such as device mix, traffic source or user intent that would otherwise bias the comparison.\n\n### Choosing the unit\n\n| Unit | Pros | Cons |\n|---|---|---|\n| User ID | Consistent across sessions and devices (if logged in) | Not available for anonymous visitors |\n| Device or cookie ID | Works for anonymous traffic | Cross-device users may see both variants; cookie loss reassigns |\n| Session | Simple | Same person can see both variants; effects within a user are mixed |\n\nThe analysis unit should normally match the randomisation unit.\n\n## Practical rules\n\n- Randomise only eligible users, defined before launch.\n- Keep assignment sticky so a user does not flip between variants.\n- Do not let the variant change who becomes eligible (that breaks comparability).\n- Do not choose groups by hand or by time (variant on weekdays, control at weekends).\n- Write the hypothesis, metric and decision rule before seeing results.",
+      "diagrams": [],
+      "followUps": [
+        "What goes wrong if you randomise by session but analyse by user?",
+        "What is the null hypothesis in an A/B test?",
+        "Why not run the variant for a week and compare to the previous week?"
+      ],
+      "related": [
+        "what-is-ab-testing",
+        "experiment-assignment-and-exposure",
+        "statistical-significance-p-values"
+      ]
+    },
+    {
+      "slug": "statistical-significance-p-values",
+      "title": "What is statistical significance, and what does a p-value actually mean?",
+      "topic": "Experiment Statistics",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "ab-testing",
+        "p-value",
+        "significance",
+        "statistics"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-cdp-analytics-a-b-testing",
+          "pages": [
+            7,
+            10
+          ]
+        }
+      ],
+      "quick": "Statistical significance means the observed data would be unlikely if the null hypothesis, usually no true difference, were correct, judged against a threshold alpha such as 0.05. The p-value is the probability of seeing a result at least this extreme assuming the null is true. It is not the probability that the variant is better or that the result is a fluke. I would also look at effect size and the confidence interval, and treat significance as evidence, not a decision by itself.",
+      "revision": "A p-value is the probability of data this extreme if the null were true. It is not the probability the variant is better. Check effect size and interval too.",
+      "detailed": "**Statistical significance** is a statement about evidence under a model: if there were truly no effect (the null hypothesis), how likely is a result at least as extreme as the one observed? That probability is the **p-value**. If it falls below a pre-chosen threshold **alpha** (commonly 0.05), the result is called statistically significant.\n\n## What a p-value is not\n\n- It is **not** the probability that the variant is better.\n- It is **not** the probability that the null hypothesis is true.\n- It is **not** the probability that the result happened \"by chance\" in the sense of 1 - p being the chance the effect is real.\n- It does **not** measure the size or importance of the effect.\n\nAlpha is the long-run false positive rate you accept when there is no real effect: at 0.05, about 1 in 20 true-null tests will look significant.\n\n## Better to report\n\n- The **estimated effect** (for example +0.4 percentage points)\n- A **confidence interval** for it. A 95% interval is a procedure that, over repeated experiments, would capture the true value about 95% of the time; it is not a 95% probability for this one interval.\n- Practical significance: is the effect worth the cost?\n\n## Common traps\n\n- **Peeking** and stopping at the first p < 0.05 inflates false positives.\n- **Multiple comparisons.** Many metrics, segments or variants raise the chance of a spurious win; use corrections or declare one primary metric.\n- **Large samples** make trivial effects significant; **small samples** make large effects non-significant.\n- **\"Not significant\" is not \"no effect\".** It may simply mean the test was underpowered.\n\n## Bayesian note\n\nBayesian experimentation tools report quantities like the probability that B beats A, given a prior. That is a different framework with different assumptions, and its outputs should not be confused with p-values.\n\n```text\nExample: p = 0.03 means: if the true effect were zero, results this extreme\nor more would occur about 3% of the time. It does not mean there is a 97%\nchance the variant is better.\n```",
+      "diagrams": [],
+      "followUps": [
+        "What does a 95% confidence interval mean?",
+        "Why is 'not significant' not the same as 'no effect'?",
+        "How do multiple metrics or variants affect false positives?"
+      ],
+      "related": [
+        "power-mde-sample-size",
+        "peeking-and-early-stopping",
+        "conversion-rate-math"
+      ]
+    },
+    {
+      "slug": "power-mde-sample-size",
+      "title": "What are statistical power, minimum detectable effect and sample size?",
+      "topic": "Experiment Statistics",
+      "difficulty": "advanced",
+      "type": "conceptual",
+      "tags": [
+        "ab-testing",
+        "power",
+        "mde",
+        "sample-size"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-cdp-analytics-a-b-testing",
+          "pages": [
+            7
+          ]
+        }
+      ],
+      "quick": "Power is the probability of detecting an effect of a specified size when it truly exists, commonly set at 80%. The minimum detectable effect, or MDE, is the smallest effect the test is designed to detect reliably. Sample size follows from baseline rate, MDE, alpha and power: a smaller MDE needs many more users. For an 8% baseline and a 1 percentage point MDE at alpha 0.05 and 80% power, I would need roughly 12,000 users per arm, before accounting for traffic and business cycles.",
+      "revision": "Power = chance of detecting a true effect of a given size. MDE = smallest effect worth detecting. Sample size rises sharply as MDE shrinks or baseline variance grows.",
+      "detailed": "These three ideas are planned together before launch.\n\n## Definitions\n\n- **Power (1 - beta):** the probability the test detects an effect of a specified size, if it exists, under the test's assumptions. 80% is a common convention; it means a real effect of exactly that size is missed about 20% of the time.\n- **Minimum detectable effect (MDE):** the smallest true effect the test is designed to detect at the chosen power. It should reflect the smallest change worth acting on, not what traffic happens to allow.\n- **Alpha:** the accepted false positive rate (commonly 0.05).\n\n## Approximate sample size for conversion rates\n\nFor a two-sided test comparing two proportions p1 and p2, per arm:\n\n```text\nn = (z_alpha/2 + z_beta)^2 * (p1(1-p1) + p2(1-p2)) / (p1 - p2)^2\n```\n\nwith z_alpha/2 = 1.96 and z_beta = 0.84 for alpha 0.05 and 80% power.\n\n### Example (illustrative)\n\nBaseline 8%, target 9% (MDE of 1 percentage point):\n\n- (1.96 + 0.84)^2 is about 7.85\n- p1(1-p1) = 0.0736, p2(1-p2) = 0.0819, sum = 0.1555\n- (p1 - p2)^2 = 0.0001\n- n = 7.85 x 0.1555 / 0.0001, about 12,200 users per arm\n\nHalving the MDE to 0.5 points needs roughly four times as many users, since n scales with 1/MDE^2.\n\n## Planning implications\n\n- **Duration** = required sample / eligible daily traffic, rounded up to whole weeks to cover weekday and weekend cycles, and any known business cycle.\n- **Low-traffic pages** may only detect large effects. Consider bigger changes, a more sensitive metric, or a different method.\n- **Variance reduction** (for example using pre-experiment data) can cut the needed sample for some metrics.\n- **Underpowered tests** produce many inconclusive results, and the significant ones tend to overstate the effect.\n\nUse a vetted calculator or library for real planning, and agree the MDE with the business before the test starts.",
+      "diagrams": [],
+      "followUps": [
+        "Why does halving the MDE roughly quadruple the sample size?",
+        "What can you do if the page has too little traffic?",
+        "Why might a significant result from an underpowered test overstate the effect?"
+      ],
+      "related": [
+        "statistical-significance-p-values",
+        "conversion-rate-math",
+        "peeking-and-early-stopping"
+      ]
+    },
+    {
+      "slug": "primary-and-guardrail-metrics",
+      "title": "Why define a primary metric and guardrail metrics before an experiment?",
+      "topic": "Experiment Statistics",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "ab-testing",
+        "metrics",
+        "guardrails"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-cdp-analytics-a-b-testing",
+          "pages": [
+            6,
+            7
+          ]
+        }
+      ],
+      "quick": "The primary metric is the single outcome the decision is based on, so I should pick it before launch to avoid cherry-picking after seeing results. Guardrail metrics are things that must not get materially worse, such as page latency, error rate, accessibility, or lead quality. A variant that lifts clicks but harms performance or sends junk leads is not a win. I would prefer a metric close to business value, like qualified leads, over a proxy like clicks.",
+      "revision": "One pre-declared primary metric drives the decision; guardrails (performance, errors, accessibility, lead quality) must not regress. Prefer business-value metrics over proxy clicks.",
+      "detailed": "## Primary metric\n\nThe **primary metric** (sometimes called the overall evaluation criterion) is the outcome used to decide. Declare it in advance, with its exact definition, unit and time window. Choosing it after viewing results gives many chances to find something significant by luck.\n\nGood primary metrics are:\n\n- Close to business value (qualified enquiries per exposed visitor, not button clicks)\n- Sensitive enough to move within the test duration\n- Measured identically in every arm\n\nFor long-term outcomes (a vehicle purchase) use a shorter-term **proxy** that has a believable link to the goal, and be explicit about the assumption.\n\n## Secondary and diagnostic metrics\n\nThese help explain the result (click-through, scroll depth, step completion) but do not decide it. The more of them you test, the greater the risk of a false positive, so treat unexpected significance there as a hypothesis for follow-up.\n\n## Guardrail metrics\n\n**Guardrails** protect against harm. Examples:\n\n| Category | Guardrail examples |\n|---|---|\n| Performance | LCP, INP, CLS, page load time |\n| Reliability | JavaScript errors, API error rate |\n| Accessibility | Automated checks, keyboard and screen reader regressions |\n| Quality | Lead validity rate, refund or complaint rate |\n| Business | Revenue per visitor, unsubscribe rate |\n\nDefine thresholds (for example, not worse than a stated non-inferiority margin) so the decision rule is explicit.\n\n## Decision matrix (illustrative)\n\n| Primary | Guardrails | Decision |\n|---|---|---|\n| Improves clearly | Fine | Ship |\n| Improves | Materially worse | Investigate, fix, retest |\n| No clear change | Fine | Ship only if there is another reason (cost, simplicity) |\n| Worse | Any | Do not ship |\n\n## Common mistake\n\nMeasuring clicks when the real objective is qualified leads can reward a design that attracts accidental clicks and lowers lead quality.",
+      "diagrams": [],
+      "followUps": [
+        "What would you use as a primary metric for a lead-generation page?",
+        "How do you decide how much guardrail regression is acceptable?",
+        "What is the risk of tracking dozens of secondary metrics?"
+      ],
+      "related": [
+        "what-is-ab-testing",
+        "common-ab-testing-mistakes",
+        "scenario-conversion-up-performance-down"
+      ]
+    },
+    {
+      "slug": "sample-ratio-mismatch",
+      "title": "What is sample-ratio mismatch (SRM) and how do you detect it?",
+      "topic": "Experiment Statistics",
+      "difficulty": "advanced",
+      "type": "conceptual",
+      "tags": [
+        "ab-testing",
+        "srm",
+        "data-quality",
+        "chi-square"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-cdp-analytics-a-b-testing",
+          "pages": [
+            7,
+            10
+          ]
+        }
+      ],
+      "quick": "Sample-ratio mismatch means the observed split of users between variants differs from the designed split by more than chance would explain, for example a 50/50 test showing 50,000 versus 51,000. I detect it with a chi-square goodness-of-fit test against the intended ratio, usually with a strict threshold like p below 0.001. SRM signals a bug such as redirect loss, bot filtering, or tracking differences, so I would not trust the results until I find the cause.",
+      "revision": "SRM: observed variant split deviates from the design more than chance allows. Check with chi-square; if flagged, results are untrustworthy until the cause is found.",
+      "detailed": "**Sample-ratio mismatch (SRM)** occurs when the number of users in each variant differs from the intended allocation by more than random variation would explain. It is a data-validity alarm, not a result.\n\n## Detection\n\nUse a chi-square goodness-of-fit test on the counts of exposed units per arm against the planned ratio.\n\n### Example (illustrative)\n\nA 50/50 test records 50,000 users in control and 51,000 in the variant. Expected is 50,500 each.\n\n- chi-square = (500^2 / 50,500) + (500^2 / 50,500), about 9.9\n- With 1 degree of freedom, that corresponds to a p-value near 0.002\n\nThat difference of 2% looks small but is too large for pure chance at this size. Many teams use a strict alert threshold (for example p < 0.001) because the check runs on every experiment and a mismatch invalidates the test.\n\n```python\nfrom scipy.stats import chisquare\nstat, p = chisquare([50000, 51000], f_exp=[50500, 50500])\n```\n\n## Common causes\n\n- **Variant-specific load issues.** A heavier variant loads slower, so more users leave before the exposure event fires.\n- **Redirects** or client-side assignment that lose some users in one arm.\n- **Bot filtering or ad blockers** affecting arms differently.\n- **Assignment bugs**, such as bucketing by an ID that is not independent of the arm.\n- **Triggering logic** that logs exposure under different conditions per variant.\n- **Consent gating** that interacts with the variant.\n- **Mid-test changes** to allocation without proper handling.\n\n## What to do\n\n1. Do not interpret the metric difference.\n2. Segment the mismatch by browser, device, country and time to locate the cause.\n3. Fix the bug and rerun or restart; do not simply reweight the data.\n\nAlso confirm the allocation itself: if you ramped from 10% to 50%, analyse periods separately or use a ramp-aware method.",
+      "diagrams": [],
+      "followUps": [
+        "Why might a slow variant cause SRM?",
+        "Why not just reweight the data to fix the ratio?",
+        "How would you monitor SRM automatically across experiments?"
+      ],
+      "related": [
+        "scenario-validating-an-ab-test",
+        "experiment-assignment-and-exposure",
+        "common-ab-testing-mistakes"
+      ]
+    }
+  ]
+}

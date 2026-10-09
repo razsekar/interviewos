@@ -1,0 +1,566 @@
+{
+  "category": "react",
+  "questions": [
+    {
+      "slug": "ssr-csr-vs-ssr",
+      "title": "CSR vs SSR: what is the difference?",
+      "topic": "Rendering Strategies",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "react",
+        "ssr",
+        "csr",
+        "rendering"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-react-js",
+          "pages": [
+            11
+          ]
+        }
+      ],
+      "quick": "With client-side rendering the server sends a small HTML shell and JavaScript, and the browser builds the UI after the bundle loads and runs. With server-side rendering the server produces HTML for each request, so users and crawlers see content sooner, and React then hydrates it to make it interactive. I would pick SSR for public, content-heavy, SEO-sensitive pages and CSR for highly interactive, logged-in tools. SSR costs server compute and complexity; CSR costs a slower first paint and more reliance on the device.",
+      "revision": "CSR builds the page in the browser from a JS bundle; SSR sends ready HTML per request then hydrates. SSR helps first content and SEO; CSR suits app-like, authenticated screens.",
+      "detailed": "**Short answer:** in client-side rendering (CSR) the browser downloads a nearly empty HTML document plus JavaScript and builds the UI itself. In server-side rendering (SSR) the server runs React for each request and returns real HTML, which the browser can paint before any JavaScript executes. React then *hydrates* that HTML, attaching event handlers so it becomes interactive.\n\n{{diagram:flows}}\n\n## How they differ\n\n| Aspect | CSR | SSR |\n|---|---|---|\n| First HTML | Empty shell (`<div id=\"root\">`) | Full content for that URL |\n| Time to first content | After JS downloads, parses and runs, then data loads | Earlier, as soon as the server responds |\n| Time to interactive | Roughly when the content appears | Later than content: hydration must finish |\n| Server cost | Static hosting is enough | Compute per request (or per cache miss) |\n| SEO / link previews | Depends on crawlers executing JS | HTML is available immediately |\n| Navigation after load | Fast, client-side | Same, once hydrated |\n\n## Trade-offs worth stating\n\n- SSR improves *perceived* load, but a page can look ready while still unresponsive until hydration completes.\n- SSR adds a server dependency: you now monitor, scale and cache a Node runtime (or edge functions) and must keep code safe to run on the server (no bare `window` access during render).\n- CSR keeps infrastructure simple and works well behind a login, where SEO is irrelevant and users return often so the bundle is cached.\n- Neither is automatically faster; a heavy CSR bundle and a slow SSR backend are both slow in different ways.\n\n## Common mistakes\n\n- Choosing SSR \"for performance\" without measuring, then paying for server rendering of pages that never needed it.\n- Assuming SSR removes the need for code splitting; the same JavaScript still has to hydrate.\n- Fetching data in the browser after an SSR render, which recreates the waterfall SSR was meant to remove.\n\nIn practice most production sites mix both per route, which is covered in the rendering-strategy-per-route question.",
+      "diagrams": [
+        {
+          "id": "flows",
+          "title": "CSR and SSR request flow",
+          "alt": "Two flows. In CSR the browser gets an empty shell, downloads the JavaScript bundle, runs it and then fetches data before showing content. In SSR the server renders HTML, the browser shows it, then downloads JavaScript and hydrates it.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "b",
+              "label": "Browser request"
+            },
+            {
+              "id": "shell",
+              "label": "CSR: empty HTML shell"
+            },
+            {
+              "id": "js",
+              "label": "Download and run JS"
+            },
+            {
+              "id": "data",
+              "label": "Fetch data and render UI"
+            },
+            {
+              "id": "srv",
+              "label": "SSR: server renders HTML"
+            },
+            {
+              "id": "paint",
+              "label": "Browser paints content"
+            },
+            {
+              "id": "hyd",
+              "label": "Hydrate and become interactive"
+            }
+          ],
+          "edges": [
+            {
+              "from": "b",
+              "to": "shell",
+              "label": "CSR"
+            },
+            {
+              "from": "shell",
+              "to": "js"
+            },
+            {
+              "from": "js",
+              "to": "data"
+            },
+            {
+              "from": "b",
+              "to": "srv",
+              "label": "SSR"
+            },
+            {
+              "from": "srv",
+              "to": "paint"
+            },
+            {
+              "from": "paint",
+              "to": "hyd"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "What is hydration and what can go wrong with it?",
+        "Why can SSR pages feel visible but not clickable?",
+        "When would you keep a route as pure CSR?"
+      ],
+      "related": [
+        "ssr-hydration-explained",
+        "ssr-ssg-isr-explained",
+        "ssr-choose-rendering-strategy-per-route"
+      ]
+    },
+    {
+      "slug": "ssr-hydration-explained",
+      "title": "What is hydration and what are hydration mismatches?",
+      "topic": "Rendering Strategies",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "react",
+        "ssr",
+        "hydration"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Hydration is when React takes server-rendered HTML that is already in the page and attaches event handlers and state to it, instead of rebuilding the DOM from scratch. For it to work, the first client render must produce the same markup the server sent. If it does not, for example because I used Date.now, Math.random or window checks during render, React reports a hydration mismatch. I fix that by keeping render pure and moving browser-only values into useEffect or a client-only component.",
+      "revision": "Hydration attaches React behavior to server HTML. The first client render must match the server output; keep render pure and push browser-only values into effects.",
+      "detailed": "**Short answer:** hydration is the step where React reuses HTML produced on the server and makes it interactive by attaching event handlers and internal state. It is what turns an SSR page from a static picture into a working app.\n\n## How it works\n\n1. The server renders the component tree to an HTML string and sends it.\n2. The browser paints that HTML immediately.\n3. The JavaScript bundle loads and React calls `hydrateRoot` on the container.\n4. React walks the existing DOM, compares it with what the components would render, and attaches listeners rather than recreating nodes.\n\n```jsx\nimport { hydrateRoot } from 'react-dom/client';\n\nhydrateRoot(document.getElementById('root'), <App />);\n```\n\n## Hydration mismatches\n\nIf the markup rendered on the client during hydration differs from the server HTML, React logs a warning and, depending on the version and the kind of difference, may discard and re-render part of the tree on the client. That wastes the SSR work and can cause flicker.\n\nTypical causes:\n\n- Values that differ per environment: `Date.now()`, `Math.random()`, time zones and locale formatting.\n- Branching on `typeof window !== 'undefined'` inside render.\n- Browser-only state such as `localStorage` read during render.\n- Invalid HTML nesting (for example a `<div>` inside a `<p>`) that the browser repairs before React sees it.\n- Browser extensions or third-party scripts altering the DOM.\n\n## Fixing them\n\n```jsx\nfunction Clock() {\n  const [now, setNow] = useState(null);\n  useEffect(() => setNow(new Date()), []); // runs only on the client\n  return <time>{now ? now.toLocaleTimeString() : ''}</time>;\n}\n```\n\nRender a stable placeholder first, then fill in client-only values in an effect. For truly unavoidable one-off differences on a single element, React offers `suppressHydrationWarning`, but it should be a narrow exception.\n\n## Why it matters\n\nHydration cost grows with the amount of interactive UI on the page, so reducing client JavaScript, splitting code, or using newer patterns such as server components and selective hydration reduces time to interactive.",
+      "followUps": [
+        "Why can an SSR page look ready but not respond to clicks?",
+        "How do server components change the hydration cost?",
+        "How would you debug a hydration warning in production?"
+      ],
+      "related": [
+        "ssr-csr-vs-ssr",
+        "react-strict-mode"
+      ]
+    },
+    {
+      "slug": "ssr-ssg-isr-explained",
+      "title": "SSG vs ISR: what are they and when do you use each?",
+      "topic": "Rendering Strategies",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "react",
+        "ssg",
+        "isr",
+        "nextjs",
+        "caching"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-react-js",
+          "pages": [
+            11,
+            12
+          ]
+        }
+      ],
+      "quick": "Static site generation builds pages to HTML ahead of time, usually at build, so they can be served from a CDN very quickly and cheaply. It suits content that is the same for every visitor. Incremental static regeneration lets those pages be refreshed after deployment, on a time interval or on demand, without rebuilding the whole site. I use SSG for stable pages and ISR for large catalogues or editorial content that changes, accepting that visitors may briefly see slightly stale content.",
+      "revision": "SSG pre-builds HTML at build time for CDN delivery; ISR refreshes individual pages after deploy, by time or on demand, trading brief staleness for no full rebuild.",
+      "detailed": "**Short answer:** Static Site Generation (SSG) renders pages to HTML ahead of time, typically during the build, and serves the files from a CDN. Incremental Static Regeneration (ISR) extends that: pages are still served as static output, but individual pages can be regenerated after deployment without rebuilding everything.\n\n## How ISR typically works\n\nA common model (used by frameworks such as Next.js) is *stale-while-revalidate*:\n\n1. A page is generated and cached.\n2. After a configured time window, or when an on-demand trigger fires (for example a CMS webhook), the next request still receives the cached page.\n3. The framework regenerates the page in the background and replaces the cache entry.\n4. Later requests get the fresh version.\n\n```jsx\n// Next.js pages router example: regenerate at most once per hour\nexport async function getStaticProps() {\n  const models = await fetchModels();\n  return { props: { models }, revalidate: 3600 };\n}\n```\n\nExact APIs differ between router generations and frameworks, but the idea is the same.\n\n## Choosing between them\n\n| Need | Good fit |\n|---|---|\n| Content identical for everyone, rarely changes (docs, marketing) | SSG |\n| Thousands of pages, content changes during the day | ISR with revalidation |\n| Editors need updates visible immediately after publish | ISR with on-demand revalidation |\n| Content depends on the logged-in user or request headers | SSR or client fetching, not SSG |\n\n## Trade-offs and pitfalls\n\n- **Build time:** pure SSG over very large page sets makes builds slow; ISR avoids building everything up front.\n- **Staleness:** with time-based revalidation users may see old data until regeneration completes. Prices, stock or legal content may need on-demand revalidation or a different strategy.\n- **Personalization:** static HTML is shared. Personalized parts should load client-side or at the edge.\n- **Platform support:** ISR needs a runtime or platform that supports background regeneration; a purely static file host cannot do it.\n\nBoth give excellent time-to-first-byte because there is no per-request rendering on the hot path.",
+      "followUps": [
+        "How would an editor's CMS publish trigger an ISR update?",
+        "What happens if regeneration fails?",
+        "How do you handle personalized content on a statically generated page?"
+      ],
+      "related": [
+        "ssr-csr-vs-ssr",
+        "ssr-choose-rendering-strategy-per-route"
+      ]
+    },
+    {
+      "slug": "ssr-choose-rendering-strategy-per-route",
+      "title": "How would you choose a rendering strategy for a large public website?",
+      "topic": "Rendering Strategies",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "react",
+        "ssr",
+        "ssg",
+        "isr",
+        "csr",
+        "architecture"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-react-js",
+          "pages": [
+            12
+          ]
+        }
+      ],
+      "quick": "I would not use one strategy everywhere; I would decide per route. Marketing and vehicle detail pages that need SEO and speed fit static generation or ISR. Pages that depend on request data, such as localized pricing or dealer availability, may fit SSR or edge rendering. Logged-in account and configurator experiences can be client-rendered. Then I measure Core Web Vitals and crawlability per route and adjust. A framework with per-route rendering makes this a configuration choice, not a rewrite.",
+      "revision": "Pick rendering per route by SEO need, data freshness and personalization: SSG/ISR for stable public content, SSR for request-specific, CSR for authenticated interactive tools.",
+      "detailed": "**Short answer:** treat rendering as a per-route decision driven by three questions: does the page need to be crawlable and fast on first load, how often does its data change, and does it differ per user or request?\n\n*Example scenario:* a global automotive-style site with model pages, dealer search, an owner account area and a vehicle configurator.\n\n| Route | Characteristics | Reasonable strategy |\n|---|---|---|\n| Home, brand and campaign pages | Public, SEO-critical, same for everyone | SSG, or ISR if editors publish often |\n| Vehicle model pages | Public, many pages, content from a CMS | ISR with on-demand revalidation |\n| Dealer search results | Public, depends on query and location | SSR (possibly cached at the edge) or CSR over an API with an SSR shell |\n| Owner account dashboard | Authenticated, private, SEO irrelevant | CSR, or SSR with streaming if first paint matters |\n| 3D / configurator | Heavy interaction, client state | CSR with lazy-loaded bundle |\n\n{{diagram:decide}}\n\n## Decision factors\n\n- **SEO and sharing:** public content wants HTML in the first response.\n- **Data freshness:** the faster it changes, the less suitable pure SSG is.\n- **Personalization:** per-user content cannot sit in a shared static page or shared CDN cache without care (cache keys, `Vary`, or loading personalized slices client-side).\n- **Scale and cost:** static output costs little at high traffic; SSR scales with request rate unless cached.\n- **Team and platform:** a meta-framework such as Next.js supports mixing strategies in one codebase, which keeps tooling and design system shared.\n\n## Common mistakes\n\n- Server-rendering everything, then fighting server cost and latency.\n- Statically generating pages with data that must be accurate per request.\n- Not measuring: choose, then verify with real-user Core Web Vitals and crawl tests per route type.",
+      "diagrams": [
+        {
+          "id": "decide",
+          "title": "Rendering strategy decision",
+          "alt": "Decision flow: public and SEO-critical content that is the same for all goes to SSG or ISR; public content that varies per request goes to SSR; authenticated interactive content goes to CSR.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "r",
+              "label": "Route"
+            },
+            {
+              "id": "seo",
+              "label": "Public and SEO-critical?"
+            },
+            {
+              "id": "same",
+              "label": "Same for all users?"
+            },
+            {
+              "id": "ssg",
+              "label": "SSG or ISR"
+            },
+            {
+              "id": "ssr",
+              "label": "SSR or edge render"
+            },
+            {
+              "id": "csr",
+              "label": "CSR with lazy bundle"
+            }
+          ],
+          "edges": [
+            {
+              "from": "r",
+              "to": "seo"
+            },
+            {
+              "from": "seo",
+              "to": "same",
+              "label": "yes"
+            },
+            {
+              "from": "seo",
+              "to": "csr",
+              "label": "no"
+            },
+            {
+              "from": "same",
+              "to": "ssg",
+              "label": "yes"
+            },
+            {
+              "from": "same",
+              "to": "ssr",
+              "label": "no"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you cache SSR responses safely at a CDN?",
+        "What changes if the pages are mostly personalized?",
+        "How would you migrate an existing CSR app to this hybrid model?"
+      ],
+      "related": [
+        "ssr-csr-vs-ssr",
+        "ssr-ssg-isr-explained",
+        "react-seo-optimization"
+      ]
+    },
+    {
+      "slug": "react-rest-api-data-layer",
+      "title": "How do you integrate React with REST APIs?",
+      "topic": "React + APIs",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "react",
+        "rest",
+        "api",
+        "data-fetching",
+        "architecture"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-react-js",
+          "pages": [
+            12
+          ]
+        }
+      ],
+      "quick": "I keep API details out of components. Components call a typed data-access layer or hooks, and that layer owns the base URL, auth headers, request building, error normalization, retries and response mapping. For server state I use a library such as TanStack Query or SWR so caching, deduplication, loading and error states are handled consistently, instead of hand-written useEffect plus useState in every component. Types or schema validation guard the boundary between the API contract and the UI.",
+      "revision": "Isolate API calls in a typed service layer, manage server state with a query library, normalize errors, and keep components focused on rendering.",
+      "detailed": "**Short answer:** put a thin, typed API layer between components and the network, and use a server-state library for caching and request lifecycle. Components should ask for data, not know how it is fetched.\n\n## Layers\n\n```ts\n// api/client.ts - one place for base URL, auth, error shape\nexport async function api<T>(path: string, init: RequestInit = {}): Promise<T> {\n  const res = await fetch(`${API_BASE}${path}`, {\n    ...init,\n    headers: { 'Content-Type': 'application/json', ...init.headers },\n    credentials: 'include',\n  });\n  if (!res.ok) throw new ApiError(res.status, await res.json().catch(() => null));\n  return res.json() as Promise<T>;\n}\n\n// api/vehicles.ts - domain functions\nexport const getVehicle = (id: string) => api<Vehicle>(`/vehicles/${id}`);\n\n// hooks/useVehicle.ts - React binding\nexport const useVehicle = (id: string) =>\n  useQuery({ queryKey: ['vehicle', id], queryFn: () => getVehicle(id) });\n```\n\n## Why this structure helps\n\n- **Single point of change** for auth headers, base URL, tracing IDs and error mapping.\n- **Server state is not UI state.** Libraries such as TanStack Query or SWR provide caching, deduplication, background refetch, retries and mutation invalidation that are easy to get subtly wrong by hand.\n- **Testability:** components can be tested with a mocked network layer (for example MSW) rather than patched `fetch` calls.\n- **Contract safety:** TypeScript types, generated clients from OpenAPI, or runtime validation (such as Zod) catch drift between backend and frontend.\n\n## Practical points\n\n- Map API shapes to view models at the boundary if the backend format is awkward.\n- Always cancel or ignore stale requests (`AbortController`) when inputs change.\n- Handle pagination, optimistic updates and cache invalidation deliberately.\n- Never put secrets in client code; use a backend-for-frontend when the browser must not hold credentials.\n\n## Common mistakes\n\n- `fetch` calls with copy-pasted headers in dozens of components.\n- Copying server data into `useState`, creating two sources of truth.\n- Ignoring loading, empty and error states.",
+      "followUps": [
+        "Why use TanStack Query instead of useEffect plus useState?",
+        "What is a backend-for-frontend and when is it useful?",
+        "How do you keep frontend types in sync with the API?"
+      ],
+      "related": [
+        "react-api-error-handling",
+        "react-prevent-duplicate-api-calls"
+      ]
+    },
+    {
+      "slug": "react-api-error-handling",
+      "title": "How do you handle API errors in a React application?",
+      "topic": "React + APIs",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "react",
+        "api",
+        "errors",
+        "error-boundary",
+        "observability"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-react-js",
+          "pages": [
+            12
+          ]
+        }
+      ],
+      "quick": "I classify errors first: network failures, 401 authentication, 403 authorization, 4xx validation, business rule errors and 5xx server errors, because each needs a different response. Validation errors show field messages, 401 triggers re-authentication, network and 5xx errors offer retry with backoff for safe requests, and unexpected render failures are caught by error boundaries. I log diagnostic context, such as a correlation ID, to monitoring without exposing sensitive data or raw server messages to users.",
+      "revision": "Classify errors (network, 401, 403, validation, business, 5xx), respond differently to each, use error boundaries for render failures, and log safely with correlation IDs.",
+      "detailed": "**Short answer:** do not treat all failures the same. Normalize errors in the API layer into a small set of categories, then let the UI decide how each should look and whether it is retryable.\n\n## Classification and response\n\n| Category | Typical signal | UI / system response |\n|---|---|---|\n| Network / timeout | `fetch` rejects, no response | Offline message, retry button, automatic retry for idempotent requests |\n| Authentication | 401 | Refresh the session once, else redirect to sign-in |\n| Authorization | 403 | \"You do not have access\" state; do not retry |\n| Validation | 400 or 422 with field details | Show messages next to the fields |\n| Business rule | 409 or a domain error code | Specific, actionable copy |\n| Server | 5xx | Generic message, retry with backoff, log it |\n\nNote that `fetch` does not reject on HTTP error statuses; you must check `res.ok` yourself.\n\n## Normalizing in one place\n\n```ts\nclass ApiError extends Error {\n  constructor(public status: number, public body: unknown) {\n    super(`API error ${status}`);\n  }\n}\n```\n\nWith a query library, set retry rules by category, for example do not retry 4xx:\n\n```ts\nuseQuery({\n  queryKey: ['orders'],\n  queryFn: getOrders,\n  retry: (count, err) => !(err instanceof ApiError && err.status < 500) && count < 3,\n});\n```\n\n## Where errors surface\n\n- **Inline** for data-specific failures (a failed widget should not blank the page).\n- **Error boundaries** for exceptions thrown during render; they do not catch errors in event handlers or async callbacks, so those need explicit handling.\n- **Global handler** for cross-cutting cases like expired sessions.\n\n## Observability and safety\n\nLog status, endpoint, a correlation or request ID and user-agnostic context to a monitoring tool. Do not log tokens or personal data, and do not show raw backend messages to users.\n\n## Common mistakes\n\n- Retrying non-idempotent requests (such as payments) automatically.\n- Swallowing errors with an empty `catch`.\n- One global \"Something went wrong\" for everything.",
+      "followUps": [
+        "Why doesn't an error boundary catch a failed fetch?",
+        "Which requests are safe to retry automatically?",
+        "How would you handle an expired token during a burst of parallel requests?"
+      ],
+      "related": [
+        "react-rest-api-data-layer",
+        "react-authentication-patterns"
+      ]
+    },
+    {
+      "slug": "react-prevent-duplicate-api-calls",
+      "title": "How do you prevent duplicate API calls in React?",
+      "topic": "React + APIs",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "react",
+        "api",
+        "caching",
+        "useEffect",
+        "tanstack-query"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-react-js",
+          "pages": [
+            12
+          ]
+        }
+      ],
+      "quick": "First I find out why they happen: Strict Mode double-invoking effects in development, several components requesting the same data, effects with unstable dependencies, or users double-clicking. Then I fix the cause. A server-state library such as TanStack Query or SWR deduplicates and caches identical requests by key, AbortController cancels stale ones, dependencies are made stable, and submit buttons are disabled while a mutation is pending. I do not remove Strict Mode's behavior; I make effects clean up correctly.",
+      "revision": "Diagnose the cause first, then use keyed caching and deduplication, AbortController for stale requests, stable dependencies and disabled submit state.",
+      "detailed": "**Short answer:** diagnose where the duplicates come from in the Network tab and Profiler, then apply the fix that matches the cause. Blanket debouncing is rarely the answer.\n\n## Common causes and fixes\n\n| Cause | Fix |\n|---|---|\n| Strict Mode runs effects twice in development | Expected. Write effects with cleanup; do not \"fix\" by removing Strict Mode. Production does not double-run. |\n| Many components request the same resource | Shared cache with request deduplication (TanStack Query, SWR, RTK Query) |\n| Effect depends on a new object or function every render | Depend on primitives, memoize, or move the object out of render |\n| Rapid input (search box) | Debounce the input value, cancel previous requests |\n| Double-click or repeated submit | Disable the control while pending; use idempotency keys for payments |\n| Navigation refetches data already held | Cache with a sensible `staleTime`, prefetch on hover |\n\n## Cancellation and stale responses\n\nWhen inputs change, an older response can arrive after a newer one and overwrite it. Cancel or ignore it:\n\n```jsx\nuseEffect(() => {\n  const controller = new AbortController();\n  fetch(`/api/search?q=${encodeURIComponent(q)}`, { signal: controller.signal })\n    .then(r => r.json())\n    .then(setResults)\n    .catch(e => { if (e.name !== 'AbortError') setError(e); });\n  return () => controller.abort();\n}, [q]);\n```\n\n## Using a query library\n\n```jsx\n// Both components share one in-flight request and one cache entry\nconst { data } = useQuery({ queryKey: ['dealer', id], queryFn: () => getDealer(id), staleTime: 60_000 });\n```\n\nSame key means one network call; `staleTime` controls how long the data counts as fresh.\n\n## Server-side angle\n\nFor SSR frameworks, fetch on the server and pass data down or hydrate the query cache so the client does not repeat the call. For mutations, make the server idempotent where duplicates would be harmful, since client-side guards can always be bypassed.\n\n## Common mistake\n\nUsing a ref flag to skip the second effect run, which hides a real cleanup bug and breaks under remounting.",
+      "followUps": [
+        "Why do I see two requests in development but one in production?",
+        "Debounce vs throttle for a search box?",
+        "How do idempotency keys help?"
+      ],
+      "related": [
+        "react-rest-api-data-layer",
+        "react-strict-mode"
+      ]
+    },
+    {
+      "slug": "react-authentication-patterns",
+      "title": "How do you handle authentication in a React application?",
+      "topic": "React Security",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "react",
+        "auth",
+        "oauth",
+        "oidc",
+        "cookies",
+        "security"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-react-js",
+          "pages": [
+            12,
+            13
+          ]
+        }
+      ],
+      "quick": "Authentication is a system-level design, not a React feature. I use a standard protocol, usually OAuth 2.0 / OIDC with the authorization code flow and PKCE, and prefer short-lived access tokens. Where possible I keep tokens out of JavaScript, using HttpOnly, Secure, SameSite cookies, often through a backend-for-frontend. React handles UX such as protected routes and redirects, but the backend validates every request. I also plan for refresh, logout, expiry and CSRF.",
+      "revision": "Use OIDC/OAuth with authorization code plus PKCE, short-lived credentials, HttpOnly cookies when possible, and treat route guards as UX while the backend enforces access.",
+      "detailed": "**Short answer:** delegate identity to a proven provider through OAuth 2.0 / OpenID Connect, keep credentials away from script-accessible storage where feasible, and enforce everything on the server. React only reflects the user's state.\n\n{{diagram:flow}}\n\n## Recommended flow for SPAs\n\nThe current guidance for browser apps is the **authorization code flow with PKCE**. The older implicit flow, which returned tokens in the URL, is discouraged.\n\n## Where to keep tokens\n\n| Option | Pros | Risks |\n|---|---|---|\n| In memory (JS variable) | Not persisted; smaller theft window | Lost on refresh; still readable by injected script |\n| `localStorage` / `sessionStorage` | Simple | Any XSS can read and exfiltrate the token |\n| HttpOnly, Secure, SameSite cookie | Not readable by JavaScript | Needs CSRF protection and cookie/CORS configuration |\n\nA popular hardened approach is a **backend-for-frontend (BFF)**: the BFF performs the OIDC exchange, holds tokens server-side, and gives the browser only a session cookie. The SPA never sees the access token.\n\n## React responsibilities\n\n```jsx\nfunction RequireAuth({ children }) {\n  const { user, isLoading } = useAuth();\n  if (isLoading) return <Spinner />;\n  return user ? children : <Navigate to=\"/login\" replace />;\n}\n```\n\nThis improves experience only. Anyone can bypass client code, so every API call is authenticated and authorized on the server.\n\n## Things to design deliberately\n\n- **Expiry and refresh:** short-lived access tokens, rotating refresh tokens or silent session renewal; avoid refresh stampedes from parallel requests.\n- **Logout:** clear local state, end the server session, and consider provider logout.\n- **CSRF:** needed with cookie-based sessions (SameSite, anti-CSRF tokens).\n- **XSS:** the main threat to any browser-held credential, so see the React security questions.\n- **MFA and step-up** for sensitive actions.\n\n## Common mistakes\n\nRolling your own password or token scheme, storing long-lived tokens in `localStorage`, and trusting a decoded JWT in the browser as proof of permission.",
+      "diagrams": [
+        {
+          "id": "flow",
+          "title": "BFF-based sign-in flow",
+          "alt": "The React app redirects the user to the identity provider, which returns an authorization code to the backend-for-frontend. The BFF exchanges it for tokens, stores them server-side and gives the browser an HttpOnly session cookie, which the app uses to call the API through the BFF.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "spa",
+              "label": "React app"
+            },
+            {
+              "id": "idp",
+              "label": "Identity provider"
+            },
+            {
+              "id": "bff",
+              "label": "Backend-for-frontend"
+            },
+            {
+              "id": "api",
+              "label": "Resource API"
+            }
+          ],
+          "edges": [
+            {
+              "from": "spa",
+              "to": "idp",
+              "label": "redirect, code + PKCE"
+            },
+            {
+              "from": "idp",
+              "to": "bff",
+              "label": "auth code"
+            },
+            {
+              "from": "bff",
+              "to": "spa",
+              "label": "HttpOnly session cookie"
+            },
+            {
+              "from": "spa",
+              "to": "bff",
+              "label": "API calls"
+            },
+            {
+              "from": "bff",
+              "to": "api",
+              "label": "access token"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Cookies or localStorage for tokens, and why?",
+        "What is PKCE and what attack does it prevent?",
+        "How does a backend-for-frontend help?",
+        "How do you handle silent token refresh?"
+      ],
+      "related": [
+        "react-security-frontend-authorization",
+        "react-security-common-risks",
+        "react-api-error-handling"
+      ]
+    },
+    {
+      "slug": "react-security-common-risks",
+      "title": "What are the common security risks in React applications?",
+      "topic": "React Security",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "react",
+        "security",
+        "xss",
+        "csrf",
+        "dependencies"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-react-js",
+          "pages": [
+            13
+          ]
+        }
+      ],
+      "quick": "The main ones are cross-site scripting, unsafe HTML injection through dangerouslySetInnerHTML or unvalidated URLs, token leakage from insecure storage, vulnerable third-party dependencies, weak server-side authorization, CSRF when using cookie sessions, and sensitive data or secrets shipped in the client bundle. React escapes text by default, which helps, but it does not protect against these on its own. I use sanitization, a Content Security Policy, dependency audits and server-side enforcement.",
+      "revision": "React escapes rendered text, but you still must handle XSS vectors, token storage, CSRF, vulnerable dependencies, server-side authorization and secrets in the bundle.",
+      "detailed": "**Short answer:** React removes one common XSS path by escaping values rendered in JSX, but most web security risks remain. Anything shipped to the browser is public, and anything running in the browser can be manipulated.\n\n## Risks and mitigations\n\n| Risk | How it happens in React | Mitigation |\n|---|---|---|\n| XSS via raw HTML | `dangerouslySetInnerHTML` with untrusted content | Avoid, or sanitize with a vetted library |\n| XSS via URLs | `<a href={userUrl}>` allowing `javascript:` URLs | Validate allowed schemes (`https:`, `mailto:`) |\n| Injection into code | `eval`, `new Function`, building script tags | Never run user-supplied strings as code |\n| Token theft | Tokens in `localStorage` readable after any XSS | HttpOnly cookies, BFF, short lifetimes |\n| CSRF | Cookie-based sessions with state-changing requests | SameSite cookies, CSRF tokens, origin checks |\n| Broken authorization | Hiding buttons instead of enforcing access | Server-side checks on every request |\n| Vulnerable dependencies | Outdated or malicious npm packages | Lockfiles, audit tooling, review updates, minimal dependencies |\n| Secrets in the bundle | API keys in `VITE_` / `NEXT_PUBLIC_` variables | Keep secrets server-side; only public identifiers in client env |\n| Information leakage | Verbose errors, source maps, PII in logs | Safe error messages, restricted source maps, log hygiene |\n| SSR specifics | Serializing server data into HTML | Escape embedded JSON, do not leak server-only fields into props |\n\n## Defense in depth\n\n- **Content Security Policy** to restrict script sources and reduce the impact of an injection.\n- **Subresource Integrity** and tight control of third-party scripts such as tags and analytics, which run with full page privileges.\n- **Secure headers** (`X-Content-Type-Options`, `frame-ancestors`, `Strict-Transport-Security`).\n- Regular dependency updates and automated scanning in CI.\n\n## Common mistake\n\nAssuming \"React is safe from XSS\". It is safe by default for text rendering; the escape hatches and the surrounding system are where problems occur.",
+      "followUps": [
+        "How does React's default escaping work and where does it not apply?",
+        "How does a Content Security Policy reduce XSS impact?",
+        "What are the risks of third-party scripts?"
+      ],
+      "related": [
+        "react-security-dangerously-set-inner-html",
+        "react-security-frontend-authorization",
+        "react-authentication-patterns"
+      ]
+    },
+    {
+      "slug": "react-security-dangerously-set-inner-html",
+      "title": "What is dangerouslySetInnerHTML and how do you use it safely?",
+      "topic": "React Security",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "react",
+        "security",
+        "xss",
+        "sanitization"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-react-js",
+          "pages": [
+            13
+          ]
+        }
+      ],
+      "quick": "dangerouslySetInnerHTML is React's escape hatch for inserting a raw HTML string into the DOM, bypassing React's normal escaping. The name warns that it opens the door to cross-site scripting if the HTML is untrusted. I avoid it when I can render structured data with JSX instead. When I must use it, for example for CMS rich text, I sanitize the HTML with a well-maintained library such as DOMPurify, ideally on trusted paths, and back it with a Content Security Policy.",
+      "revision": "It inserts raw HTML, bypassing React escaping. Avoid it, or sanitize untrusted HTML with a vetted library and add a CSP as defense in depth.",
+      "detailed": "**Short answer:** `dangerouslySetInnerHTML` sets an element's `innerHTML` from an object `{ __html: string }`. React does not escape or inspect that string, so if it contains attacker-controlled markup, scripts or event handlers can run in your users' sessions.\n\n## Default behavior vs the escape hatch\n\n```jsx\nconst comment = '<img src=x onerror=\"stealToken()\">';\n\n// Safe: React renders it as text\n<p>{comment}</p>\n\n// Unsafe if comment is untrusted: markup is parsed and the handler can run\n<p dangerouslySetInnerHTML={{ __html: comment }} />\n```\n\n## When it is legitimately needed\n\n- Rich text from a CMS or editor.\n- Pre-rendered markdown or documentation output.\n- Embedding SVG or HTML fragments from a controlled source.\n\n## Using it safely\n\n```jsx\nimport DOMPurify from 'dompurify';\n\nfunction RichText({ html }) {\n  const clean = useMemo(() => DOMPurify.sanitize(html), [html]);\n  return <div dangerouslySetInnerHTML={{ __html: clean }} />;\n}\n```\n\n- **Sanitize at a clear boundary**, with a maintained allow-list sanitizer. Do not write regex filters.\n- **Sanitize as late as practical**, or at write time plus again on render if content passes through several systems.\n- **Prefer alternatives:** render markdown to React elements with a component-based renderer instead of HTML strings.\n- **Add a Content Security Policy** so that, if something slips through, inline scripts are blocked.\n- On SSR, sanitize on the server too, since the same string may be injected into the initial HTML.\n\n## Related pitfalls\n\n- JSON embedded in a `<script>` tag for SSR hydration must be escaped (for example `<` as `\\u003c`).\n- User-provided URLs in `href` or `src` need scheme checks.\n- Trusting content because \"it comes from our CMS\" ignores compromised accounts and imported content.\n\n## Common mistake\n\nSanitizing once, then modifying the string (for example appending user text) afterwards, which reintroduces the risk.",
+      "followUps": [
+        "Why is the property deliberately named dangerously?",
+        "How would you render CMS rich text without using raw HTML?",
+        "What does a Content Security Policy add if you already sanitize?"
+      ],
+      "related": [
+        "react-security-common-risks",
+        "react-security-frontend-authorization"
+      ]
+    },
+    {
+      "slug": "react-security-frontend-authorization",
+      "title": "Can frontend authorization be trusted?",
+      "topic": "React Security",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "react",
+        "security",
+        "authorization",
+        "rbac"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-react-js",
+          "pages": [
+            13
+          ]
+        }
+      ],
+      "quick": "No. Frontend authorization is a user-experience feature: it hides menus, disables buttons and guards routes so people see only what is relevant. But users control their browser, so they can modify code, call APIs directly or replay requests. The backend must authenticate every request and enforce authorization on the server, at the resource level, using permissions from a trusted source. I treat anything decided in the client as advisory only.",
+      "revision": "Client-side checks only shape the UI. The server must authenticate and authorize every request, including object-level checks, because users control their browsers.",
+      "detailed": "**Short answer:** no. Everything that runs in the browser, including route guards, role checks and hidden buttons, can be inspected, altered or skipped. Real access control belongs where the user cannot change it: on the server.\n\n## What frontend checks are for\n\n- Showing only relevant navigation and actions.\n- Avoiding pointless requests that will be rejected.\n- Giving clear \"no access\" messaging.\n\n```jsx\nfunction Can({ permission, children }) {\n  const { permissions } = useAuth();\n  return permissions.includes(permission) ? children : null;\n}\n\n<Can permission=\"invoice:approve\"><ApproveButton /></Can>\n```\n\nThis is good UX, but if the `POST /invoices/42/approve` endpoint does not check permissions itself, any user with a token can call it.\n\n## What the backend must do\n\n1. **Authenticate** every request (validate session or token signature, expiry, audience).\n2. **Authorize** at the function level (can this role approve invoices?).\n3. **Authorize at the object level** (is invoice 42 in this user's tenant or ownership scope?). Missing object-level checks are a classic broken access control flaw (insecure direct object reference).\n4. **Validate input** independently of the frontend's validation.\n5. **Filter responses** so that data a user cannot see is never sent, rather than sent and hidden.\n\n## Common mistakes\n\n- Putting role claims from a decoded JWT in the browser and trusting them for security decisions.\n- Hiding admin routes and assuming they are protected; the JavaScript for them is still downloadable unless split and served only to authorized users, and even then the API must enforce access.\n- Embedding secrets or privileged logic in client code.\n- Checking permissions only at login rather than on each request.\n\n## A useful framing\n\nTreat the client as an untrusted user interface for a trusted API. The shared permission model can be exposed to the UI by the backend, for example a list of allowed actions in the user profile response, which keeps UI and server rules consistent without making the UI the authority.",
+      "followUps": [
+        "What is an insecure direct object reference?",
+        "How do you keep UI permission checks consistent with the server rules?",
+        "Should admin-only code be excluded from the public bundle?"
+      ],
+      "related": [
+        "react-authentication-patterns",
+        "react-security-common-risks"
+      ]
+    }
+  ]
+}

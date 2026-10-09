@@ -1,0 +1,419 @@
+{
+  "category": "technical-seo",
+  "questions": [
+    {
+      "slug": "what-is-technical-seo",
+      "title": "What is technical SEO and why is it an architecture concern?",
+      "topic": "Technical SEO Foundations",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "technical-seo",
+        "crawlability",
+        "indexability",
+        "architecture"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-technical-seo",
+          "pages": [
+            1
+          ]
+        }
+      ],
+      "quick": "Technical SEO is the engineering work that lets search engines discover, crawl, render, understand and index the right pages. It covers crawlable URLs and links, rendering strategy, metadata, canonicals, robots rules, sitemaps, structured data, status codes, international targeting and performance. I would treat it as an architectural requirement built into routing, rendering, content delivery and release governance, with automated checks in CI/CD, rather than a marketing task bolted on at the end.",
+      "revision": "Technical SEO makes the right pages discoverable, renderable, indexable and fast; it belongs in routing, rendering, content and release design, not a final checklist.",
+      "detailed": "**Technical SEO is the practice of building and operating a site so that search engines can efficiently discover, crawl, render, understand and index the pages that matter.** It is distinct from content strategy and link building: a brilliant page that returns the wrong status code, is blocked from crawling, or renders blank without JavaScript cannot perform.\n\n## Main areas\n\n- **Crawlability and indexability**: can bots reach the URL, and is the page eligible to be stored?\n- **URL structure and routing**: stable, readable, crawlable links.\n- **Rendering strategy**: CSR, SSR, SSG, ISR per page type.\n- **Metadata and canonicals**: titles, descriptions, canonical URLs, robots directives.\n- **Sitemaps and robots.txt**: discovery hints and crawl control.\n- **Structured data**: machine-readable descriptions of page content.\n- **International SEO**: locale URLs and hreflang.\n- **Status codes, redirects, duplicates**.\n- **Performance**: Core Web Vitals and mobile usability.\n\n## Why it is an architecture problem\n\nMost SEO failures are produced by platform decisions: a router that emits click-handler navigation instead of links, a template that sets the same title everywhere, a CDN rule that serves 200 for missing pages, a CMS publish flow that never updates the sitemap. Fixing these page by page does not scale; fixing the template, content model or pipeline does.\n\n## Practical example\n\nImagine a global vehicle website with model pages, regional sites, dealer-locator pages and campaign landing pages (an illustrative scenario). Each page type needs a rendering choice, a canonical rule, a sitemap rule and a locale rule. Defining those once, enforcing them with automated tests and monitoring Search Console after release is what \"SEO as architecture\" means.\n\n## Common mistakes\n\n- Treating SEO as a post-launch audit.\n- Assuming a framework (such as Next.js) makes every page SEO-friendly automatically.\n- Assuming that any signal, such as a sitemap or structured data, guarantees indexing or ranking. Search engines treat many of these as hints.",
+      "followUps": [
+        "Which technical SEO problems are most common on JavaScript-heavy sites?",
+        "How would you make SEO measurable for a platform team?",
+        "What is the difference between technical SEO and on-page SEO?"
+      ],
+      "related": [
+        "crawl-render-index-pipeline",
+        "seo-governance-in-ci-cd"
+      ]
+    },
+    {
+      "slug": "crawl-render-index-pipeline",
+      "title": "How do crawling, rendering and indexing differ?",
+      "topic": "Technical SEO Foundations",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "crawling",
+        "rendering",
+        "indexing",
+        "discovery"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-seo",
+          "pages": [
+            1,
+            2
+          ]
+        }
+      ],
+      "quick": "They are separate stages. Discovery finds URLs through links, sitemaps and previously known URLs. Crawling fetches the URL and its resources. Rendering runs HTML and JavaScript to see the final content. Indexing evaluates the page and stores eligible information. Ranking then decides if it appears for a query. Each stage can fail independently, and none is guaranteed for every URL, so I avoid designs where primary content depends on heavy client-side JavaScript.",
+      "revision": "Discover, crawl (fetch), render (run JS), index (evaluate and store), then rank. Each stage can fail separately and none is guaranteed.",
+      "detailed": "**Search engines process a page in conceptual stages: discovery, crawling, rendering, indexing, then serving results.** The stages are a useful mental model, not a contract; a discovered URL may never be crawled, and a crawled page may never be indexed.\n\n{{diagram:pipeline}}\n\n| Stage | What happens | Typical failure |\n|---|---|---|\n| Discovery | URLs found via links, sitemaps, redirects, earlier crawls | Orphan pages; links that are not real anchors |\n| Crawling | A bot requests the URL and resources | robots.txt block, 5xx errors, slow responses, auth walls |\n| Rendering | HTML and JavaScript are processed to produce the final DOM | Content depends on failed API calls or blocked scripts |\n| Indexing | The engine evaluates content and chooses what to store | noindex, duplicate content, a different canonical chosen, low perceived value |\n| Serving | Indexed pages may be shown for relevant queries | Relevance, quality and competition, not a technical fault |\n\n## Key implications\n\n- **Crawling is not indexing.** Being fetched does not mean being stored.\n- **Rendering is a separate, deferred cost.** Google can render JavaScript, but rendering adds complexity and delay, and other crawlers vary in capability. Content present in the initial HTML is the most robust.\n- **Blocking resources can break rendering.** If scripts or API endpoints required for content are disallowed, the rendered page may be empty.\n- **Indexing is selective.** Engines choose canonical versions and may skip duplicates or thin pages.\n\n## Design rule\n\nDo not make discovery of primary content depend on a search engine successfully executing complex client-side JavaScript. Put important content, links and metadata in server-delivered HTML, then verify using a URL inspection tool and by fetching raw HTML.\n\n## Common mistakes\n\nDebugging \"not ranking\" when the real problem is \"not crawled\", or blaming the crawler for an indexing decision caused by a stray noindex or canonical.",
+      "diagrams": [
+        {
+          "id": "pipeline",
+          "title": "Search engine processing stages",
+          "direction": "LR",
+          "alt": "Left-to-right flow: discovery via links and sitemaps leads to crawling, then rendering of JavaScript, then indexing, and finally eligible pages being shown in search results.",
+          "nodes": [
+            {
+              "id": "d",
+              "label": "Discovery (links, sitemaps)"
+            },
+            {
+              "id": "c",
+              "label": "Crawling (fetch)"
+            },
+            {
+              "id": "r",
+              "label": "Rendering (HTML + JS)"
+            },
+            {
+              "id": "i",
+              "label": "Indexing (evaluate, store)"
+            },
+            {
+              "id": "s",
+              "label": "Search results"
+            }
+          ],
+          "edges": [
+            {
+              "from": "d",
+              "to": "c"
+            },
+            {
+              "from": "c",
+              "to": "r"
+            },
+            {
+              "from": "r",
+              "to": "i"
+            },
+            {
+              "from": "i",
+              "to": "s"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Where in this pipeline does robots.txt act?",
+        "Why might a page be crawled but not indexed?",
+        "How would you verify what a crawler actually sees?"
+      ],
+      "related": [
+        "csr-vs-ssr-vs-ssg-vs-isr",
+        "robots-txt-vs-noindex-vs-canonical-vs-auth"
+      ]
+    },
+    {
+      "slug": "csr-vs-ssr-vs-ssg-vs-isr",
+      "title": "Compare CSR, SSR, SSG and ISR from an SEO point of view",
+      "topic": "Rendering Strategy",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "csr",
+        "ssr",
+        "ssg",
+        "isr",
+        "nextjs",
+        "rendering"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-seo",
+          "pages": [
+            2
+          ]
+        }
+      ],
+      "quick": "With CSR the browser builds the page from JavaScript, so crawlers must render before seeing content. SSR generates HTML per request, so content and metadata are in the first response. SSG builds pages ahead of time and serves them cheaply from a CDN. ISR is static output that is revalidated in the background, balancing speed with changing content. For SEO I prefer SSR, SSG or ISR for public pages, and I verify the delivered HTML rather than assuming.",
+      "revision": "CSR renders in the browser; SSR per request on the server; SSG at build; ISR is static with revalidation. Public indexable content should be in initial HTML.",
+      "detailed": "**The strategies differ in where and when HTML is produced, which determines what a crawler sees in the first response and how fresh and fast pages are.**\n\n| Strategy | HTML produced | SEO and architecture notes |\n|---|---|---|\n| CSR | In the browser, from JavaScript and API calls | Initial HTML is often an empty shell. Google can render JS, but discovery and rendering are more fragile, and not all crawlers or social scrapers render. |\n| SSR | On the server per request | Content and metadata in the initial HTML. Higher server cost and latency unless cached. |\n| SSG | At build time | Fast, cacheable, predictable. Rebuild needed to change content. Best for stable public pages. |\n| ISR | Static, regenerated after a revalidation window or on demand | Fast delivery with bounded staleness. Needs correct invalidation after publishing. |\n\n## How to choose\n\nChoose by **content freshness, personalization, rendering cost and business needs**, not SEO alone.\n\n- Mostly stable public content: SSG or ISR.\n- Frequently changing, public data: SSR with caching, or short ISR windows.\n- Behind login or personalized: CSR or SSR without public caching; it should not be indexed anyway.\n\n## Next.js example\n\n```tsx\n// app/vehicles/[slug]/page.tsx (App Router)\nexport const revalidate = 3600; // regenerate at most hourly (ISR)\n\nexport default async function VehiclePage({ params }: { params: Promise<{ slug: string }> }) {\n  const { slug } = await params;\n  const vehicle = await getVehicle(slug); // server-side data fetch\n  return <h1>{vehicle.name}</h1>;\n}\n```\n\n## Common mistakes\n\n- Believing \"uses Next.js\" equals \"SEO-friendly\"; a client-only component can still hide key content.\n- Hydration mismatches or content that appears only after a client fetch.\n- Caching personalized responses at a shared CDN.\n- Forgetting that stale ISR output may show outdated prices or availability.\n\nAlways check the raw HTML (view source or curl) and the rendered HTML in a URL inspection tool.",
+      "followUps": [
+        "Does Google fail to index CSR pages?",
+        "What is dynamic rendering, and why is it discouraged as a long-term solution?",
+        "How does on-demand revalidation work?"
+      ],
+      "related": [
+        "choosing-rendering-by-page-type",
+        "javascript-seo-pitfalls"
+      ]
+    },
+    {
+      "slug": "choosing-rendering-by-page-type",
+      "title": "How would you choose a rendering strategy for different page types on a global vehicle site?",
+      "topic": "Rendering Strategy",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "rendering",
+        "isr",
+        "ssr",
+        "caching",
+        "architecture"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-technical-seo",
+          "pages": [
+            2,
+            3
+          ]
+        }
+      ],
+      "quick": "I decide per page type. Model pages and campaign pages are mostly public and stable, so SSG or ISR with timely invalidation on publish. Dealer inventory changes often, so SSR or an API-driven approach with a caching policy matching freshness needs. Personalized account pages need their own strategy: no shared caching of user data and no indexing. Then I validate the real HTML, metadata and canonicals instead of trusting the framework.",
+      "revision": "Pick per page type by freshness, personalization and cost: stable public pages SSG/ISR, volatile inventory SSR with careful caching, personalized pages private and noindex.",
+      "detailed": "**Rendering is chosen per page type, weighing freshness, personalization, rendering cost and business rules, not SEO alone.** The following example uses an illustrative global vehicle website.\n\n| Page type | Suggested approach | Reasoning |\n|---|---|---|\n| Vehicle model pages | SSG or ISR | Public, shared, changes occasionally; tolerates a revalidation window |\n| Campaign landing pages | SSG or ISR with on-demand revalidation | Must go live and expire on schedule |\n| Dealer locator / inventory | SSR with short-lived caching, or static shell plus server data | Data changes often; stale availability harms users |\n| Dealer detail pages | ISR | Stable per dealer, many pages |\n| Account, saved configurations | Authenticated SSR/CSR, `Cache-Control: private`, not indexed | User-specific data must not leak through shared caches |\n| Vehicle configurator | CSR app; indexable landing page in front of it | Interactive state has little search value |\n\n## Points to weigh\n\n- **Build time and scale**: tens of thousands of dealer pages may rule out full static builds; use ISR or generate on first request.\n- **Cache invalidation**: publish events from the CMS should trigger revalidation; otherwise search engines index stale content.\n- **Cost**: SSR on every request is expensive without a CDN in front.\n- **Indexation intent**: infinite filter combinations in inventory search often should not be indexed at all; decide which facets deserve landing pages.\n- **Metadata**: every strategy must still output unique title, canonical and robots directives in the initial HTML.\n\n## Common mistakes\n\n- One strategy for the whole site.\n- Making inventory pages static and serving stale availability.\n- Letting a shared CDN cache a personalized response.\n- Indexing internal search results with unbounded URL combinations.\n\nValidate with a crawl of representative routes in each category before release.",
+      "followUps": [
+        "How would you handle faceted inventory search URLs?",
+        "What happens to SEO if ISR serves stale pages after an unpublish?",
+        "How do you prevent personalized content being cached publicly?"
+      ],
+      "related": [
+        "csr-vs-ssr-vs-ssg-vs-isr",
+        "headless-cms-and-technical-seo"
+      ]
+    },
+    {
+      "slug": "title-and-meta-description",
+      "title": "How should titles and meta descriptions be handled for every indexable page?",
+      "topic": "Metadata and Duplicate Content",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "metadata",
+        "title",
+        "meta-description",
+        "snippets"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-technical-seo",
+          "pages": [
+            3
+          ]
+        }
+      ],
+      "quick": "Every indexable page should have a unique, descriptive title element and a meaningful meta description, generated from governed content fields. The title tells search engines and users what the page is about; the description may be used as the snippet, but search engines can rewrite either. I would avoid duplicates and boilerplate, ensure they are in server-delivered HTML, and make sure a client-side route change does not leave stale metadata from the previous page.",
+      "revision": "Unique, accurate title and description per indexable page, in server HTML, sourced from content models; engines may rewrite them and the description does not directly rank.",
+      "detailed": "**Each indexable page needs a unique, accurate `<title>` and a useful meta description, produced by the template from content fields and present in the initial HTML.**\n\n```html\n<title>Example Explorer SUV: Features and Specifications</title>\n<meta name=\"description\" content=\"Compare trims, engines and available options for the Example Explorer.\" />\n```\n\n(The names are invented for illustration.)\n\n## What each does\n\n- **Title**: a strong signal of page topic and commonly the clickable headline in results. Search engines may rewrite it, especially when it is missing, stuffed or mismatched with the page.\n- **Meta description**: not a direct ranking factor, but it may be used as the result snippet. The engine often generates its own snippet from page text when it thinks that better matches the query.\n- Both should describe the page truthfully and differ from other pages.\n\n## Architecture guidance\n\n- Model them as CMS fields with sensible template fallbacks (for example, `{model name} | {section} | {brand}`).\n- Enforce uniqueness and presence with automated checks over a crawl.\n- In single-page apps ensure the title updates per route and that the server response already carries the right one. Stale metadata from a previously displayed route is a known failure mode.\n- Localize them per locale; do not reuse the English text across regions.\n- Set related tags consistently: canonical, robots directives, Open Graph and Twitter card metadata for sharing.\n\n## Common mistakes\n\n- Identical titles across thousands of templated pages.\n- Titles that only appear after client-side JavaScript.\n- Keyword stuffing.\n- Assuming the description will always be shown as written.\n- Relying on meta keywords, which Google does not use.",
+      "followUps": [
+        "What would you do if Google shows a different title than the one you set?",
+        "How do you detect duplicate titles at scale?",
+        "How do you set per-route metadata in Next.js?"
+      ],
+      "related": [
+        "canonical-urls",
+        "nextjs-metadata-implementation"
+      ]
+    },
+    {
+      "slug": "canonical-urls",
+      "title": "What is a canonical URL, and what happens when canonicals are wrong?",
+      "topic": "Metadata and Duplicate Content",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "canonical",
+        "duplicate-content",
+        "url-parameters"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-seo",
+          "pages": [
+            3,
+            4
+          ]
+        }
+      ],
+      "quick": "A canonical URL names the preferred version among duplicate or near-duplicate pages, usually through a link rel canonical tag, though redirects, sitemap entries and internal links are also signals. It is a hint, not a command. If canonicals are wrong, the engine may choose a different URL, split signals across variants, or show the wrong URL in results. I would check the tag, redirects, internal links, sitemap and rendered HTML agree with each other.",
+      "revision": "Canonical is a hint naming the preferred duplicate URL. Wrong or conflicting signals let the engine pick another URL and fragment ranking signals.",
+      "detailed": "**A canonical URL is the preferred address for content reachable at several URLs. It is declared with `rel=\"canonical\"` and treated by search engines as a strong hint, not a directive.**\n\n```html\n<link rel=\"canonical\" href=\"https://www.example.com/vehicles/explorer\" />\n```\n\n## Why duplicates arise\n\nTracking parameters (`?utm_source=...`), session or sort parameters, trailing slash and case variants, http vs https, www vs non-www, print views, and the same item in multiple categories.\n\n## How search engines pick a canonical\n\nThey cluster duplicates and consider many signals together: redirects, the canonical tag, sitemap inclusion, internal links, HTTPS, and URL cleanliness. When signals conflict, the engine may ignore your tag.\n\n## Ways to consolidate duplicates\n\n| Method | Use when |\n|---|---|\n| 301 redirect | The duplicate should not be reachable at all |\n| rel=canonical | Duplicate must stay accessible (tracking, sorting) |\n| Consistent internal links and sitemap | Always; they reinforce the choice |\n| Parameter handling in the app | Avoid generating needless URL variants |\n\n## Rules of thumb\n\n- Use absolute URLs and a single, consistent form (protocol, host, trailing slash).\n- Self-reference canonical on the preferred page.\n- Put the tag in the `<head>`; keep it in the initial HTML, not injected inconsistently by JavaScript.\n- Do not canonicalize to a non-200, noindex or redirecting URL.\n- Do not point many different pages at one canonical (such as the homepage); the signal will be ignored or cause harm.\n- Do not use robots.txt to handle duplicates; the engine cannot then read the canonical tag.\n\n## If canonicals are wrong\n\nSymptoms: unexpected URLs in results, \"Duplicate, Google chose different canonical than user\" in Search Console, split ranking signals. Diagnose by comparing the canonical tag with redirects, internal links, sitemap entries and the rendered HTML.",
+      "followUps": [
+        "Canonical tag vs 301 redirect: when would you choose each?",
+        "Should paginated pages canonicalize to page one?",
+        "How do canonical and hreflang interact?"
+      ],
+      "related": [
+        "robots-txt-vs-noindex-vs-canonical-vs-auth",
+        "scenario-one-page-five-urls",
+        "hreflang-and-regional-alternates"
+      ]
+    },
+    {
+      "slug": "robots-txt-vs-noindex-vs-canonical-vs-auth",
+      "title": "robots.txt vs noindex vs canonical vs authentication: which controls what?",
+      "topic": "Crawl and Index Controls",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "robots-txt",
+        "noindex",
+        "canonical",
+        "authentication",
+        "indexing"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-seo",
+          "pages": [
+            4,
+            5
+          ]
+        }
+      ],
+      "quick": "They answer different questions. Robots.txt controls whether compliant crawlers may request URLs; it does not reliably keep a URL out of results. Noindex asks engines not to index a page, but only works if they can crawl it. Canonical signals the preferred URL among duplicates. Authentication actually restricts access. For content that must stay out of search I use noindex with crawling allowed, or put it behind authentication for truly private data.",
+      "revision": "robots.txt = crawl access; noindex = index eligibility (needs crawl); canonical = preferred duplicate; authentication = real access control. Pick by the goal.",
+      "detailed": "**Each mechanism controls a different thing; using the wrong one is a classic cause of pages leaking into, or vanishing from, search.**\n\n| Mechanism | Controls | Enforced? | Typical use |\n|---|---|---|---|\n| robots.txt | Whether compliant crawlers may *fetch* a URL path | Voluntary for bots; not a security feature | Save crawl budget on internal search, infinite filters |\n| noindex (meta or X-Robots-Tag) | Whether the page may appear in the index | Honored by major engines once they read it | Thin utility pages, thank-you pages |\n| rel=canonical | Which duplicate URL is preferred | A hint | Tracking parameters, near-duplicates |\n| Authentication / authorization | Who can access the content | Yes, server-enforced | Private, personal or confidential data |\n\n{{diagram:decide}}\n\n## Examples\n\n```text\n# robots.txt\nUser-agent: *\nDisallow: /internal-search/\nSitemap: https://www.example.com/sitemap.xml\n```\n\n```html\n<meta name=\"robots\" content=\"noindex\" />\n```\n\nFor non-HTML files such as PDFs, send the header `X-Robots-Tag: noindex`.\n\n## Decision rules\n\n- **Reduce crawling of low-value URL spaces**: robots.txt.\n- **Keep a crawlable page out of results**: noindex, and leave it crawlable.\n- **Consolidate duplicates**: redirect or canonical.\n- **Protect private content**: authentication, never robots.txt or noindex alone.\n\n## Common mistakes\n\n- Disallowing a URL to remove it from search; it can still be indexed from links, usually without a snippet.\n- Combining Disallow and noindex, so the noindex is never seen (covered in its own question).\n- Treating robots.txt as security; it is publicly readable and lists your sensitive paths.\n- Leaving staging noindex tags in production after a release.",
+      "diagrams": [
+        {
+          "id": "decide",
+          "title": "Choosing the right control",
+          "direction": "TB",
+          "alt": "Decision flow: if content is private use authentication; otherwise if it is a duplicate use redirect or canonical; if it should stay out of results but be crawlable use noindex; if the goal is only to save crawl effort use robots.txt.",
+          "nodes": [
+            {
+              "id": "g",
+              "label": "What is the goal?"
+            },
+            {
+              "id": "a",
+              "label": "Private data: authentication"
+            },
+            {
+              "id": "c",
+              "label": "Duplicate: redirect or canonical"
+            },
+            {
+              "id": "n",
+              "label": "Keep out of results: noindex (crawlable)"
+            },
+            {
+              "id": "r",
+              "label": "Reduce crawling: robots.txt"
+            }
+          ],
+          "edges": [
+            {
+              "from": "g",
+              "to": "a",
+              "label": "protect"
+            },
+            {
+              "from": "g",
+              "to": "c",
+              "label": "consolidate"
+            },
+            {
+              "from": "g",
+              "to": "n",
+              "label": "exclude"
+            },
+            {
+              "from": "g",
+              "to": "r",
+              "label": "save crawl"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Why does robots.txt not guarantee a URL stays out of results?",
+        "How do you noindex a PDF?",
+        "Does Google support a noindex rule inside robots.txt?"
+      ],
+      "related": [
+        "noindex-blocked-by-robots-txt",
+        "canonical-urls"
+      ]
+    },
+    {
+      "slug": "noindex-blocked-by-robots-txt",
+      "title": "Why does a noindex tag fail on a URL that is blocked in robots.txt?",
+      "topic": "Crawl and Index Controls",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "robots-txt",
+        "noindex",
+        "indexing",
+        "troubleshooting"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-seo",
+          "pages": [
+            4
+          ]
+        }
+      ],
+      "quick": "Because noindex lives in the page, the crawler has to fetch the page to read it. If robots.txt disallows the URL, the crawler never sees the directive. The URL can still be indexed from external or internal links, typically showing without a snippet. To remove it I would allow crawling, serve noindex, wait for recrawl, and only then consider blocking, or use authentication if it is private.",
+      "revision": "noindex can only be read if the page is fetched. Disallow in robots.txt prevents fetching, so the directive is never seen and the URL may stay indexed.",
+      "detailed": "**A robots.txt Disallow stops compliant crawlers from requesting the page, so they cannot read a `<meta name=\"robots\" content=\"noindex\">` tag or an `X-Robots-Tag` header on it. The URL can remain in the index.**\n\n## What actually happens\n\n1. A page `/promo-old/` is linked from other pages.\n2. robots.txt disallows `/promo-old/`.\n3. The crawler may still learn the URL from links, so it can be indexed on URL and anchor text alone, often shown without a description.\n4. Adding noindex to the page does nothing, because the page is never fetched.\n\n```text\n# Conflicting setup: the noindex below is never read\nUser-agent: *\nDisallow: /promo-old/\n```\n\n## How to fix it\n\n- **Goal: remove a page from search.** Remove the Disallow rule so the page can be crawled, serve noindex (or a 404/410 if the page is gone), and wait for recrawling. After it has dropped out you may block it if you want to cut crawl traffic, understanding that the exclusion then relies on the page staying unlinked or already removed.\n- **Goal: private content.** Use authentication. Neither robots.txt nor noindex is access control.\n- **Urgent removal.** Use the engine's URL removal tool as a temporary measure in addition to the permanent fix.\n\n## Related traps\n\n- Robots.txt also hides canonical tags and links on blocked pages, so they pass no signals as expected.\n- Google does not support a `noindex` rule inside robots.txt itself.\n- A noindex page that is also removed from internal links and sitemaps may be recrawled less often, so removal can take a while.\n- Blocking JavaScript or API paths needed for rendering can make a page look empty.\n\n## Interview framing\n\nState the sequencing rule: *crawl first so the directive can be read, block later if at all.*",
+      "followUps": [
+        "How would you urgently remove a leaked page from search?",
+        "What does a blocked URL look like in search results?",
+        "How would you remove a whole directory from the index?"
+      ],
+      "related": [
+        "robots-txt-vs-noindex-vs-canonical-vs-auth",
+        "scenario-new-page-not-indexed"
+      ]
+    },
+    {
+      "slug": "xml-sitemaps",
+      "title": "What is an XML sitemap, and how would you generate one for a large site?",
+      "topic": "Sitemaps and Discovery",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "sitemap",
+        "discovery",
+        "canonical",
+        "crawlability"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-seo",
+          "pages": [
+            5
+          ]
+        }
+      ],
+      "quick": "An XML sitemap lists URLs you want search engines to discover, optionally with accurate last-modified dates. For a large site I generate it from authoritative published content, include only canonical, indexable 200 URLs, exclude redirects, errors and noindex pages, split into files under the protocol limits with a sitemap index, and update it on publish and unpublish. It helps discovery but does not guarantee crawling or indexing, so pages also need normal links.",
+      "revision": "A sitemap is a discovery hint listing canonical indexable URLs, generated from source of truth; it does not guarantee indexing and does not replace internal links.",
+      "detailed": "**An XML sitemap is a file listing URLs you want search engines to find. It aids discovery, especially for large, new or poorly linked sites, but it is a hint, not an instruction, and never guarantees crawling or indexing.**\n\n```xml\n<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n  <url>\n    <loc>https://www.example.com/vehicles/explorer</loc>\n    <lastmod>2026-09-30</lastmod>\n  </url>\n</urlset>\n```\n\n## Enterprise generation rules\n\n- **Source from the system of record** (CMS publish state and routing data), not from a crawl of the site.\n- **List only canonical, indexable, 200-status URLs.** Exclude redirects, 404s, noindex pages, parameterized duplicates and non-canonical locale variants.\n- **Keep it current**: add on publish, remove on unpublish or redirect. Trigger regeneration from CMS events.\n- **Respect size limits.** A single sitemap file is limited by the protocol to 50,000 URLs and 50 MB uncompressed; split into several and reference them from a **sitemap index** (commonly grouped by section or locale).\n- **`lastmod` only if truthful.** Search engines use it when it proves reliable; Google ignores `priority` and `changefreq`.\n- **Reference it** from robots.txt (`Sitemap: https://www.example.com/sitemap.xml`) and/or submit it in Search Console.\n- **Cross-locale**: sitemaps can also carry hreflang annotations if you prefer that to head tags.\n\n## Why it is only a hint\n\nEngines still decide what to crawl and index based on quality, duplication and capacity. Pages should also be reachable through regular `<a href>` links so discovery and link signals work.\n\n## Use sitemaps to diagnose\n\nCompare \"submitted\" versus \"indexed\" counts per sitemap in Search Console; segmenting sitemaps by page type makes patterns visible.\n\n## Common mistakes\n\n- Sitemaps full of redirected or noindex URLs.\n- Mismatch between sitemap URL and canonical (trailing slash, http vs https).\n- A stale sitemap after a migration.\n- Expecting submission to force indexing.",
+      "followUps": [
+        "What is a sitemap index and when do you need one?",
+        "How would you debug \"Submitted URL not indexed\"?",
+        "Do image or video sitemaps matter?"
+      ],
+      "related": [
+        "canonical-urls",
+        "headless-cms-and-technical-seo"
+      ]
+    }
+  ]
+}

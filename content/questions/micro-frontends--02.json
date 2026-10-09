@@ -1,0 +1,761 @@
+{
+  "category": "micro-frontends",
+  "questions": [
+    {
+      "slug": "what-is-module-federation",
+      "title": "What is Module Federation?",
+      "topic": "Module Federation",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "module-federation",
+        "webpack",
+        "runtime",
+        "remote-entry"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-micro-frontends",
+          "pages": [
+            5,
+            6
+          ]
+        }
+      ],
+      "quick": "Module Federation is a runtime module-sharing mechanism, introduced in Webpack 5 and now supported by other bundlers, that lets one application expose modules and another consume them dynamically from a separately built and deployed application. The consumer does not bundle that code at build time; it fetches it when needed. It is a popular way to implement React Micro Frontends, because it allows independent deployment while still sharing libraries like React.",
+      "revision": "Module Federation lets separately built and deployed apps expose modules and import each other at runtime, with negotiated shared dependencies. A mechanism, not an architecture.",
+      "detailed": "**Module Federation is a bundler feature that lets an application expose some of its modules and lets another application import them at runtime, even though the two were built and deployed separately.** It originated in Webpack 5 and has implementations and ecosystem tooling for other bundlers as well (check the current tooling for your stack).\n\n## The problem it solves\n\nTraditionally a shared component library is an npm package: the consumer pins a version and must rebuild to pick up a change. With federation, the consumer fetches the producer's currently deployed code at runtime, so a fix can reach users without rebuilding the consumer.\n\n## Key concepts\n\n- **Host (container):** the app that consumes remote modules.\n- **Remote:** the app that exposes modules through a small manifest file, commonly called the remote entry.\n- **Exposes:** the named modules a remote makes public, for example `./VehiclePage`.\n- **Shared:** libraries (React, a router, the design system) negotiated at runtime so only one copy is loaded when versions are compatible.\n\n## Minimal configuration (Webpack style)\n\n```js\n// remote: vehicle app\nnew ModuleFederationPlugin({\n  name: 'vehicle',\n  filename: 'remoteEntry.js',\n  exposes: { './VehiclePage': './src/VehiclePage' },\n  shared: { react: { singleton: true }, 'react-dom': { singleton: true } },\n});\n```\n\n## Why it matters for Micro Frontends\n\nIt gives independent deployment with deep integration: the remote renders as a normal React component inside the host tree, sharing context and design system.\n\n## Caveats\n\n- It is a mechanism, not an architecture; it will not draw your domain boundaries.\n- Runtime loading adds failure modes (network, version mismatch) that need fallbacks.\n- Federated code runs with the host's privileges, so it is not a security boundary.\n- Types and contracts need separate handling, for instance published type packages.",
+      "followUps": [
+        "What is in the remote entry file?",
+        "How is this different from a normal dynamic import()?",
+        "Does Module Federation work with Vite or Rspack?"
+      ],
+      "related": [
+        "host-vs-remote",
+        "how-module-federation-loads-a-remote",
+        "sharing-react-between-micro-frontends"
+      ]
+    },
+    {
+      "slug": "host-vs-remote",
+      "title": "What is the difference between a host and a remote in Module Federation?",
+      "topic": "Module Federation",
+      "difficulty": "beginner",
+      "type": "comparison",
+      "tags": [
+        "module-federation",
+        "host",
+        "remote",
+        "exposes"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-micro-frontends",
+          "pages": [
+            6
+          ]
+        }
+      ],
+      "quick": "The host is the application that consumes modules at runtime; in a micro frontend setup this is usually the shell. A remote is an independently built and deployed application that exposes modules, such as a vehicle list, details page or configurator, for others to load. An application can be both: a remote can consume another remote, or a host can also expose a shared widget. It is a role in the relationship, not a type of app.",
+      "revision": "Host consumes federated modules; remote exposes them. They are roles, not types: one app can play both, and the shell is normally the host.",
+      "detailed": "**The host consumes federated modules; the remote exposes them.** The terms describe the relationship between two builds, not a fixed type of application.\n\n{{diagram:roles}}\n\n## Host\n\n- Knows where remotes live (a URL or manifest) and what they expose.\n- Decides when and where to render them: a route, a tab, a panel.\n- Provides shared singletons (React, router, design system) and platform context.\n\n## Remote\n\n- Is built and deployed independently, often on its own CDN path.\n- Declares an `exposes` map, for example `./VehicleList`, `./VehicleDetails`, `./VehicleConfig`.\n- Should also run standalone for local development and testing, so teams are not forced to run the whole platform.\n\n## Same app, both roles\n\nA finance remote might consume a shared \"price display\" remote, making it a host for that module. Avoid deep chains: each layer adds runtime coupling and a failure point.\n\n## Design guidance\n\n- Expose coarse-grained, domain-level modules (pages, feature roots) rather than every internal component; internals become accidental public API otherwise.\n- Treat the exposed module's props and events as a versioned contract.\n- Keep the remote location configurable (environment config or a registry) instead of hard-coded, so you can canary or roll back.\n\n## Example\n\n```tsx\nimport { lazy, Suspense } from 'react';\nconst VehiclePage = lazy(() => import('vehicle/VehiclePage'));\n\nexport function VehicleRoute() {\n  return <Suspense fallback={<p>Loading vehicle...</p>}><VehiclePage /></Suspense>;\n}\n```\n\nHere `vehicle` is the remote's configured name; the shell is the host. Error handling for this import is covered in failure isolation.",
+      "diagrams": [
+        {
+          "id": "roles",
+          "title": "Host consuming remote exposes",
+          "alt": "The shell host loads a vehicle remote, which exposes VehicleList, VehicleDetails and VehicleConfig modules.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "h",
+              "label": "Host: Shell"
+            },
+            {
+              "id": "r",
+              "label": "Remote: Vehicle MFE"
+            },
+            {
+              "id": "a",
+              "label": "VehicleList"
+            },
+            {
+              "id": "b",
+              "label": "VehicleDetails"
+            },
+            {
+              "id": "c",
+              "label": "VehicleConfig"
+            }
+          ],
+          "edges": [
+            {
+              "from": "h",
+              "to": "r",
+              "label": "loads at runtime"
+            },
+            {
+              "from": "r",
+              "to": "a",
+              "label": "exposes"
+            },
+            {
+              "from": "r",
+              "to": "b",
+              "label": "exposes"
+            },
+            {
+              "from": "r",
+              "to": "c",
+              "label": "exposes"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Should a remote expose its internal components?",
+        "How does the host learn a remote URL?",
+        "Can two remotes depend on each other?"
+      ],
+      "related": [
+        "what-is-module-federation",
+        "how-module-federation-loads-a-remote",
+        "application-shell-responsibilities"
+      ]
+    },
+    {
+      "slug": "how-module-federation-loads-a-remote",
+      "title": "How does Module Federation load a remote at runtime?",
+      "topic": "Module Federation",
+      "difficulty": "advanced",
+      "type": "conceptual",
+      "tags": [
+        "module-federation",
+        "remote-entry",
+        "runtime",
+        "dynamic-import"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-micro-frontends",
+          "pages": [
+            6
+          ]
+        }
+      ],
+      "quick": "The host starts and knows the remote entry location. When a route needs the remote, the host fetches that small manifest script, which registers the remote container and lists its exposed modules and shared dependency requirements. The runtime negotiates shared libraries with the host, then fetches the specific chunks for the requested module on demand. The result is a normal module the host renders. If any step fails, the host must handle it.",
+      "revision": "Host fetches the remote entry, which registers a container; shared deps are negotiated, then the requested exposed module chunks load on demand. Each step can fail.",
+      "detailed": "**At runtime the host fetches a small remote entry from the remote's deployment, initialises it with the shared-dependency scope, and then asks it for a specific exposed module whose chunks are downloaded on demand.**\n\n{{diagram:flow}}\n\n## Step by step\n\n1. **Host loads.** The shell boots with its own bundle and a configuration naming each remote and its entry URL.\n2. **Trigger.** A route or user action runs a dynamic import of something like `vehicle/VehiclePage`.\n3. **Remote entry fetched.** The browser downloads the entry script (commonly small and short-cached, since it points to hashed chunks). It registers a container with `init` and `get` functions.\n4. **Share scope initialised.** The host passes in the libraries it can share; the container and host agree on which versions are used (for example one singleton React).\n5. **Module requested.** The container's `get` resolves the exposed module and loads its chunks, skipping shared libraries already present.\n6. **Render.** The result is an ordinary module, and for React typically a component rendered within the host's tree.\n\n## Why the entry file caching matters\n\nThe entry file is the pointer to the current release, so it should have a short cache lifetime or be revalidated, while hashed chunk files can be cached for a long time and served as immutable. This is what lets a remote deploy without the host rebuilding.\n\n## Failure points to design for\n\n- Entry URL unreachable or slow (network, wrong environment).\n- Shared version mismatch that cannot be satisfied.\n- Chunk load errors after a deployment removed old files for users with stale pages.\n- Runtime error inside the remote component.\n\nEach needs timeouts, error boundaries, retry strategy and monitoring.\n\n## Note\n\nExact API shapes and manifest formats vary by bundler and plugin version; the conceptual flow is the same.",
+      "diagrams": [
+        {
+          "id": "flow",
+          "title": "Remote loading sequence",
+          "alt": "The browser loads the host application, which fetches the remote entry; the entry negotiates shared dependencies and then loads the requested remote module chunks.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "b",
+              "label": "Browser"
+            },
+            {
+              "id": "h",
+              "label": "Host application"
+            },
+            {
+              "id": "re",
+              "label": "Remote entry (manifest)"
+            },
+            {
+              "id": "sh",
+              "label": "Shared scope (React)"
+            },
+            {
+              "id": "rm",
+              "label": "Remote module chunks"
+            }
+          ],
+          "edges": [
+            {
+              "from": "b",
+              "to": "h"
+            },
+            {
+              "from": "h",
+              "to": "re",
+              "label": "fetch on demand"
+            },
+            {
+              "from": "re",
+              "to": "sh",
+              "label": "negotiate"
+            },
+            {
+              "from": "re",
+              "to": "rm",
+              "label": "load exposed module"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How should the remote entry be cached versus the chunks?",
+        "What happens to users with a stale page when a remote deploys?",
+        "How would you point the host at a canary version of a remote?"
+      ],
+      "related": [
+        "what-is-module-federation",
+        "sharing-react-between-micro-frontends",
+        "failure-isolation-in-micro-frontends"
+      ]
+    },
+    {
+      "slug": "sharing-react-between-micro-frontends",
+      "title": "How do you share React and other dependencies between Micro Frontends?",
+      "topic": "Module Federation",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "shared-dependencies",
+        "singleton",
+        "react",
+        "version-governance"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-micro-frontends",
+          "pages": [
+            7
+          ]
+        }
+      ],
+      "quick": "With Module Federation I declare core libraries as shared, so a compatible copy is negotiated at runtime and loaded once rather than per Micro Frontend. React and React DOM should be singletons, because two copies break hooks and context. I govern versions centrally, define compatibility ranges, monitor bundle duplication, and avoid sharing too much, since over-sharing recreates tight coupling and makes upgrades painful.",
+      "revision": "Declare React, React DOM, router and design system as shared singletons with governed version ranges; monitor duplication. Share the platform, not everything.",
+      "detailed": "**Mark core libraries as shared so one version is loaded for the whole page, and govern which versions are allowed.** React and React DOM must be singletons: two instances in a page typically break hooks and context with confusing errors.\n\n{{diagram:shared}}\n\n## Configuration idea\n\n```js\nshared: {\n  react: { singleton: true, requiredVersion: '^18.2.0' },\n  'react-dom': { singleton: true, requiredVersion: '^18.2.0' },\n  '@acme/design-system': { singleton: true, requiredVersion: '^4.0.0' },\n}\n```\n\nEach build declares what it requires; at runtime the share scope picks a version satisfying the constraints (commonly the highest compatible one). Options such as `singleton`, `strictVersion` and `eager` change how mismatches behave; consult the current documentation of your plugin, since defaults vary.\n\n## What to share\n\n- **Yes:** React, React DOM, the router, the design system, perhaps a state library when it is a platform concern.\n- **Usually no:** domain-specific utilities, small helpers. Duplicating a small library is cheaper than coupling release trains.\n\n## Governance\n\n- A platform team publishes the supported ranges, such as \"React 18.x until the coordinated 19 upgrade\".\n- CI checks each remote's shared declarations against the policy.\n- Bundle analysis tracks duplicated packages.\n- Plan major upgrades as a migration with a compatibility window; remotes on both versions must work during it.\n\n## Failure modes\n\n- Version mismatch with `singleton` leads to a warning or an error, depending on strictness.\n- A remote declares React as a normal dependency and bundles its own copy, silently doubling payload.\n- Over-sharing makes every library bump a cross-team event.\n\n## Rule of thumb\n\nShare the platform runtime; own everything else.",
+      "diagrams": [
+        {
+          "id": "shared",
+          "title": "Shared dependency scope",
+          "alt": "React and React DOM sit in a shared scope that the vehicle, finance and account micro frontends all consume, so a single copy is loaded.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "s",
+              "label": "Shared scope: React, React DOM"
+            },
+            {
+              "id": "m1",
+              "label": "Vehicle MFE"
+            },
+            {
+              "id": "m2",
+              "label": "Finance MFE"
+            },
+            {
+              "id": "m3",
+              "label": "Account MFE"
+            }
+          ],
+          "edges": [
+            {
+              "from": "s",
+              "to": "m1"
+            },
+            {
+              "from": "s",
+              "to": "m2"
+            },
+            {
+              "from": "s",
+              "to": "m3"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Why do two copies of React break hooks?",
+        "How would you roll out a React major upgrade across remotes?",
+        "What does strictVersion change?"
+      ],
+      "related": [
+        "what-is-module-federation",
+        "performance-impact-of-micro-frontends",
+        "version-compatibility-in-micro-frontends"
+      ]
+    },
+    {
+      "slug": "failure-isolation-in-micro-frontends",
+      "title": "What happens if a Micro Frontend fails, and how do you design for it?",
+      "topic": "Resilience",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "failure-isolation",
+        "error-boundary",
+        "fallback",
+        "resilience"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-micro-frontends",
+          "pages": [
+            7,
+            8
+          ]
+        }
+      ],
+      "quick": "Bad design lets one failing domain, such as Finance, crash the whole website. I design for failure isolation: wrap each remote in an error boundary, set load timeouts, show a meaningful fallback UI, retry transient chunk errors, and monitor failures per domain. The page degrades gracefully, with Vehicle, Offers and Account still working while Finance shows a fallback. Critical flows decide whether a fallback is acceptable or the user should be redirected.",
+      "revision": "Isolate each remote with an error boundary, load timeout, fallback UI, retry and per-domain monitoring, so one domain failing degrades gracefully instead of crashing the page.",
+      "detailed": "**Treat every remote as an unreliable network dependency: contain its failures, bound its latency, and give the user a useful fallback.**\n\n{{diagram:failure}}\n\n## Failure types\n\n| Failure | Example | Mitigation |\n|---|---|---|\n| Load failure | Remote entry 404 or offline | Timeout, retry, fallback |\n| Slow load | Remote CDN degraded | Timeout then fallback; skeleton while waiting |\n| Chunk error | Old chunk removed after deploy | Retry; reload page once on version mismatch |\n| Runtime error | Exception in render | Error boundary |\n| Async error | Rejected promise in effect | Catch and report; boundaries do not catch these |\n\n## Pattern\n\n```tsx\nclass RemoteBoundary extends React.Component<{ name: string; children: React.ReactNode }, { failed: boolean }> {\n  state = { failed: false };\n  static getDerivedStateFromError() { return { failed: true }; }\n  componentDidCatch(error: Error) { reportError(this.props.name, error); }\n  render() {\n    return this.state.failed ? <Fallback domain={this.props.name} /> : this.props.children;\n  }\n}\n\n// <RemoteBoundary name=\"finance\"><Suspense fallback={<Skeleton />}><FinanceWidget /></Suspense></RemoteBoundary>\n```\n\nError boundaries catch render-time errors in the tree below them, not event handlers, async code or errors thrown in the boundary itself, so also guard those paths.\n\n## Design decisions\n\n- **Fallback quality:** a message with a retry action, a cached or simplified view, or a link to a server-rendered page.\n- **Criticality:** a failed price estimate can degrade; a failed checkout step may need a clear error and support path.\n- **Timeouts:** do not let a hung remote block the shell's render.\n- **Monitoring:** tag errors with the domain and remote version so ownership routes alerts correctly.\n- **Rollback:** the fastest mitigation is often repointing to the previous remote version.\n\n## Common mistake\n\nWrapping the whole app in a single boundary, which just rebuilds the crash with a prettier error page.",
+      "diagrams": [
+        {
+          "id": "failure",
+          "title": "Failure fallback for one domain",
+          "alt": "The shell renders vehicle, offers and account normally but the finance remote fails, so an error boundary shows a fallback UI and reports the error to monitoring.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "sh",
+              "label": "Shell"
+            },
+            {
+              "id": "v",
+              "label": "Vehicle OK"
+            },
+            {
+              "id": "o",
+              "label": "Offers OK"
+            },
+            {
+              "id": "f",
+              "label": "Finance FAILED"
+            },
+            {
+              "id": "eb",
+              "label": "Error boundary"
+            },
+            {
+              "id": "fb",
+              "label": "Fallback UI"
+            },
+            {
+              "id": "m",
+              "label": "Monitoring"
+            },
+            {
+              "id": "a",
+              "label": "Account OK"
+            }
+          ],
+          "edges": [
+            {
+              "from": "sh",
+              "to": "v"
+            },
+            {
+              "from": "sh",
+              "to": "o"
+            },
+            {
+              "from": "sh",
+              "to": "a"
+            },
+            {
+              "from": "sh",
+              "to": "eb"
+            },
+            {
+              "from": "eb",
+              "to": "f",
+              "label": "catches"
+            },
+            {
+              "from": "eb",
+              "to": "fb",
+              "label": "renders"
+            },
+            {
+              "from": "eb",
+              "to": "m",
+              "label": "reports"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Which errors does an error boundary not catch?",
+        "How would you handle a chunk load failure after a deployment?",
+        "Should a fallback ever redirect the user?"
+      ],
+      "related": [
+        "how-module-federation-loads-a-remote",
+        "application-shell-responsibilities",
+        "testing-micro-frontends"
+      ]
+    },
+    {
+      "slug": "communication-between-micro-frontends",
+      "title": "How do Micro Frontends communicate with each other?",
+      "topic": "Communication & State",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "communication",
+        "custom-events",
+        "url-state",
+        "api",
+        "contracts"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-micro-frontends",
+          "pages": [
+            4,
+            5
+          ]
+        }
+      ],
+      "quick": "I prefer loose contracts. Four main options: browser custom events for simple notifications, minimal shared state for platform concerns like identity, URL state for navigation and deep links, and backend APIs when business data is involved. Events and URLs keep domains decoupled; for business data I would use APIs rather than let one micro frontend depend on another's internal state. Whatever the channel, the message shape is a versioned contract.",
+      "revision": "Prefer loose channels: URL for navigation state, events for notifications, minimal shared state for platform concerns, APIs for business data. Never couple to another domain's internals.",
+      "detailed": "**Use the loosest mechanism that does the job, and treat each message as a versioned contract.**\n\n| Mechanism | Good for | Watch out for |\n|---|---|---|\n| URL (path, query) | Selection, filters, deep links, back button | Keep schema stable; avoid sensitive data |\n| Custom events | One-way notifications (\"vehicle selected\") | Implicit contract, no delivery guarantee, load-order issues |\n| Shared state / platform services | Identity, locale, theme, perhaps cart | Grows into a global store if unmanaged |\n| Backend or API | Business data and persistent state | Latency; needs a clear data owner |\n| Props / callbacks (host to remote) | Parent-child relationship in the same tree | Do not over-widen the prop surface |\n\n## Event example\n\n```js\n// Vehicle MFE publishes\nwindow.dispatchEvent(new CustomEvent('vehicle:selected', {\n  detail: { vehicleId: 'v-123', schemaVersion: 1 },\n}));\n\n// Offers MFE subscribes (and cleans up)\nconst onSelected = (e) => loadOffers(e.detail.vehicleId);\nwindow.addEventListener('vehicle:selected', onSelected);\n// later: window.removeEventListener('vehicle:selected', onSelected);\n```\n\nNamespace event names, include a schema version, document the payload, and unsubscribe on unmount. Remember late subscribers miss earlier events, so also expose current state through the URL or an API.\n\n## Guidance\n\n- Prefer URL-driven state for anything a user might bookmark or share.\n- Keep payloads small: identifiers, not whole objects.\n- Never read another domain's DOM or call its internal functions.\n- If two domains talk constantly, the boundary is probably wrong.\n\n## Common mistake\n\nAn undocumented web of events that becomes an implicit API nobody can change safely. Maintain an event catalogue owned by the platform.",
+      "followUps": [
+        "What if the listener loads after the event fired?",
+        "Should events carry full objects or IDs?",
+        "How do you test event contracts?"
+      ],
+      "related": [
+        "shared-state-in-micro-frontends",
+        "two-micro-frontends-need-the-same-data",
+        "version-compatibility-in-micro-frontends"
+      ]
+    },
+    {
+      "slug": "shared-state-in-micro-frontends",
+      "title": "How do you manage shared state across Micro Frontends?",
+      "topic": "Communication & State",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "state-management",
+        "shared-state",
+        "coupling",
+        "platform"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-micro-frontends",
+          "pages": [
+            10,
+            11
+          ]
+        }
+      ],
+      "quick": "I minimise shared mutable state because it creates coupling. Local state stays in components, domain state stays inside the owning micro frontend, and only genuinely cross-cutting state is shared at platform level: authentication, user identity, locale, theme, and sometimes a cart or session. A single global store that every domain reads and writes turns the architecture into a distributed monolith, so I expose shared state through small, read-mostly, versioned interfaces.",
+      "revision": "Local first, then domain-owned, then minimal platform-shared state (identity, locale, theme). A global store everyone mutates recreates the monolith.",
+      "detailed": "**Keep state as close to its owner as possible and share only what is truly cross-cutting.**\n\n{{diagram:state}}\n\n## The three levels\n\n1. **Local state:** component or page state inside a domain.\n2. **Domain state:** state owned by one micro frontend, persisted via its own APIs.\n3. **Platform state:** a minimal set shared across domains.\n\n## Good shared-state candidates\n\n- Authenticated identity and session status\n- Locale and currency\n- Theme or colour mode\n- Consent and feature flags\n- Cart or session where it genuinely spans domains\n\n## The anti-pattern\n\nOne global store where every domain reads and writes arbitrary slices. Symptoms: a change to a state shape needs several teams, domains cannot run standalone, and tests need the entire platform.\n\n## Safer approaches\n\n- Expose platform state through a **small service API** from the shell (for example `getUser()`, `subscribe(listener)`) rather than a raw store.\n- Make shared state **read-only for consumers**; changes go through commands (events or API calls) handled by the owner.\n- **Version** the contract and provide defaults so a domain can run standalone.\n- Prefer **server state** (APIs, caches) for business data: each domain fetches what it needs.\n- Use the **URL** for navigational state.\n\n## Example\n\n```ts\n// shell publishes a narrow interface\nexport interface PlatformContext {\n  user: { id: string; roles: string[] } | null;\n  locale: string;\n  onLocaleChange(cb: (l: string) => void): () => void;\n}\n```\n\nDomains receive this as a prop or via a shared context module, and never mutate it directly.\n\n## Rule\n\nIf you cannot name one owner for a piece of state, you are about to create coupling.",
+      "diagrams": [
+        {
+          "id": "state",
+          "title": "State ownership levels",
+          "alt": "Local state feeds domain state, which feeds a minimal platform-shared state used by all domain micro frontends; the anti-pattern global store is contrasted by being avoided.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "l",
+              "label": "Local state"
+            },
+            {
+              "id": "d",
+              "label": "Domain state (owned by MFE)"
+            },
+            {
+              "id": "p",
+              "label": "Minimal platform state"
+            },
+            {
+              "id": "m",
+              "label": "Other MFEs read via contract"
+            }
+          ],
+          "edges": [
+            {
+              "from": "l",
+              "to": "d",
+              "label": "promote only if needed"
+            },
+            {
+              "from": "d",
+              "to": "p",
+              "label": "only cross-cutting"
+            },
+            {
+              "from": "p",
+              "to": "m",
+              "label": "read-mostly"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Is a shared Redux store ever acceptable?",
+        "How do you keep a domain runnable standalone if it needs platform state?",
+        "Where would cart state live?"
+      ],
+      "related": [
+        "communication-between-micro-frontends",
+        "two-micro-frontends-need-the-same-data",
+        "domain-boundaries-vs-technical-components"
+      ]
+    },
+    {
+      "slug": "two-micro-frontends-need-the-same-data",
+      "title": "What if two Micro Frontends need the same data?",
+      "topic": "Communication & State",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "data-ownership",
+        "api",
+        "coupling",
+        "caching"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-micro-frontends",
+          "pages": [
+            16
+          ]
+        }
+      ],
+      "quick": "First I ask whether it is really shared domain data or just similar-looking data. If both need the same business data, I let each fetch it from the owning API rather than having one micro frontend feed the other, which would couple them. Caching at the HTTP layer, a backend-for-frontend or a shared client data library can avoid duplicate requests. If they constantly need each other's data, I reconsider the boundary between them.",
+      "revision": "Both fetch from the data-owning API, not from each other. Verify the data is truly shared, deduplicate via caching, and revisit boundaries if sharing is constant.",
+      "detailed": "**Let each micro frontend retrieve shared business data from the API that owns it, instead of routing it through each other.**\n\n{{diagram:data}}\n\n## Step 1: Is it really shared?\n\n\"Vehicle name\" shown on the offers page and the vehicle page is the same entity, but the *needs* may differ: the offers domain wants price and eligibility, the vehicle domain wants specs. Often they require different projections of the data and should each ask for exactly what they need.\n\n## Step 2: Identify the owner\n\nEvery business entity should have an owning service and ideally an owning domain. Consumers read through the owner's API contract. Writes go through the owner too.\n\n## Step 3: Avoid duplicate cost\n\n- **HTTP caching** (CDN, `Cache-Control`, ETags) makes repeated reads cheap.\n- A **backend-for-frontend** can aggregate calls per page or journey.\n- A **shared client-side data layer** (platform-provided fetch wrapper with request deduplication) can reduce duplicates, as long as it is generic and does not encode domain knowledge.\n- Pass only an **identifier** across micro frontends (via URL or event) and let the receiver load details.\n\n## Why not MFE to MFE?\n\nDirect handoff of data objects creates implicit contracts on shape and timing: the receiver breaks if the sender changes, loads later, or is absent. APIs are already versioned, observable and secured.\n\n## Red flag\n\nIf two domains need each other's data on nearly every interaction, they may belong in the same domain or the boundary is wrong. Consider merging them.",
+      "diagrams": [
+        {
+          "id": "data",
+          "title": "Shared data through an owning API",
+          "alt": "Two micro frontends A and B each call the same owning API and its data service, instead of passing data directly from A to B.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "a",
+              "label": "MFE A"
+            },
+            {
+              "id": "b",
+              "label": "MFE B"
+            },
+            {
+              "id": "api",
+              "label": "Owning API"
+            },
+            {
+              "id": "db",
+              "label": "Domain data"
+            }
+          ],
+          "edges": [
+            {
+              "from": "a",
+              "to": "api"
+            },
+            {
+              "from": "b",
+              "to": "api"
+            },
+            {
+              "from": "api",
+              "to": "db"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "When would a BFF help here?",
+        "How do you avoid showing stale data in one MFE after another updates it?",
+        "When is merging two domains the right answer?"
+      ],
+      "related": [
+        "communication-between-micro-frontends",
+        "shared-state-in-micro-frontends",
+        "domain-boundaries-vs-technical-components"
+      ]
+    },
+    {
+      "slug": "routing-in-micro-frontends",
+      "title": "How do you handle routing in a Micro Frontend architecture?",
+      "topic": "Shell & Composition",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "routing",
+        "shell",
+        "react-router",
+        "deep-links"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-micro-frontends",
+          "pages": [
+            9
+          ]
+        }
+      ],
+      "quick": "I prefer the shell to own top-level routes, such as /vehicles, /offers, /finance and /account, mapping each prefix to a domain, while each micro frontend owns its internal routes like /vehicles/list or /vehicles/:id/configure. That gives clear ownership without the shell knowing every business detail. The domain mounts its router under the base path it is given, and cross-domain navigation uses URLs or shell helpers rather than direct imports.",
+      "revision": "Shell owns top-level route prefixes; each domain owns the routes under its prefix. Cross-domain links use URLs, not imports of another domain's router.",
+      "detailed": "**Let the shell own the top-level routing table and hand each domain a base path; each domain routes inside its own prefix.**\n\n{{diagram:routes}}\n\n## Two extremes\n\n| Approach | Pros | Cons |\n|---|---|---|\n| Fully centralised (shell knows every route) | Simple mental model, easy global guards | Shell changes for every new page; bottleneck |\n| Fully domain-owned | Maximum autonomy | Conflicting URLs, no consistent navigation or analytics |\n| **Hybrid (recommended)** | Shell maps prefixes; domains own subroutes | Needs a clear contract on base paths |\n\n## Example\n\n```tsx\n// shell\n<Routes>\n  <Route path=\"/vehicles/*\" element={<VehicleRemote />} />\n  <Route path=\"/finance/*\"  element={<FinanceRemote />} />\n</Routes>\n\n// vehicle remote (mounted under /vehicles)\n<Routes>\n  <Route index element={<VehicleList />} />\n  <Route path=\":id\" element={<VehicleDetails />} />\n  <Route path=\":id/configure\" element={<VehicleConfig />} />\n</Routes>\n```\n\nUsing relative routes lets the domain work no matter where it is mounted, and also run standalone at its own root.\n\n## Practical concerns\n\n- **One router instance:** share the router library as a singleton so history and navigation state are consistent; avoid two competing routers controlling the URL.\n- **Deep links:** every important state should be reachable by URL, including after a hard refresh (the CDN or server must serve the shell for all prefixes).\n- **Cross-domain navigation:** use plain links or a shell navigation helper with documented URL contracts, such as `/finance/quote?vehicleId=...`.\n- **Not-found and guards:** shell handles unknown routes and authentication redirects.\n- **SEO:** for public pages consider server-side rendering or edge composition.\n\n## Common mistake\n\nLetting domains deep import each other's route components, which recreates tight coupling.",
+      "diagrams": [
+        {
+          "id": "routes",
+          "title": "Shell routes to domain-owned subroutes",
+          "alt": "The shell owns top-level routes /vehicles, /offers, /finance and /account; the vehicle micro frontend owns list, details and configure routes beneath /vehicles.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "sh",
+              "label": "Shell routing"
+            },
+            {
+              "id": "v",
+              "label": "/vehicles/* Vehicle MFE"
+            },
+            {
+              "id": "f",
+              "label": "/finance/* Finance MFE"
+            },
+            {
+              "id": "l",
+              "label": "list"
+            },
+            {
+              "id": "d",
+              "label": ":id details"
+            },
+            {
+              "id": "c",
+              "label": ":id/configure"
+            }
+          ],
+          "edges": [
+            {
+              "from": "sh",
+              "to": "v"
+            },
+            {
+              "from": "sh",
+              "to": "f"
+            },
+            {
+              "from": "v",
+              "to": "l"
+            },
+            {
+              "from": "v",
+              "to": "d"
+            },
+            {
+              "from": "v",
+              "to": "c"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you keep two routers from conflicting?",
+        "How would a domain navigate to another domain?",
+        "How do deep links work with a CDN-hosted single page app?"
+      ],
+      "related": [
+        "application-shell-responsibilities",
+        "communication-between-micro-frontends",
+        "authentication-in-micro-frontends"
+      ]
+    },
+    {
+      "slug": "design-system-consistency",
+      "title": "How do you keep the UI consistent across Micro Frontends?",
+      "topic": "Experience Consistency",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "design-system",
+        "design-tokens",
+        "accessibility",
+        "consistency"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-micro-frontends",
+          "pages": [
+            8,
+            9
+          ]
+        }
+      ],
+      "quick": "Through a shared, versioned design system that every domain consumes: tokens for colour, typography and spacing, plus accessible components such as buttons, forms, modals and navigation, with responsive and accessibility guidelines. Tokens give the lightest coupling; shared component packages give reuse but need version governance. I add visual regression and accessibility checks in CI for each domain, and a design-system team that treats domain teams as customers.",
+      "revision": "A versioned design system (tokens plus accessible components plus guidelines) consumed by every domain, backed by CI visual and accessibility checks, keeps UX consistent without coupling.",
+      "detailed": "**A shared design system is the contract that makes many independently built frontends feel like one product.**\n\n{{diagram:ds}}\n\n## What it should define\n\n- **Design tokens:** colour, typography, spacing, motion, elevation, as platform-neutral values (CSS custom properties are a common delivery format).\n- **Components:** buttons, form controls, modals, tables, navigation, with built-in accessibility.\n- **Patterns and guidance:** responsive behaviour, error states, content style, loading skeletons.\n- **Accessibility baseline:** keyboard support, contrast, focus management, tested with real assistive technology.\n\n## Delivery options\n\n| Option | Trade-off |\n|---|---|\n| Tokens only (CSS variables) | Lowest coupling, works with any framework; no shared behaviour |\n| npm package bundled per domain | Simple; versions drift, duplicate code per bundle |\n| Shared singleton via Module Federation | One copy, instant fleet-wide fix; needs strict compatibility policy |\n| Web Components library | Framework-agnostic; theming and SSR need care |\n\n## Keeping it healthy\n\n- Semantic versioning with deprecation windows; avoid breaking changes on a whim.\n- Automated visual regression and accessibility tests in each domain pipeline.\n- A governance model: contribution path, response time, and an owner team.\n- Scope CSS to prevent leakage (CSS modules, Shadow DOM or naming conventions); avoid global resets inside remotes.\n- Theme through tokens at the shell so a rebrand needs no domain rewrites.\n\n## Pitfalls\n\n- A design system that is a \"big bang\" library nobody can upgrade.\n- Domains forking components because the system is too slow to evolve.\n- Treating the design system as a dumping ground for domain components, which belongs under domain ownership.",
+      "diagrams": [
+        {
+          "id": "ds",
+          "title": "Design system feeding every domain",
+          "alt": "A design system with tokens and components feeds the vehicle, offers and finance micro frontends, giving them identical buttons, modals and forms.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "ds",
+              "label": "Design System (tokens, components, a11y)"
+            },
+            {
+              "id": "m1",
+              "label": "Vehicle MFE"
+            },
+            {
+              "id": "m2",
+              "label": "Offers MFE"
+            },
+            {
+              "id": "m3",
+              "label": "Finance MFE"
+            }
+          ],
+          "edges": [
+            {
+              "from": "ds",
+              "to": "m1",
+              "label": "Button, Modal, Form"
+            },
+            {
+              "from": "ds",
+              "to": "m2",
+              "label": "Button, Modal, Form"
+            },
+            {
+              "from": "ds",
+              "to": "m3",
+              "label": "Button, Modal, Form"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Tokens or components: which would you standardise first?",
+        "How do you roll out a breaking design-system change?",
+        "How do you prevent CSS leaking between remotes?"
+      ],
+      "related": [
+        "sharing-react-between-micro-frontends",
+        "domain-boundaries-vs-technical-components",
+        "testing-micro-frontends"
+      ]
+    }
+  ]
+}

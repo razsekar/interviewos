@@ -1,0 +1,495 @@
+{
+  "category": "cdp-analytics-experimentation",
+  "questions": [
+    {
+      "slug": "what-is-a-cdp",
+      "title": "What is a Customer Data Platform (CDP)?",
+      "topic": "CDP Foundations",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "cdp",
+        "customer-data",
+        "profiles"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-cdp-analytics-a-b-testing",
+          "pages": [
+            1
+          ]
+        }
+      ],
+      "quick": "A CDP collects customer-related data from sources like the website, mobile app, CRM, campaigns and dealer systems, and organises it into governed profiles and audiences. Other systems can then use that data for analytics, personalisation and marketing. Architecturally I care about ingestion, identity resolution, event schemas, consent, data quality and controlled activation. The goal is relevant experiences while staying inside consent, security and retention rules, not just collecting everything.",
+      "revision": "A CDP unifies permitted customer data from many sources into governed profiles and audiences, then activates them downstream under consent rules.",
+      "detailed": "A **Customer Data Platform (CDP)** is a system that ingests customer-related data from many sources, links it into unified profiles, and makes governed profiles or audiences available to other tools such as analytics, email, advertising and personalisation engines.\n\n## Typical sources\n\n- Website and mobile app events (only where the visitor has consented)\n- CRM, customer-service and lead-management systems\n- Marketing campaign platforms\n- Transactional systems, subject to purpose limitation and governance\n\n## Core capabilities\n\n- **Ingestion** through event SDKs, APIs, batch files or streams\n- **Identity resolution** to decide which records belong to the same person\n- **Profile unification** so one customer view combines attributes and behaviour\n- **Segmentation** into audiences such as \"viewed an SUV and searched for a dealer\"\n- **Activation** by sending eligible audiences or traits to downstream systems\n- **Consent enforcement** so data is only used for permitted purposes\n\n## Architect's view\n\nA CDP is not just a database. The hard parts are the contracts and controls around it: event schemas, retry and deduplication, identity rules, data quality monitoring, and making sure consent decisions reach every downstream system.\n\n## Common misconceptions\n\n- A page view does not identify a person. Anonymous activity should only be linked to a known customer through a permitted identity process.\n- More data is not better. Each use case should justify the minimum data it needs.\n- A CDP does not automatically replace the CRM, the warehouse or the analytics tool; it usually integrates with them.\n\n## Example (hypothetical)\n\nA retail or automotive site records consented events such as `vehicle_details_viewed`. The CDP combines them with a CRM enquiry record, builds an \"interested in family SUVs\" audience, and shares it with an email tool, but only for customers whose consent covers that purpose.",
+      "diagrams": [],
+      "followUps": [
+        "Is a CDP the same as a CRM?",
+        "Does a CDP store anonymous visitors, and how would you treat them?",
+        "What would you want to know before buying or adopting a CDP?"
+      ],
+      "related": [
+        "how-a-cdp-works",
+        "cdp-vs-crm-dmp-warehouse",
+        "identity-resolution"
+      ]
+    },
+    {
+      "slug": "how-a-cdp-works",
+      "title": "How does a CDP work end to end?",
+      "topic": "CDP Foundations",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "cdp",
+        "pipeline",
+        "activation"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-cdp-analytics-a-b-testing",
+          "pages": [
+            1,
+            2
+          ]
+        }
+      ],
+      "quick": "Data flows through four stages. Sources such as the website, app, CRM and campaigns send data in through events, APIs or batch imports. Inside the CDP, identity resolution links records, profiles are unified, consent is enforced and segments are built. The results feed analytics for journey insight, and activation sends eligible audiences to approved tools for personalisation or campaigns. Consent and governance apply at every hop, not just at collection.",
+      "revision": "Sources, ingestion, then inside the CDP: identity resolution, unified profile, segmentation and consent; out to analytics and activation, with governance at every hop.",
+      "detailed": "A CDP works as a pipeline with governance wrapped around it.\n\n{{diagram:flow}}\n\n## Stage by stage\n\n1. **Sources.** Website, mobile app, CRM, campaign tools and dealer or lead systems.\n2. **Ingestion.** Events from client or server SDKs, API calls, scheduled batch imports and streaming integrations. Each path needs schema validation, deduplication and retry rules.\n3. **Inside the CDP.** Identity resolution links identifiers to a person or household. Profile unification merges attributes and event history. Segmentation builds audiences. Consent enforcement filters what may be used and for which purpose.\n4. **Analytics.** Unified data supports journey and cohort analysis.\n5. **Activation.** Eligible audiences or traits are pushed to approved systems such as email, ad platforms or an on-site personalisation engine.\n\n## Example (hypothetical)\n\nA visitor views an SUV, compares trims and runs a dealer search. The site emits consented events like:\n\n```json\n{\n  \"event\": \"vehicle_details_viewed\",\n  \"vehicle_model\": \"example-suv\",\n  \"page_type\": \"vehicle-details\",\n  \"locale\": \"en-US\",\n  \"consent_state\": \"granted\"\n}\n```\n\nThe CDP may combine that with permitted CRM data to measure interest in a vehicle category or improve campaign relevance.\n\n## Key caveats\n\n- A page view does not identify a person. Linking anonymous activity to a known customer needs a permitted identity-resolution process.\n- Consent changes must propagate. If a user withdraws consent, the CDP, derived audiences and downstream copies all need to reflect it.\n- Latency matters differently per use case: batch is fine for weekly reporting, but on-site personalisation may need near-real-time profiles.",
+      "diagrams": [
+        {
+          "id": "flow",
+          "title": "CDP data flow",
+          "alt": "Data sources feed an ingestion layer, which feeds the CDP where identity resolution, profile unification, segmentation and consent enforcement happen. The CDP outputs to analytics for journey insight and to activation systems for eligible audiences.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "src",
+              "label": "Sources: web, app, CRM, campaigns, dealers"
+            },
+            {
+              "id": "ing",
+              "label": "Ingestion: events, APIs, batch, streams"
+            },
+            {
+              "id": "cdp",
+              "label": "CDP: identity, profiles, segments, consent"
+            },
+            {
+              "id": "ana",
+              "label": "Analytics: journeys and insight"
+            },
+            {
+              "id": "act",
+              "label": "Activation: approved audiences"
+            }
+          ],
+          "edges": [
+            {
+              "from": "src",
+              "to": "ing"
+            },
+            {
+              "from": "ing",
+              "to": "cdp"
+            },
+            {
+              "from": "cdp",
+              "to": "ana"
+            },
+            {
+              "from": "cdp",
+              "to": "act"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Where would you enforce consent in this pipeline?",
+        "Batch versus streaming ingestion: how do you choose?",
+        "What happens downstream when a user withdraws consent?"
+      ],
+      "related": [
+        "what-is-a-cdp",
+        "identity-resolution",
+        "cdp-ingestion-and-data-quality"
+      ]
+    },
+    {
+      "slug": "cdp-vs-crm-dmp-warehouse",
+      "title": "How does a CDP differ from a CRM, DMP, data warehouse and web analytics tool?",
+      "topic": "CDP Foundations",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "cdp",
+        "crm",
+        "dmp",
+        "data-warehouse"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-cdp-analytics-a-b-testing",
+          "pages": [
+            2,
+            3
+          ]
+        }
+      ],
+      "quick": "They answer different questions. A CRM manages relationships: leads, sales and service cases. A CDP unifies customer data from many sources and makes governed profiles and audiences available. A DMP traditionally handled advertising-oriented audience segments and identifiers. A warehouse stores integrated data for queries and BI. A web analytics tool measures site and app behaviour. They overlap and integrate, and the exact split depends on the organisation's architecture and product choices.",
+      "revision": "CRM runs relationships, CDP unifies and activates customer data, DMP is ad-audience focused, warehouse is for analytical queries, analytics tool measures behaviour. They integrate.",
+      "detailed": "These systems are often confused because they all hold customer-related data, but their primary responsibilities differ.\n\n| System | Primary responsibility | Typical users |\n|---|---|---|\n| CDP | Unify customer data from many sources; build and activate audiences | Marketing ops, data teams |\n| CRM | Manage leads, sales interactions, service cases and account relationships | Sales, service |\n| DMP | Traditionally ad-oriented audience data, often keyed on cookies or device IDs | Media and ad buyers |\n| Data warehouse | Store integrated, modelled data for SQL, reporting and BI | Analysts, data engineers |\n| Web analytics | Measure traffic, behaviour, funnels and conversions | Product, marketing, UX |\n\n## Key distinctions\n\n- **CDP vs CRM.** A CRM is an operational system of record for interactions (an enquiry becomes a lead assigned to a salesperson). A CDP aggregates data, including CRM data, to form a cross-channel profile and send audiences elsewhere. A CDP may exchange data with the CRM but does not automatically replace it.\n- **CDP vs DMP.** DMPs were built around third-party and pseudonymous advertising identifiers. As third-party cookies decline and privacy rules tighten, many organisations lean on first-party, consented data, which is where CDPs sit. The DMP market has shrunk, but the term still appears in interviews.\n- **CDP vs warehouse.** A warehouse is a general analytical store. A CDP is purpose-built for identity, profile and audience activation. Some organisations take a warehouse-centric approach and activate directly from it, so the boundary is architectural, not absolute.\n- **CDP vs analytics.** Analytics is mostly aggregate measurement of behaviour. A CDP is mostly person-level profiles used for activation.\n\n## Interview tip\n\nAvoid declaring a winner. Say what each owns, where data flows between them, and which one is the system of record for each entity (for example, the CRM for lead status, the CDP for the unified profile).",
+      "diagrams": [],
+      "followUps": [
+        "Could a data warehouse replace a CDP? What would you have to build yourself?",
+        "Which system should be the source of truth for lead status?",
+        "Why has the DMP concept faded?"
+      ],
+      "related": [
+        "what-is-a-cdp",
+        "cdp-vs-analytics-vs-ab-testing",
+        "identity-resolution"
+      ]
+    },
+    {
+      "slug": "cdp-vs-analytics-vs-ab-testing",
+      "title": "How do a CDP, web analytics and A/B testing complement each other?",
+      "topic": "CDP Foundations",
+      "difficulty": "beginner",
+      "type": "comparison",
+      "tags": [
+        "cdp",
+        "analytics",
+        "experimentation"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-cdp-analytics-a-b-testing",
+          "pages": [
+            7,
+            8
+          ]
+        }
+      ],
+      "quick": "Each answers a different question. A CDP asks what permitted customer data we can unify and make available. Web analytics asks what visitors are doing and where the experience breaks down. A/B testing asks whether a specific change improves a defined outcome. They work in a loop: analytics finds a problem such as high abandonment on dealer search, an experiment tests a fix, and the CDP supports eligible segmentation and activation, all subject to consent and governance.",
+      "revision": "CDP: what data can we unify? Analytics: what are users doing? A/B test: does this change help? Use them as a loop.",
+      "detailed": "The three capabilities answer different questions and are strongest in combination.\n\n| Capability | Main question | Typical output |\n|---|---|---|\n| CDP | What permitted customer data can we unify and make available? | Profiles, audiences, activation feeds |\n| Web analytics | What are visitors doing, and where are the problems? | Funnels, reports, journey insight |\n| A/B testing | Does this specific change improve a defined outcome? | A causal estimate with uncertainty |\n\n## How they combine (hypothetical example)\n\n1. **Analytics** shows a high drop-off between \"dealer search started\" and \"dealer search submitted\".\n2. The team forms a hypothesis: a shorter form will raise submissions without hurting lead quality.\n3. An **A/B test** randomly assigns eligible visitors to the current or the shorter form and compares the pre-defined primary metric, watching guardrails.\n4. If the shorter form wins, a **CDP** can help with consent-aware segmentation, for instance targeting follow-up content to people who have shown interest, subject to consent.\n\n## Why the distinction matters\n\n- Analytics alone is observational: it shows correlation, such as users who watch a video convert more, but not whether the video causes it.\n- Experiments give causal evidence for one change, but only if the design is valid, and they do not tell you which problem to test first.\n- A CDP adds person-level context and activation, but does not by itself tell you what works.\n\n## Shared dependencies\n\nAll three depend on consistent event definitions, consent handling and data quality. A broken tag corrupts analytics, the experiment result and the CDP profile at once, which is why event contracts and observability matter more than any single tool.",
+      "diagrams": [],
+      "followUps": [
+        "Can you run an A/B test without a CDP?",
+        "Why is analytics data alone not enough to prove a change worked?",
+        "Which shared data problems break all three at once?"
+      ],
+      "related": [
+        "what-is-a-cdp",
+        "what-is-ab-testing",
+        "web-analytics-metrics-denominators"
+      ]
+    },
+    {
+      "slug": "identity-resolution",
+      "title": "What is identity resolution, and how do you unify anonymous and known customer activity?",
+      "topic": "CDP Architecture",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "cdp",
+        "identity",
+        "privacy"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-cdp-analytics-a-b-testing",
+          "pages": [
+            3,
+            10
+          ]
+        }
+      ],
+      "quick": "Identity resolution decides which identifiers and records belong to the same person. I would prefer deterministic links, such as a user logging in or submitting a form with an email, over probabilistic guesses. I would define identifier precedence, confidence and conflict rules, and only merge anonymous and known activity where consent and policy allow it. I would never assume two events are the same person just because they share a device or IP address, and I would plan for deletion requests and unmerging.",
+      "revision": "Link identifiers to one person using permitted, preferably deterministic signals, with explicit precedence, conflict and unmerge rules. Shared device or IP alone is not proof.",
+      "detailed": "**Identity resolution** is the process of deciding which identifiers (cookie or device ID, login ID, hashed email, CRM ID) and records refer to the same person, so events and attributes can be combined into one profile.\n\n## Approaches\n\n- **Deterministic.** Link on an exact shared key, such as a login or a form submission that ties an anonymous ID to an email. High precision, lower reach.\n- **Probabilistic.** Infer links from signals like device characteristics. Wider reach, but errors are possible and some privacy regimes treat the inference itself carefully.\n\n## Design decisions\n\n- **Identifier hierarchy.** Which identifiers are trusted, and which wins when they conflict.\n- **Merge triggers.** For example, merge an anonymous ID into a known profile only after login, with consent for the purpose.\n- **Conflict handling.** Two CRM records sharing one device (a family tablet) should not be auto-merged.\n- **Unmerge.** Wrong merges happen, so the system needs a way to split profiles and re-derive audiences.\n- **Retention and deletion.** A deletion or opt-out request must reach every identifier and derived profile.\n- **Lifetime of anonymous IDs.** Browser storage can be cleared or restricted, so anonymous continuity is imperfect.\n\n## Example flow (hypothetical)\n\n```text\nanon_id=a1 views vehicle page      (anonymous, consented)\nanon_id=a1 submits enquiry form    (email provided)\n=> link a1 to customer_id=c9 via the submitted email\n=> earlier a1 events may attach to c9 only if policy and consent allow\n```\n\n## Pitfalls\n\n- Over-merging creates one profile for several people, which can expose one person's data to another.\n- Shared IP addresses (offices, mobile carriers) are poor identity keys.\n- Treating a page view as identification skips the legal and ethical question of whether linking is permitted.\n- Measuring only the number of profiles: also track merge rate, false-merge reports and match confidence.",
+      "diagrams": [],
+      "followUps": [
+        "What is the risk of over-merging profiles?",
+        "How would you handle a deletion request across merged identities?",
+        "Deterministic versus probabilistic matching: when is each acceptable?"
+      ],
+      "related": [
+        "what-is-a-cdp",
+        "privacy-and-consent-enforcement",
+        "cdp-ingestion-and-data-quality"
+      ]
+    },
+    {
+      "slug": "cdp-ingestion-and-data-quality",
+      "title": "How do you design CDP ingestion, schemas and data quality?",
+      "topic": "CDP Architecture",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "cdp",
+        "ingestion",
+        "data-quality",
+        "schema"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-cdp-analytics-a-b-testing",
+          "pages": [
+            3,
+            4
+          ]
+        }
+      ],
+      "quick": "I would support the ingestion paths the use cases need, such as events, APIs and batch, behind a shared event contract with required fields, types, timestamps, source and a unique event ID. I would validate at the edge, deduplicate on event ID, make retries idempotent, and route bad records to a dead-letter store rather than dropping them silently. I would handle late-arriving events using event time and monitor volume, lag, rejection rate and schema drift.",
+      "revision": "Contract-first ingestion: validate schema, dedupe on event ID, idempotent retries, dead-letter bad data, handle late events by event time, and monitor volume and lag.",
+      "detailed": "Reliable CDP data starts with a strict ingestion contract, because every downstream profile and audience inherits its flaws.\n\n## Ingestion paths\n\n- **Client or server event SDKs** for behavioural events\n- **APIs** for transactional or CRM updates\n- **Batch imports** for periodic files\n- **Streaming integrations** for near-real-time feeds\n\nChoose per use case. Server-side collection gives better control over consent and payloads; client-side collection is simpler but exposed to ad blockers and browser limits.\n\n## Event schema essentials\n\n- Consistent event names and property types\n- `event_id` (unique, for deduplication) and an event timestamp\n- Source system and schema version\n- Identifiers (anonymous ID, user ID where permitted)\n- Consent state or purpose flags\n\n```json\n{\n  \"event_name\": \"lead_form_submitted\",\n  \"event_id\": \"evt-example-456\",\n  \"timestamp\": \"2026-10-09T08:00:00Z\",\n  \"schema_version\": \"1.2\",\n  \"source\": \"web\",\n  \"properties\": { \"form_type\": \"vehicle-enquiry\" }\n}\n```\n\n## Quality controls\n\n- **Validate at the edge** against a versioned schema; reject or quarantine malformed events.\n- **Deduplicate** on `event_id`; make retries idempotent.\n- **Dead-letter queue** for failures, with alerts and a replay path.\n- **Late events.** Use event time, not arrival time, for windows, and define how long you accept late data.\n- **Backward-compatible evolution.** Add optional fields; avoid renaming or repurposing existing ones.\n\n## Observability\n\nTrack event volume against expectations, end-to-end latency, rejection rate by reason, duplicate rate, identity match rate and downstream delivery failures. A sudden drop in a key event after a release is often an instrumentation bug, not a behaviour change.",
+      "diagrams": [],
+      "followUps": [
+        "How do you handle events that arrive days late?",
+        "Client-side versus server-side collection: trade-offs?",
+        "How would you roll out a breaking schema change safely?"
+      ],
+      "related": [
+        "how-a-cdp-works",
+        "analytics-event-design",
+        "preventing-duplicate-analytics-events"
+      ]
+    },
+    {
+      "slug": "designing-cdp-integration",
+      "title": "How would you design a CDP integration for an enterprise website?",
+      "topic": "CDP Architecture",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "cdp",
+        "architecture",
+        "integration",
+        "consent"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-cdp-analytics-a-b-testing",
+          "pages": [
+            3,
+            4,
+            8,
+            9
+          ]
+        }
+      ],
+      "quick": "I would start from business use cases and the minimum data each needs. Then I would define event contracts, ingestion patterns, identity rules and consent enforcement. The site sends events through a consent and tag governance layer into analytics and CDP ingestion. The CDP integrates with CRM and approved activation systems through governed interfaces. Finally I would monitor data quality, latency, consent compliance and delivery failures, with clear ownership and retention for each data flow.",
+      "revision": "Use cases first, then event contracts, ingestion, identity, consent, governed integrations to CRM and activation, and monitoring with clear ownership.",
+      "detailed": "Design this as a governed data flow, not a tag-manager exercise.\n\n{{diagram:arch}}\n\n## Steps\n\n1. **Use cases and data minimisation.** For each use case (for example, \"suppress an ad to someone who already submitted an enquiry\") list the minimum fields and the legal basis or consent purpose.\n2. **Event contracts.** Shared names, types, IDs and versions, owned by named teams.\n3. **Consent layer.** A consent platform records choices; collection and forwarding code must enforce them, not just display a banner.\n4. **Ingestion.** Prefer a single collection point that fans out to analytics and the CDP, to avoid inconsistent duplicated tags.\n5. **Identity rules.** Define when anonymous and known IDs may link.\n6. **Integrations.** CRM sync (usually bidirectional but with a defined system of record per field) and activation destinations through approved connectors or APIs.\n7. **Operations.** Dashboards, alerts, replay, and release validation for tracking.\n\n## Trade-offs\n\n- **Client-side tags** are quick to deploy but add page weight and are affected by blockers; **server-side collection** improves control and performance but adds infrastructure and cost.\n- **Real-time activation** enables on-site personalisation but needs low-latency profile lookups; **batch** is simpler and cheaper.\n- **Central ownership** gives consistency; **domain ownership** gives speed. A common compromise is a central contract with domain-owned events.\n\n## Failure modes to call out\n\n- Consent state not reaching server-side destinations\n- Duplicate events from multiple tags or micro frontends\n- Personal data accidentally placed in URLs or event properties\n- Silent integration failures with no alert",
+      "diagrams": [
+        {
+          "id": "arch",
+          "title": "Conceptual CDP integration",
+          "alt": "A web site sends events through a consent and tag governance layer to an event collector. The collector fans out to web analytics and to CDP ingestion. The CDP syncs with the CRM and sends approved audiences to activation systems. Monitoring observes the collector and the CDP.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "site",
+              "label": "Website"
+            },
+            {
+              "id": "consent",
+              "label": "Consent and tag governance"
+            },
+            {
+              "id": "collect",
+              "label": "Event collector"
+            },
+            {
+              "id": "ana",
+              "label": "Web analytics"
+            },
+            {
+              "id": "cdp",
+              "label": "CDP"
+            },
+            {
+              "id": "crm",
+              "label": "CRM"
+            },
+            {
+              "id": "act",
+              "label": "Approved activation systems"
+            },
+            {
+              "id": "mon",
+              "label": "Monitoring and alerts"
+            }
+          ],
+          "edges": [
+            {
+              "from": "site",
+              "to": "consent"
+            },
+            {
+              "from": "consent",
+              "to": "collect"
+            },
+            {
+              "from": "collect",
+              "to": "ana"
+            },
+            {
+              "from": "collect",
+              "to": "cdp"
+            },
+            {
+              "from": "cdp",
+              "to": "crm",
+              "label": "sync"
+            },
+            {
+              "from": "cdp",
+              "to": "act",
+              "label": "eligible audiences"
+            },
+            {
+              "from": "mon",
+              "to": "collect"
+            },
+            {
+              "from": "mon",
+              "to": "cdp"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Where would you enforce consent for server-side destinations?",
+        "Which system is the source of truth when the CDP and CRM disagree?",
+        "How do you test tracking before a release?"
+      ],
+      "related": [
+        "how-a-cdp-works",
+        "privacy-and-consent-enforcement",
+        "cdp-ingestion-and-data-quality"
+      ]
+    },
+    {
+      "slug": "privacy-and-consent-enforcement",
+      "title": "How do you protect customer privacy and enforce consent in a CDP and analytics stack?",
+      "topic": "Privacy and Governance",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "privacy",
+        "consent",
+        "governance",
+        "pii"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-cdp-analytics-a-b-testing",
+          "pages": [
+            3,
+            9
+          ]
+        }
+      ],
+      "quick": "I would collect only what a defined purpose needs, keep personal data out of URLs and event properties, and enforce consent in the code that collects and forwards data, not just in a banner. Consent changes must propagate to analytics, the CDP and activation destinations. I would apply access controls and retention limits, control third-party scripts and destinations, and make identity resolution and activation follow policy. The specific legal rules depend on region, so I would work with privacy and legal teams.",
+      "revision": "Minimise data, enforce consent in collection and downstream, keep PII out of URLs and payloads, propagate changes, limit access and retention. A banner alone is not compliance.",
+      "detailed": "Privacy is a design property of the whole data flow. The interface that asks for consent is only the start; systems must act on the answer.\n\n## Principles\n\n- **Purpose limitation and minimisation.** Collect only what a defined purpose needs.\n- **Consent enforcement.** Gate tags, SDKs and server forwarding on the current consent state per purpose (for example analytics versus advertising).\n- **Propagation.** When a user withdraws consent or requests deletion, the change must reach analytics, the CDP, derived audiences and downstream destinations.\n- **No sensitive data in URLs or client events.** URLs end up in logs, referrers and third-party tools. Avoid emails, tokens, VINs tied to a person, or free-text input.\n- **Access control and retention.** Role-based access, audit logs and expiry for raw events and profiles.\n- **Third-party control.** Maintain an inventory of scripts and destinations, restrict what a tag manager can add, and review data sharing.\n- **Pseudonymisation** reduces risk but generally does not make data anonymous in a legal sense.\n\n## Enforcement points\n\n| Layer | What to enforce |\n|---|---|\n| Browser | Do not load or fire tags until consent allows |\n| Collector | Drop or strip fields when consent is missing |\n| CDP | Tag profiles with consent and purpose; filter audiences |\n| Activation | Check consent before each export |\n\n## Practical checks\n\n- Test with consent denied, granted and later withdrawn, and confirm network requests and downstream data.\n- Record consent state on events so audits can verify behaviour.\n- Remember consent applies to the user's current choice; stale cached state can cause over-collection.\n\n## Caveat\n\nRequirements vary by jurisdiction and change over time. Architects design for enforceability and auditability, and rely on legal counsel for the interpretation.",
+      "diagrams": [],
+      "followUps": [
+        "How would you verify that denied consent really stops tracking?",
+        "How does a deletion request propagate through derived audiences?",
+        "Why can a tag manager be a privacy risk?"
+      ],
+      "related": [
+        "designing-cdp-integration",
+        "identity-resolution",
+        "tags-experiments-performance-impact"
+      ]
+    },
+    {
+      "slug": "web-analytics-metrics-denominators",
+      "title": "What is web analytics, and how should common metrics be interpreted?",
+      "topic": "Web Analytics",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "analytics",
+        "metrics",
+        "sessions",
+        "users"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-cdp-analytics-a-b-testing",
+          "pages": [
+            4,
+            5
+          ]
+        }
+      ],
+      "quick": "Web analytics measures how people discover, navigate and use a site. Common metrics are users, sessions, page views, engagement rate, conversion rate and funnel drop-off. The definitions vary by platform, so I always check the denominator and the measurement rules before interpreting a number. A user is a platform-defined identifier, often a device or browser, and a session is a grouped period of activity. I would start from a measurement plan tied to business goals.",
+      "revision": "Web analytics measures behaviour. Metric definitions are platform-specific, so always check the denominator, what counts as a user or session, and what the data misses.",
+      "detailed": "**Web analytics** measures and analyses how users interact with a site or app so teams can understand journeys and detect problems.\n\n## Questions it answers\n\n- How do visitors find vehicle or product pages?\n- Where do they abandon a dealer-search journey?\n- Which campaign brings qualified leads?\n- Did a release change behaviour or performance?\n\n## Core metrics\n\n| Metric | Meaning | Watch out for |\n|---|---|---|\n| Users | Distinct identifiers per platform rules | Usually devices or browsers, not people; cross-device visits count twice |\n| Sessions | A grouped period of activity | Timeout and campaign-change rules differ by tool |\n| Page views | Recorded page-view events | Inflated by duplicate firing or SPA route bugs |\n| Engagement rate | Platform-defined measure of meaningful visits | Definitions differ; not comparable across tools |\n| Bounce rate | Platform-defined share of non-engaged sessions | Some tools define it differently than others |\n| Conversion rate | Conversions divided by an eligible base | Denominator may be users, sessions or exposed visitors |\n\n## Interpreting safely\n\n1. **Check the denominator.** \"8% conversion\" per session and per user are different numbers.\n2. **Know the gaps.** Ad blockers, consent denial, failed requests and bots mean the data is a sample of real behaviour, and not always an unbiased one.\n3. **Segment.** Averages hide differences by device, locale, traffic source and new versus returning visitors.\n4. **Pair with other signals.** Combine behavioural metrics with performance monitoring (for example Core Web Vitals) and server-side data to separate real experience problems from instrumentation problems.\n5. **Start with a measurement plan.** Map business objectives to key events and metrics before adding tags.\n\n## Example (hypothetical)\n\nAnalytics shows many vehicle-page views but few enquiries. Before concluding the page is weak, check whether the enquiry event fires reliably, whether mobile traffic is underrepresented, and whether the form success state is tracked rather than just the button click.",
+      "diagrams": [],
+      "followUps": [
+        "What is the difference between a user and a session?",
+        "Why might two analytics tools report different session counts?",
+        "What goes into a measurement plan?"
+      ],
+      "related": [
+        "funnel-analysis",
+        "analytics-event-design",
+        "conversion-rate-math"
+      ]
+    },
+    {
+      "slug": "funnel-analysis",
+      "title": "What is funnel analysis and how do you use it?",
+      "topic": "Web Analytics",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "analytics",
+        "funnel",
+        "conversion"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-cdp-analytics-a-b-testing",
+          "pages": [
+            4,
+            10
+          ]
+        }
+      ],
+      "quick": "Funnel analysis follows users through an ordered series of steps, such as vehicle viewed, dealer search started, search submitted and lead form submitted, and measures how many continue at each step. It shows where the biggest drop-offs are. I would define each step as a reliable event, decide whether steps must be strictly ordered and in what time window, and segment by device and source. Drop-off tells you where to look, not why, so I would follow up with qualitative data or an experiment.",
+      "revision": "A funnel measures step-to-step progression through ordered events. Define steps, order and time window precisely; drop-off shows where, not why.",
+      "detailed": "A **funnel** is an ordered sequence of steps toward a goal. Funnel analysis counts how many users or sessions reach each step and the step-to-step conversion.\n\n## Example (hypothetical dealer-search funnel)\n\n| Step | Event | Users | Step conversion |\n|---|---|---|---|\n| 1 | `dealer_search_started` | 10,000 | n/a |\n| 2 | `dealer_search_submitted` | 6,000 | 60% |\n| 3 | `dealer_details_viewed` | 3,000 | 50% |\n| 4 | `lead_form_submitted` | 450 | 15% |\n\nOverall conversion from step 1 to step 4 is 450 / 10,000 = 4.5%. The numbers are illustrative.\n\n## Design choices that change the answer\n\n- **Unit.** Users, sessions or devices. A funnel across sessions needs identity continuity.\n- **Strict vs open order.** Must step 2 follow step 1 directly, or can other events occur between?\n- **Time window.** Within the session, 24 hours, 30 days?\n- **Entry rule.** Who counts as entering: anyone who started, or only eligible visitors?\n- **Step definition.** Track success states (form accepted by the backend), not just clicks.\n\n## Using it well\n\n- Find the largest or most abnormal drop and investigate it with segments (mobile versus desktop, locale, traffic source).\n- A sudden drop after a release often indicates a broken event or a real regression; compare with error rates and performance.\n- Turn findings into hypotheses and test them with an experiment rather than assuming the cause.\n\n## Pitfalls\n\n- Missing events for one step create a false drop-off.\n- Consent denial removes users unevenly across steps if tracking is partially gated.\n- Comparing funnels with different definitions of a step or window.\n- Optimising a mid-funnel step while lowering lead quality at the end.",
+      "diagrams": [],
+      "followUps": [
+        "How would you tell a real drop-off from a tracking bug?",
+        "Should a funnel be computed per user or per session?",
+        "How do you choose a funnel's time window?"
+      ],
+      "related": [
+        "web-analytics-metrics-denominators",
+        "conversion-rate-math",
+        "scenario-page-views-vs-crm-leads"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,557 @@
+{
+  "category": "aws-cloud",
+  "questions": [
+    {
+      "slug": "what-is-eventbridge",
+      "title": "What is Amazon EventBridge and when is it a good fit?",
+      "topic": "Messaging & Async",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "eventbridge",
+        "event-driven",
+        "rules",
+        "decoupling"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-cloud",
+          "pages": [
+            15
+          ]
+        }
+      ],
+      "quick": "EventBridge is a serverless event bus. Producers publish events, and rules match event patterns and route them to targets such as Lambda, SQS, SNS, Step Functions or API destinations. It also receives events from many AWS services and SaaS partners, and supports schedules, archive and replay. I'd use it for loosely coupled, event-driven integration where producers shouldn't know their consumers, for example a vehicle service publishing price-changed events consumed by analytics and notifications.",
+      "revision": "EventBridge = serverless event bus: events matched by pattern rules and routed to targets. Good for loose coupling between producers and many consumers.",
+      "detailed": "**EventBridge** routes **events** (small JSON documents describing something that happened) from **producers** to **targets** according to **rules** that match event patterns.\n\n{{diagram:bus}}\n\n## Core concepts\n- **Event bus**: default bus (receives AWS service events), custom buses for your applications, partner buses for SaaS sources.\n- **Rules**: patterns on fields (source, detail-type, content of ```detail```) and one or more targets, optionally with input transformation.\n- **Targets**: Lambda, SQS, SNS, Step Functions, ECS tasks, other buses or accounts, and HTTP API destinations, among others.\n- **Schedules**: cron or rate-based triggers (EventBridge Scheduler also exists for scheduled invocations).\n- **Archive and replay**, and a **schema registry** to document event shapes.\n\n## Example event and rule\n```json\n{\n  \"source\": \"example.vehicle-service\",\n  \"detail-type\": \"VehiclePriceChanged\",\n  \"detail\": { \"vehicleId\": \"veh-123\", \"newPrice\": 25900, \"currency\": \"EUR\" }\n}\n```\n```json\n{ \"source\": [\"example.vehicle-service\"], \"detail-type\": [\"VehiclePriceChanged\"] }\n```\n\n## Good fits\n- Loosely coupled microservice integration and domain events.\n- Reacting to AWS service events (for example, a deployment state change).\n- Cross-account or SaaS event integration.\n- Scheduled automation.\n\n## Trade-offs\n- Delivery is at-least-once with retries, so consumers should be idempotent.\n- It is not a high-throughput data stream or a work queue; use SQS or Kinesis for buffering and ordered streaming.\n- Event schemas become public contracts; version them and keep them stable.\n- Harder end-to-end tracing across asynchronous hops; propagate correlation IDs.\n\n## Common mistake\nPutting a target directly behind a rule without a queue and DLQ for critical consumers; add SQS (or the rule's retry and dead-letter settings) so failures are not lost.",
+      "diagrams": [
+        {
+          "id": "bus",
+          "title": "Event-driven routing with EventBridge",
+          "alt": "A vehicle service publishes events to an EventBridge bus. Rules match event patterns and route copies to an analytics consumer and a notification consumer, each of which can sit behind its own queue.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "v",
+              "label": "Vehicle service"
+            },
+            {
+              "id": "b",
+              "label": "EventBridge bus"
+            },
+            {
+              "id": "a",
+              "label": "Analytics consumer"
+            },
+            {
+              "id": "n",
+              "label": "Notification consumer"
+            }
+          ],
+          "edges": [
+            {
+              "from": "v",
+              "to": "b",
+              "label": "publish event"
+            },
+            {
+              "from": "b",
+              "to": "a",
+              "label": "rule 1"
+            },
+            {
+              "from": "b",
+              "to": "n",
+              "label": "rule 2"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "EventBridge vs SNS: when would you pick each?",
+        "How do you handle failed deliveries?",
+        "How do you keep event schemas backwards compatible?"
+      ],
+      "related": [
+        "sqs-vs-sns-vs-eventbridge",
+        "async-work-with-queues"
+      ]
+    },
+    {
+      "slug": "async-work-with-queues",
+      "title": "How would you handle long-running or non-urgent work asynchronously on AWS?",
+      "topic": "Messaging & Async",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "sqs",
+        "async",
+        "workers",
+        "idempotency",
+        "dlq"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-cloud",
+          "pages": [
+            16
+          ]
+        }
+      ],
+      "quick": "I'd move the slow part out of the request path. The API validates the request, stores a job record, puts a message on SQS and immediately returns 202 Accepted with a job ID. Workers on ECS or Lambda consume messages, process them idempotently, and update status; failed messages retry and finally land in a dead-letter queue. The client polls or is notified. It suits reports, media processing, emails and batch tasks, and lets the queue absorb bursts while workers scale on queue depth.",
+      "revision": "Return 202 with a job ID, enqueue to SQS, process in idempotent workers with retries and a DLQ, scale on queue depth, and expose job status.",
+      "detailed": "Do not make users wait for work that does not need to finish inside the request: report generation, media processing, bulk imports, notifications.\n\n{{diagram:flow}}\n\n## Flow\n1. Client calls the API; the API validates and authorises.\n2. API writes a **job record** (status ```queued```) and sends a message to **SQS** (with the job ID, not a huge payload; large payloads go to S3 and the message carries a pointer).\n3. API returns **202 Accepted** with a job ID and a status URL.\n4. **Workers** (ECS tasks or Lambda with an SQS trigger) process the message.\n5. Worker updates status (```running```, ```succeeded```, ```failed```) and stores the result (for example in S3).\n6. Client polls the status endpoint, or receives a push (WebSocket, email, SNS or EventBridge event).\n\n## Reliability details\n- **At-least-once delivery**: make handlers **idempotent**, for example by checking job status or using an idempotency key before side effects.\n- **Visibility timeout** longer than the processing time, extended for slow jobs.\n- **Retries with a limit**, then a **dead-letter queue** plus an alarm and a redrive process.\n- **Back-pressure**: the queue absorbs spikes; **scale workers** on queue depth or age of the oldest message.\n- **Ordering**: use FIFO queues with message groups only when needed.\n- **Poison messages**: validate inputs and isolate bad ones in the DLQ.\n\n## Example\n```ts\nimport { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';\nconst sqs = new SQSClient({});\n\nawait sqs.send(new SendMessageCommand({\n  QueueUrl: process.env.REPORT_QUEUE_URL!,\n  MessageBody: JSON.stringify({ jobId, reportType: 'dealer-summary' }),\n}));\n```\n\n## When not to use it\nIf the user needs the result immediately and the work is short, keep it synchronous. Use Step Functions when you need a multi-step workflow with branching, waits and compensation.",
+      "diagrams": [
+        {
+          "id": "flow",
+          "title": "Asynchronous job processing",
+          "alt": "A React client calls an API, which sends a job message to an SQS queue and returns a job ID. Workers read from the queue, do the processing and store results and status. Failed messages move to a dead letter queue.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "c",
+              "label": "React client"
+            },
+            {
+              "id": "a",
+              "label": "API"
+            },
+            {
+              "id": "q",
+              "label": "SQS queue"
+            },
+            {
+              "id": "w",
+              "label": "Worker"
+            },
+            {
+              "id": "s",
+              "label": "Results and status store"
+            },
+            {
+              "id": "x",
+              "label": "Dead-letter queue"
+            }
+          ],
+          "edges": [
+            {
+              "from": "c",
+              "to": "a",
+              "label": "request"
+            },
+            {
+              "from": "a",
+              "to": "q",
+              "label": "enqueue"
+            },
+            {
+              "from": "q",
+              "to": "w",
+              "label": "poll"
+            },
+            {
+              "from": "w",
+              "to": "s",
+              "label": "write status"
+            },
+            {
+              "from": "q",
+              "to": "x",
+              "label": "repeated failures"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you make the worker idempotent?",
+        "How would you tell the client the job is done?",
+        "How do you decide between SQS and Step Functions?"
+      ],
+      "related": [
+        "sqs-vs-sns-vs-eventbridge",
+        "what-is-eventbridge",
+        "lambda-limitations"
+      ]
+    },
+    {
+      "slug": "what-is-cloudwatch",
+      "title": "What is Amazon CloudWatch and what do you monitor with it?",
+      "topic": "Observability & Operations",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "cloudwatch",
+        "metrics",
+        "logs",
+        "alarms"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-cloud",
+          "pages": [
+            17
+          ]
+        }
+      ],
+      "quick": "CloudWatch is AWS's monitoring service: metrics, logs, alarms, dashboards, and related features like Logs Insights, synthetic canaries and application signals. Most AWS services publish metrics automatically. I'd watch request count, latency and 4xx/5xx rates on CloudFront, ALB and API Gateway, CPU and memory on ECS, Lambda duration, errors and throttles, SQS queue depth and message age, and database CPU, connections and storage. Alarms notify through SNS and can trigger scaling or automation. I'd alert on symptoms users feel.",
+      "revision": "CloudWatch = metrics, logs, alarms, dashboards for AWS. Watch traffic, latency, errors and saturation across layers; alert on user-visible symptoms.",
+      "detailed": "**Amazon CloudWatch** collects and analyses operational data.\n\n## Main capabilities\n| Capability | Purpose |\n|---|---|\n| Metrics | Time-series numbers; most AWS services publish them, and you can publish **custom metrics** |\n| Logs and Logs Insights | Centralised log storage, retention policies and a query language |\n| Alarms | Evaluate a metric against a threshold and notify (SNS), trigger Auto Scaling, or run automation |\n| Dashboards | Shared views across services and Regions |\n| Synthetics | Scripted canaries that exercise endpoints from outside |\n| Application Signals and tracing integration | Service-level views with AWS X-Ray or OpenTelemetry data |\n\n## What to monitor by layer\n- **Edge**: CloudFront requests, error rate, cache hit ratio; WAF blocked and counted requests.\n- **Entry**: ALB request count, target response time, healthy host count, 5xx; API Gateway latency, 4xx/5xx, throttles.\n- **Compute**: ECS CPU and memory utilisation (memory is available for ECS through service metrics), task counts; EC2 memory and disk need the CloudWatch agent; Lambda invocations, duration, errors, throttles, concurrency.\n- **Messaging**: SQS visible messages and age of oldest message; DLQ depth.\n- **Data**: RDS CPU, freeable memory, connections, read/write latency, replica lag, free storage; ElastiCache evictions and memory.\n\n## Alerting guidance\n- Alert on **symptoms** (error rate, latency SLO burn, queue age) more than raw causes (CPU 70%).\n- Every alarm should have an owner and a runbook.\n- Use composite alarms and sensible evaluation periods to reduce noise.\n- Set **log retention**; unbounded logs are a common hidden cost.\n\n## Common mistakes\n- Not emitting structured (JSON) logs, which makes querying painful.\n- Forgetting memory metrics on EC2.\n- High-cardinality custom metrics causing cost surprises.\n- Dashboards nobody looks at while no alarms exist.",
+      "followUps": [
+        "Which metrics would you alarm on for an ALB-fronted ECS service?",
+        "How do you query logs across many Lambda functions?",
+        "How do you keep CloudWatch costs under control?"
+      ],
+      "related": [
+        "observability-design",
+        "what-is-auto-scaling",
+        "ten-x-traffic-spike"
+      ]
+    },
+    {
+      "slug": "observability-design",
+      "title": "How would you implement observability for an enterprise website and its APIs?",
+      "topic": "Observability & Operations",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "observability",
+        "tracing",
+        "logging",
+        "metrics",
+        "slo"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-cloud",
+          "pages": [
+            17,
+            18
+          ]
+        }
+      ],
+      "quick": "I'd cover the three signals end to end. Metrics for rate, errors, duration and saturation per service, with SLOs and alerts on user impact. Structured logs carrying a correlation ID, endpoint, status and error, with sensitive data excluded. Distributed traces from browser through gateway and services to the database, using OpenTelemetry or X-Ray. Add real-user monitoring for Core Web Vitals and synthetic checks. Dashboards and runbooks tie it together, with sampling and retention managed for cost.",
+      "revision": "Observability = metrics, structured logs and distributed traces linked by correlation IDs, plus real-user and synthetic monitoring, SLO-based alerts and cost-aware retention.",
+      "detailed": "Monitoring answers \"is something wrong?\"; observability lets you ask \"why?\" without shipping new code. For a web platform you need signals from the browser to the database.\n\n{{diagram:path}}\n\n## Metrics\nUse the **RED** method for services (Rate, Errors, Duration) and **USE** for resources (Utilisation, Saturation, Errors). Track latency percentiles, not averages. Define **SLIs and SLOs** (for example 99.9% of vehicle-search requests under 500 ms) and alert on error-budget burn.\n\n## Logs\n- **Structured JSON** with fields such as ```requestId```, ```traceId```, ```route```, ```status```, ```durationMs```, ```error```.\n- Pass the **correlation ID** from the edge through every service; return it in an error response header so support can find the request.\n- Do not log secrets or unnecessary personal data; apply retention and access controls.\n\n## Traces\nInstrument services with **OpenTelemetry** (via AWS Distro for OpenTelemetry) or AWS X-Ray. Propagate the W3C ```traceparent``` header across HTTP calls and message attributes in SQS or EventBridge events, so asynchronous hops stay connected.\n\n## Front end and outside-in\n- **Real-user monitoring** for Core Web Vitals and JavaScript errors by region and device.\n- **Synthetic canaries** hitting key journeys (home page, vehicle search) from several locations.\n\n## Alerting and response\nAlerts should point to a dashboard and runbook; separate paging alerts (user impact) from ticket-level ones. Use deployment markers to correlate changes with regressions.\n\n## Cost and quality controls\n- Sample traces (for example head or tail sampling), set log levels and retention, control metric cardinality.\n- Standardise instrumentation through shared libraries or platform defaults.\n\n## Common mistakes\nCollecting data without questions it answers; no correlation IDs across async boundaries; alerting on CPU instead of user-facing symptoms; unbounded log volume.",
+      "diagrams": [
+        {
+          "id": "path",
+          "title": "Telemetry path across tiers",
+          "alt": "The browser sends real-user metrics and a trace context to API Gateway. Services propagate the trace context to each other and to the database. Metrics, logs and traces flow into CloudWatch and tracing backends, where dashboards and alarms are built.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "b",
+              "label": "Browser RUM"
+            },
+            {
+              "id": "g",
+              "label": "API Gateway"
+            },
+            {
+              "id": "s",
+              "label": "Service A"
+            },
+            {
+              "id": "t",
+              "label": "Service B"
+            },
+            {
+              "id": "db",
+              "label": "Database"
+            },
+            {
+              "id": "o",
+              "label": "CloudWatch and tracing backend"
+            }
+          ],
+          "edges": [
+            {
+              "from": "b",
+              "to": "g",
+              "label": "trace context"
+            },
+            {
+              "from": "g",
+              "to": "s"
+            },
+            {
+              "from": "s",
+              "to": "t"
+            },
+            {
+              "from": "t",
+              "to": "db"
+            },
+            {
+              "from": "g",
+              "to": "o",
+              "label": "telemetry"
+            },
+            {
+              "from": "s",
+              "to": "o",
+              "label": "telemetry"
+            },
+            {
+              "from": "t",
+              "to": "o",
+              "label": "telemetry"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "What SLIs and SLOs would you define for a vehicle search API?",
+        "How do you trace a request across an SQS queue?",
+        "How do you control the cost of logs and traces?"
+      ],
+      "related": [
+        "what-is-cloudwatch",
+        "async-work-with-queues"
+      ]
+    },
+    {
+      "slug": "infrastructure-as-code",
+      "title": "What is Infrastructure as Code and why does it matter?",
+      "topic": "Observability & Operations",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "iac",
+        "terraform",
+        "cloudformation",
+        "cdk",
+        "ci-cd"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-cloud",
+          "pages": [
+            18
+          ]
+        }
+      ],
+      "quick": "Infrastructure as Code defines infrastructure in version-controlled files instead of manual console clicks. Tools include Terraform, CloudFormation and the AWS CDK. It gives repeatable environments, code review, change history, automation in CI/CD, consistency between dev, staging and production, and a faster path to rebuild after a disaster. I'd keep state safe, split stacks by lifecycle, scan for misconfigurations, preview changes before applying, and detect drift from manual edits.",
+      "revision": "IaC = infrastructure defined in reviewed, versioned code (Terraform, CloudFormation, CDK): repeatable, auditable, automatable, and easier to recover. Manage state and drift.",
+      "detailed": "**Infrastructure as Code (IaC)** describes resources declaratively (or generates descriptions from code) so environments are created, changed and destroyed by tools rather than by hand.\n\n## Tools\n| Tool | Notes |\n|---|---|\n| CloudFormation | AWS-native templates (YAML/JSON), stacks, change sets, drift detection |\n| AWS CDK | Write infrastructure in TypeScript, Python and others; synthesises to CloudFormation |\n| Terraform / OpenTofu | Cloud-agnostic HCL, large provider ecosystem, explicit state file |\n\n## Benefits\n- **Repeatability**: identical environments from the same code.\n- **Review and audit**: pull requests, approvals and history for infrastructure changes.\n- **Automation**: pipelines apply changes consistently.\n- **Disaster recovery**: rebuild a Region or account from code.\n- **Reduced drift and snowflakes**.\n- **Policy enforcement**: security checks run before deployment.\n\n## Example (Terraform)\n```hcl\nresource \"aws_s3_bucket\" \"assets\" {\n  bucket = \"example-site-assets\"\n}\n\nresource \"aws_s3_bucket_public_access_block\" \"assets\" {\n  bucket                  = aws_s3_bucket.assets.id\n  block_public_acls       = true\n  block_public_policy     = true\n  ignore_public_acls      = true\n  restrict_public_buckets = true\n}\n```\n\n## Good practices\n- Split into **modules or stacks by lifecycle and ownership** (network, data, services), avoiding one giant stack.\n- Keep **remote state** locked and access-controlled (Terraform) and never commit secrets.\n- Run **plan / change set** in CI, require review, then apply.\n- Scan with policy tools (for example cfn-guard, Checkov or similar) and detect **drift**.\n- Use separate accounts and state per environment.\n- Pin provider and module versions.\n\n## Common mistakes\n- Manual console changes that silently diverge from code.\n- State files stored insecurely or shared without locking.\n- Copy-pasting templates per environment instead of parameterising.\n- Treating IaC as only for infrastructure and leaving deployment pipelines manual.",
+      "followUps": [
+        "Terraform vs CloudFormation vs CDK: how would you choose?",
+        "How do you handle drift?",
+        "How do you manage secrets and state safely?"
+      ],
+      "related": [
+        "disaster-recovery-rto-rpo",
+        "deploy-react-on-aws",
+        "deploy-nestjs-on-aws"
+      ]
+    },
+    {
+      "slug": "deploy-react-on-aws",
+      "title": "How would you deploy a React application to AWS?",
+      "topic": "Deployment",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "react",
+        "s3",
+        "cloudfront",
+        "ci-cd",
+        "github-actions"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-cloud",
+          "pages": [
+            18,
+            19
+          ]
+        }
+      ],
+      "quick": "For a client-rendered React app I'd build static files, upload them to a private S3 bucket and serve them through CloudFront using Origin Access Control. A CI pipeline such as GitHub Actions runs install, lint, tests and build, authenticates to AWS with OIDC and a role, syncs assets to S3 and invalidates only the HTML entry file. Hashed assets get long cache lifetimes, index.html a short one, with SPA routing handled by error mapping. Server-rendered apps need a compute tier instead.",
+      "revision": "Build, sync to private S3, serve through CloudFront with OAC; long-cache hashed assets, short-cache index.html, invalidate the entry file, authenticate CI via OIDC. SSR needs compute.",
+      "detailed": "A static single-page app needs no servers: the build output is files.\n\n{{diagram:pipe}}\n\n## Hosting\n- **S3** (private) stores the build output.\n- **CloudFront** serves it with HTTPS (ACM certificate), compression and caching.\n- **Route 53** points the domain at the distribution.\n- **WAF** attached to CloudFront if needed.\n- SPA routing: serve ```index.html``` for unknown paths (custom error response mapping 403/404 to ```/index.html```).\n\n## Cache strategy\n- Build tools emit **content-hashed filenames** (```main.4f2a9c.js```). Upload them with ```Cache-Control: public, max-age=31536000, immutable```.\n- Upload ```index.html``` with a short cache lifetime or ```no-cache```, so new releases are picked up.\n- Invalidate ```/index.html``` (and other non-hashed files) after deploy; avoid blanket ```/*``` invalidations as a habit.\n\n## CI/CD example (GitHub Actions)\n```yaml\nname: deploy\non: { push: { branches: [main] } }\npermissions: { id-token: write, contents: read }\njobs:\n  deploy:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions/setup-node@v4\n        with: { node-version: 20, cache: npm }\n      - run: npm ci && npm test && npm run build\n      - uses: aws-actions/configure-aws-credentials@v4\n        with:\n          role-to-assume: arn:aws:iam::123456789012:role/example-deploy-role\n          aws-region: eu-west-1\n      - run: aws s3 sync dist/ s3://example-site-assets --delete\n      - run: aws cloudfront create-invalidation --distribution-id EXAMPLE123 --paths \"/index.html\"\n```\n(The account ID and distribution ID are placeholders.) Keep the deploy role scoped to the one bucket and distribution.\n\n## Environment and safety\n- Build-time configuration only; never put secrets in a front-end bundle, as everything shipped is public.\n- Consider blue/green style rollouts using separate origins or versioned prefixes for fast rollback.\n- Add source maps handling policy (upload to an error tracker, not public).\n\n## Server-rendered React\nFor Next.js or similar SSR/ISR frameworks, run the server on ECS/Fargate, Lambda or a framework-specific adapter, with CloudFront in front and static assets still served from S3.",
+      "diagrams": [
+        {
+          "id": "pipe",
+          "title": "React deployment pipeline",
+          "alt": "Source code in GitHub triggers a GitHub Actions workflow that installs dependencies, tests and builds. The workflow assumes an AWS role, syncs the build to a private S3 bucket and invalidates the entry file in CloudFront, which serves users.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "g",
+              "label": "GitHub"
+            },
+            {
+              "id": "a",
+              "label": "GitHub Actions: test and build"
+            },
+            {
+              "id": "i",
+              "label": "IAM role via OIDC"
+            },
+            {
+              "id": "s",
+              "label": "S3 bucket"
+            },
+            {
+              "id": "c",
+              "label": "CloudFront"
+            },
+            {
+              "id": "u",
+              "label": "Users"
+            }
+          ],
+          "edges": [
+            {
+              "from": "g",
+              "to": "a",
+              "label": "push"
+            },
+            {
+              "from": "a",
+              "to": "i",
+              "label": "assume role"
+            },
+            {
+              "from": "i",
+              "to": "s",
+              "label": "sync"
+            },
+            {
+              "from": "i",
+              "to": "c",
+              "label": "invalidate"
+            },
+            {
+              "from": "s",
+              "to": "c",
+              "label": "origin"
+            },
+            {
+              "from": "c",
+              "to": "u"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you roll back a bad release?",
+        "Why not invalidate everything on every deploy?",
+        "How would the design change for server-side rendering?"
+      ],
+      "related": [
+        "cloudfront-with-s3",
+        "infrastructure-as-code",
+        "deploy-nestjs-on-aws"
+      ]
+    },
+    {
+      "slug": "deploy-nestjs-on-aws",
+      "title": "How would you deploy a Node/NestJS API on AWS?",
+      "topic": "Deployment",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "nestjs",
+        "ecs",
+        "fargate",
+        "ecr",
+        "rds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-cloud",
+          "pages": [
+            19
+          ]
+        }
+      ],
+      "quick": "I'd containerise the API, build and scan the image in CI, push to ECR, and run it as an ECS service on Fargate behind an Application Load Balancer, in private subnets across two or more AZs. CloudFront and WAF sit in front. The app uses RDS PostgreSQL and ElastiCache Redis in private subnets, reads secrets from Secrets Manager through its task role, logs to CloudWatch, and scales on request count or CPU. Deployments are rolling or blue/green with health checks and automatic rollback.",
+      "revision": "Docker image to ECR, ECS Fargate service behind ALB in private subnets across AZs, RDS and Redis private, secrets via task role, autoscale, rolling or blue/green deploys with rollback.",
+      "detailed": "One reasonable architecture (other valid ones exist, for example Lambda or EKS):\n\n{{diagram:arch}}\n\n## Build and release\n1. CI builds the Docker image, runs tests, linting and a vulnerability scan.\n2. Image is tagged with the commit SHA (avoid relying on ```latest```) and pushed to **ECR**.\n3. A new **ECS task definition** revision references the image; the **service** deploys it with a rolling update, or blue/green via CodeDeploy.\n4. The ALB health check gates traffic; the ECS **deployment circuit breaker** can roll back failures automatically.\n\n## Runtime\n- **ECS on Fargate** in private subnets; the **ALB** in public subnets; security groups chain ALB to app to database.\n- Separate **task execution role** (pull image, write logs) and **task role** (the app's AWS permissions).\n- Configuration through environment variables; secrets injected from **Secrets Manager** or Parameter Store.\n- **Graceful shutdown**: enable NestJS shutdown hooks so in-flight requests finish when tasks are stopped.\n- Logs to CloudWatch in JSON; add tracing.\n- **Auto scaling** on ALB requests per target or CPU, with a min of two tasks across AZs.\n- Run database migrations as a controlled, separate step (a one-off task), not on every container start in parallel.\n\n## Dockerfile sketch\n```dockerfile\nFROM node:20-slim AS build\nWORKDIR /app\nCOPY package*.json ./\nRUN npm ci\nCOPY . .\nRUN npm run build\n\nFROM node:20-slim\nWORKDIR /app\nENV NODE_ENV=production\nCOPY --from=build /app/package*.json ./\nRUN npm ci --omit=dev\nCOPY --from=build /app/dist ./dist\nUSER node\nCMD [\"node\", \"dist/main.js\"]\n```\n\n## Trade-offs\nFargate costs more per vCPU than well-utilised EC2 but removes host management. Lambda or EKS may suit other teams' needs. Add RDS Proxy or pooling for connection control and Redis behind a graceful-failure strategy.\n\n## Common mistakes\nRunning as root, baking secrets into images, one task with no redundancy, migrations racing during deploys.",
+      "diagrams": [
+        {
+          "id": "arch",
+          "title": "NestJS on ECS reference architecture",
+          "alt": "Internet traffic passes through CloudFront and WAF to an application load balancer in public subnets. The ALB forwards to NestJS tasks on ECS Fargate in private subnets, which use ElastiCache Redis and an RDS PostgreSQL database. A CI pipeline pushes images to ECR for ECS to pull.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "i",
+              "label": "Internet"
+            },
+            {
+              "id": "c",
+              "label": "CloudFront and WAF"
+            },
+            {
+              "id": "a",
+              "label": "ALB"
+            },
+            {
+              "id": "e",
+              "label": "NestJS on ECS Fargate"
+            },
+            {
+              "id": "r",
+              "label": "Redis"
+            },
+            {
+              "id": "d",
+              "label": "RDS PostgreSQL"
+            },
+            {
+              "id": "ecr",
+              "label": "ECR image registry"
+            }
+          ],
+          "edges": [
+            {
+              "from": "i",
+              "to": "c"
+            },
+            {
+              "from": "c",
+              "to": "a"
+            },
+            {
+              "from": "a",
+              "to": "e"
+            },
+            {
+              "from": "e",
+              "to": "r"
+            },
+            {
+              "from": "e",
+              "to": "d"
+            },
+            {
+              "from": "ecr",
+              "to": "e",
+              "label": "image pull"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you run database migrations safely during deployment?",
+        "Rolling vs blue/green deployments on ECS: trade-offs?",
+        "How would you set up graceful shutdown in NestJS?"
+      ],
+      "related": [
+        "ecs-vs-lambda-for-apis",
+        "what-is-alb",
+        "infrastructure-as-code"
+      ]
+    }
+  ]
+}

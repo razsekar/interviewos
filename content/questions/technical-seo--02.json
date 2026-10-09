@@ -1,0 +1,306 @@
+{
+  "category": "technical-seo",
+  "questions": [
+    {
+      "slug": "http-status-codes-and-seo",
+      "title": "How do HTTP status codes affect SEO?",
+      "topic": "Status Codes and Redirects",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "http-status",
+        "404",
+        "410",
+        "301",
+        "302",
+        "5xx"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-seo",
+          "pages": [
+            6
+          ]
+        }
+      ],
+      "quick": "Status codes tell crawlers what a URL is. 200 means a page exists and can be considered for indexing. 301 and 308 mean permanent moves, 302 and 307 temporary ones. 404 means not found and 410 means intentionally gone; both lead to removal from the index over time. 5xx errors signal server trouble and can reduce crawling if they persist. Returning the wrong code, such as 200 for a missing page, misleads search engines.",
+      "revision": "Status codes are the crawler's truth: 200 indexable, 301 permanent move, 302 temporary, 404 or 410 gone, 5xx server trouble. Never fake a 200.",
+      "detailed": "**Search engines trust the HTTP status code before they look at the page body, so the code must reflect reality.**\n\n| Code | Meaning | SEO effect |\n|---|---|---|\n| 200 | Success | Page may be rendered and indexed |\n| 301 / 308 | Permanent redirect | Strong signal the target replaces the old URL; signals consolidate on the target |\n| 302 / 307 | Temporary redirect | Original URL may stay as the preferred one; use for genuinely temporary moves |\n| 304 | Not modified | Efficient revalidation; fine |\n| 404 | Not found | Dropped from the index over time |\n| 410 | Gone, intentionally | Treated much like 404 by Google, possibly slightly faster dropping; use for deliberate removal |\n| 429 / 5xx | Rate limited or server error | Crawlers slow down; prolonged errors can lead to URLs being dropped |\n\n## Practical guidance\n\n- **Missing content must return 404 (or 410)**, with a helpful error page, not a 200. See the soft 404 question.\n- **Moves get a 301 or 308**; temporary situations (maintenance, A/B tests, short promos) get 302 or 307. Search engines may eventually treat a long-lived 302 as permanent, but do not rely on that.\n- **Maintenance windows** should return 503 with a Retry-After header, not a 200 holding page.\n- **Avoid redirect chains and loops**; point old URLs directly at the final destination.\n- **Be consistent across layers.** CDN, reverse proxy, framework and CMS may each rewrite codes; test the final response a crawler gets.\n- **Do not redirect everything to the homepage.** Engines may treat irrelevant mass redirects as soft 404s.\n\n## Next.js note\n\nIn the App Router, calling `notFound()` renders the not-found UI and sets 404 in most cases; streaming can complicate this, so verify with curl on real routes. Redirects via `redirect()` or config `redirects` return 307/308 by default (config can use `permanent: true`).\n\n## Common mistakes\n\nSoft 404s, 302 used for permanent migrations, status codes changed by the client router only (the server still says 200), and CDN error pages cached with a 200.",
+      "followUps": [
+        "301 vs 302: how does the choice affect indexing?",
+        "When would you use 503 with Retry-After?",
+        "Why avoid redirect chains?"
+      ],
+      "related": [
+        "soft-404-in-react-apps",
+        "redirects-301-vs-302"
+      ]
+    },
+    {
+      "slug": "soft-404-in-react-apps",
+      "title": "What is a soft 404, and how does it occur in React apps?",
+      "topic": "Status Codes and Redirects",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "soft-404",
+        "react",
+        "spa",
+        "status-codes"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-seo",
+          "pages": [
+            6
+          ]
+        }
+      ],
+      "quick": "A soft 404 is a page that says something like \"not found\" but returns 200 OK, or a nearly empty page returned as if it were valid. In single-page apps the server often returns index.html with 200 for every path and the client router shows the error view. Search engines may flag these and treat them as errors. I fix it by returning a real 404 from the server for unknown routes and checking data lookups before rendering.",
+      "revision": "Soft 404 means an error or empty page served with 200. In SPAs the server must return real 404/410 for unknown routes, not just show a client-side message.",
+      "detailed": "**A soft 404 is a URL whose content says \"missing\" (or is effectively empty) while the HTTP status is 200 OK. Search engines try to detect these and typically treat them as errors, which pollutes reports and wastes crawl capacity.**\n\n## How React apps create them\n\nA classic single-page app is served by a catch-all rule: every path returns `index.html` with 200, and the client-side router decides what to render. For `/vehicles/not-a-model` the JS fetches data, receives an empty result and renders \"Vehicle not found\", but the server already said 200.\n\n```tsx\n// Anti-pattern: client-only check, server still answers 200\nfunction VehiclePage({ slug }: { slug: string }) {\n  const { data } = useVehicle(slug);\n  if (!data) return <p>Vehicle not found</p>;\n  return <h1>{data.name}</h1>;\n}\n```\n\n## Fixes\n\n- **Server-rendered frameworks**: do the lookup on the server and trigger the framework's not-found path.\n\n```tsx\n// Next.js App Router\nimport { notFound } from 'next/navigation';\n\nexport default async function Page({ params }: { params: Promise<{ slug: string }> }) {\n  const { slug } = await params;\n  const vehicle = await getVehicle(slug);\n  if (!vehicle) notFound(); // renders not-found UI and 404 status\n  return <h1>{vehicle.name}</h1>;\n}\n```\n\n- **Pure SPA with no server logic**: configure the host or edge to return 404 for known-invalid patterns, or, as a last resort, add a `noindex` robots meta tag via JavaScript on the error view, or redirect to a real 404 URL. These are weaker than a true server status.\n- **Removed content**: use 404 or 410 for permanent removal, or a 301 to a genuinely equivalent page.\n\n## Other soft-404 sources\n\n- Empty category or search-result pages with no items.\n- Expired campaign pages left as \"sorry, offer ended\" with 200.\n- Mass redirects of unrelated removed pages to the homepage.\n\n## How to detect\n\nSearch Console reports \"Soft 404\"; also curl routes that should not exist and confirm the status, and crawl for pages with very low word count and an error phrase.",
+      "followUps": [
+        "How would you return correct status codes behind a CDN?",
+        "Should an empty search results page return 404?",
+        "What about streaming SSR where the shell has already been sent?"
+      ],
+      "related": [
+        "http-status-codes-and-seo",
+        "scenario-new-page-not-indexed"
+      ]
+    },
+    {
+      "slug": "redirects-301-vs-302",
+      "title": "When should you use a 301 vs a 302 redirect, and what are redirect best practices?",
+      "topic": "Status Codes and Redirects",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "redirects",
+        "301",
+        "302",
+        "migration",
+        "redirect-chains"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Use a 301 (or 308) when a URL has moved permanently so the target becomes the preferred URL and signals consolidate there. Use 302 (or 307) for temporary moves where the original should remain the preferred address. Redirect old URLs directly to the closest equivalent, avoid chains and loops, update internal links and sitemaps to the final URL, and do not funnel everything to the homepage. Keep redirects in version-controlled rules and test them.",
+      "revision": "301/308 for permanent moves, 302/307 for temporary; redirect to the closest equivalent in one hop, then update links and sitemaps to the final URL.",
+      "detailed": "**Use a permanent redirect (301 or 308) when content has moved for good, and a temporary redirect (302 or 307) when the original URL will return.** Search engines use the type as a hint about which URL to keep indexed.\n\n| Code | Permanence | Method preserved? | Typical use |\n|---|---|---|---|\n| 301 | Permanent | May change POST to GET | URL restructure, domain move, HTTP to HTTPS |\n| 308 | Permanent | Yes | Same as 301 when method must be preserved |\n| 302 | Temporary | May change POST to GET | Short-term promo redirect, A/B routing |\n| 307 | Temporary | Yes | Temporary, method-safe |\n\nGoogle generally follows both types and passes signals, but it treats a long-standing temporary redirect as a weaker statement about which URL should be canonical, so choose the code that matches your intent.\n\n## Best practices\n\n- **One hop** from old to final URL; no chains (A to B to C) and no loops.\n- **Closest equivalent**: map each old URL to the most relevant new page. Redirecting unrelated pages to the homepage is treated like a soft 404 and ruins user experience.\n- **Update the rest of the system**: internal links, canonical tags, hreflang and sitemaps should point to the final URL, not rely on the redirect.\n- **Normalize at the edge**: enforce a single scheme, host, case and trailing-slash form with permanent redirects.\n- **Keep redirect maps in source control**, with tests that assert status code, destination and no chains. Large migrations often need thousands of rules; consider a lookup at the edge rather than application code.\n- **Keep redirects live long enough**; Google has indicated a year or more is sensible, and indefinitely if links and bookmarks still exist.\n- **Avoid client-side redirects** (`window.location` or meta refresh) for permanent moves; they are slower to be understood.\n\n## Edge case: geo and language redirects\n\nAutomatically redirecting by IP or Accept-Language can hide other versions from crawlers, which commonly crawl from limited locations and send no language preference. Prefer a visible locale suggestion banner over a forced redirect.\n\n## Common mistakes\n\nUsing 302 for a migration, redirect chains accumulated over multiple redesigns, and redirecting to a URL that is itself noindex or non-canonical.",
+      "followUps": [
+        "How would you test a 10,000-rule redirect map?",
+        "Why might a 302 left in place for years be a problem?",
+        "How do redirects interact with canonical tags?"
+      ],
+      "related": [
+        "http-status-codes-and-seo",
+        "scenario-website-migration"
+      ]
+    },
+    {
+      "slug": "structured-data-json-ld",
+      "title": "What is structured data, and how do you implement JSON-LD correctly?",
+      "topic": "Structured Data",
+      "difficulty": "intermediate",
+      "type": "coding",
+      "tags": [
+        "structured-data",
+        "json-ld",
+        "schema-org",
+        "rich-results"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-seo",
+          "pages": [
+            5,
+            6
+          ]
+        }
+      ],
+      "quick": "Structured data is machine-readable markup, usually Schema.org vocabulary in a JSON-LD script, that describes what a page is about. It helps search engines understand content and may make eligible pages qualify for rich results, but it does not guarantee rich results or better rankings. I generate it from trusted content fields, make sure it matches visible content, never invent ratings or prices, and validate it in the build and after release.",
+      "revision": "Structured data is Schema.org JSON-LD describing visible content. It can make pages eligible for rich results but guarantees neither rich results nor ranking.",
+      "detailed": "**Structured data is standardized markup, most often Schema.org types expressed as JSON-LD, that tells machines what entities a page describes. It aids understanding and can make a page eligible for enhanced results, never entitled to them.**\n\n## A correct example\n\n```html\n<script type=\"application/ld+json\">\n{\n  \"@context\": \"https://schema.org\",\n  \"@type\": \"BreadcrumbList\",\n  \"itemListElement\": [\n    { \"@type\": \"ListItem\", \"position\": 1, \"name\": \"Vehicles\", \"item\": \"https://www.example.com/vehicles\" },\n    { \"@type\": \"ListItem\", \"position\": 2, \"name\": \"Explorer\" }\n  ]\n}\n</script>\n```\n\nOrganization markup follows the same pattern with `@type: \"Organization\"`, `name`, `url` and optionally `logo` and `sameAs`.\n\n## Rendering it from a component\n\n```tsx\nexport function JsonLd({ data }: { data: object }) {\n  return (\n    <script\n      type=\"application/ld+json\"\n      // escape \"<\" so content cannot terminate the script tag\n      dangerouslySetInnerHTML={{ __html: JSON.stringify(data).replace(/</g, \"\\u003c\") }}\n    />\n  );\n}\n```\n\nRender it on the server so it is in the initial HTML.\n\n## Architectural rules\n\n- **Generate from trusted content** (CMS or product data), not hand-typed strings.\n- **Mirror visible content.** Marking up data users cannot see, or fabricating ratings, prices or availability, violates guidelines and can lead to a manual action.\n- **Use the most specific correct type**, and only the properties you can truthfully supply. Required and recommended properties differ per rich result feature, so check the current documentation.\n- **Validate** in development and release (Schema Markup Validator for general Schema.org, Rich Results Test for Google features) and monitor enhancement reports in Search Console.\n- **Revisit when the content model changes.**\n\n## Caveats\n\n- Valid markup is not enough; eligibility rules and quality decide whether a rich result appears, and Google has retired or limited some features over time, so check current support.\n- JSON-LD is preferred by Google, but microdata and RDFa are also supported.\n- Many vehicle attributes exist in Schema.org vocabulary, but Google may not use them for a visible feature; markup then serves only understanding.",
+      "followUps": [
+        "JSON-LD vs microdata: why prefer JSON-LD?",
+        "How do you validate structured data in CI?",
+        "What risks come from marking up data that is not visible?"
+      ],
+      "related": [
+        "seo-governance-in-ci-cd",
+        "headless-cms-and-technical-seo"
+      ]
+    },
+    {
+      "slug": "crawlable-links-in-spas",
+      "title": "What makes a link crawlable, and why does it matter in React apps?",
+      "topic": "React and Next.js SEO",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "links",
+        "react",
+        "router",
+        "discovery",
+        "next-link"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-seo",
+          "pages": [
+            6
+          ]
+        }
+      ],
+      "quick": "Search engines discover pages by following anchor elements with an href that resolves to a real URL. Click handlers on divs, buttons that call router push, and hash-only URLs usually cannot be followed. In React I use real anchors, which routers like Next.js Link render with an href while still giving client-side navigation. I also avoid exposing important pages only through scripts, forms or infinite scroll without paginated URLs.",
+      "revision": "Crawlers follow anchor tags with real href URLs. Use router link components that output anchors; avoid onClick-only navigation and hash-only routes.",
+      "detailed": "**A crawlable link is an `<a>` element with an `href` that points to a resolvable URL. Crawlers do not click, hover or scroll like users, so navigation that exists only in event handlers is invisible to them.**\n\n## Good and bad\n\n```html\n<!-- Crawlable -->\n<a href=\"/vehicles/explorer\">Explorer</a>\n\n<!-- Not reliably crawlable -->\n<div onclick=\"router.push('/vehicles/explorer')\">Explorer</div>\n<a href=\"#/vehicles/explorer\">Explorer</a>\n<a href=\"javascript:void(0)\" onclick=\"go()\">Explorer</a>\n```\n\n## In React and Next.js\n\nFramework link components render real anchors and add client-side transitions on top.\n\n```tsx\nimport Link from 'next/link';\n\n<Link href=\"/vehicles/explorer\">Explorer</Link>\n```\n\nCalling `router.push` from a button is fine for actions (submit, wizard steps) but not for content navigation that should be discovered.\n\n## Why it matters\n\n- **Discovery**: orphan pages rely on the sitemap alone.\n- **Signals**: internal links pass context through anchor text and reflect site hierarchy.\n- **Rendering independence**: links present in the initial HTML work even if rendering is deferred.\n\n## Related considerations\n\n- Use **descriptive anchor text** rather than \"click here\".\n- **Pagination and infinite scroll**: expose paginated URLs with real links; content loaded only on scroll may never be seen.\n- **History API routing**: use clean paths, not hash fragments, because fragments are not sent to the server and are generally not treated as separate pages.\n- **Menus, mega-menus and facets**: ensure links exist in the DOM without requiring interaction; cap crawlable facet combinations.\n- Use `rel=\"nofollow\"` or similar only where intended.\n\n## Common mistake\n\nA design system button component styled as a link that navigates through an `onClick`. Add a lint rule or test that checks key templates for anchors.",
+      "followUps": [
+        "How do you handle infinite scroll for SEO?",
+        "Are hash-based routes ever acceptable?",
+        "How would you test crawlable navigation automatically?"
+      ],
+      "related": [
+        "javascript-seo-pitfalls",
+        "nextjs-metadata-implementation"
+      ]
+    },
+    {
+      "slug": "nextjs-metadata-implementation",
+      "title": "How would you implement per-page SEO metadata in a Next.js app?",
+      "topic": "React and Next.js SEO",
+      "difficulty": "intermediate",
+      "type": "coding",
+      "tags": [
+        "nextjs",
+        "metadata",
+        "canonical",
+        "app-router",
+        "hreflang"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "In the Next.js App Router I export a metadata object or an async generateMetadata function per route. It reads the same CMS data as the page and returns title, description, canonical and language alternates, plus robots and Open Graph fields where needed. Because it is rendered on the server, the tags are in the initial HTML. I set a metadataBase, return not-found for missing items, and verify output with curl and a crawl.",
+      "revision": "Use generateMetadata in the App Router to build title, description, canonical, alternates and robots from CMS data on the server; verify the output HTML.",
+      "detailed": "**In the Next.js App Router, each `layout.tsx` or `page.tsx` can export a static `metadata` object or an async `generateMetadata` function. Next.js renders those tags on the server and merges them down the route tree.**\n\n```tsx\n// app/[locale]/vehicles/[slug]/page.tsx\nimport type { Metadata } from 'next';\nimport { notFound } from 'next/navigation';\n\ntype Props = { params: Promise<{ locale: string; slug: string }> };\n\nexport async function generateMetadata({ params }: Props): Promise<Metadata> {\n  const { locale, slug } = await params;\n  const vehicle = await getVehicle(slug, locale); // shared, cached data fetch\n  if (!vehicle) return { robots: { index: false } };\n\n  const path = '/vehicles/' + slug;\n  return {\n    title: vehicle.seoTitle,\n    description: vehicle.seoDescription,\n    alternates: {\n      canonical: '/' + locale + path,\n      languages: { 'en-US': '/en-us' + path, 'en-GB': '/en-gb' + path },\n    },\n    openGraph: { title: vehicle.seoTitle, images: [vehicle.heroImageUrl] },\n  };\n}\n```\n\n## Notes\n\n- Set `metadataBase` in the root layout so relative URLs resolve to absolute ones.\n- Data fetches in the page and in `generateMetadata` with the same arguments are typically deduplicated by the framework's request memoization, but confirm for your data client; otherwise use a cached helper.\n- Page-level metadata overrides layout metadata for the same field; plan defaults and overrides deliberately.\n- Missing entities should call `notFound()` in the page so the status is 404; metadata alone does not set it.\n- Add `robots: { index: false }` for utility, preview and filtered pages that should not be indexed.\n- JSON-LD is not part of the metadata API; render it in the page as a script element.\n- In the older Pages Router, use `next/head` and server-side data functions, and keep the tags in the server HTML.\n\n## Verify\n\n```bash\ncurl -s https://www.example.com/en-us/vehicles/explorer | grep -iE '<title|canonical|hreflang|robots'\n```\n\n## Common mistakes\n\nSetting titles client-side with an effect, forgetting canonicals on dynamic routes, and letting preview deployments be indexed (use noindex or authentication there).",
+      "followUps": [
+        "How do you stop staging and preview sites from being indexed?",
+        "Where would structured data go in this setup?",
+        "How would you test metadata across hundreds of routes?"
+      ],
+      "related": [
+        "title-and-meta-description",
+        "canonical-urls",
+        "structured-data-json-ld"
+      ]
+    },
+    {
+      "slug": "javascript-seo-pitfalls",
+      "title": "What are the main JavaScript SEO pitfalls, and how do you mitigate them?",
+      "topic": "React and Next.js SEO",
+      "difficulty": "advanced",
+      "type": "conceptual",
+      "tags": [
+        "javascript-seo",
+        "rendering",
+        "hydration",
+        "blocked-resources"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-seo",
+          "pages": [
+            6,
+            7
+          ]
+        }
+      ],
+      "quick": "Google can render JavaScript, but it adds delay and complexity, and other crawlers and social scrapers may not render at all. Pitfalls include content that appears only after failed API calls, blocked scripts or endpoints, links not in the DOM, metadata that is stale or duplicated across routes, and lazy loading that needs user interaction. I mitigate with server rendering or pre-rendering for primary content, then verify the rendered HTML.",
+      "revision": "Rendering JavaScript is possible but fragile. Put primary content, links and metadata in server HTML, do not block needed resources, and inspect rendered output.",
+      "detailed": "**Google renders JavaScript with a headless browser, but rendering is a separate, queued step, and many other consumers (other search engines, social link previews, some AI crawlers) execute little or no JavaScript.** Treat client rendering as a risk to be managed, not a default.\n\n## Common pitfalls\n\n| Pitfall | Effect | Mitigation |\n|---|---|---|\n| Content fetched client-side after load | Missing if API fails, times out or is blocked | Fetch on the server or at build |\n| Robots.txt blocks JS bundles or API paths | Page renders incomplete | Allow resources needed to render |\n| Navigation not anchors | Pages not discovered | Real `<a href>` links |\n| Metadata set late by JS, or left from previous route | Wrong or duplicate titles and canonicals | Server-render metadata per route |\n| Lazy loading tied to scroll or click | Content never loaded by the crawler | Use IntersectionObserver or native lazy loading; avoid interaction gates |\n| Hash routing | Single URL for many views | Clean History API paths |\n| JS-injected conflicting directives (e.g. server says index, JS adds noindex, or the reverse) | Unpredictable result | One source of truth; avoid changing robots via JS |\n| Heavy bundles and long tasks | Slow rendering, poor INP/LCP | Code splitting, less client JS |\n\n## Dynamic rendering\n\nServing different pre-rendered HTML to bots was once suggested as a workaround. Google now describes it as a workaround rather than a recommended long-term solution; prefer SSR, SSG or ISR.\n\n## How to verify\n\n- Compare **view-source** (raw HTML) with the **rendered DOM**; differences show what depends on JS.\n- Use a URL inspection tool's rendered HTML and screenshot, and its list of blocked resources.\n- Disable JavaScript in a browser and check that primary content and navigation remain.\n- Crawl with a rendering and a non-rendering crawler and compare.\n- Watch server logs for bot requests that hit your APIs and fail.\n\n## Rule of thumb\n\nPrimary content, internal links, canonical and robots directives belong in the initial HTML. Enhancements can be client-side.",
+      "followUps": [
+        "What is dynamic rendering and why is it not recommended long term?",
+        "How do you check what Googlebot sees?",
+        "Why do social previews fail on client-rendered pages?"
+      ],
+      "related": [
+        "csr-vs-ssr-vs-ssg-vs-isr",
+        "crawlable-links-in-spas"
+      ]
+    },
+    {
+      "slug": "hreflang-and-regional-alternates",
+      "title": "What is hreflang, and how do you implement it correctly?",
+      "topic": "International SEO",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "hreflang",
+        "international-seo",
+        "localization",
+        "canonical"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-seo",
+          "pages": [
+            7
+          ]
+        }
+      ],
+      "quick": "Hreflang annotations tell search engines which language or regional version of a page to show to which users. Each version lists all alternatives, including itself, and every alternative must link back; a missing return link makes the annotation ignored. Use valid language-region codes, optionally x-default, and self-referencing canonicals on each version. It is a signal for serving the right version, not a ranking boost, and can live in head tags, headers or sitemaps.",
+      "revision": "Hreflang maps equivalent language or region pages to each other; it must be reciprocal, self-inclusive, use valid codes and agree with canonicals. It does not boost rankings.",
+      "detailed": "**Hreflang is an annotation that links equivalent versions of a page for different languages or regions so the engine can serve the appropriate one. It helps swap the right URL into results; it does not raise rankings.**\n\n```html\n<link rel=\"alternate\" hreflang=\"en-us\" href=\"https://www.example.com/en-us/vehicles/explorer\" />\n<link rel=\"alternate\" hreflang=\"en-gb\" href=\"https://www.example.com/en-gb/vehicles/explorer\" />\n<link rel=\"alternate\" hreflang=\"x-default\" href=\"https://www.example.com/vehicles/explorer\" />\n```\n\nEach language version carries the full set, including a reference to itself.\n\n## Rules that cause most errors\n\n- **Reciprocity**: if page A lists B, B must list A. Otherwise the pair can be ignored.\n- **Self-reference**: every page includes itself in its set.\n- **Valid codes**: ISO 639-1 language, optionally ISO 3166-1 region (`en-gb`, not `en-uk`). A region alone is invalid.\n- **Absolute, canonical URLs**: annotate the canonical version, and keep a self-referencing canonical on each locale page. Do not canonicalize all locales to one URL, or the alternates collapse.\n- **Equivalent content**: pages should be real translations or regional variants.\n- **x-default** is optional and names a fallback or language selector page.\n- **Three places to put it**: HTML head, HTTP headers (useful for PDFs), or XML sitemap entries. Pick one source of truth; for very large sites sitemaps are often easier to maintain.\n- Only indexable pages (200, not noindex) should be in the set.\n\n## Generation\n\nGenerate annotations from the CMS translation relationships rather than by hand, and only emit alternates for locales where the page exists and is published. Missing translations should simply be omitted.\n\n## Common mistakes\n\nBroken return links after one locale is unpublished, conflicting canonical and hreflang, wrong codes, and mixing sources (head and sitemap with different results). Search Console no longer has a dedicated international targeting report for hreflang, so validate with crawlers and tests.\n\n## Note\n\nRegional pages with nearly identical text (for example en-US and en-GB) are legitimate alternates, but they still need distinct localized signals such as currency, spelling and offers.",
+      "followUps": [
+        "What happens if the return link is missing?",
+        "Hreflang vs canonical: how do they work together?",
+        "Where should hreflang live for 100,000 pages?"
+      ],
+      "related": [
+        "international-url-structure-and-geo-redirects",
+        "canonical-urls"
+      ]
+    },
+    {
+      "slug": "international-url-structure-and-geo-redirects",
+      "title": "How do you design URLs and avoid international SEO problems for a multi-region site?",
+      "topic": "International SEO",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "international-seo",
+        "url-structure",
+        "cctld",
+        "geo-redirect",
+        "localization"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-seo",
+          "pages": [
+            7
+          ]
+        }
+      ],
+      "quick": "I define a consistent locale URL model, such as subdirectories like en-us and en-gb, or country domains where legal or business needs require, and apply it everywhere. Each URL serves distinct, correct localized content with its own title, description, structured data and sitemap entries, plus aligned canonical and hreflang. I avoid forcing visitors by IP or browser language to one version, because users and crawlers then cannot reach the others; a suggestion banner is safer.",
+      "revision": "Use one consistent locale URL scheme, localized content and metadata per URL, aligned canonical and hreflang, and no forced IP-based redirects that hide other regions.",
+      "detailed": "**Good international SEO starts with an explicit, consistent URL and locale model, then makes every signal (content, metadata, canonical, hreflang, sitemap, redirects) agree with it.**\n\n## URL structure options\n\n| Option | Example | Pros | Cons |\n|---|---|---|---|\n| Subdirectories | `example.com/en-gb/` | One domain, shared authority, simple ops | Less separation for legal or hosting needs |\n| ccTLDs | `example.co.uk` | Clear geo signal, local trust | Many domains to run, authority split |\n| Subdomains | `uk.example.com` | Separate hosting possible | Often treated as separate sites; weaker than directories for consolidation |\n\nParameters or cookies alone (for example `?lang=fr`) are discouraged because they are weaker and less reliable. Whichever you choose, keep it uniform across all page types.\n\n## Checklist\n\n- **Distinct URL per language or region version**, with real localized content, not auto-translated placeholders served on the same URL.\n- **Localized metadata and structured data**, including currency, units and offers where relevant.\n- **Aligned canonical and hreflang** (self-referencing canonical per locale).\n- **Region-aware sitemaps** and redirect rules that preserve the locale.\n- **Localized internal links** so each locale links to its own pages, not the global one.\n- **A visible locale switcher** made of real links.\n\n## Geo and language redirects\n\nAutomatically redirecting based only on IP or Accept-Language can stop crawlers, and users who travel or use VPNs, from reaching other versions. Crawlers often request from a limited set of locations without a language preference, so only one locale may ever be crawled. Safer pattern: serve the requested URL, then show a dismissible banner suggesting the better locale, and remember the choice.\n\n## Risks to test\n\n- A visitor lands on `/` and is redirected somewhere that crawlers cannot discover siblings from.\n- Cookies pick the language, so one URL returns varying content (use distinct URLs, or the Vary header if you must vary).\n- Machine-translated pages that are thin or untranslated fragments.\n- Locale-specific content shown only after JavaScript detection.\n\nValidate by crawling each locale as a bot and inspecting final rendered HTML.",
+      "followUps": [
+        "Subdirectory vs ccTLD: how would you decide?",
+        "How do you treat a locale with only a few translated pages?",
+        "Should the root URL redirect to a locale?"
+      ],
+      "related": [
+        "hreflang-and-regional-alternates",
+        "redirects-301-vs-302"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,457 @@
+{
+  "category": "aws-cloud",
+  "questions": [
+    {
+      "slug": "secure-aws-application",
+      "title": "How would you secure a web application on AWS?",
+      "topic": "Security",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "security",
+        "defense-in-depth",
+        "waf",
+        "kms",
+        "tls"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-cloud",
+          "pages": [
+            19,
+            20
+          ]
+        }
+      ],
+      "quick": "I'd apply defence in depth. At the edge, CloudFront with TLS, WAF and DDoS protection. Network: private subnets for apps and data, tight security groups, VPC endpoints. Identity: least-privilege IAM roles per workload, MFA and SSO for humans, strong API authentication and authorisation. Data: encryption in transit and at rest with KMS, secrets in Secrets Manager. Operations: CloudTrail, GuardDuty and Config, centralised logs, image and dependency scanning, patching, backups and incident runbooks. Security is continuous, not a one-time setup.",
+      "revision": "Defence in depth: edge (TLS, WAF, Shield), private network, least-privilege IAM, encryption with KMS, secrets management, audit logging, scanning and patching.",
+      "detailed": "No single control is enough, so layer them.\n\n{{diagram:layers}}\n\n## Layers and controls\n| Layer | Controls |\n|---|---|\n| Edge | CloudFront, TLS with ACM certificates, AWS WAF, Shield (standard protection is automatic; Advanced is optional), security headers |\n| Network | Private subnets for app and data, security group chaining, VPC endpoints, no public databases, restrict direct origin access |\n| Identity and access | IAM roles per workload, least privilege, SSO and MFA for humans, no long-lived keys, permission boundaries and SCPs |\n| Application | Authentication and authorisation on every API, input validation, output encoding, dependency updates, rate limiting |\n| Data | Encryption at rest (KMS) and in transit (TLS), S3 Block Public Access, backups, data classification |\n| Secrets | Secrets Manager or Parameter Store, rotation, never in code or images |\n| Detection | CloudTrail, GuardDuty, AWS Config, Security Hub, VPC Flow Logs, alerting |\n| Supply chain and delivery | Image scanning (for example ECR scanning), SAST/dependency checks, signed artifacts, least-privilege CI roles |\n| Response | Runbooks, tested restores, isolated recovery account, incident practice |\n\n## Shared responsibility\nAWS secures the cloud infrastructure; you secure configuration, identities, data, application and patching of anything you run.\n\n## Typical mistakes\n- Public S3 buckets or databases, and over-broad security groups.\n- Admin-level roles on workloads and long-lived access keys.\n- Protecting the CDN path but leaving a directly reachable ALB or API URL.\n- Trusting the front end for authorisation checks.\n- Logging sensitive data, or having no logs to investigate with.\n- Treating compliance checklists as security.\n\n## Prioritisation\nStart with identity, network exposure and data protection, then detection, then automation of guardrails (policies as code). Review with the Well-Architected Security pillar and threat modelling for the specific system.",
+      "diagrams": [
+        {
+          "id": "layers",
+          "title": "Layered defence for an AWS web app",
+          "alt": "Traffic passes through AWS WAF and CloudFront at the edge, then an application load balancer, then ECS services in private subnets, then an encrypted RDS database. IAM roles, security groups, KMS encryption and audit logging apply across these layers.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "w",
+              "label": "WAF"
+            },
+            {
+              "id": "c",
+              "label": "CloudFront with TLS"
+            },
+            {
+              "id": "a",
+              "label": "ALB"
+            },
+            {
+              "id": "e",
+              "label": "ECS private subnet"
+            },
+            {
+              "id": "d",
+              "label": "Encrypted RDS"
+            },
+            {
+              "id": "x",
+              "label": "IAM, KMS, CloudTrail"
+            }
+          ],
+          "edges": [
+            {
+              "from": "w",
+              "to": "c"
+            },
+            {
+              "from": "c",
+              "to": "a"
+            },
+            {
+              "from": "a",
+              "to": "e"
+            },
+            {
+              "from": "e",
+              "to": "d"
+            },
+            {
+              "from": "x",
+              "to": "e",
+              "label": "controls apply across"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you prevent users from bypassing CloudFront and hitting the ALB?",
+        "What would you monitor with GuardDuty and CloudTrail?",
+        "How do you secure the CI/CD pipeline itself?"
+      ],
+      "related": [
+        "iam-least-privilege",
+        "what-is-aws-waf",
+        "secrets-management"
+      ]
+    },
+    {
+      "slug": "secrets-management",
+      "title": "How should secrets be handled in an AWS application?",
+      "topic": "Security",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "secrets-manager",
+        "parameter-store",
+        "kms",
+        "rotation",
+        "ci-cd"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-cloud",
+          "pages": [
+            20
+          ]
+        }
+      ],
+      "quick": "Never hard-code secrets or commit them to Git, and don't bake them into images or front-end bundles. I'd store them in AWS Secrets Manager, or Parameter Store SecureString for simpler configuration, encrypted with KMS. The workload's IAM role gets permission to read only its own secrets, and ECS can inject them at start-up. I'd enable rotation where supported, audit access with CloudTrail, keep CI secrets in the CI system or avoid them with OIDC, and prefer roles that need no secret at all.",
+      "revision": "No secrets in code, Git, images or front-end. Use Secrets Manager or Parameter Store with KMS, least-privilege role access, rotation and audit; prefer roles over static credentials.",
+      "detailed": "The best secret is one that does not exist: prefer **IAM roles** and short-lived credentials over static keys wherever possible (for example access to S3 or SQS needs no stored secret). For what remains, such as database passwords or third-party API keys, use a managed store.\n\n## Options\n| Option | Notes |\n|---|---|\n| **Secrets Manager** | Built for secrets: KMS encryption, fine-grained IAM, versioning, **automatic rotation** (native for several RDS engines, Lambda-based for others), cross-Region replication; billed per secret and per API call |\n| **SSM Parameter Store** | Hierarchical config; SecureString parameters encrypted with KMS; simpler and cheaper for many values; rotation is not built in |\n| CI/CD secret stores | For pipeline-only values; prefer OIDC federation over stored AWS keys |\n\n## Delivery to the application\n- **ECS**: reference a secret in the task definition so ECS injects it as an environment variable at start-up (the task execution role must be allowed to read it).\n- **Lambda**: read at cold start through the SDK or use the Secrets Manager extension, caching with a TTL.\n- **Application read**: fetch at start-up or lazily with caching; handle rotation by re-fetching on authentication failure.\n\n```ts\nimport { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';\n\nconst client = new SecretsManagerClient({});\nexport async function getDbPassword(): Promise<string> {\n  const res = await client.send(new GetSecretValueCommand({ SecretId: 'example/app/db' }));\n  return JSON.parse(res.SecretString!).password;\n}\n```\n\n## Practices\n- **Least privilege**: each role can read only its own secrets, and the KMS key policy matches.\n- **Rotation** on a schedule, and design apps to tolerate it.\n- **Never log** secret values; scrub configuration dumps and error reports.\n- **Scan repositories** for leaked credentials, and revoke and rotate immediately if one leaks, because deleting a commit does not undo exposure.\n- Separate secrets per environment.\n- Remember: anything in a browser bundle or mobile app is not secret.\n\n## Common mistakes\nPutting secrets in plain environment variables in IaC or task definition files committed to Git; one shared secret for all services; no rotation plan; broad ```secretsmanager:*``` permissions.",
+      "followUps": [
+        "Secrets Manager vs Parameter Store: how do you choose?",
+        "How do you rotate a database password without downtime?",
+        "What do you do if a secret was committed to Git?"
+      ],
+      "related": [
+        "iam-user-vs-role",
+        "secure-aws-application",
+        "deploy-nestjs-on-aws"
+      ]
+    },
+    {
+      "slug": "ten-x-traffic-spike",
+      "title": "How would you handle a sudden 10x traffic spike?",
+      "topic": "Scenarios",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "scaling",
+        "traffic-spike",
+        "caching",
+        "rate-limiting",
+        "resilience"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-cloud",
+          "pages": [
+            20,
+            21
+          ]
+        }
+      ],
+      "quick": "First I'd find which layer is actually the bottleneck using metrics. Then work from the edge inward: CloudFront absorbs cacheable traffic, WAF rate rules block abuse, and stateless services scale out with Auto Scaling, though scaling takes time. Redis and read replicas protect the database, rate limiting and load shedding protect critical paths, and queues absorb non-real-time work. I'd also serve degraded content gracefully. Ideally I've load-tested and pre-scaled for known events, and watch saturation, latency and error rates throughout.",
+      "revision": "Find the bottleneck, absorb at the edge (CDN, WAF), scale stateless tiers, protect the database (cache, replicas, limits), queue async work, degrade gracefully, pre-scale and load test.",
+      "detailed": "The goal is to keep the critical user journeys working, not necessarily everything. Handle it in two modes: **prepared** (a known launch or campaign) and **reactive** (a surprise).\n\n{{diagram:spike}}\n\n## 1. Understand the bottleneck\nCheck dashboards: edge hit ratio, ALB latency and 5xx, task CPU/memory, queue age, database CPU and connections, cache evictions. A spike is only a problem where capacity is exceeded.\n\n## 2. Absorb at the edge\n- **CloudFront** caching for pages, assets and cacheable APIs; raise TTLs for the event, use stale-while-revalidate behaviour where appropriate, and consider request collapsing at the origin.\n- **WAF rate-based rules** and bot controls to separate abuse from genuine users.\n- A static fallback page or reduced-feature mode behind a flag.\n\n## 3. Scale stateless compute\n- Horizontal scaling via ECS Auto Scaling or Lambda concurrency; confirm service quotas (task limits, concurrency, IP address space in subnets) **before** the event.\n- **Pre-scale** with scheduled scaling for known peaks, since reactive scaling lags.\n\n## 4. Protect stateful tiers\n- **Redis** for hot reads; **read replicas** for read-heavy queries; connection pooling or RDS Proxy.\n- Beware that more app tasks means more database connections.\n- Set concurrency limits and **timeouts, retries with backoff and circuit breakers** to avoid retry storms.\n\n## 5. Shed and defer\n- **Rate limiting** per client or per endpoint; prioritise critical flows (checkout/lead submission) over browsing.\n- Move non-urgent work to **SQS**; return 202 and process later.\n- Serve degraded responses (cached or simplified) rather than errors.\n\n## 6. Verify and learn\nLoad-test at 2 to 3 times the expected peak in advance, run game days, and review after the event. Keep an eye on cost guardrails such as maximum task counts and budget alerts.\n\n## Common mistakes\nScaling the app tier and crushing the database; relying on reactive autoscaling for a predictable launch; caching personalised responses by accident; ignoring third-party rate limits.",
+      "diagrams": [
+        {
+          "id": "spike",
+          "title": "Absorbing a traffic spike layer by layer",
+          "alt": "Traffic hits CloudFront and WAF first, where cacheable content is served and abusive requests blocked. Remaining requests go through a load balancer to auto-scaled ECS tasks. Tasks use Redis to reduce database reads, and non-urgent work is pushed to an SQS queue processed by workers.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "t",
+              "label": "10x traffic"
+            },
+            {
+              "id": "c",
+              "label": "CloudFront cache"
+            },
+            {
+              "id": "w",
+              "label": "WAF rate rules"
+            },
+            {
+              "id": "l",
+              "label": "ALB"
+            },
+            {
+              "id": "e",
+              "label": "Auto scaled ECS tasks"
+            },
+            {
+              "id": "r",
+              "label": "Redis"
+            },
+            {
+              "id": "d",
+              "label": "RDS"
+            },
+            {
+              "id": "q",
+              "label": "SQS and workers"
+            }
+          ],
+          "edges": [
+            {
+              "from": "t",
+              "to": "c"
+            },
+            {
+              "from": "c",
+              "to": "w",
+              "label": "cache miss"
+            },
+            {
+              "from": "w",
+              "to": "l"
+            },
+            {
+              "from": "l",
+              "to": "e"
+            },
+            {
+              "from": "e",
+              "to": "r"
+            },
+            {
+              "from": "r",
+              "to": "d",
+              "label": "miss"
+            },
+            {
+              "from": "e",
+              "to": "q",
+              "label": "async work"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you prepare for a known product launch?",
+        "What breaks first in this architecture and why?",
+        "How do retries make a traffic spike worse?"
+      ],
+      "related": [
+        "what-is-auto-scaling",
+        "redis-failure",
+        "scale-rds",
+        "improve-global-website-performance"
+      ]
+    },
+    {
+      "slug": "cost-optimization-on-aws",
+      "title": "How would you optimise AWS cost without hurting reliability?",
+      "topic": "Scenarios",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "cost-optimization",
+        "finops",
+        "savings-plans",
+        "right-sizing",
+        "s3-lifecycle"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-cloud",
+          "pages": [
+            21
+          ]
+        }
+      ],
+      "quick": "I'd begin with visibility: tagging, budgets, Cost Explorer and anomaly alerts, so I know where money goes. Then I'd right-size resources, autoscale instead of over-provisioning, use CloudFront caching to cut origin and transfer cost, choose serverless where usage is spiky, and buy Savings Plans or reservations for steady baseline load. Add S3 lifecycle rules, delete unused resources, control log retention, and watch NAT and cross-AZ transfer. Every saving is weighed against performance, reliability and engineering effort.",
+      "revision": "Measure and tag first, then right-size, autoscale, cache, pick fitting compute, commit for steady load, lifecycle storage, remove waste. Trade cost against reliability and effort.",
+      "detailed": "Cost optimisation is an engineering discipline, not a hunt for cheaper instances.\n\n## Step 1: visibility and accountability\n- Enforce **tagging** (team, service, environment); use **cost allocation tags**, AWS Budgets, Cost Explorer and anomaly detection.\n- Make teams see their own costs (FinOps culture).\n\n## Step 2: reduce waste\n- Delete idle or orphaned resources: unattached volumes, old snapshots, unused load balancers and Elastic IPs, forgotten environments.\n- Schedule non-production environments off outside working hours.\n- Set **CloudWatch log retention** and sample traces.\n\n## Step 3: right-size and scale to demand\n- Use utilisation data (and AWS Compute Optimizer recommendations) to downsize over-provisioned instances, tasks and databases.\n- **Auto Scaling** instead of static peak capacity.\n- Consider Graviton (Arm) instances where your workloads support them, typically for better price-performance; test first.\n\n## Step 4: pick the right pricing and service model\n| Workload | Option |\n|---|---|\n| Steady baseline | Savings Plans or Reserved Instances (commitment) |\n| Fault-tolerant, flexible batch | Spot capacity |\n| Spiky or idle-heavy | Lambda, Fargate scaling, serverless databases where suitable |\n| Steady high volume | Containers can beat per-request pricing |\n\n## Step 5: architecture efficiency\n- **CloudFront caching** reduces origin compute and data-transfer cost.\n- Use **S3 lifecycle** rules and appropriate storage classes (including Intelligent-Tiering).\n- Reduce **data transfer**: keep chatty services in the same AZ where feasible, use VPC endpoints to avoid NAT data processing, compress responses.\n- Fix inefficient queries before buying bigger databases.\n\n## Trade-offs\n- Commitments reduce flexibility.\n- Spot interruptions need resilient design.\n- Over-optimising can undermine reliability (for example removing a second AZ or NAT to save money) or consume more engineering time than it saves.\n\n## Common mistakes\nOptimising without baselines; buying commitments before right-sizing; ignoring data transfer and logging costs; treating non-production as free. Pricing changes, so verify current rates with the AWS pricing tools rather than memorised numbers.",
+      "followUps": [
+        "Savings Plans vs Reserved Instances vs Spot: how do you choose?",
+        "Which hidden costs surprise teams most?",
+        "How do you stop cost optimisation from reducing resilience?"
+      ],
+      "related": [
+        "what-is-auto-scaling",
+        "well-architected-framework",
+        "cloudfront-with-s3"
+      ]
+    },
+    {
+      "slug": "well-architected-framework",
+      "title": "What is the AWS Well-Architected Framework?",
+      "topic": "Scenarios",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "well-architected",
+        "pillars",
+        "architecture-review",
+        "best-practices"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-cloud",
+          "pages": [
+            22
+          ]
+        }
+      ],
+      "quick": "The Well-Architected Framework is AWS's set of best practices and questions for evaluating workloads, organised into six pillars: Operational Excellence, Security, Reliability, Performance Efficiency, Cost Optimization and Sustainability. I use it as a structured review checklist, not a certification: for each design decision I ask how it affects each pillar and record the trade-offs. AWS also provides the Well-Architected Tool and lenses for specific workload types to run reviews and track improvements.",
+      "revision": "Six pillars: Operational Excellence, Security, Reliability, Performance Efficiency, Cost Optimization, Sustainability. Use them as a review checklist to expose trade-offs.",
+      "detailed": "The **AWS Well-Architected Framework** is guidance for designing and reviewing cloud workloads. It organises design principles and review questions into six pillars.\n\n| Pillar | Core question | Example practice |\n|---|---|---|\n| Operational Excellence | Can we run, monitor and improve it safely? | IaC, CI/CD, runbooks, observability, small frequent changes |\n| Security | Are data and systems protected? | Least privilege, encryption, detection, defence in depth |\n| Reliability | Does it recover from failure and meet demand? | Multi-AZ, health checks, backups, tested recovery, quotas |\n| Performance Efficiency | Are resources used effectively as needs change? | Right compute choice, caching, CDN, load testing |\n| Cost Optimization | Are we avoiding unnecessary spend? | Right-sizing, pricing models, tagging, lifecycle rules |\n| Sustainability | Are we minimising environmental impact? | Efficient utilisation, managed services, right-sized and scaled resources |\n\n## How to use it\n- Run **architecture reviews** at design time and periodically afterwards; AWS offers the **Well-Architected Tool** and workload-specific **lenses**.\n- Identify **high-risk issues**, prioritise them, assign owners and track them.\n- Use it for **trade-off conversations**: caching improves performance and cost but adds invalidation risk; Multi-Region improves reliability but raises cost and operational complexity.\n\n## Example mapping for a global website\n- Reliability: multi-AZ services, graceful degradation, DR plan.\n- Security: WAF, IAM roles, private data tier, secrets management.\n- Performance: CDN, caching, regional placement where measured.\n- Cost: autoscaling, lifecycle rules, right-sizing.\n- Operations: IaC, pipelines, dashboards, runbooks.\n- Sustainability: avoid over-provisioning, use elastic services.\n\n## Common mistakes\nTreating it as a one-time audit; checking every box without prioritising by business risk; ignoring that pillars conflict and decisions need explicit trade-offs.",
+      "followUps": [
+        "Give an example where two pillars conflict and how you would resolve it.",
+        "How would you run a Well-Architected review with a team?",
+        "What is a Well-Architected lens?"
+      ],
+      "related": [
+        "cost-optimization-on-aws",
+        "secure-aws-application",
+        "high-availability-design"
+      ]
+    },
+    {
+      "slug": "global-website-design-on-aws",
+      "title": "Design a high-traffic global website on AWS",
+      "topic": "Scenarios",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "architecture",
+        "global",
+        "cloudfront",
+        "microservices",
+        "bff"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-cloud",
+          "pages": [
+            22,
+            23
+          ]
+        }
+      ],
+      "quick": "I'd separate content delivery from business services. Route 53 and CloudFront give global DNS and edge caching, with WAF protecting traffic. Static React assets come from S3 through CloudFront; API calls go through API Gateway or an ALB to a BFF and independently scaling vehicle, finance and customer services on ECS or Lambda. Redis reduces database load, RDS holds relational data, and EventBridge or SQS decouples async work. It runs across multiple AZs with IAM least privilege, private networking, encryption, CloudWatch and tracing.",
+      "revision": "Edge (Route 53, CloudFront, WAF) plus S3 for static; API tier to BFF and services on ECS/Lambda; Redis, RDS, events; multi-AZ, secured, observable, with DR decided by RTO/RPO.",
+      "detailed": "This is an **example** design for a global vehicle-information website (illustrative service names), organised as separate concerns.\n\n{{diagram:global}}\n\n## 1. Delivery layer (global)\n- **Route 53** for DNS (alias to CloudFront); **CloudFront** for edge caching and TLS; **WAF** for filtering and rate limits.\n- Static front-end assets in a **private S3 bucket** served via Origin Access Control, with hashed filenames and long TTLs.\n- Cacheable content (vehicle catalogue pages, images) cached at the edge; images optimised and resized.\n\n## 2. API layer\n- A path behaviour such as ```/api/*``` forwards to **API Gateway** (if you need keys, throttling, JWT auth) or an **ALB** (for container services).\n- A **backend-for-frontend (BFF)** aggregates calls so the browser avoids request waterfalls.\n\n## 3. Service layer\n- Independently deployable services (Vehicle, Finance, Customer) on **ECS Fargate** for steady APIs, or **Lambda** for event-driven and spiky functions.\n- Stateless, autoscaled, across at least two AZs, in private subnets.\n\n## 4. Data and async\n- **RDS/Aurora PostgreSQL** for relational data, Multi-AZ with backups; **read replicas** if reads dominate.\n- **ElastiCache Redis** for hot reads; degrade gracefully on failure.\n- **EventBridge/SQS** for domain events (price changed, lead submitted) feeding search indexing, analytics and notifications.\n- Possibly **OpenSearch** or a search service for dealer and vehicle search (a reasoned addition).\n\n## 5. Cross-cutting concerns\n- **Security**: IAM least privilege, private subnets, KMS encryption, Secrets Manager, audit logs.\n- **Observability**: CloudWatch metrics and logs, distributed tracing, real-user monitoring, SLO alerts.\n- **Operations**: infrastructure as code, CI/CD, blue/green or canary deployments.\n- **Resilience**: multi-AZ by default; decide on cross-Region DR from RTO/RPO, perhaps starting with warm-standby or backups plus a static fallback site.\n- **Cost**: caching, autoscaling, lifecycle policies, tagging.\n\n## Key trade-offs to state\nGateway versus ALB; Lambda versus containers; consistency versus latency across Regions; the price of Multi-Region; cache freshness versus performance. Mention regional data-residency needs if they apply.\n\n## Common mistakes\nPutting everything behind one monolithic origin; ignoring cache design; stretching one database across Regions without a data strategy; no plan for degraded modes.",
+      "diagrams": [
+        {
+          "id": "global",
+          "title": "Global website reference architecture",
+          "alt": "Users resolve the site through Route 53 to CloudFront with WAF. Static assets come from S3. API requests go to API Gateway and a backend-for-frontend, which calls vehicle, finance and customer services on ECS or Lambda. Services use Redis and RDS and publish events to EventBridge for asynchronous consumers.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "u",
+              "label": "Global users"
+            },
+            {
+              "id": "r",
+              "label": "Route 53"
+            },
+            {
+              "id": "c",
+              "label": "CloudFront and WAF"
+            },
+            {
+              "id": "s",
+              "label": "S3 static assets"
+            },
+            {
+              "id": "g",
+              "label": "API Gateway"
+            },
+            {
+              "id": "b",
+              "label": "BFF"
+            },
+            {
+              "id": "v",
+              "label": "Vehicle, Finance, Customer services"
+            },
+            {
+              "id": "x",
+              "label": "Redis"
+            },
+            {
+              "id": "d",
+              "label": "RDS"
+            },
+            {
+              "id": "e",
+              "label": "EventBridge"
+            },
+            {
+              "id": "a",
+              "label": "Async consumers"
+            }
+          ],
+          "edges": [
+            {
+              "from": "u",
+              "to": "r"
+            },
+            {
+              "from": "r",
+              "to": "c"
+            },
+            {
+              "from": "c",
+              "to": "s",
+              "label": "static"
+            },
+            {
+              "from": "c",
+              "to": "g",
+              "label": "api"
+            },
+            {
+              "from": "g",
+              "to": "b"
+            },
+            {
+              "from": "b",
+              "to": "v"
+            },
+            {
+              "from": "v",
+              "to": "x"
+            },
+            {
+              "from": "v",
+              "to": "d"
+            },
+            {
+              "from": "v",
+              "to": "e",
+              "label": "events"
+            },
+            {
+              "from": "e",
+              "to": "a"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you add a second Region to this design?",
+        "Where would you place search and personalisation?",
+        "Which components are the single points of failure?",
+        "How would you handle data residency requirements?"
+      ],
+      "related": [
+        "aws-service-map-by-layer",
+        "improve-global-website-performance",
+        "high-availability-design",
+        "well-architected-framework"
+      ]
+    }
+  ]
+}

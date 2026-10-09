@@ -1,0 +1,640 @@
+{
+  "category": "aem-headless-cms",
+  "questions": [
+    {
+      "slug": "personalization-architecture-headless",
+      "title": "How would you architect personalization in a headless content platform?",
+      "topic": "Personalization",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "personalization",
+        "segmentation",
+        "feature-flags",
+        "cdp",
+        "caching"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aem-headless-cms",
+          "pages": [
+            12
+          ]
+        }
+      ],
+      "quick": "I would keep personalization decisions out of UI components. A separate decision layer, using customer profile, segments, feature flags or a personalization service, decides which variant applies, and the content or API layer returns that variant for the frontend to render. The key design problem is caching: shared caches must not serve one user's variant to another, so I would cache per segment, or deliver a cacheable shell and fetch personalized pieces separately.",
+      "revision": "Separate the personalization decision from rendering; deliver variants via content or API; protect caches by caching per segment or fetching personalized parts after a cached shell.",
+      "detailed": "Personalization means showing different content or offers depending on who the user is or what they are doing. The architectural risk is scattering `if (user.isPremium)` logic through UI components, which makes behavior hard to test, audit or change.\n\n{{diagram:flow}}\n\n## Building blocks\n\n- **Signals:** customer profile, consent, location, device, behavior, campaign source.\n- **Segmentation:** rules or models that map a user to one or more segments.\n- **Decision service:** a personalization engine or a small internal service that returns \"variant B of the hero for segment X\".\n- **Content variants:** the CMS holds alternatives (for example per-segment banner variants); the decision picks among them.\n- **Feature flags:** control exposure of features and experiments (percentage rollout, A/B tests).\n- **Analytics/CDP integration:** feeds signals in and measures outcomes.\n\n## Where to evaluate\n\n| Place | Pros | Cons |\n|---|---|---|\n| Edge/CDN | Low latency | Limited logic, tricky data access |\n| BFF/server | Full context, secure | Reduces cacheability if per user |\n| Client | Simple, cache-friendly shell | Flicker, delay, privacy exposure of rules |\n\n## Caching strategy\n\n- Cache the **page shell** publicly; fetch personalized blocks client-side or via an edge/BFF call.\n- If personalizing in SSR, vary the cache by **segment** (a small, bounded key), not by individual user.\n- Never put personal data in shared-cache responses.\n\n## Privacy and governance\n\nRespect consent, minimize personal data, and keep an audit of which rules apply. Make a safe default experience for anonymous users and for when the decision service is down.\n\n## Common mistakes\n\n- Per-user SSR with no cache, overloading the origin.\n- Content flicker when client-side swaps happen late.\n- No default variant, so an outage blanks the page region.",
+      "diagrams": [
+        {
+          "id": "flow",
+          "title": "Personalization decision flow",
+          "alt": "A user request reaches the experience layer, which asks a personalization decision service using profile and segment signals. The decision selects a content variant from the content API, and React renders it.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "user",
+              "label": "User"
+            },
+            {
+              "id": "exp",
+              "label": "Experience layer (BFF / SSR)"
+            },
+            {
+              "id": "dec",
+              "label": "Personalization decision service"
+            },
+            {
+              "id": "content",
+              "label": "Content / API (variants)"
+            },
+            {
+              "id": "react",
+              "label": "React rendering"
+            }
+          ],
+          "edges": [
+            {
+              "from": "user",
+              "to": "exp"
+            },
+            {
+              "from": "exp",
+              "to": "dec",
+              "label": "profile, segment"
+            },
+            {
+              "from": "dec",
+              "to": "content",
+              "label": "variant id"
+            },
+            {
+              "from": "content",
+              "to": "react"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you keep personalized pages cacheable?",
+        "How would you run an A/B test on a hero banner?",
+        "How do you respect user consent in personalization?"
+      ],
+      "related": [
+        "ssr-vs-ssg-for-headless-content",
+        "caching-headless-content",
+        "cms-outage-resilience"
+      ]
+    },
+    {
+      "slug": "content-preview-headless",
+      "title": "How do you provide content preview for authors in a headless setup?",
+      "topic": "Authoring Workflow",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "preview",
+        "authoring",
+        "draft-content",
+        "headless",
+        "workflow"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aem-headless-cms",
+          "pages": [
+            12,
+            13
+          ]
+        }
+      ],
+      "quick": "Because authors no longer control final rendering, I would build an authenticated preview environment that fetches draft content from the CMS and renders it with the same frontend components used in production. Authors click preview from the CMS, land on the real page route in preview mode, and see unpublished changes. Preview responses must bypass shared caches and be kept out of search indexes. Where supported, in-context editing improves the experience further.",
+      "revision": "Preview = authenticated mode that fetches draft content and renders it with production components, bypassing caches and search indexing, launched from the CMS.",
+      "detailed": "In a coupled CMS, authors see the real page as they edit. In headless, the content lives in one system and the page in another, so authors may not know how their changes will look. Preview closes that gap.\n\n{{diagram:flow}}\n\n## Design\n\n1. **Entry point.** The CMS has a preview button or link that opens the frontend with a preview token, the content id and the locale.\n2. **Preview mode in the frontend.** The app verifies the token, then switches to a mode that requests **draft** content from a preview endpoint, usually with credentials, instead of the published delivery API.\n3. **Same components.** Rendering uses production components and styles, so preview is faithful.\n4. **Access control.** Preview is authenticated and limited to authorized users.\n\n## Important details\n\n- **Bypass caches.** Use `Cache-Control: no-store` (or private) so drafts never land in a CDN.\n- **Block indexing.** Add `noindex` and keep preview off the public host or behind authentication.\n- **Do not expose secrets** in the client; exchange the token server-side.\n- **Referenced content.** Previewing a page should also show draft versions of referenced items, such as an unpublished offer, where intended.\n- **Locale and device.** Let authors switch locale and viewport.\n- **Framework support.** Frameworks such as Next.js offer draft or preview mode helpers.\n\n## Beyond preview\n\nSome CMS products support **in-context** or visual editing, where the CMS embeds the live frontend and highlights editable regions. This costs integration effort but greatly improves authoring satisfaction.\n\n## Common mistakes\n\n- A separate, simplified preview app that does not match production.\n- Draft content leaking through shared caches or search engines.\n- No way to preview scheduled future content.",
+      "diagrams": [
+        {
+          "id": "flow",
+          "title": "Preview flow",
+          "alt": "An author clicks preview in the CMS, which opens the frontend in preview mode with a token. The frontend fetches draft content from the preview API and renders it with production components for the author, bypassing the CDN.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "author",
+              "label": "Author"
+            },
+            {
+              "id": "cms",
+              "label": "CMS (draft content)"
+            },
+            {
+              "id": "fe",
+              "label": "Frontend in preview mode"
+            },
+            {
+              "id": "papi",
+              "label": "Draft / preview API"
+            },
+            {
+              "id": "cdn",
+              "label": "CDN (bypassed)"
+            }
+          ],
+          "edges": [
+            {
+              "from": "author",
+              "to": "cms",
+              "label": "edit, click preview"
+            },
+            {
+              "from": "cms",
+              "to": "fe",
+              "label": "token + id"
+            },
+            {
+              "from": "fe",
+              "to": "papi",
+              "label": "fetch draft"
+            },
+            {
+              "from": "fe",
+              "to": "cdn",
+              "label": "no caching"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you stop preview content being indexed or cached?",
+        "How would you preview content scheduled for next week?",
+        "What is in-context editing and when is it worth building?"
+      ],
+      "related": [
+        "headless-cms-disadvantages",
+        "react-integration-with-headless-cms",
+        "caching-headless-content"
+      ]
+    },
+    {
+      "slug": "localization-architecture-headless",
+      "title": "How would you handle localization for a global headless website?",
+      "topic": "Localization",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "localization",
+        "i18n",
+        "locale",
+        "hreflang",
+        "translation"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aem-headless-cms",
+          "pages": [
+            13
+          ]
+        }
+      ],
+      "quick": "I would model locales explicitly in the CMS, such as en-US, en-GB and de-DE, with a clear structure for which fields are translatable, plus translation workflows and fallback rules. The frontend derives the locale from the URL, requests the matching content and formats dates, numbers and currency by locale. For SEO I would use locale-specific URLs with hreflang and canonicals. Regional content, legal text and pricing may differ by market, not just language.",
+      "revision": "Model locales explicitly, define translatable fields, translation workflow and fallbacks; derive locale from URL, format by locale, and use hreflang and canonicals for SEO.",
+      "detailed": "Localization is more than translation. A **locale** combines language and region (en-GB, de-DE), and markets can differ in content, legal text, offers and currency.\n\n{{diagram:flow}}\n\n## Content side\n\n- **Structure:** a locale tree or per-field translations. Decide which fields are translatable (descriptions) and which are shared (internal ids, specification numbers).\n- **Translation workflow:** export, send to translators or a translation service, import and review. Track translation status per entry.\n- **Fallback rules:** if a de-AT entry is missing, fall back to de-DE, then en. Make the fallback explicit and visible, because silent fallback can display wrong-market content.\n- **Regional variants:** markets may publish different offers or disclosures. Model market-specific content separately from pure language translation.\n\n## Frontend side\n\n- **Locale routing:** `/en-gb/...` path prefixes are common and cache-friendly; subdomains or country domains are alternatives.\n- **Locale detection:** use the URL as the source of truth; suggest a different locale from `Accept-Language` or geolocation, but do not force redirects, since crawlers and shared links break.\n- **UI strings** in a translation catalog and **formatting** via `Intl`:\n\n```ts\nnew Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(29990);\n// \"29.990,00 €\"\n```\n\n- **Right-to-left** layout support if relevant.\n\n## SEO and caching\n\n- Locale-specific URLs, `hreflang` alternates and self-referencing canonicals.\n- Locale must be part of the cache key.\n- Locale-specific sitemaps.\n\n## Common mistakes\n\n- Treating currency or pricing as translation instead of market data from business APIs.\n- Auto-redirecting by IP, which confuses users and crawlers.\n- Text expansion breaking layouts, since German or Finnish strings are often longer than English ones.",
+      "diagrams": [
+        {
+          "id": "flow",
+          "title": "Localized content delivery",
+          "alt": "A user visits a locale-prefixed URL. The frontend extracts the locale, requests localized content from the content API, which resolves translations and fallbacks in the CMS locale tree, then renders locale-formatted HTML with hreflang tags.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "url",
+              "label": "User on /de-de/ URL"
+            },
+            {
+              "id": "fe",
+              "label": "Frontend (locale routing)"
+            },
+            {
+              "id": "api",
+              "label": "Content API (locale param)"
+            },
+            {
+              "id": "cms",
+              "label": "CMS locale tree + fallbacks"
+            },
+            {
+              "id": "html",
+              "label": "Localized HTML + hreflang"
+            }
+          ],
+          "edges": [
+            {
+              "from": "url",
+              "to": "fe"
+            },
+            {
+              "from": "fe",
+              "to": "api"
+            },
+            {
+              "from": "api",
+              "to": "cms"
+            },
+            {
+              "from": "fe",
+              "to": "html"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you decide fallback behaviour when a translation is missing?",
+        "Where should currency and pricing come from?",
+        "Should you redirect users automatically based on their country?"
+      ],
+      "related": [
+        "seo-with-headless-cms",
+        "caching-headless-content",
+        "enterprise-cms-with-react-global-site"
+      ]
+    },
+    {
+      "slug": "cms-outage-resilience",
+      "title": "What happens to your website if the CMS is unavailable, and how do you design for it?",
+      "topic": "Resilience",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "resilience",
+        "availability",
+        "cdn",
+        "stale-content",
+        "fallback"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aem-headless-cms",
+          "pages": [
+            14
+          ]
+        }
+      ],
+      "quick": "A public website should not go down because the CMS does. I would decouple runtime delivery from live CMS availability: serve cacheable content from the CDN, use stale-if-error or stale-while-revalidate where acceptable, keep prebuilt static pages, and have the frontend or BFF fall back to the last known good content with timeouts and circuit breakers. Authoring may be down, but visitors should still see the site. The acceptable staleness depends on business requirements.",
+      "revision": "Do not couple runtime availability to the CMS: serve from CDN and cached or prebuilt content, use stale-if-error, timeouts and circuit breakers, and degrade gracefully.",
+      "detailed": "If every request depends on a live CMS call, a CMS incident becomes a full website outage. The goal is for the **read path** (visitors) to be much more available than the **write path** (authors).\n\n{{diagram:flow}}\n\n## Design techniques\n\n- **CDN caching with stale serving.** `stale-if-error` and `stale-while-revalidate` let caches serve the last good copy when the origin fails (CDN support varies).\n- **Static generation.** Prebuilt pages from SSG continue to be served from storage and CDN independent of CMS runtime.\n- **Last-known-good cache.** The renderer or BFF stores the last successful content response and falls back to it.\n- **Timeouts and retries with backoff.** Never wait indefinitely on the CMS; use short timeouts and bounded retries.\n- **Circuit breaker.** After repeated failures, stop calling the CMS for a period and serve fallbacks, which also protects a recovering CMS from a retry storm.\n- **Graceful degradation.** If a non-critical block fails, omit it rather than failing the page; keep a minimal default content set for critical areas.\n- **Separate public delivery from authoring.** Use a delivery tier or replica that can stay up when authoring is down, if the platform supports it.\n- **Cold-start planning.** An empty cache plus a down CMS is the worst case; warm critical pages ahead of time.\n\n## Business decisions\n\nDefine per content type how stale is acceptable. A seasonal banner can be hours old; a legal notice or recall message may need a faster path. Monitor CMS health with synthetic checks and alerting, and rehearse the failure.\n\n## What not to do\n\n- Fail-open on security or legal content without approval.\n- Cache errors for long; ensure 5xx responses are not cached beyond a short time.\n- Assume the CDN protects you when cache keys vary so much that hit rates are low.",
+      "diagrams": [
+        {
+          "id": "flow",
+          "title": "Serving through a CMS outage",
+          "alt": "Users request pages from the CDN. On a miss the CDN asks the frontend, which calls the CMS through a circuit breaker. If the CMS fails, the frontend serves last-known-good content from a fallback cache.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "user",
+              "label": "User"
+            },
+            {
+              "id": "cdn",
+              "label": "CDN (stale-if-error)"
+            },
+            {
+              "id": "fe",
+              "label": "Frontend / BFF"
+            },
+            {
+              "id": "cb",
+              "label": "Circuit breaker"
+            },
+            {
+              "id": "cms",
+              "label": "CMS (down)"
+            },
+            {
+              "id": "lkg",
+              "label": "Last-known-good cache"
+            }
+          ],
+          "edges": [
+            {
+              "from": "user",
+              "to": "cdn"
+            },
+            {
+              "from": "cdn",
+              "to": "fe",
+              "label": "miss"
+            },
+            {
+              "from": "fe",
+              "to": "cb"
+            },
+            {
+              "from": "cb",
+              "to": "cms",
+              "label": "fails"
+            },
+            {
+              "from": "fe",
+              "to": "lkg",
+              "label": "fallback"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How stale is too stale for legal or recall content?",
+        "What is a circuit breaker and when does it open?",
+        "How do you test this failure mode before production?"
+      ],
+      "related": [
+        "caching-headless-content",
+        "cache-invalidation-for-content",
+        "bff-for-content-and-business-apis"
+      ]
+    },
+    {
+      "slug": "enterprise-cms-vs-custom-cms",
+      "title": "Enterprise CMS platform vs building a custom CMS: how do you decide?",
+      "topic": "Platform Selection",
+      "difficulty": "advanced",
+      "type": "comparison",
+      "tags": [
+        "build-vs-buy",
+        "enterprise-cms",
+        "decision",
+        "total-cost"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aem-headless-cms",
+          "pages": [
+            14
+          ]
+        }
+      ],
+      "quick": "I would not choose an enterprise CMS just because it is enterprise-grade, nor build custom just to avoid licenses. I would evaluate authoring requirements such as workflows, governance, localization and asset management, integration needs, total cost including run and upgrades, scalability, team skills and architectural fit. Enterprise products usually win when many authors, regions and compliance needs exist. Custom or lightweight headless options can win for narrow, developer-driven needs.",
+      "revision": "Decide on requirements, not prestige: authoring workflow, governance, localization, integrations, total cost, scale and team skills. Custom CMS cost is mostly in authoring features and upkeep.",
+      "detailed": "This is a **build vs buy** decision. A good answer lists criteria and shows when each side wins.\n\n## What enterprise platforms typically offer\n\n- Mature authoring UX, roles, approval workflows and audit.\n- Localization and translation integrations.\n- Digital asset management.\n- Scheduling, versioning and rollback.\n- Vendor support, security posture and an ecosystem of integrations and partners (specifics vary by product).\n\n## What building custom looks like\n\nA custom CMS is rarely just a database and an API. The costly parts are the features editors expect: draft/publish states, versioning, permissions, workflows, media handling, localization, search, previews, accessibility of the editing UI, plus security patching and long-term maintenance. Teams often underestimate these.\n\n## Decision matrix\n\n| Criterion | Favors enterprise platform | Favors custom or lightweight |\n|---|---|---|\n| Authors | Many, varied, non-technical | Few, technical |\n| Governance | Strict approvals, audit | Light |\n| Locales | Many markets | One or two |\n| Time to value | Need mature features now | Small, specific scope |\n| Cost | Budget for licenses and specialists | Tight license budget, capable engineers |\n| Integration | Existing ecosystem fit | Bespoke domain model |\n| Risk | Prefer supported product | Accept in-house ownership |\n\n## Middle options\n\nBetween the extremes are SaaS headless CMS products and open-source headless systems. Evaluate these too, along with lock-in: content export formats, API openness and the ease of migrating content models.\n\n## Questions to ask\n\n1. Who authors, how many and with what workflow?\n2. What must integrate (identity, DAM, translation, commerce)?\n3. What are the 3-year total costs including customization and upgrades?\n4. Does the team have, or can it hire, the skills?\n5. What is the exit strategy?\n\n## Common mistake\n\nComparing license price to developer time only for initial build, ignoring ongoing maintenance and the opportunity cost of building content tooling.",
+      "followUps": [
+        "What lock-in risks exist and how do you reduce them?",
+        "When is a SaaS headless CMS a better fit than either extreme?",
+        "How would you estimate the real cost of a custom CMS?"
+      ],
+      "related": [
+        "enterprise-cms-with-react-global-site",
+        "headless-cms-disadvantages",
+        "what-is-a-cms"
+      ]
+    },
+    {
+      "slug": "content-models-across-micro-frontends",
+      "title": "How do content models and content APIs work with Micro Frontends?",
+      "topic": "Content Modeling",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "micro-frontends",
+        "content-modeling",
+        "design-system",
+        "contracts"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aem-headless-cms",
+          "pages": [
+            6,
+            14,
+            15
+          ]
+        }
+      ],
+      "quick": "In a micro frontend setup such as Vehicle, Offers and Finance, each module may consume related content. If every team interprets content differently, the experience becomes inconsistent. I would define shared content models and API contracts, a shared design system, and a thin shell that handles routing, locale and common data, while each micro frontend fetches only the content it owns. Contract versioning and ownership boundaries keep teams independent.",
+      "revision": "Share content models, API contracts and a design system across micro frontends; let the shell handle locale and routing, and each MFE own its own content slice.",
+      "detailed": "Micro Frontends (MFEs) split a UI into independently developed and deployed parts, such as Vehicle, Offers and Finance. Content is a cross-cutting dependency, so without agreement each team will model and render it differently.\n\n{{diagram:mfe}}\n\n## Principles\n\n1. **Shared models for shared concepts.** If Vehicle and Offers both show a model name, they should reference the same content entry, not duplicate it.\n2. **Content ownership.** Each MFE owns the content types for its domain; others reference them by id through the API instead of reaching into internals.\n3. **Common contract.** Publish the content schema (for example a JSON Schema or GraphQL schema) and validate against it in CI.\n4. **Shared design system.** Rich text, imagery and typography should render consistently across MFEs.\n5. **Shell responsibilities.** The shell resolves locale, routing, navigation and global content (header, footer, legal), and passes context to MFEs.\n\n## Fetching strategy\n\n- Each MFE fetches only its own content, ideally via a shared client library or BFF.\n- Avoid duplicate fetches of global content; let the shell fetch once and share it.\n- Watch the combined caching and SSR story: assembling server-rendered fragments from several MFEs needs a clear composition mechanism.\n\n## Pitfalls\n\n- **Schema drift** when MFEs copy and modify models.\n- **Version skew**: MFE A deployed against the new schema while MFE B still expects the old one. Use additive, backward-compatible changes and deprecation windows.\n- **Performance**: many MFEs each calling the content API increases latency; use BFF aggregation and caching.\n\n## Common mistake\n\nAdopting MFEs for content-heavy sites where the team structure does not require them, creating complexity without autonomy benefits.",
+      "diagrams": [
+        {
+          "id": "mfe",
+          "title": "Content in a micro frontend shell",
+          "alt": "A content API feeds a React shell, which hosts three micro frontends for vehicle, offers and finance. All follow one shared content model and design system.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "api",
+              "label": "Content API (shared models)"
+            },
+            {
+              "id": "shell",
+              "label": "React shell (routing, locale)"
+            },
+            {
+              "id": "veh",
+              "label": "Vehicle MFE"
+            },
+            {
+              "id": "off",
+              "label": "Offers MFE"
+            },
+            {
+              "id": "fin",
+              "label": "Finance MFE"
+            },
+            {
+              "id": "ds",
+              "label": "Shared design system"
+            }
+          ],
+          "edges": [
+            {
+              "from": "api",
+              "to": "shell"
+            },
+            {
+              "from": "shell",
+              "to": "veh"
+            },
+            {
+              "from": "shell",
+              "to": "off"
+            },
+            {
+              "from": "shell",
+              "to": "fin"
+            },
+            {
+              "from": "ds",
+              "to": "shell"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you avoid version skew between micro frontends and the content schema?",
+        "Which team owns shared content like the footer or legal notices?",
+        "How do you server-render several micro frontends on one page?"
+      ],
+      "related": [
+        "content-modeling-for-headless",
+        "content-api-contract-versioning",
+        "global-cms-react-reference-architecture"
+      ]
+    },
+    {
+      "slug": "content-api-contract-versioning",
+      "title": "How do you manage content API contracts and schema changes safely?",
+      "topic": "API Design",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "api-contract",
+        "versioning",
+        "schema",
+        "governance",
+        "breaking-changes"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would treat the content model as a public API. Prefer additive, backward-compatible changes, such as new optional fields, and avoid renaming or removing fields in place. Publish a schema, validate content and frontend mappers against it in CI, and use deprecation windows so consumers migrate before removal. For genuinely breaking changes I would version the API or model, support both for a period, and use contract tests and monitoring to detect consumer breakage early.",
+      "revision": "Treat content models as public APIs: additive changes first, schemas validated in CI, deprecation windows, contract tests, and versioning for breaking changes.",
+      "detailed": "In a headless architecture, the CMS and the frontend are deployed separately, so any change to the content schema can break running consumers. The practical answer is **API governance applied to content models**.\n\n## Compatible vs breaking changes\n\n| Change | Usually safe? |\n|---|---|\n| Add an optional field | Yes |\n| Add a new content type | Yes |\n| Make an optional field required | Risky: existing entries may violate it |\n| Rename a field | Breaking |\n| Remove a field | Breaking |\n| Change a field's type | Breaking |\n| Change an enum's allowed values | Risky |\n\n## Safe rollout (expand and contract)\n\n1. **Expand:** add the new field alongside the old one.\n2. **Migrate content** (scripted where possible) and update consumers to read the new field, falling back to the old one.\n3. **Verify** via metrics or logs that no consumer reads the old field.\n4. **Contract:** remove the old field after the deprecation window.\n\n## Safeguards\n\n- **Published schema** (JSON Schema, GraphQL SDL) as the single source of truth.\n- **Consumer-side defensive mapping**: tolerate missing or unknown fields and provide defaults, so one bad entry does not crash a page.\n- **Contract tests** in CI that run frontend mappers against sample payloads or a schema.\n- **Content validation** at authoring time (required fields, formats).\n- **Staging environment** that mirrors production schema.\n- **Ownership and change process**: each content type has an owner; changes are reviewed with consumers.\n- **Version the API** when breaking changes cannot be avoided, and run old and new in parallel.\n\n```ts\nconst title = entry.headline ?? entry.title ?? 'Untitled'; // tolerate old and new shapes\n```\n\n## Common mistakes\n\n- Authors or modelers changing the schema in production without notifying frontend teams.\n- Deploying the frontend that requires the new field before the content exists.\n- No visibility into which consumers use which fields.",
+      "followUps": [
+        "How would you roll out a renamed field with zero downtime?",
+        "What are contract tests and how would you use them here?",
+        "GraphQL or REST for easier schema evolution?"
+      ],
+      "related": [
+        "decoupled-architecture",
+        "content-modeling-for-headless",
+        "content-models-across-micro-frontends"
+      ]
+    },
+    {
+      "slug": "global-cms-react-reference-architecture",
+      "title": "Design a reference architecture for a global website using a headless CMS and React.",
+      "topic": "Reference Architecture",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "architecture",
+        "reference-architecture",
+        "cdn",
+        "bff",
+        "headless",
+        "global"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aem-headless-cms",
+          "pages": [
+            15,
+            16,
+            17,
+            18
+          ]
+        }
+      ],
+      "quick": "I would treat the CMS as the content platform and React as the experience layer. Users hit a CDN and WAF in front of a React web app that uses SSR or SSG for SEO-critical pages. Content requests go to a content API backed by the CMS; business requests go through a BFF to vehicle, finance and customer services. I would cache aggressively, define content contracts, support preview, localization and invalidation, and make security and observability platform-level concerns.",
+      "revision": "CDN/WAF, then React with SSR/SSG; content API to CMS, BFF to domain services. Add caching, invalidation, preview, localization, security and observability as platform concerns.",
+      "detailed": "A strong whole-system answer organizes components by responsibility and then walks through cross-cutting concerns. The example below is a generic global automotive-style website.\n\n{{diagram:arch}}\n\n## Components\n\n- **CDN and WAF**: global edge caching, TLS, bot and attack protection.\n- **React web app**: SSR/SSG for public, SEO-critical pages; hydrates for interactivity. Built on a shared design system.\n- **Content path**: React (server side) to a content API backed by the CMS. Content is cached heavily.\n- **Business path**: React to a **BFF**, which aggregates vehicle, finance and customer APIs. Domain rules live in the services.\n- **CMS**: structured content, workflow, localization, assets and governance; authors work here.\n\n## Cross-cutting concerns\n\n| Concern | Approach |\n|---|---|\n| Caching | CDN with TTLs by content type, ETags, fingerprinted assets |\n| Invalidation | Publish webhook purging by tag, on-demand revalidation |\n| SEO | SSR/SSG, metadata from CMS, canonicals, hreflang, sitemaps |\n| Preview | Authenticated draft rendering with production components |\n| Localization | Locale-aware routes, content fallback, locale in cache key |\n| Personalization | Decision service; cacheable shell plus personalized blocks |\n| Resilience | Stale-if-error, last-known-good content, timeouts, circuit breakers |\n| Security | WAF, auth at BFF, secrets server-side, least privilege, separate authoring access |\n| Observability | Tracing across CDN, frontend, BFF and CMS; Core Web Vitals RUM; cache hit rate |\n| Contracts | Schema versioning, contract tests |\n\n## Trade-offs to mention\n\n- More moving parts than a coupled CMS; justified by multi-channel reuse, team independence and flexibility.\n- Keep the BFF thin so it does not become a monolith.\n- Consider whether micro frontends are warranted, or whether a single well-structured app suffices.\n\n## How to deliver it in an interview\n\nStart with the principle (content and presentation separated, business data separate), draw the diagram, then say how you handle the top risks: SEO, caching, preview and failure.",
+      "diagrams": [
+        {
+          "id": "arch",
+          "title": "Global headless CMS and React architecture",
+          "alt": "Global users reach a CDN and WAF, then a React web app with SSR/SSG. Content requests go to a content API backed by the CMS where authors work. Business requests go to a BFF that calls vehicle, finance and customer APIs.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "users",
+              "label": "Global users"
+            },
+            {
+              "id": "cdn",
+              "label": "CDN / WAF"
+            },
+            {
+              "id": "react",
+              "label": "React web app (SSR/SSG)"
+            },
+            {
+              "id": "capi",
+              "label": "Content API"
+            },
+            {
+              "id": "cms",
+              "label": "CMS (authors)"
+            },
+            {
+              "id": "bff",
+              "label": "BFF"
+            },
+            {
+              "id": "veh",
+              "label": "Vehicle API"
+            },
+            {
+              "id": "fin",
+              "label": "Finance API"
+            },
+            {
+              "id": "cus",
+              "label": "Customer API"
+            }
+          ],
+          "edges": [
+            {
+              "from": "users",
+              "to": "cdn"
+            },
+            {
+              "from": "cdn",
+              "to": "react"
+            },
+            {
+              "from": "react",
+              "to": "capi",
+              "label": "content"
+            },
+            {
+              "from": "capi",
+              "to": "cms"
+            },
+            {
+              "from": "react",
+              "to": "bff",
+              "label": "business data"
+            },
+            {
+              "from": "bff",
+              "to": "veh"
+            },
+            {
+              "from": "bff",
+              "to": "fin"
+            },
+            {
+              "from": "bff",
+              "to": "cus"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Which parts would you build first and why?",
+        "Where do security controls sit in this design?",
+        "How would you observe and debug a slow page across all these layers?",
+        "What would make you simplify this architecture?"
+      ],
+      "related": [
+        "react-integration-with-headless-cms",
+        "bff-for-content-and-business-apis",
+        "cms-outage-resilience",
+        "caching-headless-content"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,824 @@
+{
+  "category": "micro-frontends",
+  "questions": [
+    {
+      "slug": "authentication-in-micro-frontends",
+      "title": "How do you handle authentication in Micro Frontends?",
+      "topic": "Security",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "authentication",
+        "oidc",
+        "session",
+        "shell",
+        "security"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-micro-frontends",
+          "pages": [
+            9,
+            10
+          ]
+        }
+      ],
+      "quick": "Authentication is a platform concern, not something each micro frontend reimplements. The shell works with the identity provider to establish the session, then exposes identity context, such as the current user and a way to obtain tokens, to the domains. Authentication is centrally governed, while each backend service still validates credentials independently. For web apps I favour standard flows, such as OpenID Connect with Authorization Code and PKCE, and avoid exposing long-lived tokens carelessly.",
+      "revision": "Authenticate once in the shell via the identity provider, share identity context with domains, and let every backend independently validate tokens. Never duplicate login logic per domain.",
+      "detailed": "**Make authentication a shell/platform responsibility: one login flow, one session, and a narrow way for domains to obtain identity context.** Backends must still verify every request.\n\n{{diagram:auth}}\n\n## Flow\n\n1. User signs in via the identity provider (commonly OpenID Connect using the Authorization Code flow with PKCE for browser apps).\n2. The shell establishes the session and holds identity state.\n3. Domains receive identity context (user id, display name, roles) and a function to obtain a valid access token or make authenticated calls.\n4. Each API validates the token on every request.\n\n## Design choices\n\n- **Token handling:** a common hardened option is a backend-for-frontend that keeps tokens server-side and issues an HTTP-only, SameSite session cookie, reducing exposure to script access. Keeping tokens in memory is another approach; avoid long-lived tokens in `localStorage`, since any script running in the page, including a compromised remote, can read them.\n- **One implementation:** a single library in the shell handles refresh, silent renew and logout, so domains cannot diverge.\n- **Standalone mode:** domains should run locally with a stubbed or dev identity.\n- **Logout and session expiry:** the shell broadcasts events so all domains react consistently.\n\n## Federation caveat\n\nA federated remote runs in the same JavaScript context as the host, so it can reach whatever the host can. Only load remotes from trusted, reviewed origins, and use a Content Security Policy to restrict script sources.\n\n## Common mistakes\n\n- Each domain implementing its own login or token refresh.\n- Trusting the UI state (\"user is logged in\") as proof for the backend.\n- Sending tokens to domains over unvalidated events.",
+      "diagrams": [
+        {
+          "id": "auth",
+          "title": "Authentication through the shell",
+          "alt": "The identity provider authenticates the user via the shell, which provides identity context to the vehicle, finance and account micro frontends; their API calls are validated by backend APIs.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "idp",
+              "label": "Identity Provider"
+            },
+            {
+              "id": "sh",
+              "label": "Shell / Auth"
+            },
+            {
+              "id": "m1",
+              "label": "Vehicle MFE"
+            },
+            {
+              "id": "m2",
+              "label": "Finance MFE"
+            },
+            {
+              "id": "m3",
+              "label": "Account MFE"
+            },
+            {
+              "id": "api",
+              "label": "APIs validate token"
+            }
+          ],
+          "edges": [
+            {
+              "from": "idp",
+              "to": "sh",
+              "label": "session"
+            },
+            {
+              "from": "sh",
+              "to": "m1",
+              "label": "identity context"
+            },
+            {
+              "from": "sh",
+              "to": "m2"
+            },
+            {
+              "from": "sh",
+              "to": "m3"
+            },
+            {
+              "from": "m2",
+              "to": "api",
+              "label": "bearer/session"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Where would you store tokens and why?",
+        "How does silent refresh work across several remotes?",
+        "What does a Content Security Policy do for federated remotes?"
+      ],
+      "related": [
+        "authorization-in-micro-frontends",
+        "application-shell-responsibilities",
+        "routing-in-micro-frontends"
+      ]
+    },
+    {
+      "slug": "authorization-in-micro-frontends",
+      "title": "Is hiding UI based on roles enough for authorization?",
+      "topic": "Security",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "authorization",
+        "rbac",
+        "security",
+        "api"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-micro-frontends",
+          "pages": [
+            10
+          ]
+        }
+      ],
+      "quick": "No. Frontend authorization shapes the user experience, but it is not a security boundary, because anyone can call the API directly or tamper with client code. Hiding a Finance Admin screen is a convenience only. Every API must validate the token and check the role or permission for the specific resource, then allow or deny. In the frontend I use permission flags from the identity context to show or hide features, never to protect data.",
+      "revision": "UI checks are UX; the API is the security boundary. Validate token, check role and permission per resource server-side, and use client checks only to hide irrelevant UI.",
+      "detailed": "**Frontend authorization improves experience; backend authorization provides security.** Anything running in the browser can be inspected, modified or bypassed.\n\n{{diagram:authz}}\n\n## Two layers\n\n| Layer | Purpose | Trustworthy? |\n|---|---|---|\n| Frontend (route guards, hidden buttons) | Show only relevant options, avoid dead ends | No, advisory only |\n| Backend (API, gateway, service) | Enforce who can read or change what | Yes |\n\n## Backend enforcement\n\n```text\nRequest -> validate token (signature, expiry, audience)\n        -> determine caller identity and permissions\n        -> check access to this specific resource/action\n        -> allow or deny (401 unauthenticated, 403 forbidden)\n```\n\nCheck object-level access too, not just role: a user with a \"customer\" role must still only see their own account records.\n\n## In a micro frontend setup\n\n- The shell exposes roles or permissions in the identity context.\n- Each domain decides which of its features to display, using a small permission API (for example `can('finance:approve')`) instead of scattering role strings.\n- Navigation items in the shell can be filtered by permissions, but a direct URL must still yield a correct \"not permitted\" result from the API.\n- Each domain's backend authorises independently; do not rely on the gateway alone for fine-grained rules.\n\n## Common mistakes\n\n- Treating a hidden route as a secured route.\n- Embedding authorization logic only in the client bundle.\n- Trusting claims decoded from a token on the client without server verification.\n- Letting stale permissions persist after a role change; keep token lifetimes short and refresh permissions.",
+      "diagrams": [
+        {
+          "id": "authz",
+          "title": "Where authorization is enforced",
+          "alt": "A React UI hides the finance admin screen as a convenience, while the API validates the token and then checks role and permission before allowing or denying the request.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "ui",
+              "label": "React UI (hides admin screen)"
+            },
+            {
+              "id": "api",
+              "label": "API"
+            },
+            {
+              "id": "tok",
+              "label": "Validate token"
+            },
+            {
+              "id": "perm",
+              "label": "Check role / permission"
+            },
+            {
+              "id": "res",
+              "label": "Allow or Deny"
+            }
+          ],
+          "edges": [
+            {
+              "from": "ui",
+              "to": "api",
+              "label": "request"
+            },
+            {
+              "from": "api",
+              "to": "tok"
+            },
+            {
+              "from": "tok",
+              "to": "perm"
+            },
+            {
+              "from": "perm",
+              "to": "res"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "What is the difference between 401 and 403?",
+        "How do you handle object-level authorization?",
+        "How would you propagate permissions to remotes cleanly?"
+      ],
+      "related": [
+        "authentication-in-micro-frontends",
+        "application-shell-responsibilities",
+        "communication-between-micro-frontends"
+      ]
+    },
+    {
+      "slug": "deploying-micro-frontends",
+      "title": "How do you manage deployments of Micro Frontends?",
+      "topic": "Delivery",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "ci-cd",
+        "deployment",
+        "rollback",
+        "canary",
+        "observability"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-micro-frontends",
+          "pages": [
+            11,
+            12
+          ]
+        }
+      ],
+      "quick": "Each domain and the shell has its own CI/CD pipeline and release cadence, publishing hashed static assets to a CDN plus a small entry or manifest that points to the current version. That gives independent releases, but it needs governance: version management, contract tests, compatibility checks, progressive rollout such as canary, fast rollback by repointing the manifest, and per-domain observability so a regression is attributed to the right team.",
+      "revision": "Independent pipelines per domain publish immutable assets plus a pointer; success depends on contract tests, canary rollout, instant rollback, and per-domain observability.",
+      "detailed": "**Give every domain its own pipeline that publishes immutable assets and updates a small pointer; compensate for the freedom with contracts, progressive rollout and fast rollback.**\n\n{{diagram:deploy}}\n\n## Pipeline shape\n\n1. Build, unit and component tests, lint, accessibility and bundle-size checks.\n2. **Contract tests** against the shell's and neighbours' expectations.\n3. Publish **hashed, immutable assets** to the CDN (long cache lifetime).\n4. Update the **entry or manifest** (short cache lifetime) to point to the new version.\n5. Roll out progressively, watch metrics, promote or roll back.\n\n## Controls you need\n\n- **Version management:** record which remote versions are live; expose them in telemetry.\n- **Compatibility checks:** automated verification that the new remote works with the currently deployed shell and shared dependency ranges.\n- **Progressive delivery:** canary a percentage of users or an internal cohort; feature flags separate deploy from release.\n- **Rollback:** repoint the manifest to the previous version, which should take minutes and need no rebuild. Keep old assets for a while so users with open pages do not hit missing chunks.\n- **Observability:** tag logs, errors and performance data with the domain and version; alert the owning team.\n- **Governance:** shared standards for pipelines, security scanning and release windows for critical periods.\n\n## Trade-offs\n\n- Independent release means integration bugs are found in production unless tested in a realistic environment; invest in a staging composition environment and synthetic journeys.\n- Runtime composition makes \"what is live\" a question you must be able to answer instantly.\n\n## Common mistake\n\nIndependent pipelines but a hidden requirement to release in lock-step, so you pay for the complexity and still coordinate.",
+      "diagrams": [
+        {
+          "id": "deploy",
+          "title": "Independent pipelines per domain",
+          "alt": "Vehicle, finance and shell code each go through their own CI/CD pipeline to separate deployments published to a CDN, with a manifest pointing to current versions and a rollback path.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "v",
+              "label": "Vehicle MFE repo"
+            },
+            {
+              "id": "f",
+              "label": "Finance MFE repo"
+            },
+            {
+              "id": "s",
+              "label": "Shell repo"
+            },
+            {
+              "id": "ci",
+              "label": "Own CI/CD each"
+            },
+            {
+              "id": "cdn",
+              "label": "CDN: immutable assets"
+            },
+            {
+              "id": "man",
+              "label": "Manifest: current versions"
+            }
+          ],
+          "edges": [
+            {
+              "from": "v",
+              "to": "ci"
+            },
+            {
+              "from": "f",
+              "to": "ci"
+            },
+            {
+              "from": "s",
+              "to": "ci"
+            },
+            {
+              "from": "ci",
+              "to": "cdn",
+              "label": "publish"
+            },
+            {
+              "from": "ci",
+              "to": "man",
+              "label": "promote / rollback"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you do a canary release of a remote?",
+        "Why separate cache policy for entry file and chunks?",
+        "How do you test composition before production?"
+      ],
+      "related": [
+        "version-compatibility-in-micro-frontends",
+        "testing-micro-frontends",
+        "failure-isolation-in-micro-frontends"
+      ]
+    },
+    {
+      "slug": "version-compatibility-in-micro-frontends",
+      "title": "How do you handle version compatibility between the shell and Micro Frontends?",
+      "topic": "Delivery",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "versioning",
+        "semver",
+        "contracts",
+        "compatibility",
+        "rollout"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-micro-frontends",
+          "pages": [
+            15
+          ]
+        }
+      ],
+      "quick": "With several independently versioned parts, say shell v5 with Vehicle v12, Finance v8 and Account v10, compatibility must be managed deliberately. I use semantic versioning for contracts, prefer backward-compatible changes, govern shared dependency ranges, run automated compatibility and contract tests in CI, roll out gradually, and keep rollback instant. For breaking contract changes I support old and new versions side by side during a deprecation window.",
+      "revision": "Make contracts explicit and semver them, prefer additive changes, govern shared dependency ranges, automate compatibility tests, roll out gradually, and keep rollback instant.",
+      "detailed": "**Compatibility is a managed contract between independently releasing parts, not an accident.** Decide what is versioned, who may break it, and how breakage is detected before users see it.\n\n{{diagram:versions}}\n\n## What has a version contract\n\n- The **exposed module interface** (props, events, exported functions).\n- **URL and navigation contracts** between domains.\n- **Event payload schemas.**\n- **Shared dependency ranges** (React, router, design system).\n- **Platform context API** supplied by the shell.\n\n## Rules that work\n\n- **Additive first:** new optional props or fields are non-breaking; removals and renames are breaking.\n- **Semver the contract**, not just the package. A breaking change needs a major version and a migration path.\n- **Deprecation windows:** support old and new for a period, with telemetry showing who still uses the old form.\n- **Tolerant readers:** consumers ignore unknown fields and handle missing optional ones.\n- **Shell compatibility range:** the shell declares the contract versions it supports, and remotes declare what they need.\n\n## Automation\n\n- Contract tests (for example consumer-driven) run in both producer and consumer pipelines.\n- A composition test environment deploys candidate versions together and runs journey tests.\n- Shared dependency lint in CI enforces the allowed ranges.\n- Dashboards show live version matrix and error rates per version.\n\n## Rollout\n\nCanary the new version, watch error and Web Vitals metrics, and roll back automatically on regression. Rollback should be a pointer change.\n\n## Common mistakes\n\n- Changing a prop name without a deprecation path.\n- Letting shared dependency ranges drift until upgrades become a \"big bang\".\n- No visibility of which versions users are actually running.",
+      "diagrams": [
+        {
+          "id": "versions",
+          "title": "Versioned parts under a shell",
+          "alt": "Shell v5 composes Vehicle MFE v12, Finance MFE v8 and Account MFE v10, with compatibility contracts and contract tests linking each pair.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "sh",
+              "label": "Shell v5"
+            },
+            {
+              "id": "v",
+              "label": "Vehicle MFE v12"
+            },
+            {
+              "id": "f",
+              "label": "Finance MFE v8"
+            },
+            {
+              "id": "a",
+              "label": "Account MFE v10"
+            },
+            {
+              "id": "ct",
+              "label": "Contract tests + compatibility matrix"
+            }
+          ],
+          "edges": [
+            {
+              "from": "sh",
+              "to": "v"
+            },
+            {
+              "from": "sh",
+              "to": "f"
+            },
+            {
+              "from": "sh",
+              "to": "a"
+            },
+            {
+              "from": "ct",
+              "to": "sh",
+              "label": "verifies"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you make a breaking change to an exposed module?",
+        "What is consumer-driven contract testing?",
+        "How do you know which versions users run?"
+      ],
+      "related": [
+        "deploying-micro-frontends",
+        "testing-micro-frontends",
+        "sharing-react-between-micro-frontends"
+      ]
+    },
+    {
+      "slug": "testing-micro-frontends",
+      "title": "How do you test Micro Frontends?",
+      "topic": "Delivery",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "testing",
+        "contract-testing",
+        "e2e",
+        "integration"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-micro-frontends",
+          "pages": [
+            14
+          ]
+        }
+      ],
+      "quick": "I use layers: unit and component tests inside each domain, contract tests between hosts and remotes to ensure interfaces stay compatible, integration tests that compose real remotes in a staging environment, and a small number of end-to-end journeys. Contract testing is the key addition, since independent deployment means a remote can break the host without any host change. I add accessibility, visual regression and performance budget checks per domain.",
+      "revision": "Test in layers: unit, component, contract, integration, then few end-to-end journeys. Contract tests are crucial because independent deploys can break integrations silently.",
+      "detailed": "**Push most testing down into each domain, and add contract and composition tests for the seams.** End-to-end tests alone are slow and cannot tell which team broke what.\n\n{{diagram:pyramid}}\n\n## Layers\n\n| Layer | Scope | Owner |\n|---|---|---|\n| Unit | Functions, hooks, logic | Domain team |\n| Component | A domain's components in isolation (with mocked APIs) | Domain team |\n| Contract | Host and remote agree on props, events, URLs and API shapes | Both sides |\n| Integration | Shell plus real or staged remotes composed together | Platform with domains |\n| End-to-end | A few critical journeys, for example browse to quote | Shared, kept small |\n\n## Contract tests\n\nThe remote's exposed component and its events are the contract. A consumer-driven approach has the host (and neighbours) record what they rely on, and the remote's pipeline verifies it, so a breaking change fails before deploy.\n\n```ts\n// a simple contract check on an exposed module's behaviour\nimport { render, screen } from '@testing-library/react';\nimport VehiclePage from 'vehicle/VehiclePage';\n\ntest('renders with required props and emits selection event', async () => {\n  const handler = vi.fn();\n  window.addEventListener('vehicle:selected', handler);\n  render(<VehiclePage vehicleId=\"v-123\" />);\n  (await screen.findByRole('button', { name: /select/i })).click();\n  expect(handler).toHaveBeenCalled();\n});\n```\n\n## Other checks\n\n- Run each remote **standalone** with a mocked shell context.\n- **Accessibility and visual regression** on shared components and key pages.\n- **Failure tests:** force a remote to fail and assert the fallback appears.\n- **Synthetic monitoring** in production for key journeys.\n\n## Common mistakes\n\nRelying on one big E2E suite; no test of the failure path; testing the remote only standalone and never composed with the real shell and shared versions.",
+      "diagrams": [
+        {
+          "id": "pyramid",
+          "title": "Layered test strategy",
+          "alt": "Unit tests feed component tests, then contract tests, then integration tests, then end-to-end tests, narrowing in number and widening in scope.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "u",
+              "label": "Unit"
+            },
+            {
+              "id": "c",
+              "label": "Component"
+            },
+            {
+              "id": "ct",
+              "label": "Contract"
+            },
+            {
+              "id": "i",
+              "label": "Integration"
+            },
+            {
+              "id": "e",
+              "label": "End-to-end"
+            }
+          ],
+          "edges": [
+            {
+              "from": "u",
+              "to": "c"
+            },
+            {
+              "from": "c",
+              "to": "ct"
+            },
+            {
+              "from": "ct",
+              "to": "i"
+            },
+            {
+              "from": "i",
+              "to": "e"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "What is consumer-driven contract testing?",
+        "How do you test the failure fallback of a remote?",
+        "How do you run a remote standalone?"
+      ],
+      "related": [
+        "version-compatibility-in-micro-frontends",
+        "failure-isolation-in-micro-frontends",
+        "deploying-micro-frontends"
+      ]
+    },
+    {
+      "slug": "performance-impact-of-micro-frontends",
+      "title": "How do Micro Frontends affect performance?",
+      "topic": "Performance",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "performance",
+        "bundle-size",
+        "core-web-vitals",
+        "duplication"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-micro-frontends",
+          "pages": [
+            13
+          ]
+        }
+      ],
+      "quick": "They are not automatically a performance win. They can help through independent loading, lazy loading, domain-level code splitting and per-domain optimisation. They can hurt through duplicated dependencies, multiple bundles, runtime loading waterfalls, extra network requests and duplicated framework code. Without shared dependencies, sensible chunking and loading strategy, JavaScript and network overhead usually go up, so I measure bundle size and Core Web Vitals continuously.",
+      "revision": "Micro Frontends are not a performance optimisation. Gains come from splitting and lazy loading; losses from duplicated libraries, waterfalls and more requests. Measure continuously.",
+      "detailed": "**Micro Frontends change where and when code loads, which can help or hurt.** The outcome depends on discipline, not on the architecture itself.\n\n## Potential benefits\n\n- **Domain-level code splitting:** a visitor on the vehicle page does not download finance code.\n- **Lazy loading:** below-the-fold or later-journey domains load on demand.\n- **Independent optimisation:** a team can tune its slice without affecting others.\n- **Smaller deployable units:** faster builds and targeted cache invalidation.\n\n## Potential costs\n\n| Cost | Cause |\n|---|---|\n| Duplicate JavaScript | Each remote bundles its own React or utilities |\n| Waterfalls | Shell loads, then remote entry, then remote chunks |\n| More requests | Many bundles and manifests |\n| Layout shift | Remotes render late and push content |\n| Inconsistent budgets | No one owns the total page weight |\n\n## Waterfall example\n\n```text\nshell.js -> router decides route -> remoteEntry.js -> vehicle chunk -> data fetch -> render\n```\n\nEach arrow is a possible round trip. Preloading the remote entry for likely routes, or composing critical content server-side, shortens this path.\n\n## What to monitor\n\nCore Web Vitals (LCP, INP, CLS), TTFB, total JavaScript per route, number of requests and main-thread time, segmented by domain and remote version, using both lab and real-user data.\n\n## Governance\n\nSet **performance budgets per route** (not only per remote), because users experience the sum. Make regressions visible in each domain's CI.\n\n## Summary\n\nTreat performance as a platform-level budget shared across teams, not as something each team optimises in isolation.",
+      "followUps": [
+        "How can the loading waterfall be shortened?",
+        "Who owns the page-level performance budget?",
+        "How do you detect duplicated dependencies?"
+      ],
+      "related": [
+        "optimizing-micro-frontend-performance",
+        "sharing-react-between-micro-frontends",
+        "disadvantages-of-micro-frontends"
+      ]
+    },
+    {
+      "slug": "optimizing-micro-frontend-performance",
+      "title": "How would you optimise the performance of a Micro Frontend site?",
+      "topic": "Performance",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "performance",
+        "cdn",
+        "code-splitting",
+        "lazy-loading",
+        "core-web-vitals"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-micro-frontends",
+          "pages": [
+            13,
+            14
+          ]
+        }
+      ],
+      "quick": "I would combine delivery and code-level techniques: a CDN with long-lived caching for hashed assets and short caching for entry files, code splitting and lazy loading by route and domain, shared dependencies to avoid duplicates, tree shaking, optimised images and fonts, and preloading likely remotes. Then I measure with real-user monitoring: LCP, INP, CLS, TTFB, bundle size, JavaScript execution time and request counts, with per-route budgets enforced in CI.",
+      "revision": "CDN and caching, split and lazy-load by domain, share dependencies, tree-shake, preload likely remotes, then measure LCP, INP, CLS, TTFB and bundle size with budgets.",
+      "detailed": "**Optimise the delivery path first (CDN, caching, critical rendering), then reduce JavaScript (splitting, sharing, tree shaking), and keep it honest with budgets and measurement.**\n\n{{diagram:perf}}\n\n## Delivery\n\n- **CDN and edge:** serve static assets close to users; consider edge or server-side composition of the page frame for the fastest first paint.\n- **Caching:** hashed assets with long `immutable` caching; entry or manifest files short-lived or revalidated.\n- **Compression:** Brotli or gzip, plus HTTP/2 or HTTP/3 multiplexing.\n\n## JavaScript\n\n- **Code splitting and lazy loading** by route and domain; do not load unseen domains.\n- **Shared dependencies** so React and the design system load once.\n- **Tree shaking and modern builds**, avoiding whole-library imports.\n- **Preload or prefetch** the remote entry for likely next routes (for example on link hover) to flatten the waterfall.\n- **Avoid hidden duplication:** analyse bundles of every remote together.\n\n## Rendering\n\n- Reserve space for remotes (skeletons with fixed dimensions) to reduce CLS.\n- Server-render or statically generate critical above-the-fold content for public pages.\n- Optimise images (responsive sizes, modern formats, lazy loading) and fonts.\n- Defer third-party scripts; route them through the shell.\n\n## Measure\n\n| Metric | Why |\n|---|---|\n| LCP | Loading speed of main content |\n| INP | Responsiveness to interaction |\n| CLS | Visual stability while remotes load |\n| TTFB | Server and CDN latency |\n| Bundle size, JS execution time, requests | Cost drivers |\n\nSegment by domain and version using real-user monitoring, and fail CI when a route exceeds its budget.",
+      "diagrams": [
+        {
+          "id": "perf",
+          "title": "Performance optimisation chain",
+          "alt": "CDN delivery leads to caching, code splitting, lazy loading, shared dependencies, tree shaking and optimised assets, and finally performance monitoring.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "a",
+              "label": "CDN"
+            },
+            {
+              "id": "b",
+              "label": "Caching"
+            },
+            {
+              "id": "c",
+              "label": "Code splitting & lazy loading"
+            },
+            {
+              "id": "d",
+              "label": "Shared dependencies"
+            },
+            {
+              "id": "e",
+              "label": "Tree shaking & assets"
+            },
+            {
+              "id": "f",
+              "label": "Monitoring: LCP, INP, CLS"
+            }
+          ],
+          "edges": [
+            {
+              "from": "a",
+              "to": "b"
+            },
+            {
+              "from": "b",
+              "to": "c"
+            },
+            {
+              "from": "c",
+              "to": "d"
+            },
+            {
+              "from": "d",
+              "to": "e"
+            },
+            {
+              "from": "e",
+              "to": "f"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you reduce the remote-loading waterfall?",
+        "How do you prevent layout shift from late remotes?",
+        "What budget would you set and who enforces it?"
+      ],
+      "related": [
+        "performance-impact-of-micro-frontends",
+        "sharing-react-between-micro-frontends",
+        "deploying-micro-frontends"
+      ]
+    },
+    {
+      "slug": "migrating-monolith-to-micro-frontends",
+      "title": "How would you migrate a monolithic React application to Micro Frontends?",
+      "topic": "Migration",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "migration",
+        "strangler",
+        "incremental",
+        "legacy"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-micro-frontends",
+          "pages": [
+            15,
+            16
+          ]
+        }
+      ],
+      "quick": "I would not do a big-bang rewrite; I would use the strangler approach. First identify business domains and ownership boundaries, and the shared dependencies. Then create the shell around the existing app, extract one low-risk domain, establish CI/CD, contracts and observability, and gradually migrate further domains while the legacy application keeps serving everything not yet moved. Each step is releasable and reversible.",
+      "revision": "Strangler, not rewrite: define domains, build a shell around the legacy app, extract one low-risk domain at a time with CI/CD, contracts and observability.",
+      "detailed": "**Migrate incrementally with the strangler pattern: wrap the legacy app in a shell, then route one domain at a time to new Micro Frontends while the rest keeps working.**\n\n{{diagram:migration}}\n\n## Steps\n\n1. **Identify business domains** using user journeys, team structure and change history.\n2. **Define ownership and boundaries**, including data ownership and URL space.\n3. **Inventory shared dependencies** (framework versions, design system, auth, state, utilities).\n4. **Create the shell:** initially it just hosts the legacy app at all routes, adds platform concerns, and costs users nothing.\n5. **Extract one low-risk domain** (stable, well understood, limited coupling, but real enough to prove the platform). Route its URL prefix to the new remote.\n6. **Establish CI/CD, contracts and observability** while the first slice is small.\n7. **Migrate further domains** in an order driven by team readiness and business value, retiring legacy code as each is replaced.\n\n## Routing during transition\n\n```text\n/vehicles/*   -> new Vehicle MFE\n/finance/*    -> new Finance MFE\neverything else -> legacy React app (inside the shell)\n```\n\nA proxy, edge rule or shell route table makes the switch, which also gives an instant fallback to the legacy path.\n\n## Practical advice\n\n- Keep the legacy app and the new domains **visually consistent** via the design system early.\n- Plan how **shared state and auth** are accessed from the legacy side.\n- Do not rewrite functionality while moving it; **move first, improve later**, to limit risk.\n- Define **exit criteria**: how you know the legacy shell can be decommissioned.\n- Track metrics (performance, errors, delivery speed) before and after each slice.\n\n## Common mistakes\n\nStarting with the hardest domain, extracting by technical layer, or running two long-lived parallel systems with no retirement plan.",
+      "diagrams": [
+        {
+          "id": "migration",
+          "title": "Strangler migration path",
+          "alt": "A shell wraps the existing legacy React app; domain 1, domain 2 and domain 3 are extracted one after another into micro frontends while the legacy app shrinks.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "l",
+              "label": "Legacy React monolith"
+            },
+            {
+              "id": "s",
+              "label": "Shell around legacy"
+            },
+            {
+              "id": "d1",
+              "label": "Extract Domain 1"
+            },
+            {
+              "id": "d2",
+              "label": "Extract Domain 2"
+            },
+            {
+              "id": "d3",
+              "label": "Extract Domain 3"
+            }
+          ],
+          "edges": [
+            {
+              "from": "l",
+              "to": "s",
+              "label": "wrap"
+            },
+            {
+              "from": "s",
+              "to": "d1"
+            },
+            {
+              "from": "d1",
+              "to": "d2"
+            },
+            {
+              "from": "d2",
+              "to": "d3"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you choose the first domain to extract?",
+        "How do you route between legacy and new at the edge?",
+        "How do you know the migration is done?"
+      ],
+      "related": [
+        "micro-frontends-vs-monolithic-frontend",
+        "application-shell-responsibilities",
+        "deploying-micro-frontends"
+      ]
+    },
+    {
+      "slug": "disadvantages-of-micro-frontends",
+      "title": "What are the disadvantages of Micro Frontends?",
+      "topic": "Trade-offs",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "trade-offs",
+        "complexity",
+        "governance",
+        "observability"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-micro-frontends",
+          "pages": [
+            8
+          ]
+        }
+      ],
+      "quick": "They solve organisational and architectural problems but introduce operational complexity: more pipelines and deployments, dependency and version management, duplicate JavaScript, cross-MFE communication, distributed debugging, UX inconsistency risk, performance overhead, harder testing and observability, and a need for governance. I would only adopt them when the benefits of independent ownership and deployment clearly outweigh those costs.",
+      "revision": "Costs: complexity, version and dependency management, duplicate JS, distributed debugging, UX drift, harder testing and governance. Adopt only if autonomy outweighs them.",
+      "detailed": "**Micro Frontends trade simplicity for autonomy; the costs are real and ongoing.** They pay off only when team and release coupling is the bigger problem.\n\n| Cost | What it looks like | Mitigation |\n|---|---|---|\n| Operational complexity | Many repos, pipelines, environments | Platform templates, shared CI tooling |\n| Dependency and version management | Conflicting library versions, drift | Shared singleton policy, automated checks |\n| Duplicate JavaScript | Several copies of frameworks and utilities | Module sharing, bundle budgets |\n| Cross-domain communication | Implicit event contracts, fragile data handoff | Event catalogue, API-first data, URL state |\n| Distributed debugging | Bug involves shell plus two remote versions | Correlation IDs, version tagging, tracing |\n| Version compatibility | A remote deploy breaks the host | Contract tests, canary, rollback |\n| UX inconsistency | Different spacing, behaviours, a11y quality | Design system, visual and a11y CI |\n| Performance overhead | Waterfalls, extra bundles | Preload, splitting, budgets, monitoring |\n| Testing complexity | Combinatorial composition states | Contract tests, composition environment |\n| Governance burden | Standards must be enforced across teams | Platform team, guardrails, docs |\n\n## Hidden cost: people\n\nYou need platform engineering capacity, clear domain owners and a culture of API discipline. A small organisation may not have the headcount.\n\n## Decision frame\n\n- Is team coupling the limiting factor?\n- Are boundaries stable and align with the org?\n- Can you invest in platform tooling and observability?\n- Would a modular monolith deliver most of the benefit?\n\nIf most answers are \"no\", delay the adoption.\n\n## Common mistake\n\nCounting only the benefits in an architecture proposal. A credible proposal lists the costs and who pays for each.",
+      "followUps": [
+        "Which disadvantage is hardest to mitigate?",
+        "How do you make distributed debugging manageable?",
+        "What minimum platform investment is required before adopting?"
+      ],
+      "related": [
+        "micro-frontends-vs-monolithic-frontend",
+        "why-micro-frontends-organizational-scalability",
+        "performance-impact-of-micro-frontends"
+      ]
+    },
+    {
+      "slug": "designing-a-micro-frontend-architecture",
+      "title": "How would you design a Micro Frontend architecture for a large global website?",
+      "topic": "Architecture Design",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "architecture",
+        "system-design",
+        "shell",
+        "cdn",
+        "api-gateway"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-micro-frontends",
+          "pages": [
+            12,
+            13,
+            18
+          ]
+        }
+      ],
+      "quick": "I would put a CDN and edge in front, serve a React shell owning navigation, authentication, analytics, design system and observability, and let domains such as vehicle discovery, offers, finance and customer account be independently owned frontends where organisational boundaries justify it. They integrate via API-first contracts through a gateway to independent backend services. I would add controlled shared dependencies, failure isolation, versioned contracts and Core Web Vitals monitoring, and avoid splitting where there is no ownership benefit.",
+      "revision": "CDN and edge, thin React shell for platform concerns, domain MFEs with clear contracts, API gateway to independent services, plus failure isolation, governance and web-vitals monitoring.",
+      "detailed": "**Start from team and domain boundaries, keep the shell thin, make integration API-first and loosely coupled, and build in resilience, governance and measurement from day one.** The example below is a hypothetical global vehicle website.\n\n{{diagram:arch}}\n\n## Layers\n\n- **CDN and edge:** global delivery, caching, optional edge composition, routing and redirects, security headers.\n- **Shell:** layout, top-level routing, authentication session, design system, analytics, feature flags, configuration, error boundaries and observability.\n- **Domain frontends:** vehicle, offers, customer, and others, each with its own team, pipeline and version, loaded via the chosen composition mechanism.\n- **API gateway or BFFs:** a stable entry for domain frontends to backend capabilities, handling authentication checks, rate limiting and aggregation.\n- **Backend services:** independent vehicle, finance and customer APIs, owning their data.\n\n## Cross-cutting decisions\n\n| Concern | Approach |\n|---|---|\n| Composition | Runtime module loading for app-like flows; server or edge composition for SEO-critical pages |\n| Shared dependencies | Governed singletons: React, router, design system |\n| Communication | URL and API first; minimal events; minimal shared state |\n| Failure isolation | Boundaries, timeouts, fallbacks, rollback |\n| Security | Central authentication; server-side authorisation; CSP; trusted remote origins |\n| Delivery | Independent pipelines, contract tests, canary, version matrix |\n| Quality | Design system, accessibility, performance budgets |\n| Observability | Domain and version tagged logs, traces, RUM |\n\n## How to present it\n\n1. State the problem (team scale, independent release) before the solution.\n2. Show the boundaries and why they follow business domains.\n3. Cover the costs and the governance that contains them.\n4. Add a migration plan that is incremental.\n\n## Caveat\n\nUse Micro Frontends where independent ownership delivers real value; other areas can stay in a simpler shared application.",
+      "diagrams": [
+        {
+          "id": "arch",
+          "title": "Reference architecture",
+          "alt": "A CDN and edge serves a React shell, which hosts vehicle, offers and customer micro frontends; they call an API gateway that routes to vehicle, finance and customer APIs.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "cdn",
+              "label": "CDN / Edge"
+            },
+            {
+              "id": "sh",
+              "label": "React Web Shell"
+            },
+            {
+              "id": "v",
+              "label": "Vehicle MFE"
+            },
+            {
+              "id": "o",
+              "label": "Offers MFE"
+            },
+            {
+              "id": "c",
+              "label": "Customer MFE"
+            },
+            {
+              "id": "gw",
+              "label": "API Gateway"
+            },
+            {
+              "id": "va",
+              "label": "Vehicle APIs"
+            },
+            {
+              "id": "fa",
+              "label": "Finance APIs"
+            },
+            {
+              "id": "ca",
+              "label": "Customer APIs"
+            }
+          ],
+          "edges": [
+            {
+              "from": "cdn",
+              "to": "sh"
+            },
+            {
+              "from": "sh",
+              "to": "v"
+            },
+            {
+              "from": "sh",
+              "to": "o"
+            },
+            {
+              "from": "sh",
+              "to": "c"
+            },
+            {
+              "from": "v",
+              "to": "gw"
+            },
+            {
+              "from": "o",
+              "to": "gw"
+            },
+            {
+              "from": "c",
+              "to": "gw"
+            },
+            {
+              "from": "gw",
+              "to": "va"
+            },
+            {
+              "from": "gw",
+              "to": "fa"
+            },
+            {
+              "from": "gw",
+              "to": "ca"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you decide which parts stay in the shell versus domains?",
+        "How would you handle SEO for public pages?",
+        "What would the first 90 days of adoption look like?",
+        "How do you prevent the shell team becoming a bottleneck?"
+      ],
+      "related": [
+        "application-shell-responsibilities",
+        "composition-strategies-for-micro-frontends",
+        "migrating-monolith-to-micro-frontends",
+        "disadvantages-of-micro-frontends"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,469 @@
+{
+  "category": "cdn-caching",
+  "questions": [
+    {
+      "slug": "caching-api-responses",
+      "title": "Should all GET API responses be cached at the CDN?",
+      "topic": "API and Dynamic Caching",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "api-caching",
+        "get",
+        "s-maxage",
+        "shared-cache"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-cdn-caching",
+          "pages": [
+            6,
+            7
+          ]
+        }
+      ],
+      "quick": "No. GET is a safe method, but that does not make every response safe for shared caching. I evaluate each endpoint: is it public or personalised, how time-sensitive, how expensive to generate, and is it safe to reuse across users. A public read-heavy endpoint like a vehicle explorer can use public, s-maxage=300. Personalised or sensitive endpoints should not be shared-cached. I set the policy per resource and verify that the CDN really honours the headers and respects authorisation.",
+      "revision": "GET is safe, not automatically cacheable. Cache public, read-heavy, tolerant-of-staleness endpoints with s-maxage; never share-cache personalised responses by accident.",
+      "detailed": "APIs need more deliberate caching decisions than static files because responses depend on identity, parameters and fast-changing data.\n\n## A cacheable example\n\n```http\nGET /api/content/vehicles/explorer?market=de HTTP/1.1\n\nHTTP/1.1 200 OK\nCache-Control: public, max-age=30, s-maxage=300\n```\n\nThis public, read-heavy endpoint can be held at the CDN for five minutes (assuming the CDN is set to respect origin headers) while browsers keep it for 30 seconds.\n\n## Evaluation checklist per endpoint\n\n1. **Public or personalised?** Does the response differ by user, role, account or entitlement?\n2. **Time sensitivity.** How stale can it be before it is wrong in a way that matters?\n3. **Cost and load.** Is it expensive to produce, or called very frequently?\n4. **Key inputs.** Which query parameters, headers and locale affect the output, and are they in the cache key?\n5. **Error handling.** Are `4xx` or `5xx` responses cached, and for how long?\n6. **Methods.** Cache `GET` and `HEAD`; do not cache unsafe methods such as `POST`, which change state.\n\n## Techniques that help\n\n- Short TTLs (even 5 to 60 seconds) on hot public endpoints, combined with request coalescing, can absorb most traffic.\n- `stale-while-revalidate` to avoid expiry latency.\n- Cache **responses**, not decisions: authorisation must happen before a shared cache can reuse a personalised response, which is why personalised responses generally bypass the shared cache.\n- Explicit invalidation for content endpoints when the underlying data changes.\n- API gateway caching is another option, but it is a separate layer with its own TTL and invalidation behaviour.\n\n## Common mistakes\n\n- Caching an endpoint that includes user-specific fields because it was \"just a GET\".\n- Forgetting to include a parameter in the key, producing wrong results.\n- Not testing what the CDN does when the origin omits `Cache-Control`.",
+      "diagrams": [],
+      "followUps": [
+        "How would you cache a search endpoint with many parameter combinations?",
+        "Should error responses be cached? For how long?",
+        "What is the difference between caching at the CDN and at the API gateway?"
+      ],
+      "related": [
+        "authenticated-responses-caching",
+        "caching-a-headless-cms-response",
+        "cache-key-design"
+      ]
+    },
+    {
+      "slug": "authenticated-responses-caching",
+      "title": "Should authenticated or personalised responses be cached?",
+      "topic": "API and Dynamic Caching",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "authentication",
+        "personalization",
+        "private",
+        "security"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-cdn-caching",
+          "pages": [
+            4,
+            7,
+            9
+          ]
+        }
+      ],
+      "quick": "By default I do not put them in a shared cache, because a key or authorisation mistake can serve one user's data to another. Responses that depend on identity should use private, no-store for sensitive data, or at most private so only the user's browser keeps them. If a page is mostly public with small personal parts, I cache the public shell and fetch personalised data separately. Any shared caching of authenticated content needs an explicit design, key on the right variant, and testing.",
+      "revision": "Default to no shared caching for identity-dependent responses. Use private or no-store; split public shells from personal fragments; share-cache only with explicit, tested design.",
+      "detailed": "The risk is data leakage: a shared cache that stores one user's response and serves it to another is a privacy incident, not a performance bug.\n\n## Default rule\n\nResponses that vary by identity, role or entitlement should not be stored in shared caches (CDN, reverse proxy):\n\n```http\n# sensitive account or payment data\nCache-Control: private, no-store\n\n# personal but low sensitivity; browser may reuse, shared caches may not\nCache-Control: private, max-age=60\n```\n\nNote that without explicit directives, caches treat requests carrying an `Authorization` header conservatively; do not rely on that default, set headers explicitly.\n\n## Better patterns than caching the personalised response\n\n- **Split the page.** Cache the public shell (layout, content) at the CDN and load personal parts (name, saved vehicles, offers) through a separate private API call after load.\n- **Segment, don't personalise.** Where content varies by a small number of audiences (market, customer tier), put the segment in the URL or a normalised key and cache each segment. This is safe only if the segment truly determines the content and users cannot alter it to reach another segment's data.\n- **Edge authorisation.** For protected but identical-for-all content (a members-only PDF), validate a token at the edge (signed URLs, signed cookies) and then cache the file.\n\n## Safeguards if you do cache any authenticated content\n\n- Key on every identity-relevant input; never rely on path or extension to decide cacheability.\n- Authorise on every request before serving from cache.\n- Test for cross-user leakage with two accounts.\n- Monitor and alert on responses with `Set-Cookie` that are being cached.\n\n## Common mistakes\n\n- Caching because the HTTP method is `GET`.\n- Letting a `Set-Cookie` response be stored in a shared cache.\n- Using `no-cache` where `no-store` is needed.\n\n## Example\n\nA dealer portal: the product catalogue is cached globally; \"my quotes\" is `private, no-store`.",
+      "diagrams": [],
+      "followUps": [
+        "How would you serve a members-only video through a CDN without caching per user?",
+        "Why is Set-Cookie on a cacheable response dangerous?",
+        "How would you test for cross-user cache leakage?"
+      ],
+      "related": [
+        "no-cache-vs-no-store",
+        "cache-poisoning",
+        "caching-api-responses"
+      ]
+    },
+    {
+      "slug": "caching-a-headless-cms-response",
+      "title": "How would you cache content delivered from a headless CMS?",
+      "topic": "API and Dynamic Caching",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "headless-cms",
+        "content-api",
+        "invalidation",
+        "webhooks"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-cdn-caching",
+          "pages": [
+            5,
+            9
+          ]
+        }
+      ],
+      "quick": "I would classify content by volatility and cache published, public content at the CDN with a TTL as a safety net, keyed on locale, market and preview status. Draft and preview traffic bypasses the cache. A publish webhook triggers targeted invalidation of affected API responses and pages, preferably by content ID or tag, with retries. Assets from the CMS use versioned URLs. I protect the CMS from stampedes with coalescing and stale-while-revalidate, and monitor publish-to-visible time.",
+      "revision": "Cache published content at the CDN with TTL plus webhook-driven targeted invalidation; bypass preview; key on locale and market; protect the CMS with coalescing and SWR.",
+      "detailed": "A headless CMS usually exposes content through an API that the website or app calls, either at build time, at render time on the server, or from the browser. Caching it well means separating **published, public** content from **drafts and personalised** content.\n\n{{diagram:cms}}\n\n## Design\n\n1. **Cache published content publicly.** Content-API responses for published entries can be shared across users: `Cache-Control: public, s-maxage=300, stale-while-revalidate=60`.\n2. **Bypass drafts and previews.** Preview requests carry a token or use a separate host; mark them `private, no-store` so editors never see cached content and the public never sees drafts.\n3. **Key correctly.** Include locale, market and any content-variant parameters; normalise query parameters; do not key on tracking cookies.\n4. **Invalidate on publish.** A CMS webhook calls an invalidation service, which maps the changed entry to affected URLs: the entry's own API response, pages that embed it, listing and search responses. Tag-based or surrogate-key purging (where supported) keeps this tractable.\n5. **Retry and verify.** Webhooks can fail or arrive out of order; use queues, retries, idempotent purges, and a TTL as backstop.\n6. **Assets.** CMS-managed images should be served from versioned or content-addressed URLs with long TTLs, and through image resizing at the edge where available.\n7. **Protect the CMS.** It is rarely built for public traffic. Put the CDN in front, use coalescing, an origin shield tier, and rate limits.\n\n## Trade-offs\n\n- Longer TTLs reduce CMS load but depend on reliable invalidation.\n- Static generation can be fastest, but wide content changes force large rebuilds; incremental regeneration is a middle path.\n\n## Example\n\nIf an editor updates a model's description, the webhook purges that model's API response, its page, and the \"all models\" listing, while images stay cached.",
+      "diagrams": [
+        {
+          "id": "cms",
+          "title": "Headless CMS caching flow",
+          "alt": "Visitors reach a CDN that caches content API responses from the headless CMS. When an editor publishes, a webhook goes to an invalidation service that purges the affected CDN entries so the next request fetches fresh content from the CMS.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "visitor",
+              "label": "Visitors"
+            },
+            {
+              "id": "cdn",
+              "label": "CDN (published content)"
+            },
+            {
+              "id": "cms",
+              "label": "Headless CMS API"
+            },
+            {
+              "id": "hook",
+              "label": "Publish webhook"
+            },
+            {
+              "id": "inval",
+              "label": "Invalidation service"
+            }
+          ],
+          "edges": [
+            {
+              "from": "visitor",
+              "to": "cdn"
+            },
+            {
+              "from": "cdn",
+              "to": "cms",
+              "label": "miss"
+            },
+            {
+              "from": "cms",
+              "to": "hook",
+              "label": "on publish"
+            },
+            {
+              "from": "hook",
+              "to": "inval"
+            },
+            {
+              "from": "inval",
+              "to": "cdn",
+              "label": "purge affected"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you stop editors' previews from being cached?",
+        "How do you find every page affected by one content change?",
+        "When would you choose static generation over CDN caching of API responses?"
+      ],
+      "related": [
+        "handling-stale-content-after-publishing",
+        "cache-invalidation-strategies",
+        "caching-api-responses"
+      ]
+    },
+    {
+      "slug": "cloudfront-aws-architecture",
+      "title": "Sketch a CDN architecture on AWS for a global website.",
+      "topic": "AWS and CloudFront",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "aws",
+        "cloudfront",
+        "s3",
+        "route53",
+        "waf"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-cdn-caching",
+          "pages": [
+            7,
+            8
+          ]
+        }
+      ],
+      "quick": "Route 53 points the domain at CloudFront. CloudFront has separate behaviours: static assets go to S3, protected through origin access control, and dynamic or API paths go to an application origin such as an ALB or API Gateway fronting a Node or server-rendered app. Behind that sit Redis in ElastiCache and a database or CMS APIs. AWS WAF attaches to CloudFront, and CloudWatch gives metrics and alarms. The exact shape depends on whether the site is static, server-rendered or composed of services.",
+      "revision": "Route 53, CloudFront with path-based behaviours, S3 for assets, ALB or API Gateway for dynamic origins, Redis and DB behind, with WAF and CloudWatch.",
+      "detailed": "This is one possible reference design, not the only one. The origin path depends on whether the site is static, server-rendered, CMS-driven or built from several services.\n\n{{diagram:aws}}\n\n## Components and roles\n\n| Service | Role |\n|---|---|\n| Route 53 | DNS; points the site name at the CloudFront distribution (alias record) |\n| CloudFront | Edge caching, TLS termination, HTTP/2 and HTTP/3, routing by path pattern |\n| S3 | Durable storage for static assets, accessed by CloudFront only |\n| AWS WAF | Rules for common attacks, rate-based rules and bot controls, attached to the distribution |\n| ALB or API Gateway | Entry to the dynamic origin; load balancing or managed API policies |\n| Application (Node, SSR) | Renders pages and serves APIs |\n| ElastiCache for Redis | Application-level cache, sessions, computed results |\n| RDS or CMS APIs | System of record |\n| CloudWatch | Metrics, logs and alarms across the stack |\n\n## CloudFront behaviours\n\nA **behaviour** maps a path pattern to an origin and a policy set:\n\n- `/assets/*`: S3 origin, long TTL cache policy, compression on.\n- `/api/public/*`: API origin, short TTL cache policy with an allowlisted cache key.\n- `/account/*` and default dynamic routes: application origin with caching disabled, or a conservative policy, and the necessary cookies and headers forwarded.\n\nCloudFront cache policies define TTLs and what is in the cache key; origin request policies control what is forwarded to the origin without becoming part of the key.\n\n## Design points\n\n- Keep S3 and the application origin private to CloudFront.\n- Use separate behaviours rather than one cache setting for the whole site.\n- Consider a regional origin per major market for latency and resilience.\n- Monitor hit ratio, origin latency, 4xx and 5xx rates, and invalidation activity.",
+      "diagrams": [
+        {
+          "id": "aws",
+          "title": "Reference AWS CDN architecture",
+          "alt": "Global users resolve the site through Route 53 to CloudFront, protected by AWS WAF. CloudFront routes static paths to an S3 bucket and dynamic paths to an ALB, which fronts the application. The application uses Redis for caching and RDS or CMS APIs for data.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "users",
+              "label": "Global users"
+            },
+            {
+              "id": "r53",
+              "label": "Route 53"
+            },
+            {
+              "id": "cf",
+              "label": "CloudFront + WAF"
+            },
+            {
+              "id": "s3",
+              "label": "S3 static assets"
+            },
+            {
+              "id": "alb",
+              "label": "ALB / API Gateway"
+            },
+            {
+              "id": "app",
+              "label": "SSR / Node.js app"
+            },
+            {
+              "id": "redis",
+              "label": "ElastiCache Redis"
+            },
+            {
+              "id": "db",
+              "label": "RDS / CMS APIs"
+            }
+          ],
+          "edges": [
+            {
+              "from": "users",
+              "to": "r53"
+            },
+            {
+              "from": "r53",
+              "to": "cf"
+            },
+            {
+              "from": "cf",
+              "to": "s3",
+              "label": "/assets/*"
+            },
+            {
+              "from": "cf",
+              "to": "alb",
+              "label": "dynamic"
+            },
+            {
+              "from": "alb",
+              "to": "app"
+            },
+            {
+              "from": "app",
+              "to": "redis"
+            },
+            {
+              "from": "app",
+              "to": "db"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "What is the difference between a CloudFront cache policy and an origin request policy?",
+        "How would you stop users reaching the ALB directly?",
+        "Where would you put the WAF and why?"
+      ],
+      "related": [
+        "cloudfront-origins-s3-and-shielding",
+        "cdn-vs-reverse-proxy-vs-redis",
+        "cdn-outage-failure-scenario"
+      ]
+    },
+    {
+      "slug": "cloudfront-origins-s3-and-shielding",
+      "title": "How does CloudFront integrate with S3 and application origins, and what is Origin Shield?",
+      "topic": "AWS and CloudFront",
+      "difficulty": "advanced",
+      "type": "conceptual",
+      "tags": [
+        "cloudfront",
+        "s3",
+        "origin-access-control",
+        "origin-shield"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-cdn-caching",
+          "pages": [
+            7,
+            8,
+            9
+          ]
+        }
+      ],
+      "quick": "A CloudFront distribution can have several origins, such as an S3 bucket for static files and an ALB or API Gateway for the application, chosen by path-pattern behaviours. For S3 I keep the bucket private and use origin access control so only CloudFront can read it. For application origins I restrict access with a secret header or managed prefix lists, and use HTTPS. Origin Shield adds a regional cache layer that consolidates misses from many edges before they reach the origin.",
+      "revision": "Multiple origins chosen by behaviour; S3 private via origin access control; lock down app origins to CloudFront; Origin Shield consolidates edge misses.",
+      "detailed": "CloudFront is configured per **distribution**, which contains one or more **origins** and **behaviours** that route request paths to them.\n\n## S3 origin\n\n- Keep the bucket **private** (no public access) and grant CloudFront read access through **origin access control (OAC)**, the current recommended mechanism, which supersedes the older origin access identity. Users can then only reach objects through the CDN, with its caching, WAF and logging.\n- Use hashed object keys for long-lived caching and upload new versions rather than overwriting.\n- S3 is not an application server: it cannot run logic, so redirects, auth and rewrites are handled in CloudFront functions or edge compute if needed.\n\n## Application origins (ALB, API Gateway, custom HTTP)\n\n- These are \"custom origins\" reached over HTTP or HTTPS. Use HTTPS to the origin.\n- **Stop clients bypassing the CDN.** Common patterns: restrict the ALB's security group to CloudFront's managed prefix list, and/or have CloudFront add a secret header that the origin verifies. Without this, an attacker can hit the origin directly and bypass WAF and caching.\n- Configure origin timeouts and retry behaviour deliberately; combine multiple origins in an **origin group** for failover where it fits.\n- Decide which headers, cookies and query strings the origin needs, using an origin request policy, separate from what goes into the cache key.\n\n## Origin Shield\n\nWithout it, each edge location may fetch separately from the origin on a miss. **Origin Shield** is an optional additional caching layer in a chosen region: edges (or regional edge caches) send misses to it, and it collapses requests so the origin sees fewer requests and a higher effective hit ratio. It is most useful for popular objects served worldwide or expensive origins. It adds a hop and a cost, so enable it when origin load justifies it.\n\n## Example\n\nA large video-free marketing site might use S3 plus OAC for assets and an ALB behind a prefix-list rule for server rendering, with Origin Shield in the region nearest the application.",
+      "diagrams": [],
+      "followUps": [
+        "Why is OAC preferred to making the S3 bucket public?",
+        "How do you prevent direct access to the ALB?",
+        "When is Origin Shield not worth enabling?"
+      ],
+      "related": [
+        "cloudfront-aws-architecture",
+        "protecting-origin-from-traffic-spikes",
+        "cache-stampede"
+      ]
+    },
+    {
+      "slug": "protecting-origin-from-traffic-spikes",
+      "title": "How do you protect the origin from a sudden traffic spike or campaign launch?",
+      "topic": "Resilience",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "origin-protection",
+        "traffic-spike",
+        "rate-limiting",
+        "prewarming"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-cdn-caching",
+          "pages": [
+            5,
+            6,
+            8,
+            9
+          ]
+        }
+      ],
+      "quick": "I make sure most traffic never reaches the origin. That means cacheable pages with sensible TTLs, request coalescing and stale-while-revalidate, an origin shield tier, and prewarming critical pages before launch. I add rate limiting and WAF rules, autoscaling and sensible timeouts at the origin, and a queue or waiting room if needed. I avoid purges at peak and load test the full path. During the event I watch hit ratio, origin latency and errors.",
+      "revision": "Absorb at the edge: cache, coalesce, SWR, shield and prewarm; limit and scale the origin; avoid peak purges; load test and watch hit ratio and origin latency.",
+      "detailed": "The goal is that a surge is absorbed by the edge, and whatever reaches the origin is bounded and predictable.\n\n## Before the event\n\n- **Make launch pages cacheable.** Even `s-maxage=30` plus coalescing can reduce thousands of requests per second to a handful per edge.\n- **Prewarm** critical URLs (landing page, key APIs, hero assets) so the cache is hot at go-live. Be aware that each edge location is cached independently, so prewarming from one place does not fill all edges.\n- **Prefer static or precomputed content** for launch pages and move expensive personalisation out of the critical path.\n- **Load test** the whole chain, including cache-miss behaviour, which is the real risk.\n- **Freeze risky changes**: no broad purges or key changes during the peak window.\n\n## Edge and network controls\n\n- Request coalescing and an **origin shield** tier to reduce parallel misses.\n- `stale-while-revalidate` and `stale-if-error` to keep serving during refreshes or origin trouble.\n- **Rate limiting and bot controls** (WAF, rate-based rules) to cap abusive or accidental floods.\n- A **waiting room** or queueing for events that exceed capacity (ticket-style drops).\n\n## Origin controls\n\n- Autoscaling with realistic warm-up time (scaling takes minutes, spikes take seconds).\n- Timeouts, connection limits and circuit breakers so slow dependencies do not cascade.\n- Degrade gracefully: serve a simplified page when a dependency fails.\n\n## During the event\n\nWatch hit ratio, origin request rate and latency, 5xx rate and queue depth, with an agreed rollback or kill switch.\n\n## Common mistakes\n\n- Assuming the CDN will \"just handle it\" while pages are marked `no-cache`.\n- Purging the whole cache after the last-minute fix.\n- Testing only warm-cache performance.",
+      "diagrams": [],
+      "followUps": [
+        "Why does prewarming one location not warm the whole CDN?",
+        "How does a waiting room differ from rate limiting?",
+        "What would you do if you had to purge during the peak?"
+      ],
+      "related": [
+        "cache-stampede",
+        "cloudfront-origins-s3-and-shielding",
+        "hit-ratio-drop-investigation"
+      ]
+    },
+    {
+      "slug": "hit-ratio-drop-investigation",
+      "title": "Cache hit ratio dropped suddenly and origin traffic spiked. How do you investigate?",
+      "topic": "Operations",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "hit-ratio",
+        "troubleshooting",
+        "origin-load",
+        "cache-key"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-cdn-caching",
+          "pages": [
+            8,
+            9
+          ]
+        }
+      ],
+      "quick": "I start with what changed: deployments, CDN configuration, header changes, purges or a new campaign. Then I look at the traffic mix and the cache key: new query parameters, cookies or headers fragmenting the key. I check response headers for new private, no-store or Set-Cookie, shorter TTLs, increased 4xx or 5xx responses that are not cached, and whether an origin issue caused repeated misses. I fix the cause, then protect the origin with rate limits, coalescing and controlled warming.",
+      "revision": "Ask what changed: config, headers, purges, traffic mix. Check key fragmentation, TTLs, uncacheable headers and error responses; then protect the origin and warm gradually.",
+      "detailed": "A falling hit ratio means more requests are going to the origin. Treat it like any incident: establish scope, correlate with change, then test hypotheses.\n\n## 1. Scope the drop\n\n- Is it global or one region, one path pattern, one content type or one origin?\n- When did it start, and does that line up with a deploy, configuration change, purge, campaign or new client release?\n- Is it hit **ratio** (percentage) or just **volume** (more total traffic)? A bot or scanner can drop the ratio by adding unique, uncacheable URLs.\n\n## 2. Hypotheses to test\n\n| Hypothesis | Evidence |\n|---|---|\n| **Cache key fragmentation** | New query parameters (tracking IDs), cookies or headers forwarded and keyed; many distinct URLs for the same content |\n| **Response became uncacheable** | Origin now sends `Cache-Control: private`, `no-store`, or `Set-Cookie`; `Vary` expanded |\n| **TTL shortened** | Config or header change; objects expiring much sooner |\n| **Broad purge or invalidation** | Invalidation logs show wildcard or frequent purges |\n| **Origin errors** | A spike in 5xx responses; error responses are not cached, so each request retries the origin |\n| **New content or traffic pattern** | Campaign with unique URLs; crawler or attack traffic; long-tail content |\n| **Cache capacity or eviction** | Unusually large working set (new large files) evicting popular objects |\n\n## 3. Tools\n\n- CDN logs and metrics by path, status and cache result (hit, miss, refresh, error).\n- Response headers (`Age`, cache-status, `Cache-Control`, `Vary`) on sample URLs before and after the change.\n- Diff configuration and origin response headers between releases.\n\n## 4. Fix and protect\n\nRestore or correct the policy (allowlist the key, remove the stray cookie, restore headers). While recovering, protect the origin with rate limiting, request coalescing and controlled warming of critical URLs to avoid a second stampede.\n\n## 5. Prevent recurrence\n\nAlert on hit ratio per content group, add header-regression tests to CI, and review key changes like code changes.\n\n## Example\n\nAfter a release, a framework started setting a session cookie on every HTML response. The CDN treated it as uncacheable and hit ratio for pages fell from high to near zero.",
+      "diagrams": [],
+      "followUps": [
+        "How can a bot scan lower your hit ratio without any config change?",
+        "Why do error responses affect origin load during an incident?",
+        "What alerts would you set to catch this early?"
+      ],
+      "related": [
+        "cache-hit-miss-and-hit-ratio",
+        "cache-key-design",
+        "protecting-origin-from-traffic-spikes"
+      ]
+    },
+    {
+      "slug": "cdn-outage-failure-scenario",
+      "title": "What do you do if the CDN is down or degraded?",
+      "topic": "Resilience",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "cdn-outage",
+        "disaster-recovery",
+        "failover",
+        "resilience"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-cdn-caching",
+          "pages": [
+            8
+          ]
+        }
+      ],
+      "quick": "I first confirm the scope: is it one provider region, specific POPs, or a global outage, and is it the CDN or our configuration. Then I follow the tested disaster-recovery design rather than improvising. Options include DNS failover to a secondary CDN or direct origin access, but bypassing the CDN must not bypass security controls or overload the origin, so I protect it with rate limits and capacity checks. I communicate status, then review the failure and rehearse the plan.",
+      "revision": "Confirm scope, follow the rehearsed DR plan, fail over only if security and origin capacity hold, and never send all traffic to an unprotected origin.",
+      "detailed": "A CDN outage is both an availability and a capacity problem, because the CDN usually shields an origin that was never sized for full traffic.\n\n## 1. Establish scope\n\n- Provider status, synthetic checks from several regions, real-user metrics.\n- Is it a few points of presence, one region, a feature (purge API, edge compute), or the whole provider? Is it perhaps our own recent configuration change?\n\n## 2. Decide using the pre-agreed plan\n\nDR choices should be designed and **tested before** the incident:\n\n| Option | Considerations |\n|---|---|\n| Wait or work around | Appropriate for partial issues; avoid hasty changes |\n| Reroute DNS to a **secondary CDN** | Requires matching configuration (caching, TLS certificates, WAF rules) already prepared; DNS TTLs limit switch time |\n| Serve **directly from origin** | Origin may not handle full load, and WAF, bot and TLS controls provided by the CDN may be lost |\n| Static fallback or maintenance page | Preserves a minimal experience for critical journeys |\n| Serve stale content | Helps if the edge is up but the origin is down (`stale-if-error`) |\n\n## 3. Guard rails when bypassing the CDN\n\n- Do not expose the origin without equivalent security controls (WAF, rate limits, TLS).\n- Shift traffic gradually, not all at once, and watch origin capacity.\n- Origin allow-lists that only accept CDN IPs will block direct traffic, so plan the change.\n- Prioritise critical journeys (vehicle pages, dealer search, lead forms) over less important assets.\n\n## 4. After\n\nWrite a post-incident review: detection time, failover time, gaps in the runbook; rehearse failover; consider whether a multi-CDN setup justifies its added complexity and cost.\n\n## Common mistake\n\nAssuming the origin can take 100 percent of traffic because it is \"the source of truth\".",
+      "diagrams": [],
+      "followUps": [
+        "What limits how fast DNS failover to another CDN takes effect?",
+        "When is a multi-CDN strategy worth its complexity?",
+        "How can stale-if-error help when the origin, rather than the CDN, fails?"
+      ],
+      "related": [
+        "protecting-origin-from-traffic-spikes",
+        "stale-while-revalidate-and-stale-if-error",
+        "cloudfront-aws-architecture"
+      ]
+    },
+    {
+      "slug": "cdn-and-core-web-vitals",
+      "title": "How does CDN caching affect Core Web Vitals?",
+      "topic": "Performance",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "core-web-vitals",
+        "lcp",
+        "inp",
+        "cls",
+        "ttfb"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-cdn-caching",
+          "pages": [
+            8
+          ]
+        }
+      ],
+      "quick": "A CDN mainly helps LCP by cutting time to first byte and speeding delivery of the hero image, CSS and fonts. It can help INP indirectly by delivering JavaScript faster, but the cost of running that script is a frontend problem. It does little for CLS, which needs reserved image dimensions, font handling and controlled dynamic content. A CDN alone does not guarantee good vitals; the full request, rendering and interaction path has to be optimised.",
+      "revision": "CDN helps LCP most (faster bytes), INP only indirectly, CLS barely. Vitals also need image optimisation, lean JavaScript and stable layouts.",
+      "detailed": "Core Web Vitals measure what users experience, and caching affects only the **delivery** part of that experience.\n\n| Metric | CDN and caching influence | What else is required |\n|---|---|---|\n| **LCP** (Largest Contentful Paint) | Strong. Lower TTFB from cached HTML or fast edge-to-origin paths; fast delivery of the hero image, CSS and fonts | Optimised image formats and sizes, preload of the LCP resource, no render-blocking CSS or JavaScript, fast server rendering |\n| **INP** (Interaction to Next Paint) | Indirect. Smaller, faster-delivered JavaScript arrives earlier | Less main-thread work, code splitting, deferring third-party scripts, efficient event handlers |\n| **CLS** (Cumulative Layout Shift) | Minimal. Faster assets can reduce late-loading shifts | Explicit `width` and `height` (or aspect-ratio) on images, font loading strategy, reserved space for ads and dynamic content |\n\n## Practical levers for a global automotive-style site\n\n- Cache HTML where safe (even with a short TTL plus stale-while-revalidate) because slow HTML delays everything after it. Uncacheable HTML commonly dominates LCP.\n- Serve images in modern formats and responsive sizes, ideally with edge resizing; long TTLs on versioned URLs.\n- Use compression (Brotli or gzip) and modern protocols (HTTP/2, HTTP/3) at the edge.\n- Use early hints or `preload` for the LCP image and key fonts.\n- Preconnect to third-party origins, or better, self-host critical assets behind the CDN.\n- Measure real-user data (field data) by region, since CDN improvements show up as better percentiles for distant users.\n\n## Common mistakes\n\n- Expecting a CDN to fix a heavy JavaScript bundle.\n- Caching images aggressively but leaving them without dimensions, so CLS stays high.\n- Looking only at lab scores from one location.\n\n## Example\n\nCaching model-page HTML at the edge with a 60-second TTL could cut TTFB for distant users, directly improving LCP, while a separate fix to reserve hero-image dimensions addresses CLS.",
+      "diagrams": [],
+      "followUps": [
+        "Why does uncacheable HTML often hurt LCP the most?",
+        "How would you measure CDN impact on vitals per region?",
+        "Which vital would a CDN change not improve at all?"
+      ],
+      "related": [
+        "what-is-a-cdn",
+        "static-vs-dynamic-caching-policy",
+        "immutable-versioned-assets"
+      ]
+    }
+  ]
+}

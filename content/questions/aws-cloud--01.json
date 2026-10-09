@@ -1,0 +1,519 @@
+{
+  "category": "aws-cloud",
+  "questions": [
+    {
+      "slug": "what-is-cloud-computing",
+      "title": "What is cloud computing, and why does an architect care?",
+      "topic": "Cloud Foundations",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "cloud",
+        "iaas",
+        "paas",
+        "elasticity"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-aws-cloud",
+          "pages": [
+            1
+          ]
+        }
+      ],
+      "quick": "Cloud computing is on-demand access to compute, storage, networking and managed platform services over the internet, billed by usage, so you don't own and run all the hardware yourself. As an architect I care about elasticity, availability, security, operational efficiency and cost. I'd prefer managed services where they remove undifferentiated work, but I'd weigh lock-in, control and cost for each choice. The shared responsibility model also matters: the provider secures the cloud itself, and I secure what I build and configure on top of it.",
+      "revision": "Cloud = on-demand, pay-as-you-go compute, storage and managed services. Architects optimise elasticity, availability, security and cost, under a shared-responsibility model.",
+      "detailed": "Cloud computing means renting capacity and managed capabilities (compute, storage, networks, databases, messaging) on demand instead of buying and operating all the infrastructure yourself. You provision in minutes, scale up or down, and pay mainly for what you use.\n\n## Service models\n| Model | You manage | Provider manages | Example |\n|---|---|---|---|\n| IaaS | OS, runtime, app | Hardware, virtualisation | EC2 |\n| PaaS / container platform | App and config | Servers, orchestration | ECS on Fargate, Elastic Beanstalk |\n| Serverless / SaaS-like | Code and data | Almost everything else | Lambda, S3 |\n\n## Why architects care\n- **Elasticity**: capacity follows demand rather than peak forecasts.\n- **Availability**: multiple Availability Zones and Regions are available as building blocks.\n- **Speed and operations**: managed services (databases, queues) remove patching and backup toil.\n- **Cost model**: operating expense instead of upfront capital, but it needs active governance.\n- **Security**: the **shared responsibility model** - AWS secures the underlying facilities and services; you secure identities, configuration, data and application code.\n\n## Trade-offs and common mistakes\n- Lifting a data-centre design into the cloud unchanged (fixed-size servers, manual setup) loses most of the benefit.\n- Over-using proprietary managed services can increase lock-in; under-using them increases operational burden. Decide per workload.\n- Costs can surprise teams that never tag, budget or right-size.\n\nA good interview answer ties the definition to outcomes: for example, a retail website with seasonal campaigns can use elastic compute and a CDN to absorb peaks without owning peak-sized hardware all year.",
+      "followUps": [
+        "What is the shared responsibility model?",
+        "IaaS vs PaaS vs SaaS - give AWS examples.",
+        "What are the downsides or risks of moving to the cloud?"
+      ],
+      "related": [
+        "aws-service-map-by-layer",
+        "what-is-serverless"
+      ]
+    },
+    {
+      "slug": "aws-service-map-by-layer",
+      "title": "How do you organise the main AWS services by architectural layer?",
+      "topic": "Cloud Foundations",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "aws",
+        "services",
+        "overview"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-cloud",
+          "pages": [
+            1,
+            2
+          ]
+        }
+      ],
+      "quick": "I group AWS services by the job they do, not alphabetically. Edge: Route 53, CloudFront, WAF. Compute: EC2, ECS, Lambda, with ECR for images. Storage: S3. APIs: API Gateway and load balancers. Data: RDS plus ElastiCache. Networking: VPC and subnets. Security: IAM, KMS, Secrets Manager. Messaging: SQS, SNS, EventBridge. Operations: CloudWatch plus infrastructure as code like Terraform or CloudFormation. Then for any design I can say which layer each service serves and why.",
+      "revision": "Think in layers: edge, compute, storage, data, network, security, messaging, operations. Pick each service by the problem it solves in its layer.",
+      "detailed": "Memorising a list of AWS services is weak preparation; being able to place each in a layer of a web platform is much stronger.\n\n| Layer | Services | Role in a web platform |\n|---|---|---|\n| DNS and edge | Route 53, CloudFront, WAF | Resolve names, cache content near users, filter traffic |\n| Compute | EC2, ECS (Fargate or EC2), Lambda | Run application code |\n| Container tooling | ECR | Store container images |\n| Storage | S3 | Static assets, media, backups |\n| API layer | API Gateway, Application Load Balancer | Expose and route requests |\n| Data | RDS (and Aurora), ElastiCache | Relational persistence and caching |\n| Network | VPC, subnets, security groups | Isolation and traffic control |\n| Security | IAM, KMS, Secrets Manager | Identity, encryption keys, secrets |\n| Messaging | SQS, SNS, EventBridge | Decoupling and event-driven flows |\n| Operations | CloudWatch, CloudTrail, Terraform/CloudFormation | Monitoring, audit, repeatable infrastructure |\n\n## A typical combination\nA common baseline for a content-heavy site with APIs is: CloudFront in front of S3 (static assets) and an API layer (API Gateway or ALB), services on ECS or Lambda, RDS for relational data, Redis for caching, IAM and WAF for protection, and CloudWatch for visibility.\n\n## How to use this in an interview\nFor each service you mention, be ready with: why it is needed, which problem it solves, the main trade-off, and its effect on security, performance, scalability, reliability and cost. Avoid naming services you cannot justify.",
+      "followUps": [
+        "Which services would you pick for a content-heavy website with APIs, and why?",
+        "Where does DynamoDB fit in this map?",
+        "Which of these are regional, and which are global or edge services?"
+      ],
+      "related": [
+        "what-is-cloud-computing",
+        "global-website-design-on-aws"
+      ]
+    },
+    {
+      "slug": "ec2-vs-ecs-vs-lambda",
+      "title": "EC2 vs ECS vs Lambda: how do you choose a compute model?",
+      "topic": "Compute",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "ec2",
+        "ecs",
+        "lambda",
+        "fargate",
+        "compute"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-cloud",
+          "pages": [
+            2,
+            3
+          ]
+        }
+      ],
+      "quick": "I choose by workload, not preference. EC2 gives virtual machines with maximum control, but I own patching, scaling and capacity. ECS runs containers and suits long-running services like APIs; with Fargate I don't manage the hosts at all. Lambda runs short, event-driven functions and scales per request, with limits on duration and cold starts to consider. For a large website I'd often combine them: containers for the core APIs, Lambda for event-driven glue such as image processing.",
+      "revision": "EC2 = control and most ops burden; ECS = containerised long-running services; Lambda = short event-driven functions. Choose by workload shape and combine freely.",
+      "detailed": "The three options sit on a spectrum from **maximum control** to **minimum operations**.\n\n## EC2\nVirtual machines. You choose the instance type, OS and runtime, and you handle patching, scaling groups and capacity. Good for special requirements (custom kernels, licensed software, GPUs, very specific tuning), steady workloads where reserved pricing helps, and anything containers cannot do easily.\n\n## ECS\nA container orchestrator. You describe tasks and services; ECS places and restarts containers. It has two launch options:\n- **Fargate**: no hosts to manage; you pay for task CPU and memory.\n- **EC2 launch type**: you run the cluster instances, gaining control (and chores).\nGood for long-running APIs such as a Node/NestJS service, background workers and anything already packaged in Docker.\n\n## Lambda\nFunctions invoked by events (HTTP via API Gateway or a function URL, S3 events, queue messages, schedules). AWS runs and scales them; you pay per invocation and duration. Good for bursty, short, event-driven work.\n\n| Factor | EC2 | ECS | Lambda |\n|---|---|---|---|\n| Control | Highest | Medium | Lowest |\n| Ops burden | Highest | Medium (low on Fargate) | Lowest |\n| Scaling unit | Instance | Task/container | Invocation |\n| Idle cost | Pay while running | Pay while tasks run | Near zero when idle |\n| Fit | Special/steady workloads | Long-running services | Short event-driven code |\n\n## Common mistakes\n- Forcing every workload onto one model for consistency.\n- Choosing Lambda for steady high-throughput APIs without checking cost and latency behaviour.\n- Running EC2 by hand without automation, recreating the old operational burden.\n\nDecide using duration, traffic shape, state needs, team skills and cost, then document the reasoning.",
+      "followUps": [
+        "What does Fargate change compared with ECS on EC2?",
+        "When would a steady, high-traffic API be cheaper on containers than on Lambda?",
+        "Where would Kubernetes (EKS) fit in this comparison?"
+      ],
+      "related": [
+        "ecs-vs-lambda-for-apis",
+        "what-is-serverless",
+        "lambda-limitations"
+      ]
+    },
+    {
+      "slug": "what-is-serverless",
+      "title": "What is serverless architecture?",
+      "topic": "Compute",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "serverless",
+        "lambda",
+        "managed-services"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-aws-cloud",
+          "pages": [
+            3
+          ]
+        }
+      ],
+      "quick": "Serverless means the provider manages the servers, provisioning and most of the scaling, so teams focus on application logic. There are still servers; you just don't operate them. Lambda is the best-known example, but API Gateway, S3, SQS, EventBridge and DynamoDB are serverless too. You typically get scale-to-zero, pay-per-use pricing and less operational work, in exchange for less runtime control, execution limits and design patterns that suit stateless, event-driven code.",
+      "revision": "Serverless = no server management, automatic scaling, pay per use. Servers still exist; the trade-off is less control and runtime limits.",
+      "detailed": "**Serverless** describes services where you do not provision, patch or size servers, capacity scales automatically, and billing follows actual usage rather than reserved capacity. The phrase \"no servers\" is a misnomer; the servers simply are not your responsibility.\n\n## Characteristics\n- **No host management**: no OS patching or instance sizing.\n- **Automatic scaling**, including down to zero for many services.\n- **Usage-based pricing**: per request, duration or data processed.\n- **Event-driven integration**: services trigger each other (S3 upload to Lambda, queue message to Lambda).\n\n## It is more than Lambda\nA serverless web backend can combine CloudFront, S3, API Gateway, Lambda, DynamoDB, SQS, SNS and EventBridge. Fargate is also often described as \"serverless containers\" because you do not manage hosts, even though tasks are long-running.\n\n## Benefits\n- Less undifferentiated operations work.\n- Handles spiky traffic well.\n- Cost aligns with usage for low or irregular workloads.\n\n## Trade-offs\n- Execution limits, cold starts and statelessness shape the design.\n- Local reproduction and debugging are harder; you depend on cloud-side tooling.\n- Many small functions can scatter logic and complicate observability.\n- Steady, heavy workloads may cost more than provisioned containers.\n- Deeper coupling to provider-specific services raises lock-in.\n\n## Example\nAn image-upload flow: client uploads to S3, an S3 event invokes a Lambda function that creates thumbnails, and metadata is written to a database. No server is provisioned for any step.",
+      "followUps": [
+        "Is Fargate serverless?",
+        "What are the downsides of serverless for a latency-sensitive API?",
+        "How do you test and debug serverless applications?"
+      ],
+      "related": [
+        "ec2-vs-ecs-vs-lambda",
+        "lambda-limitations",
+        "what-is-cloud-computing"
+      ]
+    },
+    {
+      "slug": "what-is-s3",
+      "title": "What is Amazon S3 and what is it good for?",
+      "topic": "Storage",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "s3",
+        "object-storage",
+        "storage"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-cloud",
+          "pages": [
+            3
+          ]
+        }
+      ],
+      "quick": "S3 is AWS object storage: you store objects, files plus metadata, in buckets and address them by key over an API. It's built for very high durability and scales without capacity planning. I use it for static website assets like a React build, images and video, documents, logs and backups. It's not a file system or a database, so it isn't for low-latency random writes. I keep buckets private by default and serve public content through CloudFront.",
+      "revision": "S3 = durable, scalable object storage addressed by bucket and key. Great for assets, media, logs and backups; keep private and front with CloudFront.",
+      "detailed": "**Amazon S3** is object storage. Data is stored as **objects** (bytes plus metadata) inside **buckets**, identified by a key such as ```builds/2026-10-09/app.js```. Access is via HTTPS APIs, not a mounted disk.\n\n## Why teams use it\n- Very high durability and effectively unlimited capacity.\n- Pay for storage used, requests and data transfer; no capacity planning.\n- Integrates with CloudFront, Lambda events, IAM, KMS encryption and replication.\n\n## Typical uses in a web platform\n- Hosting built front-end assets (JS, CSS, images, static HTML).\n- User uploads and media libraries.\n- Build artifacts, logs and backups.\n- A data-lake landing zone.\n\n## Features worth knowing\n| Feature | Why it matters |\n|---|---|\n| Storage classes | Cheaper tiers for infrequently accessed data |\n| Lifecycle rules | Auto-transition or expire old objects to control cost |\n| Versioning | Recover from overwrites and deletes |\n| Presigned URLs | Time-limited upload or download without exposing credentials |\n| Cross-Region replication | Copies for DR or locality |\n| Encryption | Server-side encryption, commonly with KMS keys |\n\n## Common mistakes\n- Making a bucket public to serve a website. Prefer a private bucket accessed only by CloudFront (Origin Access Control).\n- Treating S3 like a file system with frequent small in-place edits; objects are replaced whole.\n- Forgetting lifecycle policies, so storage grows indefinitely.\n- Missing cache headers, so every visit hits origin.\n\n## Example\n```bash\n# Upload a versioned, immutable asset with a long cache lifetime\naws s3 cp dist/assets/ s3://example-site-assets/assets/ --recursive \\\n  --cache-control \"public, max-age=31536000, immutable\"\n```",
+      "followUps": [
+        "How would you let users upload large files safely?",
+        "What is the difference between S3 storage classes?",
+        "Is S3 strongly consistent?"
+      ],
+      "related": [
+        "cloudfront-with-s3",
+        "what-is-a-cdn",
+        "deploy-react-on-aws"
+      ]
+    },
+    {
+      "slug": "what-is-a-cdn",
+      "title": "What is a CDN and what content benefits from it?",
+      "topic": "Edge Delivery",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "cdn",
+        "caching",
+        "edge",
+        "latency"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-aws-cloud",
+          "pages": [
+            4
+          ]
+        }
+      ],
+      "quick": "A Content Delivery Network is a set of geographically distributed edge locations that cache content and serve it from near the user. That cuts latency, reduces load on the origin and absorbs traffic spikes. It's ideal for JS, CSS, images, video and static HTML, and can also cache some API responses if they are safe to share. The catch is cache correctness: I need sensible cache-control headers, versioned asset names and a purge strategy so users never see stale or wrongly shared content.",
+      "revision": "CDN = edge caches near users: lower latency, less origin load. Best for static assets; cache safely with headers, versioned filenames and invalidation.",
+      "detailed": "A **CDN** distributes copies of content across many edge locations. A request is routed to a nearby edge; on a **cache hit** the edge answers directly, on a **miss** it fetches from the **origin** (S3, a load balancer, an API) and typically stores the response for next time.\n\n## What it improves\n- **Latency**: shorter network distance and connection setup at the edge.\n- **Origin offload**: fewer requests reach servers, lowering cost and load.\n- **Resilience**: absorbs spikes and some DDoS-style traffic, especially with a WAF.\n- **Throughput**: optimised connections and compression.\n\n## What to cache\n| Content | Strategy |\n|---|---|\n| Hashed JS/CSS (```app.3fa9c1.js```) | Very long max-age, immutable |\n| Images, fonts, video | Long cache, possibly image optimisation |\n| HTML shell | Short TTL or revalidation |\n| Public API responses (e.g. vehicle catalogue) | Short TTL, cache key carefully |\n| Personalised or authenticated responses | Usually not cached, or keyed carefully |\n\n## Risks and mistakes\n- **Stale content**: fix with content-hashed filenames plus short HTML TTLs rather than relying on purges.\n- **Caching personalised data** and leaking it to other users: ensure cache keys include what varies the response, or bypass the cache.\n- **Over-wide cache keys** (forwarding all cookies/query strings) destroy the hit ratio.\n- Treating invalidation as a deploy mechanism instead of using versioned assets.\n\nMeasure the **cache hit ratio** and origin load, and watch real-user performance to confirm the CDN is actually helping.",
+      "followUps": [
+        "How do you avoid stale content after a deployment?",
+        "What is a cache key and why does it matter?",
+        "Can you cache API responses at the CDN? When is that unsafe?"
+      ],
+      "related": [
+        "cloudfront-with-s3",
+        "improve-global-website-performance"
+      ]
+    },
+    {
+      "slug": "cloudfront-with-s3",
+      "title": "Why put CloudFront in front of S3?",
+      "topic": "Edge Delivery",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "cloudfront",
+        "s3",
+        "oac",
+        "cdn"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-cloud",
+          "pages": [
+            3,
+            4
+          ]
+        }
+      ],
+      "quick": "CloudFront caches S3 content at edge locations close to users, so pages load faster worldwide and S3 sees far fewer requests. It also gives me HTTPS with custom domains, compression, security headers, WAF integration and control over cache behaviour. I keep the bucket private and allow only CloudFront to read it using Origin Access Control. Serving S3 directly would be slower for distant users, harder to secure and give me less caching control.",
+      "revision": "CloudFront in front of a private S3 bucket (via OAC) gives edge caching, HTTPS, WAF and lower latency and origin load, instead of exposing S3 directly.",
+      "detailed": "S3 alone can serve files, but it is a regional storage service, not an edge delivery network. Adding **CloudFront** turns it into a global static-hosting setup.\n\n{{diagram:flow}}\n\n## What CloudFront adds\n- **Latency**: content is cached at edge locations near viewers.\n- **Origin offload**: most requests never reach S3, reducing request costs and load.\n- **Security**: TLS with your own certificate (via ACM), WAF integration, response headers policies, and a private bucket.\n- **Control**: cache policies, compression, HTTP/2 or HTTP/3, custom error pages, redirects or rewrites at the edge (CloudFront Functions or Lambda@Edge).\n\n## Securing the origin\nKeep the bucket **private** and use **Origin Access Control (OAC)** so only your CloudFront distribution may read objects; the bucket policy grants access to the CloudFront service principal scoped to the distribution. This replaces public bucket hosting and the older Origin Access Identity approach.\n\n## Single-page application notes\n- Set a default root object (```index.html```).\n- Map 403/404 from the origin to ```/index.html``` for client-side routing, with an appropriate status.\n- Give hashed assets long cache lifetimes and ```index.html``` a short one, so releases appear quickly.\n\n## Trade-offs\n- Cache invalidation is possible but should not be the main release mechanism.\n- Misconfigured cache keys can lower hit ratio or serve wrong content.\n- Extra component to configure and monitor (hit ratio, error rates).\n\nA distribution can have multiple origins, e.g. ```/assets/*``` to S3 and ```/api/*``` to an API origin.",
+      "diagrams": [
+        {
+          "id": "flow",
+          "title": "Static site delivery with CloudFront and S3",
+          "alt": "Users request content from the nearest CloudFront edge location. On a cache miss the edge reads from a private S3 bucket through Origin Access Control. A WAF web ACL is attached to the distribution to filter requests.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "u",
+              "label": "Global users"
+            },
+            {
+              "id": "e",
+              "label": "CloudFront edge"
+            },
+            {
+              "id": "w",
+              "label": "AWS WAF"
+            },
+            {
+              "id": "o",
+              "label": "Origin Access Control"
+            },
+            {
+              "id": "s",
+              "label": "Private S3 bucket"
+            }
+          ],
+          "edges": [
+            {
+              "from": "u",
+              "to": "e"
+            },
+            {
+              "from": "w",
+              "to": "e",
+              "label": "filters"
+            },
+            {
+              "from": "e",
+              "to": "o",
+              "label": "cache miss"
+            },
+            {
+              "from": "o",
+              "to": "s"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you make a new release visible immediately for a single-page app?",
+        "What is Origin Access Control?",
+        "How would you route /api/* to a different origin?"
+      ],
+      "related": [
+        "what-is-s3",
+        "what-is-a-cdn",
+        "deploy-react-on-aws"
+      ]
+    },
+    {
+      "slug": "improve-global-website-performance",
+      "title": "How would you improve the global performance of a large website on AWS?",
+      "topic": "Edge Delivery",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "performance",
+        "cloudfront",
+        "core-web-vitals",
+        "caching"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-cloud",
+          "pages": [
+            4,
+            5
+          ]
+        }
+      ],
+      "quick": "I'd measure first with real-user Core Web Vitals by region, then work from the edge inward. Route 53 and CloudFront serve cacheable content near users, with compression and good cache-control. On the page: image optimisation, code splitting, lazy loading and HTTP caching. For dynamic data I'd cache API responses where safe and keep backend services close to the data. Regional deployments only where latency or regulation demands it, and I'd keep monitoring to confirm the gains.",
+      "revision": "Measure real-user vitals, push cacheable content to the edge, trim payloads (compression, images, splitting), cache APIs safely, add regional compute only when justified.",
+      "detailed": "Start with data, not guesses: collect **real-user monitoring** for Core Web Vitals (LCP, INP, CLS) split by region, device and page type, plus synthetic tests from key locations. That shows whether the bottleneck is network distance, payload size, JavaScript cost or slow APIs.\n\n{{diagram:path}}\n\n## Edge and network\n- **CloudFront** for static assets and cacheable pages, with compression (Brotli/gzip) and modern HTTP.\n- Long-lived caching for hashed assets; short TTL or revalidation for HTML.\n- **Route 53** with health checks and, if needed, latency-based routing for multi-region origins.\n- Reduce redirects and extra connections; reuse TLS.\n\n## Front-end payload\n- Code splitting and lazy loading of non-critical routes and components.\n- Responsive, modern-format images (AVIF/WebP) served via CDN or image-resizing service.\n- Fonts and third-party scripts under control.\n\n## API and data\n- Cache cacheable API responses (catalogue, dealer lists) at CloudFront or an application cache like Redis, with careful keys.\n- Avoid chatty request waterfalls; consider a backend-for-frontend to aggregate calls.\n- Place compute near the primary database, since cross-region database calls add latency.\n- Add regional deployments only when measured latency or regulations (data residency) justify the complexity.\n\n## Verification\nCompare before/after with the same real-user metrics, watch cache hit ratio and origin latency, and set performance budgets in CI.\n\n## Common mistakes\nOptimising only the median, ignoring slow regions and devices; adding multi-region infrastructure before exploiting caching; relying on cache purges for freshness.",
+      "diagrams": [
+        {
+          "id": "path",
+          "title": "Request path for a globally delivered website",
+          "alt": "DNS resolves the site through Route 53 to CloudFront. WAF filters requests at the edge. Cacheable static content is served from S3 via the edge cache, while dynamic requests pass through API Gateway to backend services.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "u",
+              "label": "User"
+            },
+            {
+              "id": "r",
+              "label": "Route 53"
+            },
+            {
+              "id": "c",
+              "label": "CloudFront"
+            },
+            {
+              "id": "w",
+              "label": "WAF"
+            },
+            {
+              "id": "s",
+              "label": "S3 static assets"
+            },
+            {
+              "id": "a",
+              "label": "API Gateway"
+            },
+            {
+              "id": "b",
+              "label": "Backend services"
+            }
+          ],
+          "edges": [
+            {
+              "from": "u",
+              "to": "r",
+              "label": "DNS"
+            },
+            {
+              "from": "r",
+              "to": "c"
+            },
+            {
+              "from": "c",
+              "to": "w"
+            },
+            {
+              "from": "w",
+              "to": "s",
+              "label": "static"
+            },
+            {
+              "from": "w",
+              "to": "a",
+              "label": "dynamic"
+            },
+            {
+              "from": "a",
+              "to": "b"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Which metrics would you track to prove the improvement?",
+        "How would you decide whether multi-region compute is worth it?",
+        "How do you cache an API response that varies by locale?"
+      ],
+      "related": [
+        "cloudfront-with-s3",
+        "what-is-a-cdn",
+        "route-53"
+      ]
+    },
+    {
+      "slug": "lambda-limitations",
+      "title": "What is AWS Lambda and what are its limitations?",
+      "topic": "Compute",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "lambda",
+        "serverless",
+        "limits",
+        "concurrency"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-cloud",
+          "pages": [
+            6
+          ]
+        }
+      ],
+      "quick": "Lambda runs your code in response to events, such as an HTTP call, an S3 upload or a queue message, without you managing servers; you pay per invocation and duration. Limitations I design around: a maximum execution time, cold starts, memory and package size ceilings, a stateless model, and concurrency limits that can throttle you or overload downstream databases. So I don't choose it for everything. It's great for short event-driven work, less so for long-running or steady, connection-heavy workloads.",
+      "revision": "Lambda = event-triggered, auto-scaled functions. Limits: duration cap, cold starts, memory and package size, statelessness, concurrency. Don't use it by default for everything.",
+      "detailed": "**AWS Lambda** executes a function when triggered by an event: API Gateway or a function URL, S3, SQS, EventBridge schedules, DynamoDB streams, and more. AWS creates execution environments, scales them with demand and bills for requests and compute time (memory size scales the CPU you get).\n\n## Typical uses\n- Lightweight HTTP endpoints and webhooks.\n- Reacting to S3 uploads (thumbnails, virus scan, metadata extraction).\n- Queue and stream consumers, scheduled jobs, automation glue.\n\n## Limitations to design around\nExact numbers change, so check current AWS quotas rather than memorising them.\n\n| Constraint | Consequence |\n|---|---|\n| Maximum run time per invocation (minutes, not hours) | Long jobs must be split, or run on containers/batch |\n| Cold starts | Extra latency when a new environment is initialised |\n| Memory and package/image size limits | Heavy dependencies and large models need care |\n| Stateless, ephemeral environment | Persist state in S3, databases or caches; do not rely on local memory between calls |\n| Concurrency quotas and scaling rate | Throttling under spikes; reserve or request more concurrency |\n| Connection-heavy downstreams | Thousands of concurrent functions can exhaust database connections; use RDS Proxy or pooling |\n| Harder local debugging and many-function sprawl | Needs strong observability and deployment tooling |\n\n## Cost note\nPay-per-use is excellent for spiky or idle-heavy workloads, but a steady high-volume service may be cheaper on containers. Compare using real traffic.\n\n## Example\n```js\n// Node.js handler that reacts to an S3 upload event\nexport const handler = async (event) => {\n  const key = decodeURIComponent(event.Records[0].s3.object.key.replace(/\\+/g, ' '));\n  console.log(JSON.stringify({ msg: 'processing upload', key }));\n  // ... generate thumbnail, write metadata ...\n  return { ok: true };\n};\n```",
+      "followUps": [
+        "How would you stop a Lambda spike from overwhelming an RDS database?",
+        "What is reserved vs provisioned concurrency?",
+        "How do you run work that exceeds Lambda's time limit?"
+      ],
+      "related": [
+        "lambda-cold-starts",
+        "ecs-vs-lambda-for-apis",
+        "ec2-vs-ecs-vs-lambda"
+      ]
+    },
+    {
+      "slug": "lambda-cold-starts",
+      "title": "What is a Lambda cold start and how do you reduce it?",
+      "topic": "Compute",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "lambda",
+        "cold-start",
+        "latency",
+        "provisioned-concurrency"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-cloud",
+          "pages": [
+            6,
+            7
+          ]
+        }
+      ],
+      "quick": "A cold start happens when Lambda has no warm execution environment for a request, so it must create one, start the runtime, load my code and run initialisation before handling the event. That adds latency, mostly noticeable on user-facing paths. To reduce it I keep packages small, move heavy initialisation out of the hot path or make it lazy, avoid unnecessary SDK imports, and choose a runtime wisely. If it still matters, I use provisioned concurrency, or SnapStart where supported.",
+      "revision": "Cold start = latency while Lambda creates and initialises a new environment. Reduce with small packages, lean init, suitable runtime, provisioned concurrency or SnapStart.",
+      "detailed": "Lambda keeps execution environments after an invocation and reuses them (a **warm start**). When none is free, for example the first request, a traffic burst or a new deployment, Lambda must perform a **cold start**.\n\n{{diagram:cold}}\n\n## What contributes\n- Downloading code or container image and starting the runtime.\n- Running your initialisation code (imports, SDK clients, configuration, connections).\n- Heavy dependencies and slow initialisation code, which count against every cold start.\n\nCold starts usually affect a small percentage of invocations but show up in tail latency (p95/p99), which matters for user-facing APIs and less for async processing.\n\n## Ways to reduce impact\n- **Smaller bundles**: tree-shake and bundle (e.g. esbuild), drop unused dependencies, import only needed SDK clients.\n- **Lean initialisation**: initialise clients outside the handler so warm calls reuse them, but defer rarely used heavy work.\n- **Runtime choice**: lightweight runtimes (Node.js, Python, Go) typically start faster than heavy JVM or .NET setups without help.\n- **Memory size**: more memory also means more CPU, which can shorten init.\n- **Provisioned concurrency**: keeps a configured number of environments initialised. You pay for it, so apply it to latency-critical functions.\n- **SnapStart**: for supported runtimes, restores from a snapshot of an initialised environment.\n\n## What not to do\nScheduled \"warming pings\" are brittle and do not cover scale-out concurrency; prefer provisioned concurrency if you truly need warmth.\n\n## Decision rule\nMeasure first. If cold-start tail latency breaks your SLO and traffic is steady, containers may be a better fit than fighting Lambda.",
+      "diagrams": [
+        {
+          "id": "cold",
+          "title": "Cold start sequence",
+          "alt": "A request arrives and no warm environment exists, so Lambda creates an environment, initialises the runtime, runs initialisation code and then executes the handler. Warm requests skip the first three steps.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "r",
+              "label": "Request"
+            },
+            {
+              "id": "n",
+              "label": "No warm environment"
+            },
+            {
+              "id": "i",
+              "label": "Init runtime"
+            },
+            {
+              "id": "l",
+              "label": "Load code and init"
+            },
+            {
+              "id": "h",
+              "label": "Run handler"
+            }
+          ],
+          "edges": [
+            {
+              "from": "r",
+              "to": "n"
+            },
+            {
+              "from": "n",
+              "to": "i"
+            },
+            {
+              "from": "i",
+              "to": "l"
+            },
+            {
+              "from": "l",
+              "to": "h"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Does provisioned concurrency remove cold starts completely under bursts?",
+        "Why initialise SDK clients outside the handler?",
+        "When would you move a Lambda API to ECS because of cold starts?"
+      ],
+      "related": [
+        "lambda-limitations",
+        "ecs-vs-lambda-for-apis"
+      ]
+    }
+  ]
+}

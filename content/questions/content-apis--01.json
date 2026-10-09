@@ -1,0 +1,606 @@
+{
+  "category": "content-apis",
+  "questions": [
+    {
+      "slug": "what-is-a-content-api",
+      "title": "What is a Content API, and why do headless architectures need one?",
+      "topic": "Content API Fundamentals",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "content-api",
+        "headless-cms",
+        "fundamentals"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-content-apis",
+          "pages": [
+            1
+          ]
+        }
+      ],
+      "quick": "A Content API exposes structured content from a CMS to other applications over HTTP, usually as JSON via REST or GraphQL. In a headless setup the CMS owns modelling, authoring and publishing, while React, Next.js or mobile apps own presentation and fetch content through the API. I would treat it as a governed contract, not just an endpoint: it needs a clear content model, stable field names, locale handling, caching rules, security boundaries and a versioning policy so many channels can rely on it.",
+      "revision": "A Content API is a governed contract that delivers structured CMS content to any channel; the CMS owns content, the frontend owns presentation.",
+      "detailed": "A **Content API** is an interface through which applications retrieve (and, for authorised clients, create, update or manage) content using structured requests and responses. In a **headless CMS** the CMS has no opinion about presentation: editors model and publish content there, and every channel (website, mobile app, kiosk, in-car display) consumes it through the API.\n\n## Why it matters\n\n- **Decoupling.** Content teams and frontend teams release independently, as long as the contract holds.\n- **Multi-channel reuse.** The same vehicle description or promotional message can power a website, an app and an email renderer.\n- **Structured content.** Fields such as `title`, `summary` and `heroImage` can be mapped to reusable UI components rather than being a blob of HTML.\n\n## What a Content API is not\n\nIt is not \"just an endpoint that returns JSON\". In practice it is a contract between the CMS, the consumers, the caching infrastructure and the delivery pipeline. The things that make it production-grade are:\n\n- a deliberate **content model** and field naming,\n- **versioning and compatibility** rules,\n- **caching and invalidation** tied to publishing events,\n- **security** that separates public published content from drafts and management operations,\n- **localization** rules, and\n- **observability** (latency, errors, freshness).\n\n## Typical flavours\n\nContent APIs commonly come as REST or GraphQL, and are often split into delivery (published, read-only, public), management (write, protected) and preview (drafts, authorised authors only) surfaces. Exact endpoint shapes depend on the CMS product (for example, an enterprise CMS such as AEM offers several delivery options) and on how the platform team wraps it.\n\n## Common mistakes\n\n- Exposing the CMS internal storage model directly as the public contract, so every CMS-side refactor breaks consumers.\n- Treating the frontend as the place where access control lives.\n- Ignoring freshness: content that is \"published\" but still stale in a CDN is a production incident for time-sensitive offers.",
+      "followUps": [
+        "How is a Content API different from a normal REST API that a backend team writes?",
+        "What would you put in the API contract versus leave as a CMS implementation detail?",
+        "Can a headless CMS be used without a Content API?"
+      ],
+      "related": [
+        "how-content-api-request-flow-works",
+        "content-api-contract-design"
+      ]
+    },
+    {
+      "slug": "how-content-api-request-flow-works",
+      "title": "Walk through how a content change reaches a user, end to end",
+      "topic": "Content API Fundamentals",
+      "difficulty": "beginner",
+      "type": "design",
+      "tags": [
+        "content-api",
+        "architecture",
+        "request-flow",
+        "cdn"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-content-apis",
+          "pages": [
+            1,
+            2
+          ]
+        }
+      ],
+      "quick": "An author creates content in the CMS, it passes validation and approval, and is published. The CMS then serves the published version through a Content API. The frontend, React or Next.js, requests it over HTTP, gets structured JSON and maps it to reusable components. A CDN and application caches sit in front to cut latency and origin load. When the page also needs transactional data, an optional BFF aggregates content with business APIs, but a BFF is not mandatory.",
+      "revision": "Author, workflow, publish, Content API, CDN/cache, optional BFF, frontend render. Publishing is the event that must also drive cache invalidation.",
+      "detailed": "Take a vehicle details page as an example (illustrative names only). The flow has two halves: a **write path** that ends with publication, and a **read path** that serves visitors.\n\n{{diagram:flow}}\n\n## Write path\n\n1. An author creates or edits a vehicle entry in the CMS.\n2. The content is validated against its model (required fields, allowed values) and goes through approval.\n3. On **publish**, the CMS marks that version as the live one and typically emits an event or webhook.\n\n## Read path\n\n4. The CMS exposes the published version through the Content API (REST or GraphQL).\n5. A **CDN or edge cache** answers most requests; on a miss the request reaches the API/origin.\n6. An **optional BFF** may aggregate content with business data (for example dealer availability), reshape the response and apply integration policies.\n7. The React or Next.js app receives structured JSON and maps fields to components.\n\n## Where it goes wrong\n\n- Publishing succeeds but the cache is never told, so users see stale content. The publish event should drive targeted invalidation or revalidation.\n- The frontend couples to internal CMS field names that were never part of a stable contract.\n- A BFF is added by default, creating one more hop and one more service to run. Add it when aggregation, transformation or server-side policy justifies it.\n\n## Interview angle\n\nBe explicit that the **publish event** connects the two halves. That is the point where freshness, cache keys and rollout behaviour are decided.",
+      "diagrams": [
+        {
+          "id": "flow",
+          "title": "Content publishing and delivery flow",
+          "alt": "An author works in the headless CMS and publishes content. The CMS exposes it through a Content API. Requests pass through a CDN and cache, optionally through a backend for frontend, and reach the React or Next.js website that the customer sees.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "author",
+              "label": "Content author"
+            },
+            {
+              "id": "cms",
+              "label": "Headless CMS"
+            },
+            {
+              "id": "api",
+              "label": "Content API (REST / GraphQL)"
+            },
+            {
+              "id": "cdn",
+              "label": "CDN / cache"
+            },
+            {
+              "id": "bff",
+              "label": "BFF (optional)"
+            },
+            {
+              "id": "web",
+              "label": "React / Next.js site"
+            },
+            {
+              "id": "user",
+              "label": "Customer"
+            }
+          ],
+          "edges": [
+            {
+              "from": "author",
+              "to": "cms",
+              "label": "edit + publish"
+            },
+            {
+              "from": "cms",
+              "to": "api"
+            },
+            {
+              "from": "api",
+              "to": "cdn"
+            },
+            {
+              "from": "cdn",
+              "to": "bff"
+            },
+            {
+              "from": "bff",
+              "to": "web"
+            },
+            {
+              "from": "web",
+              "to": "user"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Where would you place cache invalidation in this flow?",
+        "When would you remove the BFF from this picture?",
+        "What happens if the CMS publishes content that fails frontend validation?"
+      ],
+      "related": [
+        "what-is-a-content-api",
+        "bff-for-content-apis",
+        "content-invalidation-stale-content"
+      ]
+    },
+    {
+      "slug": "rest-content-api-design",
+      "title": "How would you design a REST Content API for pages and vehicles?",
+      "topic": "REST & GraphQL",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "rest",
+        "content-api",
+        "http",
+        "design"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-content-apis",
+          "pages": [
+            2,
+            4
+          ]
+        }
+      ],
+      "quick": "I would model resources around content types: pages, vehicles, assets, navigation. Endpoints are nouns, such as GET /content/v1/vehicles/{slug}, with locale as an explicit parameter, pagination and filtering on collections, and consistent error bodies. Responses carry stable identifiers, image metadata and cache headers such as ETag and Cache-Control. REST suits this well because published content is read-heavy and URL-addressable, so CDNs can cache each representation easily.",
+      "revision": "REST content APIs: noun-based, URL-addressable resources with explicit locale, pagination, consistent errors and HTTP cache headers; this makes CDN caching natural.",
+      "detailed": "REST maps naturally to content because most content is a **named, addressable resource** that is read far more often than it is written. Every URL can be cached by browsers, CDNs and proxies without special tooling.\n\n## Example (illustrative contract)\n\n```http\nGET /content/v1/vehicles/explorer?locale=en-US\nAccept: application/json\n\n200 OK\nCache-Control: public, max-age=300, stale-while-revalidate=60\nETag: \"v42\"\nContent-Language: en-US\n```\n\n```json\n{\n  \"id\": \"vehicle-explorer\",\n  \"title\": \"Example SUV\",\n  \"locale\": \"en-US\",\n  \"description\": \"Overview text for the vehicle.\",\n  \"heroImage\": { \"url\": \"/assets/suv.webp\", \"altText\": \"Front view of the SUV\", \"width\": 1600, \"height\": 900 },\n  \"features\": [{ \"title\": \"Safety\", \"description\": \"Driver assistance features.\" }]\n}\n```\n\nActual endpoint shapes depend on the CMS product and on how the platform wraps it; this is only one possible contract.\n\n## Design points\n\n- **Resource-oriented URLs:** `/pages/{slug}`, `/vehicles`, `/assets/{id}`, `/navigation/{name}`.\n- **Locale is explicit** (query parameter or path segment), never inferred silently from a header that the cache cannot see.\n- **Collections** support pagination (cursor or page), filtering and sort; avoid unbounded lists.\n- **Images as objects** (`url`, `altText`, dimensions) rather than bare strings, so the frontend can render accessible, responsive images. Starting with a bare string makes later change a breaking one.\n- **Consistent errors:** a stable error shape with a machine-readable code, plus correct status codes (404 for unknown slug, 400 for bad locale, 429 for rate limiting).\n- **Conditional requests:** ETag and `If-None-Match` let clients revalidate cheaply.\n\n## Trade-off\n\nFixed response shapes can cause over-fetching or multiple round trips for composite pages. If that becomes painful, consider expansion parameters, a GraphQL layer or a BFF.",
+      "followUps": [
+        "How would you let clients request related content without N+1 calls?",
+        "Should locale go in the path or in a query parameter?",
+        "How would you design pagination for a large catalogue?"
+      ],
+      "related": [
+        "rest-vs-graphql-content-apis",
+        "content-api-contract-design",
+        "caching-layers-content-api"
+      ]
+    },
+    {
+      "slug": "rest-vs-graphql-content-apis",
+      "title": "REST vs GraphQL for content delivery: how would you choose?",
+      "topic": "REST & GraphQL",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "rest",
+        "graphql",
+        "trade-offs",
+        "caching"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-content-apis",
+          "pages": [
+            4
+          ]
+        }
+      ],
+      "quick": "I choose by access pattern. REST fits resource-oriented, cache-heavy delivery: simple URLs, straightforward CDN caching, easy tooling. GraphQL fits cases where clients need to pick fields and traverse related content in one request, such as a page assembled from many linked entries, and where many different clients have different needs. GraphQL costs more in caching, query-cost control and security. Many platforms use both, or hide either behind a BFF.",
+      "revision": "REST: simple, URL-cacheable, resource-shaped. GraphQL: client-chosen fields and relations in one call, but needs query-cost limits and smarter caching.",
+      "detailed": "Neither is universally better; the decision follows **how clients consume the content** and what your caching and governance setup looks like.\n\n## Comparison\n\n| Aspect | REST | GraphQL |\n|---|---|---|\n| Shape of response | Fixed by the server per endpoint | Chosen by the client per query |\n| Related content | Extra calls or expansion params | Traversed in one query |\n| Over/under-fetching | Common on generic endpoints | Largely avoided |\n| CDN caching | Natural: GET on a URL | Harder: POST bodies, unique queries (persisted queries and GET help) |\n| Query cost control | Per-endpoint | Needs depth/complexity limits, allow-lists |\n| Tooling and learning curve | Very familiar | Schema, resolvers, client tooling to adopt |\n| Evolution | Versioned endpoints or additive fields | Add fields, deprecate with `@deprecated` |\n\n## Example GraphQL query (shape depends on the exposed schema)\n\n```graphql\nquery VehiclePage($slug: String!, $locale: String!) {\n  vehicle(slug: $slug, locale: $locale) {\n    title\n    description\n    heroImage { url altText }\n  }\n}\n```\n\n## Decision rules\n\n- Public, high-traffic, simple pages: **REST + CDN** is usually the cheapest to operate.\n- Many channels needing different slices of deeply linked content: **GraphQL** reduces payloads and round trips.\n- Hybrid: GraphQL internally, with **persisted queries** exposed as cacheable GET endpoints; or a BFF presenting REST to the UI.\n\n## Pitfalls\n\n- Choosing GraphQL for fashion, then discovering that every request is a cache miss.\n- Allowing arbitrary public queries without depth, complexity and rate limits, creating a denial-of-service surface.\n- Leaking draft or restricted fields because authorisation was done per endpoint in REST but forgotten per field in GraphQL.",
+      "followUps": [
+        "How would you cache GraphQL responses at a CDN?",
+        "What are persisted queries and why use them?",
+        "How do you protect a public GraphQL endpoint from expensive queries?"
+      ],
+      "related": [
+        "rest-content-api-design",
+        "caching-layers-content-api",
+        "bff-for-content-apis"
+      ]
+    },
+    {
+      "slug": "delivery-management-preview-apis",
+      "title": "What are delivery, management and preview APIs, and why keep them separate?",
+      "topic": "API Surfaces",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "delivery-api",
+        "management-api",
+        "preview",
+        "security"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-content-apis",
+          "pages": [
+            4
+          ]
+        }
+      ],
+      "quick": "Delivery APIs serve published content to public applications: read-only, cache-friendly, often anonymous. Management APIs create, update and delete content and assets, so they need strong authentication, authorisation and auditing. Preview APIs let authorised authors see unpublished drafts in context. I keep them separate, with different hosts or paths, credentials, caching rules and rate limits, so a weakness or misconfiguration in one cannot expose drafts or allow writes through the public surface.",
+      "revision": "Delivery: published, public, cacheable. Management: writes, strongly authenticated. Preview: drafts, authorised only, never cached publicly. Separate them.",
+      "detailed": "Many CMS products expose all three capabilities, and the safest architectures keep them **logically and operationally separate**.\n\n## The three surfaces\n\n| Surface | Content state | Typical callers | Auth | Caching |\n|---|---|---|---|---|\n| **Delivery** | Published only | Websites, apps, CDN | Often anonymous or a read-only key | Aggressive, shared (CDN) |\n| **Management** | Any, with writes | Authoring UI, automation, import jobs | Strong, with role-based permissions and audit logs | None or private |\n| **Preview** | Drafts and unpublished versions | Authors, reviewers | Authenticated and authorised, often time-limited tokens | Never in a shared cache |\n\n{{diagram:surfaces}}\n\n## Why separation matters\n\n- **Blast radius.** A rate-limit, cache or auth misconfiguration on delivery must not touch drafts.\n- **Different SLOs.** Delivery is high-volume and latency-sensitive; management is low-volume and needs consistency.\n- **Cache safety.** Draft responses cached at a shared CDN node are a classic leak path (see the security question).\n- **Independent scaling and keys.** Public delivery tokens can be rotated without affecting authors.\n\n## Practical guidance\n\n- Serve preview from a distinct host or origin, ideally behind the same identity provider the authors already use.\n- Mark preview responses `Cache-Control: private, no-store` and vary or bypass them in the CDN.\n- Give services least-privilege credentials: a frontend rarely needs a management token at all.\n- Never ship management credentials to the browser.",
+      "diagrams": [
+        {
+          "id": "surfaces",
+          "title": "Separated Content API surfaces",
+          "alt": "Published content from the CMS flows through the delivery API and CDN to public visitors. Draft content flows through a separate preview API, protected by authentication, to authors. Writes from authoring tools go through a separately authenticated management API.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "cms",
+              "label": "CMS content store"
+            },
+            {
+              "id": "del",
+              "label": "Delivery API (published)"
+            },
+            {
+              "id": "cdn",
+              "label": "CDN"
+            },
+            {
+              "id": "pub",
+              "label": "Public visitors"
+            },
+            {
+              "id": "prev",
+              "label": "Preview API (drafts, auth)"
+            },
+            {
+              "id": "auth",
+              "label": "Authors / reviewers"
+            },
+            {
+              "id": "mgmt",
+              "label": "Management API (writes)"
+            }
+          ],
+          "edges": [
+            {
+              "from": "cms",
+              "to": "del"
+            },
+            {
+              "from": "del",
+              "to": "cdn"
+            },
+            {
+              "from": "cdn",
+              "to": "pub"
+            },
+            {
+              "from": "cms",
+              "to": "prev"
+            },
+            {
+              "from": "prev",
+              "to": "auth"
+            },
+            {
+              "from": "auth",
+              "to": "mgmt",
+              "label": "edits"
+            },
+            {
+              "from": "mgmt",
+              "to": "cms"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How does a Next.js preview mode relate to a preview API?",
+        "Should the public frontend ever hold a management token?",
+        "Where do you enforce authorization for preview: CMS, gateway or app?"
+      ],
+      "related": [
+        "securing-content-and-preview-apis",
+        "how-content-api-request-flow-works"
+      ]
+    },
+    {
+      "slug": "content-api-vs-business-api",
+      "title": "Content API vs Business API: why not treat them as one domain?",
+      "topic": "API Surfaces",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "content-api",
+        "business-api",
+        "architecture",
+        "domains"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-content-apis",
+          "pages": [
+            4,
+            5
+          ]
+        }
+      ],
+      "quick": "A Content API serves editorial content and assets, typically CMS-backed, read-heavy, with publishing workflows. A Business API serves operational capabilities such as dealer search, inventory or financing eligibility, backed by domain services and databases, with transactions and business rules. Even if both appear on one page, they have different owners, data lifecycles, caching tolerances and failure modes. I would compose them in the frontend or a BFF, and never force one into the other.",
+      "revision": "Content API: editorial, read-heavy, publish-driven, cacheable. Business API: transactional, rule-driven, real-time. Same page does not mean same domain.",
+      "detailed": "A vehicle marketing page might show a descriptive hero (editorial) next to \"available near you\" (operational). They look like one page but belong to **different domains**.\n\n| | Content API | Business API |\n|---|---|---|\n| Purpose | Editorial text, media, navigation | Operational capabilities |\n| Backing system | CMS | Domain services and databases |\n| Examples | Page copy, banners, vehicle descriptions | Dealer search, stock availability, finance eligibility |\n| Access pattern | Read-heavy, public | Reads, writes, transactions |\n| Consistency need | Eventual freshness is usually acceptable | Often needs current, authoritative data |\n| Change process | Authoring and approval workflow | Software release and domain rules |\n| Caching | Long TTL plus publish-driven invalidation | Short TTL or none; personalised data not shared-cacheable |\n| Failure impact | Show fallback copy | May block a journey (for example, a booking) |\n\n## Why the separation matters\n\n- **Cache policy.** Putting live inventory into a CMS field with a 10-minute CDN TTL makes the page lie; putting editorial copy behind a transactional API wastes capacity.\n- **Ownership and release cadence.** Editors should not need an engineering release to change copy, and domain teams should not need an editorial workflow to fix a rule.\n- **Failure isolation.** If the CMS is down, the booking flow should still work, and vice versa.\n- **Security.** Business APIs often carry customer data and need stricter authentication.\n\n## Composition\n\nCompose at the edge of the experience: the frontend (or a BFF) calls both and merges them for display. Content may reference business entities by **stable ID** (for example a model code) rather than copying their data.\n\n## Common mistake\n\nStoring transactional values (price, stock) in the CMS \"for convenience\" and then building sync jobs to keep them correct.",
+      "followUps": [
+        "How would a CMS entry reference a business entity without copying its data?",
+        "Which cache TTL would you give each type of API?",
+        "Where would you put the composition logic?"
+      ],
+      "related": [
+        "bff-for-content-apis",
+        "caching-layers-content-api",
+        "content-api-outage-fallback"
+      ]
+    },
+    {
+      "slug": "content-api-contract-design",
+      "title": "What should a good Content API contract define?",
+      "topic": "Contracts & Versioning",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "api-contract",
+        "openapi",
+        "content-model",
+        "design"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-content-apis",
+          "pages": [
+            5,
+            6
+          ]
+        }
+      ],
+      "quick": "A contract is the written agreement between the API producer and its consumers. For content it should define identifiers and slug rules, content types with required and optional fields, locale and fallback behaviour, asset and image metadata, pagination, filtering and sorting, error format, cache and freshness headers, authentication requirements, and the rules for evolving the schema. I would publish it as an OpenAPI or GraphQL schema so it is testable and so consumers can generate types.",
+      "revision": "Contract = identifiers, fields (required/optional), locale rules, assets, pagination, errors, caching, auth and evolution rules, written as a testable schema.",
+      "detailed": "An **API contract** is the producer-consumer agreement that says what requests look like, what responses contain, how errors are reported and what changes are allowed. For a Content API it is the single most important artefact, because many independent frontends depend on it.\n\n## What to specify\n\n- **Identity:** stable IDs and slug conventions; whether slugs can change and how redirects are handled.\n- **Content types and fields:** names, types, required vs optional, nullability, allowed enum values, maximum lengths.\n- **Localization:** locale identifiers (for example BCP 47 tags), fallback behaviour, what `locale` in a response means.\n- **Assets:** URL form, dimensions, alt text, formats or renditions available.\n- **Collections:** pagination style, filters, sort orders, maximum page size.\n- **Errors:** consistent body (code, message, correlation ID) and status-code mapping.\n- **Caching and freshness:** `Cache-Control`, `ETag`, expected propagation time after publish.\n- **Security:** which operations are public, which need tokens, rate limits.\n- **Evolution:** what counts as breaking, deprecation windows, how consumers are notified.\n\n## Make it executable\n\n- Describe REST contracts with an **OpenAPI** document and GraphQL with its schema (SDL).\n- Generate **TypeScript types** or clients from it, and run **contract tests** in CI on both sides.\n- Keep one source of truth; documentation that is separate from the schema drifts.\n\n## Separate the contract from the CMS model\n\nThe CMS's internal content model can change for editorial reasons. The contract should be a **deliberate projection** of it, so that a field rename in the CMS does not automatically become a breaking change for every consumer.\n\n## Common mistakes\n\n- Leaving optionality vague, so consumers guess whether `heroImage` can be null.\n- Returning bare strings where objects will later be needed (an image URL that later needs alt text).\n- No defined error shape, forcing each client to parse failures differently.",
+      "followUps": [
+        "How do you keep an OpenAPI document and the real API from drifting apart?",
+        "Who owns the contract, the CMS team or the frontend teams?",
+        "How would consumer-driven contract tests work here?"
+      ],
+      "related": [
+        "runtime-schema-validation-typescript",
+        "content-api-versioning-compatibility",
+        "prevent-cms-schema-change-breaking-frontend"
+      ]
+    },
+    {
+      "slug": "runtime-schema-validation-typescript",
+      "title": "TypeScript types are not enough: why validate Content API responses at runtime?",
+      "topic": "Contracts & Versioning",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "typescript",
+        "validation",
+        "zod",
+        "runtime-safety"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-content-apis",
+          "pages": [
+            6,
+            3
+          ]
+        }
+      ],
+      "quick": "TypeScript types are erased at build time, so annotating response.json() as VehicleContent proves nothing about what the network actually returned. If the CMS changes a field or returns null, the app only fails later, deep in a component. I validate at the boundary with a runtime schema library such as Zod or Valibot, in a single API client, and derive the TypeScript type from that schema. Invalid data produces a controlled, logged error and a fallback instead of a crash.",
+      "revision": "Types vanish at runtime. Validate external JSON at the boundary with a schema, infer the type from it, and fail in a controlled way.",
+      "detailed": "`const data: VehicleContent = await response.json()` is a **type assertion in disguise**: `json()` returns `any`, so the compiler trusts you. If the API returns `heroImage: null`, a renamed field or an error body with status 200, TypeScript will not notice and the crash happens later.\n\n## Validate at the boundary\n\nParse external data once, where it enters your system, and let the rest of the code rely on the validated type. A sketch using Zod (a popular library; check the API of the version you use):\n\n```ts\nimport { z } from \"zod\";\n\nexport const VehicleContentSchema = z.object({\n  id: z.string(),\n  title: z.string().min(1),\n  description: z.string(),\n  heroImage: z.object({\n    url: z.string(),\n    altText: z.string(),\n  }),\n});\n\nexport type VehicleContent = z.infer<typeof VehicleContentSchema>;\n\nexport async function fetchVehicle(slug: string, signal?: AbortSignal) {\n  const res = await fetch(`/api/content/vehicles/${encodeURIComponent(slug)}`, { signal });\n  if (!res.ok) throw new Error(`Content request failed: ${res.status}`);\n  return VehicleContentSchema.parse(await res.json()); // throws ZodError if the shape is wrong\n}\n```\n\n## Design decisions\n\n- **Strict or tolerant?** Be strict on fields you depend on, but ignore unknown extra fields so additive API changes do not break you.\n- **Fail loudly in monitoring, softly for users.** Log the validation issue with the content ID, then render a fallback or last-known-good content.\n- **Single source of truth.** Infer the type from the schema, so they cannot diverge.\n- **Cost.** Validation has a small runtime cost; for very large payloads validate only what you use, or validate on the server (BFF or SSR) rather than in every browser.\n\n## Complementary tools\n\nRuntime validation catches drift at the consumer; **contract tests** and generated types catch it earlier, in CI. Use both.",
+      "followUps": [
+        "Should validation run in the browser, the server, or both?",
+        "How strict should the schema be about unknown fields?",
+        "What would you do in the UI when validation fails?"
+      ],
+      "related": [
+        "content-api-contract-design",
+        "prevent-cms-schema-change-breaking-frontend",
+        "react-content-fetching-example"
+      ]
+    },
+    {
+      "slug": "content-api-versioning-compatibility",
+      "title": "How do you version a Content API and keep backward compatibility?",
+      "topic": "Contracts & Versioning",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "versioning",
+        "backward-compatibility",
+        "deprecation",
+        "api-evolution"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-content-apis",
+          "pages": [
+            6
+          ]
+        }
+      ],
+      "quick": "I prefer additive, backward-compatible change: new optional fields, new endpoints, new enum values handled safely. For a breaking change, such as turning heroImage from a string into an object, I would introduce it in parallel, either as a new version like /v2 or a new field, keep the old one deprecated with a published sunset date, monitor who still uses it, and remove it only when traffic and consumers confirm it is safe. Not every change needs a new version.",
+      "revision": "Prefer additive change. For breaking change: introduce in parallel, deprecate with a date, watch usage, remove only when consumers have moved.",
+      "detailed": "The goal is **predictable evolution without unnecessary duplication**. A new major version for every field is overhead; an unannounced breaking change is an outage for consumers.\n\n## Safe (additive) vs breaking\n\n| Change | Usually safe? |\n|---|---|\n| Add an optional field | Yes, if consumers ignore unknown fields |\n| Add a new endpoint or content type | Yes |\n| Add a new enum value | Risky: clients with exhaustive switches may break |\n| Rename or remove a field | Breaking |\n| Change a field type (string to object) | Breaking |\n| Make an optional field required, or tighten validation | Breaking for producers and sometimes consumers |\n| Change meaning or units of a field | Breaking, and silent |\n\n## Strategies\n\n- **Expand and contract.** Add `heroImageObject` (or the new nested shape) alongside `heroImage`, migrate consumers, then remove the old field.\n- **Versioned endpoints** (`/v1/...`, `/v2/...`) when the shape changes widely. Run both for a defined window.\n- **GraphQL evolution:** add fields freely, mark old ones `@deprecated`, and track field usage from query logs before removal.\n- **Deprecation policy:** announce, document the sunset date, and use headers such as `Deprecation` and `Sunset` where your platform supports them.\n- **Consumer contract tests** in CI so a producer sees who it would break before merging.\n- **Usage telemetry** (per consumer or client-id) to know when the old version is truly unused.\n\n## Common mistakes\n\n- Treating CMS model edits as free, so a content-model change becomes an unannounced API change.\n- Removing a deprecated field because \"the main site no longer uses it\" while a mobile app release still does.\n- Running versions forever, so the old one becomes a permanent maintenance burden.",
+      "followUps": [
+        "How do you decide between URL versioning and header versioning?",
+        "How would you retire v1 when you cannot control all consumers?",
+        "Is adding an enum value a breaking change?"
+      ],
+      "related": [
+        "content-api-contract-design",
+        "prevent-cms-schema-change-breaking-frontend"
+      ]
+    },
+    {
+      "slug": "prevent-cms-schema-change-breaking-frontend",
+      "title": "How do you stop a CMS schema change from breaking the frontend?",
+      "topic": "Contracts & Versioning",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "schema-change",
+        "contract-testing",
+        "cms",
+        "resilience"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-content-apis",
+          "pages": [
+            6,
+            8
+          ]
+        }
+      ],
+      "quick": "I would make the content model a governed change, not a free edit. Contract tests in CI check that the CMS-side change still satisfies consumer expectations. Changes are additive first, with deprecation before removal. The frontend validates responses at runtime and degrades gracefully if a field is missing. Rollouts are staged, with monitoring on consumer error rates after the change, and an easy rollback of the model or a fallback to last-known-good content.",
+      "revision": "Govern model changes: additive first, contract tests in CI, runtime validation with graceful degradation, staged rollout, error monitoring, rollback path.",
+      "detailed": "Scenario: an editor or developer changes a content type, for example `heroImage` from a string URL to an object with `url` and `altText`. Production pages start throwing `undefined` errors. The fix is a layered defence, because no single check is enough.\n\n## Layers\n\n1. **Governance.** Content-model changes go through review. Someone owns the question \"who consumes this field?\" Keep a registry of consumers.\n2. **Additive, expand-and-contract changes.** Add the new shape next to the old, migrate consumers, then retire the old field after a deprecation period.\n3. **Contract tests in CI.** Consumer-driven tests (or schema diff checks, for example OpenAPI or GraphQL schema comparison) run on the producer side and fail the build on breaking changes.\n4. **Preview environments.** Test the frontend against a staging CMS or content snapshot containing the proposed schema before it reaches production.\n5. **Runtime validation and defensive rendering.** The API client validates response shapes; components render a safe fallback when optional parts are missing, and log a structured error instead of crashing the page.\n6. **Staged rollout and monitoring.** Roll out to a portion of traffic or one region first; watch client-side error rate, validation failures and API 5xx. Keep a one-step rollback.\n7. **Last-known-good cache.** For critical pages, serve the previous valid payload if new data fails validation.\n\n## Trade-offs\n\n- Too-strict validation turns a harmless additive field into an outage; ignore unknown fields.\n- Too much governance slows editors; automate checks so they only block real breaks.\n\n## Key point\n\nTreat the content model as a **public API**. Once consumers exist, \"it is just CMS configuration\" is no longer true.",
+      "followUps": [
+        "What would a consumer-driven contract test for this look like?",
+        "How do you handle content already published under the old model?",
+        "Who should approve content-model changes?"
+      ],
+      "related": [
+        "content-api-versioning-compatibility",
+        "runtime-schema-validation-typescript",
+        "content-api-contract-design"
+      ]
+    },
+    {
+      "slug": "caching-layers-content-api",
+      "title": "Which caching layers apply to Content APIs, and how do you set TTLs?",
+      "topic": "Caching & Invalidation",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "caching",
+        "cdn",
+        "cache-control",
+        "ttl"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-content-apis",
+          "pages": [
+            6
+          ]
+        }
+      ],
+      "quick": "Content is read-heavy, so I would cache at several layers: browser for suitable public resources, CDN or edge for most traffic, the CMS delivery tier or dispatcher-style cache near the origin, and an application or BFF cache for composed responses. TTLs depend on volatility: evergreen descriptions can live longer than time-bound promotions. Cache keys must include anything that changes the representation, such as locale, and drafts must never enter shared caches.",
+      "revision": "Layered caches: browser, CDN, origin cache, BFF. TTL by content volatility. Key on locale and anything that varies the response. Never cache drafts publicly.",
+      "detailed": "A global site cannot send every page view to the CMS. Layered caching turns a read-heavy workload into a small number of origin requests, but each layer needs a clear **TTL**, **key** and **invalidation** story.\n\n{{diagram:layers}}\n\n## Layers\n\n| Layer | Purpose | Notes |\n|---|---|---|\n| Browser | Avoid repeat requests for the same user | Suitable for public, versioned assets and short-lived JSON |\n| CDN / edge | Absorb most traffic close to users | Primary lever for latency and origin protection |\n| CMS delivery / origin cache | Shield the CMS from bursts | Often invalidated by publish events |\n| App / BFF cache | Cache composed or transformed responses | In-memory or shared store; careful with per-user data |\n\n## TTL guidance\n\n- **Evergreen** (model descriptions, legal copy): longer TTL, invalidate on publish.\n- **Time-sensitive** (campaign offers): short TTL, or event-driven purge, so expiry dates are respected.\n- **Fingerprinted assets** (hash in the filename): very long TTL with `immutable`.\n- Use `stale-while-revalidate` and `stale-if-error` (where your CDN supports them) to hide refresh latency and survive origin failures.\n\n## Cache keys\n\nAnything that changes the representation must be part of the key: **locale**, route or slug, content version, device-specific variants if any, and API version. Beware over-varying (for example by cookies), which destroys the hit ratio, and under-varying, which serves the wrong language.\n\n## Common mistakes\n\n- Caching personalised or draft responses in a shared cache.\n- One long TTL for everything, then purging the entire CDN on every edit.\n- Not measuring hit ratio, so nobody notices the cache is effectively off.",
+      "diagrams": [
+        {
+          "id": "layers",
+          "title": "Cache layers in front of the Content API",
+          "alt": "A user's browser cache sits in front of a CDN edge cache, then an optional application or BFF cache, then the CMS delivery origin. Each layer that misses passes the request to the next layer toward the origin.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "b",
+              "label": "Browser cache"
+            },
+            {
+              "id": "c",
+              "label": "CDN / edge cache"
+            },
+            {
+              "id": "a",
+              "label": "BFF / app cache"
+            },
+            {
+              "id": "o",
+              "label": "CMS delivery origin"
+            }
+          ],
+          "edges": [
+            {
+              "from": "b",
+              "to": "c",
+              "label": "miss"
+            },
+            {
+              "from": "c",
+              "to": "a",
+              "label": "miss"
+            },
+            {
+              "from": "a",
+              "to": "o",
+              "label": "miss"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Which headers would you set for a public published page versus a draft?",
+        "What is cache stampede and how would you reduce it for popular content?",
+        "How would you cache a response that varies by locale?"
+      ],
+      "related": [
+        "content-invalidation-stale-content",
+        "securing-content-and-preview-apis",
+        "content-api-performance-monitoring"
+      ]
+    },
+    {
+      "slug": "content-invalidation-stale-content",
+      "title": "Editors published an update but users still see old content. How do you fix and prevent it?",
+      "topic": "Caching & Invalidation",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "invalidation",
+        "purge",
+        "stale-content",
+        "cdn",
+        "revalidation"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-content-apis",
+          "pages": [
+            6,
+            8
+          ]
+        }
+      ],
+      "quick": "I would trace the publish event through each layer: CMS, API, any application cache, then CDN, to see where the old version survives. The durable fix is targeted invalidation: on publish, purge or revalidate only the affected URLs or surrogate keys, with sensible TTLs as a safety net and cache keys that include locale and content identity. I would avoid purging the whole CDN for a small change, and monitor propagation time and hit ratio.",
+      "revision": "Trace publish through every layer. Fix with targeted purge by URL or tag on publish, TTL as backstop, correct cache keys. Never blanket-purge for small edits.",
+      "detailed": "## Diagnose first\n\nReproduce with a known URL and compare responses from each layer: origin API, CDN edge (check `Age`, cache status headers), application cache and browser. Typical culprits:\n\n- The publish event never reached the cache layer (missing webhook, failed job).\n- Purge happened but a **downstream** layer (BFF cache, browser) still held the old copy.\n- Cache key mismatch: the purge targeted `/en-US/...` while a variant `?locale=en-US` stayed cached.\n- Long TTL with no event-driven invalidation.\n- A page composed from several content items, where only the page URL was purged, not pages that embed the changed item.\n\n## Design the fix\n\n1. **Event-driven invalidation.** CMS publish triggers a webhook or message. A small service maps content ID to affected URLs or **surrogate keys / cache tags** and calls the CDN purge API (capability varies by CDN).\n2. **Targeted purge or revalidation.** In frameworks with on-demand revalidation (for example Next.js), revalidate the specific paths or tags rather than rebuilding everything.\n3. **Dependency tracking.** Tag cached responses with every content ID they used, so changing a shared item (navigation, footer) invalidates dependents.\n4. **TTL as a backstop**, not as the main freshness mechanism. Use `stale-while-revalidate` to smooth refreshes.\n5. **Cache keys** include locale and other representation dimensions.\n6. **Observability.** Measure *publish-to-visible* latency and alert when it exceeds a target; track hit ratio so purges do not collapse it.\n\n## Trade-offs\n\n- Purge-all is simple but triggers origin stampedes and a cold cache worldwide.\n- Aggressive purging of high-traffic content can cause load spikes; consider soft purge (mark stale and revalidate).\n- Unpublishing and legal takedowns need the **fastest** path; define a separate urgent purge procedure.\n\n## Common mistake\n\nDeclaring the problem solved by lowering all TTLs, which hurts performance everywhere and still leaves minutes of staleness.",
+      "followUps": [
+        "How do you invalidate a page that embeds shared content like a footer?",
+        "What is soft purge versus hard purge?",
+        "How would you handle urgent takedown of content?"
+      ],
+      "related": [
+        "caching-layers-content-api",
+        "how-content-api-request-flow-works",
+        "content-api-performance-monitoring"
+      ]
+    }
+  ]
+}

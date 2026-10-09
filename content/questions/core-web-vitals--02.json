@@ -1,0 +1,665 @@
+{
+  "category": "core-web-vitals",
+  "questions": [
+    {
+      "slug": "how-cdn-improves-core-web-vitals",
+      "title": "How does a CDN improve Core Web Vitals?",
+      "topic": "Delivery & Caching",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "cdn",
+        "ttfb",
+        "lcp",
+        "edge",
+        "caching"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-core-web-vitals",
+          "pages": [
+            8,
+            9
+          ]
+        }
+      ],
+      "quick": "A CDN serves cached responses from an edge location near the user, which cuts round-trip latency, shortens TLS setup, and removes origin and database work for cache hits. That lowers TTFB and therefore LCP, and also speeds image, CSS and JavaScript delivery. It reduces origin load and absorbs traffic spikes. For a global site, users in different regions hit their nearest edge. It helps less for uncacheable personalised HTML unless you cache fragments or use edge logic.",
+      "revision": "CDN = cached content near users: lower latency, TTFB and origin load, faster assets and LCP. Limited for uncacheable personalised responses.",
+      "detailed": "A **Content Delivery Network** places caches (edge locations) close to users. Instead of every request crossing the world to the origin and into a database, cacheable requests end at the edge.\n\n{{diagram:cdn-flow}}\n\n## What it improves\n- **TTFB and LCP**: a cache hit avoids origin processing, and a nearer edge shortens network round trips and TLS handshakes.\n- **Asset delivery**: images, CSS and JS served from the edge with compression (Brotli/gzip) and HTTP/2 or HTTP/3.\n- **Resilience and scale**: the origin sees a fraction of the traffic, so it stays responsive during campaigns.\n- **Image optimisation**: many CDNs resize and convert formats on the fly (AVIF/WebP), which directly reduces LCP resource duration.\n\n## Making it effective\n- Long `Cache-Control` for fingerprinted static assets (`max-age=31536000, immutable`).\n- Short TTL plus `stale-while-revalidate` for HTML or API responses that can be a little stale.\n- Normalise cache keys (strip irrelevant query strings and cookies) so hit ratio stays high.\n- Monitor hit ratio and origin TTFB on cache misses, not just edge hits.\n- Use `preconnect` for third-party origins that stay outside your CDN.\n\n## Limits and trade-offs\n- Personalised or cookie-varying HTML often bypasses cache; solve with edge-side includes, client-side fetch of small personalised fragments, or edge compute.\n- Purge and invalidation strategy matters for correctness (prices, availability).\n- A CDN does not fix heavy JavaScript or layout shifts.\n\n## Common mistakes\n- Assuming \"we have a CDN\" means high hit ratio.\n- Caching error responses or user-specific pages by accident.",
+      "diagrams": [
+        {
+          "id": "cdn-flow",
+          "title": "Request path with a CDN",
+          "alt": "Users in three regions each reach their nearest CDN edge location; cache hits are served directly while misses go to the origin server and database.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "u",
+              "label": "Users (many regions)"
+            },
+            {
+              "id": "e",
+              "label": "Nearest CDN edge"
+            },
+            {
+              "id": "o",
+              "label": "Origin server"
+            },
+            {
+              "id": "d",
+              "label": "Database"
+            }
+          ],
+          "edges": [
+            {
+              "from": "u",
+              "to": "e"
+            },
+            {
+              "from": "e",
+              "to": "o",
+              "label": "cache miss"
+            },
+            {
+              "from": "o",
+              "to": "d"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you cache a page that has personalised elements?",
+        "How does CDN image optimisation help LCP?",
+        "What cache metrics would you monitor?"
+      ],
+      "related": [
+        "caching-layers-and-performance",
+        "what-is-ttfb-and-effect-on-lcp"
+      ]
+    },
+    {
+      "slug": "caching-layers-and-performance",
+      "title": "Which caching layers improve performance, and how do they fit together?",
+      "topic": "Delivery & Caching",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "caching",
+        "cdn",
+        "browser-cache",
+        "redis",
+        "http-cache"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-core-web-vitals",
+          "pages": [
+            21
+          ]
+        }
+      ],
+      "quick": "Caching works in layers, and the closer to the user a hit happens, the less work remains. The browser cache avoids network entirely for repeat assets. The CDN cache serves shared responses from the edge. The application layer caches rendered pages or fragments, Redis or similar caches expensive data and API results, and the database has its own buffers. I design cache keys, TTLs and invalidation per layer, and watch hit ratios.",
+      "revision": "Cache in layers: browser, CDN, application, Redis/data cache, database. Nearer hits save more; each layer needs key, TTL and invalidation design.",
+      "detailed": "Each layer removes work from the one behind it.\n\n{{diagram:cache-layers}}\n\n| Layer | What it caches | Controls | Watch out for |\n|---|---|---|---|\n| Browser (HTTP cache, service worker) | Static assets, sometimes API GETs | `Cache-Control`, `ETag`, fingerprinted filenames | Stale assets if filenames are not hashed |\n| CDN / edge | Assets, HTML, API responses, images | TTL, cache key, `stale-while-revalidate`, purge | Personalisation leaking into shared cache |\n| Application/SSR cache | Rendered pages, fragments, data-fetch results | Per-route revalidation (e.g. ISR) | Memory growth, cold starts |\n| Distributed cache (Redis) | Expensive queries, sessions, computed data | TTL, eviction, cache-aside | Thundering herd, inconsistency |\n| Database | Query plans, buffer pool | Indexing, read replicas | Not a substitute for upstream caching |\n\n## Useful HTTP patterns\n```http\n# Fingerprinted JS/CSS/images\nCache-Control: public, max-age=31536000, immutable\n\n# HTML that may be slightly stale\nCache-Control: public, max-age=60, stale-while-revalidate=300\n```\n\n## Principles\n- Cache static, fingerprinted assets aggressively; cache dynamic content briefly with revalidation.\n- Never cache personalised responses in shared caches unless varied explicitly and safely.\n- Define invalidation up front (purge by tag/path, short TTLs for pricing and stock).\n- Protect the origin: request coalescing, and stale-if-error for resilience.\n\n## Impact on Core Web Vitals\nLower TTFB (and therefore LCP) from edge and app caching; faster repeat visits from the browser cache; fewer origin timeouts causing slow outliers at p75.\n\n## Common mistakes\n- Caching without a purge plan, then serving stale prices.\n- Using one TTL for everything.",
+      "diagrams": [
+        {
+          "id": "cache-layers",
+          "title": "Caching layers",
+          "alt": "A chain from browser cache to CDN cache to application cache, Redis and finally the database; each layer answers requests before they reach the next one.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "b",
+              "label": "Browser cache"
+            },
+            {
+              "id": "c",
+              "label": "CDN cache"
+            },
+            {
+              "id": "a",
+              "label": "Application cache"
+            },
+            {
+              "id": "r",
+              "label": "Redis"
+            },
+            {
+              "id": "d",
+              "label": "Database"
+            }
+          ],
+          "edges": [
+            {
+              "from": "b",
+              "to": "c",
+              "label": "miss"
+            },
+            {
+              "from": "c",
+              "to": "a",
+              "label": "miss"
+            },
+            {
+              "from": "a",
+              "to": "r",
+              "label": "miss"
+            },
+            {
+              "from": "r",
+              "to": "d",
+              "label": "miss"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "What does stale-while-revalidate do?",
+        "How would you cache a page with a small personalised header?",
+        "How do you avoid a cache stampede?"
+      ],
+      "related": [
+        "how-cdn-improves-core-web-vitals",
+        "ssg-and-isr-and-core-web-vitals"
+      ]
+    },
+    {
+      "slug": "how-react-affects-core-web-vitals",
+      "title": "How does React affect Core Web Vitals?",
+      "topic": "Rendering Strategies",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "react",
+        "bundle-size",
+        "hydration",
+        "rendering"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-core-web-vitals",
+          "pages": [
+            9
+          ]
+        }
+      ],
+      "quick": "React is not inherently slow or fast; the architecture decides. The usual risks are large JavaScript bundles and heavy dependencies that delay LCP, client-side rendering that creates content only after the bundle runs, hydration cost and excessive re-renders that hurt INP, large DOM trees, and late-injected components that cause layout shifts. I focus on bundle size, rendering behaviour, code splitting, network waterfalls, hydration, and real-user data rather than blaming the framework.",
+      "revision": "React's CWV impact comes from architecture: bundle size, CSR vs SSR, hydration, re-renders, DOM size, waterfalls. Fix those, not the framework.",
+      "detailed": "React gives a component model and a rendering engine; whether a site meets Core Web Vitals depends on how it is built and delivered.\n\n## Where React setups typically hurt\n\n| Metric | Typical React-related issue |\n|---|---|\n| LCP | Big bundle must download and run before content exists (CSR); data-fetch waterfalls after mount; hero image injected by client code |\n| INP | Hydration long tasks; cascading re-renders; heavy handlers; context updates re-rendering large trees |\n| CLS | Components rendering after data arrives without reserved space; skeleton size mismatches |\n\n## Levers\n- **Bundle**: route-level code splitting (`React.lazy`/dynamic import), tree shaking, replacing heavy libraries, analysing with a bundle visualiser.\n- **Rendering mode**: SSR or SSG for first paint, streaming, and server components where the framework supports them, so less JavaScript reaches the browser.\n- **Hydration**: hydrate only what must be interactive (selective or progressive hydration, islands), and avoid huge hydrated trees.\n- **Render performance**: colocate state, split contexts, virtualise lists, use transitions for non-urgent updates, memoise based on the Profiler.\n- **Data loading**: avoid sequential fetch waterfalls; start requests early or on the server.\n- **Stability**: reserve space for async content.\n\n## Example\nA configurator built as a single-page app ships 1.8 MB of JavaScript (illustrative). Moving marketing content to server rendering with route-level splitting means the visitor sees a vehicle immediately, and only the configurator route pays the interactive JavaScript cost.\n\n## Common mistakes\n- Blanket `React.memo` without profiling.\n- Assuming SSR alone fixes performance; hydration can still block input.\n- Blaming React rather than measuring bundle and rendering cost.",
+      "followUps": [
+        "What is hydration and why can it hurt INP?",
+        "How would you find which dependency bloats the bundle?",
+        "What do React Server Components change for JavaScript cost?"
+      ],
+      "related": [
+        "csr-vs-ssr-performance",
+        "javascript-cost-and-core-web-vitals"
+      ]
+    },
+    {
+      "slug": "csr-vs-ssr-performance",
+      "title": "CSR vs SSR: how does each affect Core Web Vitals?",
+      "topic": "Rendering Strategies",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "csr",
+        "ssr",
+        "hydration",
+        "lcp",
+        "inp"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-core-web-vitals",
+          "pages": [
+            9,
+            10
+          ]
+        }
+      ],
+      "quick": "With client-side rendering the server sends an empty shell, the browser downloads and runs JavaScript, then fetches data and builds the page, so LCP waits on the bundle and API calls. SSR sends meaningful HTML, so content can appear earlier, which helps LCP and SEO. But SSR is not free: slow server rendering raises TTFB, hydration still needs the JavaScript and can block interactions, so INP and total blocking time can suffer.",
+      "revision": "CSR delays content until JS runs; SSR sends HTML early (better LCP/SEO) but adds server time and hydration cost. Neither is automatically fast.",
+      "detailed": "The rendering strategy decides when the user first sees real content and how much JavaScript must run before the page is usable.\n\n{{diagram:csr-ssr}}\n\n| | CSR | SSR |\n|---|---|---|\n| First response | Small HTML shell | Full HTML for the route |\n| Content visible | After JS downloads, runs and data loads | As soon as HTML arrives and CSS is ready |\n| LCP | Often later; network waterfall | Often earlier if TTFB is controlled |\n| TTFB | Low (static shell) | Higher unless cached or streamed |\n| INP / interactivity | Interactive once JS runs | Hydration cost before it is interactive |\n| SEO / crawlers | Depends on JS rendering | Content in HTML |\n| Server cost | Low | Higher compute |\n\n## Why SSR does not guarantee good vitals\n- **Slow server rendering or slow APIs** inflate TTFB.\n- **Hydration** re-executes component code in the browser; a large hydrated tree creates long tasks and delays input.\n- **Large images** and late hero resources still matter.\n- **Personalisation** may prevent caching the HTML.\n\n## Improving SSR\nStream HTML, cache at the CDN, hydrate selectively, and keep client bundles small (server components, islands, or splitting interactive widgets).\n\n## When CSR is acceptable\nAuthenticated, app-like screens (dashboards, configurators) where SEO and first-paint of public content are not central, and where users stay in the session for a long time.\n\n## Common mistakes\n- Choosing SSR everywhere without a caching or hydration plan.\n- Seeing a fast \"first paint\" in SSR but a long gap before the page responds.\n- Ignoring the extra payload of serialised state (such as a large JSON blob in the HTML).",
+      "diagrams": [
+        {
+          "id": "csr-ssr",
+          "title": "CSR versus SSR first load",
+          "alt": "Two paths: client-side rendering goes from HTML shell to JavaScript download, execution and API calls before render; server-side rendering goes from server render to HTML in the browser, then hydration.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "c1",
+              "label": "CSR: HTML shell"
+            },
+            {
+              "id": "c2",
+              "label": "Download + run JS"
+            },
+            {
+              "id": "c3",
+              "label": "Fetch data, render"
+            },
+            {
+              "id": "s1",
+              "label": "SSR: server renders HTML"
+            },
+            {
+              "id": "s2",
+              "label": "Browser paints HTML"
+            },
+            {
+              "id": "s3",
+              "label": "Download JS, hydrate"
+            }
+          ],
+          "edges": [
+            {
+              "from": "c1",
+              "to": "c2"
+            },
+            {
+              "from": "c2",
+              "to": "c3"
+            },
+            {
+              "from": "s1",
+              "to": "s2"
+            },
+            {
+              "from": "s2",
+              "to": "s3"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "What is hydration and what are its costs?",
+        "What is streaming SSR?",
+        "When would you still choose CSR?"
+      ],
+      "related": [
+        "how-react-affects-core-web-vitals",
+        "ssg-and-isr-and-core-web-vitals"
+      ]
+    },
+    {
+      "slug": "ssg-and-isr-and-core-web-vitals",
+      "title": "How do SSG and ISR affect performance, and when would you use each?",
+      "topic": "Rendering Strategies",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "ssg",
+        "isr",
+        "static-generation",
+        "revalidation",
+        "cdn"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-core-web-vitals",
+          "pages": [
+            10,
+            11
+          ]
+        }
+      ],
+      "quick": "Static site generation builds HTML at build time and serves it from a CDN, giving excellent TTFB and usually strong LCP for content that rarely changes, such as marketing, model information and documentation. Incremental static regeneration lets pages be regenerated in the background after a revalidation window, so you avoid full rebuilds while keeping cached speed. The trade-off is staleness and invalidation. Highly personalised or real-time data needs client fetches or SSR.",
+      "revision": "SSG = prebuilt HTML on a CDN (fastest, but needs rebuilds). ISR = static pages revalidated in the background. Both trade freshness for speed.",
+      "detailed": "**SSG** renders pages once at build time. The result is plain HTML on a CDN, so TTFB is typically low and there is no per-request server work.\n\n**ISR** (a pattern popularised by Next.js; similar ideas exist elsewhere as on-demand or stale-while-revalidate caching) serves the static page and, after a configured period or on a trigger, regenerates it in the background. The next visitor gets the fresh version.\n\n{{diagram:isr-flow}}\n\n## Comparison\n| | SSR (per request) | SSG | ISR |\n|---|---|---|---|\n| Freshness | Always current | As of last build | Within revalidation window or on demand |\n| TTFB | Depends on server | Very low (CDN) | Very low for cached hits |\n| Build time at scale | N/A | Grows with page count | Mitigated by generating on demand |\n| Best for | Personalised, real-time | Stable content | Large catalogues, content that changes occasionally |\n\n## Example (illustrative)\nA global automotive site has thousands of vehicle and dealer-information pages. Model overview pages are generated statically, and revalidated when editorial content changes via a publish webhook. Pricing and live stock are fetched client-side or at the edge, so the static HTML stays cacheable.\n\n## Considerations\n- Choose revalidation intervals based on business tolerance for stale data.\n- Prefer **on-demand revalidation** triggered by CMS publish events for editorial changes.\n- Static HTML does not remove client-side JavaScript costs: hydration and third-party scripts still affect INP.\n- Fallback behaviour for pages not yet generated must not create a long first-request delay.\n\n## Common mistakes\n- Using SSG for pages that need per-user content.\n- Rebuilding thousands of pages for a single content change.\n- Assuming static means fast without checking hero image and JS weight.",
+      "diagrams": [
+        {
+          "id": "isr-flow",
+          "title": "ISR request flow",
+          "alt": "A user request hits the CDN which serves the cached static page; when it is stale the framework regenerates the page in the background and updates the cache for subsequent visitors.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "u",
+              "label": "User"
+            },
+            {
+              "id": "c",
+              "label": "CDN cache"
+            },
+            {
+              "id": "s",
+              "label": "Static page"
+            },
+            {
+              "id": "r",
+              "label": "Regenerate in background"
+            }
+          ],
+          "edges": [
+            {
+              "from": "u",
+              "to": "c"
+            },
+            {
+              "from": "c",
+              "to": "s",
+              "label": "serve cached"
+            },
+            {
+              "from": "c",
+              "to": "r",
+              "label": "if stale"
+            },
+            {
+              "from": "r",
+              "to": "c",
+              "label": "update"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you trigger regeneration when the CMS content is published?",
+        "How do you show live prices on a static page?",
+        "What are the downsides of very long revalidate times?"
+      ],
+      "related": [
+        "csr-vs-ssr-performance",
+        "caching-layers-and-performance"
+      ]
+    },
+    {
+      "slug": "javascript-cost-and-core-web-vitals",
+      "title": "How does JavaScript affect Core Web Vitals and how do you reduce it?",
+      "topic": "JavaScript Cost",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "javascript",
+        "bundle-size",
+        "tree-shaking",
+        "main-thread",
+        "lcp",
+        "inp"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-core-web-vitals",
+          "pages": [
+            11,
+            12
+          ]
+        }
+      ],
+      "quick": "JavaScript is costly because it must be downloaded, parsed, compiled and executed on the main thread, and on slow phones that costs far more than bytes suggest. It delays LCP through bandwidth contention and render delay, hurts INP through long tasks and hydration, and can cause CLS when components render late. To reduce it I code-split by route, tree-shake, remove unused dependencies, defer or drop third-party scripts, and enforce a JavaScript budget in CI.",
+      "revision": "JS costs download, parse and execution on the main thread: delays LCP, blocks INP, can shift layout. Split, shrink, defer, and budget it.",
+      "detailed": "Unlike an image, JavaScript is not \"done\" when it downloads. It has to be parsed, compiled and executed, usually on the same main thread that handles input and painting. On mid-range phones that is several times slower than on a developer laptop.\n\n## Effect on each metric\n- **LCP**: bundles compete for bandwidth with the hero; client-rendered content cannot appear until scripts run; render-blocking scripts delay first paint.\n- **INP**: long tasks (evaluation, hydration, handlers) block input and rendering.\n- **CLS**: UI built after script execution can arrive without reserved space.\n\n## Ways to reduce it\n| Technique | Effect |\n|---|---|\n| Route-based code splitting and dynamic `import()` | Load only what the current page needs |\n| Tree shaking and ESM-friendly libraries | Remove unused exports |\n| Replace heavy dependencies | For example, a lighter date or utility library, native APIs |\n| Remove duplicate libraries | Avoid shipping two versions or two copies of React |\n| `defer` / `async` scripts, load after interaction | Keep the main thread free early |\n| Server components / islands / SSR | Render non-interactive UI without shipping its code |\n| Audit third parties | Often the largest unowned JS cost |\n| Modern output, minification, compression (Brotli) | Smaller transfer and parse size |\n\n```js\nimport { lazy, Suspense } from 'react';\nconst FinanceCalculator = lazy(() => import('./FinanceCalculator'));\n\nexport function FinanceSection() {\n  return (\n    <Suspense fallback={<div style={{ minHeight: 320 }} />}>\n      <FinanceCalculator />\n    </Suspense>\n  );\n}\n```\n\n## How to find the weight\nUse a bundle analyser, Chrome coverage panel, and the Lighthouse \"unused JavaScript\" and \"reduce JavaScript execution time\" audits; track bundle size in CI.\n\n## Common mistakes\n- Measuring only transferred bytes, not execution time.\n- Splitting into many tiny chunks that create request waterfalls.\n- Reducing your own code while ignoring tag-manager payloads.",
+      "followUps": [
+        "Why are bytes of JavaScript more expensive than bytes of images?",
+        "How do you stop bundles from growing again?",
+        "What can go wrong with too much code splitting?"
+      ],
+      "related": [
+        "code-splitting-and-lazy-loading",
+        "third-party-scripts-and-core-web-vitals"
+      ]
+    },
+    {
+      "slug": "code-splitting-and-lazy-loading",
+      "title": "What are code splitting and lazy loading, and when should you avoid them?",
+      "topic": "JavaScript Cost",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "code-splitting",
+        "lazy-loading",
+        "dynamic-import",
+        "react-lazy",
+        "lcp"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-core-web-vitals",
+          "pages": [
+            12,
+            16,
+            17
+          ]
+        }
+      ],
+      "quick": "Code splitting divides a large bundle into smaller chunks, such as home, vehicle, finance and account routes, so the browser loads only what the current view needs. Lazy loading defers loading a chunk, image or component until it is needed, such as when a route opens or an element scrolls near the viewport. Both reduce initial work. I avoid lazy loading anything needed for first paint, especially the LCP image, and I reserve space so late content does not shift the layout.",
+      "revision": "Split bundles by route or feature; lazy-load what is not needed for first view. Never lazy-load above-the-fold or the LCP element; reserve space.",
+      "detailed": "**Code splitting** is a build-time technique: the bundler emits several chunks instead of one. **Lazy loading** is the runtime decision to fetch a chunk, image or component only when needed.\n\nInstead of one multi-megabyte bundle:\n\n- Initial load: shell + home chunk\n- On navigation: vehicle chunk, then finance chunk, then account chunk\n\n## What can be lazy-loaded\n- Routes and heavy components (a 3D viewer, charts, a finance calculator)\n- Large libraries used in a rare flow\n- Below-the-fold images, iframes and maps (native `loading=\"lazy\"`)\n\n```js\nconst Finance = lazy(() => import('./pages/Finance'));\n// Prefetch when the user is likely to go there\nconst prefetchFinance = () => import('./pages/Finance');\n```\n\n## Where it goes wrong\n- **Lazy-loading the LCP image or hero component** delays the very element LCP measures. Hero and first-view content should load eagerly.\n- **Waterfalls**: a lazy component that then fetches data, then lazy-loads another component, turns into a serial chain. Start requests early or prefetch likely chunks.\n- **Layout shift**: a lazy section appearing without reserved height pushes content around.\n- **Too many tiny chunks** can add request overhead; group sensibly.\n- Failure handling: wrap with an error boundary for failed chunk loads after deployments.\n\n## Good practice\nSplit on route and on heavy, rarely used features; hover/idle prefetch for likely next steps; keep a consistent placeholder size; measure chunk sizes in CI.\n\n## Common mistakes\n- Lazy loading everything by default.\n- Forgetting that splitting does not shrink the total code; it defers the cost.",
+      "followUps": [
+        "Which images should be lazy-loaded and which should not?",
+        "How do you avoid a loading waterfall with a lazy route?",
+        "How would you handle a failed chunk load after a new deploy?"
+      ],
+      "related": [
+        "javascript-cost-and-core-web-vitals",
+        "preload-vs-prefetch"
+      ]
+    },
+    {
+      "slug": "critical-rendering-path",
+      "title": "What is the Critical Rendering Path and how does it relate to Core Web Vitals?",
+      "topic": "Browser Rendering",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "critical-rendering-path",
+        "render-blocking",
+        "css",
+        "dom",
+        "cssom"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-core-web-vitals",
+          "pages": [
+            19,
+            20
+          ]
+        }
+      ],
+      "quick": "The critical rendering path is the sequence the browser follows to turn bytes into pixels: parse HTML into the DOM, parse CSS into the CSSOM, combine them into a render tree, then layout, paint and composite. CSS blocks rendering and synchronous scripts block parsing, so anything on that path delays first paint and LCP. I shorten it by inlining or splitting critical CSS, deferring scripts, preloading key resources and avoiding late changes that force extra layout.",
+      "revision": "CRP: HTML to DOM, CSS to CSSOM, render tree, layout, paint, composite. Render-blocking CSS and sync scripts delay LCP; shorten the path.",
+      "detailed": "{{diagram:crp}}\n\nThe browser cannot paint until it has enough DOM and CSSOM to build a render tree. This is why some resources are called **render-blocking**.\n\n## What blocks what\n- **CSS** in the head blocks rendering (the browser will not paint unstyled content) and also blocks later script execution that might query styles.\n- **Synchronous scripts** (no `defer`/`async`) pause HTML parsing while they download and run.\n- **Fonts** can delay text paint depending on `font-display`.\n\n## Optimising the path\n| Problem | Technique |\n|---|---|\n| Large CSS file | Split critical (above-the-fold) CSS inline, load the rest asynchronously; remove unused CSS |\n| Blocking scripts | `defer` for ordered scripts, `async` for independent ones, module scripts are deferred by default |\n| Late discovery of key assets | `preload`, `fetchpriority`, and putting the LCP image in markup |\n| Extra connections | `preconnect` to critical third-party origins |\n| Layout thrash later | Avoid forced synchronous layout in scripts; use `transform` for animation |\n\n```html\n<link rel=\"preload\" href=\"/fonts/brand-regular.woff2\" as=\"font\" type=\"font/woff2\" crossorigin>\n<link rel=\"stylesheet\" href=\"/css/critical.css\">\n<script src=\"/js/app.js\" defer></script>\n```\n\n## Link to the metrics\n- LCP: shorter path means earlier first paint and less render delay.\n- CLS: stable CSS and sized elements avoid reflow after first paint.\n- INP: repeat layout and paint work is part of the presentation delay.\n\n## Common mistakes\n- Treating all scripts as harmless once they are \"async\".\n- Inlining so much CSS that HTML becomes huge and uncacheable.\n- Preloading everything, which makes nothing a priority.",
+      "diagrams": [
+        {
+          "id": "crp",
+          "title": "Critical rendering path",
+          "alt": "Pipeline from HTML to DOM and CSS to CSSOM, joining into a render tree, followed by layout, paint and composite.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "h",
+              "label": "HTML"
+            },
+            {
+              "id": "d",
+              "label": "DOM"
+            },
+            {
+              "id": "c",
+              "label": "CSS"
+            },
+            {
+              "id": "o",
+              "label": "CSSOM"
+            },
+            {
+              "id": "r",
+              "label": "Render tree"
+            },
+            {
+              "id": "l",
+              "label": "Layout"
+            },
+            {
+              "id": "p",
+              "label": "Paint"
+            },
+            {
+              "id": "m",
+              "label": "Composite"
+            }
+          ],
+          "edges": [
+            {
+              "from": "h",
+              "to": "d"
+            },
+            {
+              "from": "c",
+              "to": "o"
+            },
+            {
+              "from": "d",
+              "to": "r"
+            },
+            {
+              "from": "o",
+              "to": "r"
+            },
+            {
+              "from": "r",
+              "to": "l"
+            },
+            {
+              "from": "l",
+              "to": "p"
+            },
+            {
+              "from": "p",
+              "to": "m"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "What is the difference between async and defer?",
+        "Why does CSS block rendering?",
+        "What is critical CSS?"
+      ],
+      "related": [
+        "how-to-improve-lcp",
+        "preload-vs-prefetch"
+      ]
+    },
+    {
+      "slug": "image-optimization-for-performance",
+      "title": "How do you optimise images for performance on a vehicle-heavy site?",
+      "topic": "Assets",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "images",
+        "avif",
+        "webp",
+        "srcset",
+        "lazy-loading",
+        "lcp"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-core-web-vitals",
+          "pages": [
+            17
+          ]
+        }
+      ],
+      "quick": "Images are often the LCP element and the biggest bytes, so I treat them as a pipeline. Serve responsive variants with srcset and sizes, in modern formats like AVIF or WebP with a fallback, at the right dimensions and quality, through a CDN with long cache lifetimes. Always set width and height or aspect-ratio to avoid layout shift. Lazy-load below-the-fold images and galleries, but load the LCP hero eagerly with high fetch priority.",
+      "revision": "Image optimisation: responsive srcset, modern formats, right size and compression, CDN, explicit dimensions; lazy-load below the fold, never the LCP image.",
+      "detailed": "For a site full of vehicle photography, images dominate both byte weight and LCP. Treat them as a managed pipeline.\n\n## Checklist\n- **Formats**: AVIF or WebP where supported, with JPEG/PNG fallback via `<picture>`; SVG for logos and icons.\n- **Dimensions**: serve widths that match layout and device pixel ratio. A 4000 px photo in a 400 px card is wasted bytes.\n- **Responsive**: `srcset` plus `sizes` so the browser can choose.\n- **Compression**: tune quality per format (often a visually lossless range), strip unneeded metadata.\n- **Delivery**: CDN or image service with on-the-fly resizing, immutable URLs, long cache headers.\n- **Layout stability**: `width`/`height` or CSS `aspect-ratio`.\n- **Loading strategy**: eager plus `fetchpriority=\"high\"` for the LCP hero; `loading=\"lazy\"` and `decoding=\"async\"` for the rest.\n\n```html\n<picture>\n  <source type=\"image/avif\" srcset=\"/v/suv-640.avif 640w, /v/suv-1280.avif 1280w\" sizes=\"(min-width: 960px) 50vw, 100vw\">\n  <img src=\"/v/suv-1280.jpg\" width=\"1280\" height=\"720\" alt=\"Compact SUV, front three-quarter view\"\n       fetchpriority=\"high\">\n</picture>\n```\n\n## Galleries and 360 viewers\nLoad the first frame eagerly, then lazy-load the rest or load on interaction. Use placeholders with the correct aspect ratio. Consider low-quality placeholders only if they do not cost extra requests on the critical path.\n\n## Common mistakes\n- Lazy-loading the hero because \"all images should be lazy\".\n- Delivering the same large file to all devices.\n- Forgetting dimensions on lazy images, which shifts layout.\n- Serving hero images through a client-side image component that only requests the file after hydration.",
+      "followUps": [
+        "How do srcset and sizes work together?",
+        "Why is lazy-loading the hero image harmful?",
+        "When would you pick AVIF versus WebP?"
+      ],
+      "related": [
+        "how-to-improve-lcp",
+        "vehicle-detail-page-optimization"
+      ]
+    },
+    {
+      "slug": "fonts-and-web-performance",
+      "title": "How do web fonts affect Core Web Vitals and how do you load them well?",
+      "topic": "Assets",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "fonts",
+        "font-display",
+        "preload",
+        "cls",
+        "lcp",
+        "subsetting"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-core-web-vitals",
+          "pages": [
+            20
+          ]
+        }
+      ],
+      "quick": "Web fonts add network requests, can delay text rendering, and can cause layout shift when a fallback swaps to the web font with different metrics. I subset fonts, use WOFF2, limit weights and variants, self-host or serve from the CDN, preload only the truly critical font with crossorigin, and pick a font-display strategy such as swap or optional. I also match fallback metrics with size-adjust so the swap barely moves text.",
+      "revision": "Fonts affect LCP (delayed text) and CLS (swap shifts). Use WOFF2, subset, few variants, preload only the critical one, font-display, metric-matched fallback.",
+      "detailed": "Fonts are render-affecting resources: until they arrive, the browser either hides text or shows a fallback.\n\n## Effects\n- **LCP**: when the LCP element is text, a blocked font delays its paint.\n- **CLS**: a fallback font with different width or height shifts lines when the web font swaps in.\n- **Network**: extra requests, sometimes from a third-party origin with its own connection setup.\n\n## Strategy\n| Technique | Why |\n|---|---|\n| WOFF2 format | Best compression for web fonts |\n| Subsetting (e.g. only needed Unicode ranges) | Smaller files; split by script for global sites |\n| Fewer families, weights and styles; variable fonts where they replace many files | Fewer requests and bytes |\n| Self-host or serve from your CDN | Avoid third-party connection costs |\n| Preload only the critical above-the-fold font | Early discovery without crowding other resources |\n| `font-display` | Control behaviour while loading |\n| Metric-matched fallback | Reduce shift on swap |\n\n`font-display` options in short: `swap` shows fallback immediately then swaps (risk of shift); `optional` uses the font only if it is available very quickly (least shift, may not use the web font on first visit); `fallback` is a compromise.\n\n```css\n@font-face {\n  font-family: \"Brand Sans\";\n  src: url(\"/fonts/brand-sans-latin.woff2\") format(\"woff2\");\n  font-display: swap;\n}\n@font-face {\n  font-family: \"Brand Sans Fallback\";\n  src: local(\"Arial\");\n  size-adjust: 104%;\n  ascent-override: 92%;\n  descent-override: 24%;\n}\nbody { font-family: \"Brand Sans\", \"Brand Sans Fallback\", sans-serif; }\n```\n\n(The override numbers above are an example; compute real values for your font.)\n\n## Common mistakes\n- Preloading every font file.\n- Preloading a font without `crossorigin`, so it is fetched twice.\n- Shipping many weights that are rarely used.",
+      "followUps": [
+        "Which font-display value would you choose for body text and why?",
+        "Why does preload of a font need crossorigin?",
+        "How can you avoid shift when the web font loads?"
+      ],
+      "related": [
+        "causes-and-fixes-for-cls",
+        "preload-vs-prefetch"
+      ]
+    },
+    {
+      "slug": "preload-vs-prefetch",
+      "title": "What is the difference between preload and prefetch, and what are the risks?",
+      "topic": "Assets",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "preload",
+        "prefetch",
+        "preconnect",
+        "resource-hints",
+        "fetchpriority"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-core-web-vitals",
+          "pages": [
+            20,
+            21
+          ]
+        }
+      ],
+      "quick": "Preload tells the browser a resource is needed for the current page and should be fetched early at high priority, for example a critical font or an LCP image that is not discoverable in markup. Prefetch is a low-priority hint to fetch something likely needed on a future navigation, like the finance route chunk. Overusing preload makes resources compete and can slow the real critical path, while careless prefetch wastes bandwidth, especially on constrained networks or data-saver users.",
+      "revision": "Preload = current page, high priority, use sparingly. Prefetch = likely next page, low priority, be network-aware. Overuse of either hurts.",
+      "detailed": "Both are resource hints but with opposite intent.\n\n| Hint | Purpose | Priority | Example |\n|---|---|---|---|\n| `preload` | Fetch a resource needed **now**, earlier than discovery | High | Critical font, CSS-referenced hero image, key script |\n| `prefetch` | Fetch something needed **later** | Lowest, idle time | Next route's JS or document |\n| `preconnect` | Open connection (DNS, TCP, TLS) to an origin | n/a | Image CDN or API on another origin |\n| `fetchpriority` | Raise or lower relative priority of a request | Adjusts | Hero image `high`, offscreen `low` |\n\n```html\n<link rel=\"preload\" as=\"image\" href=\"/v/hero-1280.avif\"\n      imagesrcset=\"/v/hero-640.avif 640w, /v/hero-1280.avif 1280w\" imagesizes=\"100vw\">\n<link rel=\"preconnect\" href=\"https://images.example-cdn.com\">\n<link rel=\"prefetch\" href=\"/assets/finance.chunk.js\">\n```\n\n## When to use preload\nOnly for resources the browser would otherwise find late: CSS background images, fonts referenced in CSS, or images chosen by JavaScript. If the hero is already an `<img>` in HTML, `fetchpriority=\"high\"` is often enough and preload adds little.\n\n## Risks\n- **Over-preloading** pushes everything to high priority, so nothing is.\n- A mismatched preload (wrong `as`, wrong `crossorigin`, mismatched `srcset`) can cause a double download.\n- **Prefetch** consumes bandwidth for pages the user may never open. Be selective: trigger on hover, viewport visibility, or strong navigation intent, and respect Save-Data or slow connections.\n\n## Note\nFrameworks and the newer Speculation Rules API can prefetch or prerender likely navigations; they have the same cost-benefit trade-off and limited browser support, so treat them as progressive enhancement.\n\n## Common mistakes\n- Preloading a resource that is never used on the page (a console warning flags this).\n- Prefetching on mobile networks without any gating.",
+      "followUps": [
+        "How do you decide whether a preload is justified?",
+        "What does fetchpriority do?",
+        "How would you prefetch the next step in a configurator safely?"
+      ],
+      "related": [
+        "how-to-improve-lcp",
+        "code-splitting-and-lazy-loading",
+        "fonts-and-web-performance"
+      ]
+    }
+  ]
+}

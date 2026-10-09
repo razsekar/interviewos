@@ -1,0 +1,457 @@
+{
+  "category": "cdp-analytics-experimentation",
+  "questions": [
+    {
+      "slug": "peeking-and-early-stopping",
+      "title": "Why is peeking at A/B test results and stopping early a problem?",
+      "topic": "Experiment Pitfalls",
+      "difficulty": "advanced",
+      "type": "conceptual",
+      "tags": [
+        "ab-testing",
+        "peeking",
+        "sequential-testing",
+        "false-positives"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-cdp-analytics-a-b-testing",
+          "pages": [
+            7
+          ]
+        }
+      ],
+      "quick": "A standard fixed-horizon test assumes you analyse once, at the planned sample size. If you check repeatedly and stop the first time p is below 0.05, the real false positive rate climbs well above 5%, because random noise often crosses the line at some point. Early gaps also tend to shrink. I would pre-commit to a sample size and duration, or use a sequential or always-valid method that is designed for repeated looks, and still monitor guardrails for harm.",
+      "revision": "Repeatedly checking and stopping at the first significant result inflates false positives. Pre-commit to sample size, or use a sequential method built for continuous monitoring.",
+      "detailed": "**Peeking** means checking significance repeatedly during a test and acting on it, for example stopping when p drops below 0.05. Classical tests (fixed-horizon z or t tests) are valid only if the sample size and analysis time are fixed in advance.\n\n## Why it breaks\n\nA p-value fluctuates as data accumulates. If you give random noise many chances to cross the threshold, it eventually will. Simulations commonly show that checking after every batch can push the real false positive rate from 5% to well above that, with several looks often landing in the teens of percent. The exact value depends on the number and spacing of looks.\n\nStopping early on a win also overestimates the effect (the winner's curse), and early data may reflect novelty effects, a day-of-week mix or a single campaign.\n\n## Safe options\n\n- **Fixed horizon.** Compute the sample size, run it to completion (usually whole weeks), and analyse once. Simple and robust.\n- **Sequential testing** (group-sequential designs with alpha spending, or always-valid p-values and confidence sequences). These control error rates despite repeated looks, at a cost in efficiency.\n- **Bayesian approaches.** These can be used for monitoring, but stopping rules still need careful design; stopping when a posterior looks good can also be misleading with naive priors.\n\n## What you may still do mid-test\n\n- Watch **data quality**: sample-ratio, event completeness, errors.\n- Watch **guardrails** for severe harm, with a pre-defined stop rule such as halting if error rate doubles.\n- Do not change the primary metric, allocation or design without recording it.\n\n## Practical guidance\n\nDecide in the test plan: sample size, minimum duration, analysis method, and stop criteria. Dashboards that show a live p-value invite misuse; show interval estimates and flag that results are not yet valid until the planned end.",
+      "diagrams": [],
+      "followUps": [
+        "How does a sequential test control the error rate?",
+        "What mid-test checks are acceptable?",
+        "What is the winner's curse in experiments?"
+      ],
+      "related": [
+        "statistical-significance-p-values",
+        "power-mde-sample-size",
+        "common-ab-testing-mistakes"
+      ]
+    },
+    {
+      "slug": "common-ab-testing-mistakes",
+      "title": "What are the most common A/B testing mistakes?",
+      "topic": "Experiment Pitfalls",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "ab-testing",
+        "pitfalls",
+        "experiment-design"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-cdp-analytics-a-b-testing",
+          "pages": [
+            7
+          ]
+        }
+      ],
+      "quick": "The main ones are stopping early when a variant looks good, changing the primary metric after seeing results, running overlapping experiments that interfere, using different event definitions per variant, ignoring sample-ratio mismatch, and measuring clicks instead of qualified outcomes. Others are testing too many metrics or segments without correction, underpowered tests, ignoring novelty effects, and shipping wins that damage performance or accessibility. Most are prevented by a written test plan agreed beforehand.",
+      "revision": "Early stopping, post-hoc metrics, overlapping tests, unequal tracking, ignored SRM, proxy metrics, underpowered tests and ignored guardrails. A pre-registered plan prevents most.",
+      "detailed": "Most experiment failures are design or data problems, not maths problems.\n\n## Design mistakes\n\n- **Weak hypothesis.** Testing a random idea with no expected mechanism makes results hard to interpret or reuse.\n- **Wrong metric.** Optimising clicks while the real goal is qualified leads. Use a primary metric close to value, with quality guardrails.\n- **Changing the metric or analysis after seeing data.** This is \"p-hacking\" even when unintentional.\n- **Too many variants or metrics.** More comparisons raise the chance of a spurious winner; correct for multiplicity or limit the number.\n- **Underpowered tests.** Too little traffic yields inconclusive results; the few significant ones are often exaggerated.\n- **Bundled changes.** A redesign that changes ten things cannot say which one mattered (sometimes acceptable, but state it).\n\n## Execution mistakes\n\n- **Peeking** and stopping early.\n- **Overlapping experiments** on the same page or audience that interact, so the effect of one depends on another. Use mutually exclusive layers where interactions are likely.\n- **Unstable assignment**, such as re-randomising on each page, so users see both variants.\n- **Inconsistent tracking** between arms, for example a tag that fires only in the control.\n- **Ignored sample-ratio mismatch** and data quality issues.\n- **Running too short a period**, missing weekly cycles, or running through an atypical campaign or holiday.\n- **Novelty or primacy effects**: users react to something new, and the effect fades or builds.\n\n## Interpretation mistakes\n\n- Treating p < 0.05 as \"the variant is better\" or as certainty.\n- Calling a non-significant result \"no effect\".\n- Ignoring guardrails such as performance, accessibility or lead quality.\n- Generalising beyond the tested population and period.\n- Not recording learnings, so teams repeat tests.\n\n## Remedy\n\nA short written test plan: hypothesis, eligibility, unit, primary and guardrail metrics, MDE, sample size, duration, analysis method, and decision rule, reviewed before launch.",
+      "diagrams": [],
+      "followUps": [
+        "How would you handle two teams wanting to test on the same page?",
+        "What is a novelty effect and how do you check for it?",
+        "How do you correct for testing multiple metrics?"
+      ],
+      "related": [
+        "peeking-and-early-stopping",
+        "primary-and-guardrail-metrics",
+        "scenario-validating-an-ab-test"
+      ]
+    },
+    {
+      "slug": "experiment-assignment-and-exposure",
+      "title": "How should experiment assignment and exposure tracking be implemented?",
+      "topic": "Experimentation Architecture",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "ab-testing",
+        "assignment",
+        "exposure",
+        "hashing"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-cdp-analytics-a-b-testing",
+          "pages": [
+            8,
+            9
+          ]
+        }
+      ],
+      "quick": "I would assign deterministically by hashing a stable unit ID together with the experiment key, so the same user always gets the same variant on every route and service without storing state. Assignment should happen server-side or at the edge where possible to avoid flicker. Then I log an exposure event only when the user actually sees the experience, and analyse exposed users. I would keep experiments from contaminating each other and propagate consent and the variant label into analytics events.",
+      "revision": "Hash stable ID plus experiment key for sticky assignment; log exposure only when seen; analyse exposed users; avoid cross-experiment contamination and flicker.",
+      "detailed": "Two separate concerns: **assignment** (which variant) and **exposure** (the user actually experienced it). Most analysis errors come from mixing them up.\n\n## Deterministic assignment\n\nHash a stable identifier with the experiment key and map to a bucket. The same inputs always give the same variant, across routes, micro frontends and services, with no shared state needed.\n\n```ts\nimport { createHash } from \"node:crypto\";\n\nfunction bucket(unitId: string, experimentKey: string, buckets = 10000): number {\n  const digest = createHash(\"sha256\").update(`${experimentKey}:${unitId}`).digest();\n  return digest.readUInt32BE(0) % buckets;\n}\n\nfunction assign(unitId: string, key: string): \"control\" | \"variant\" {\n  return bucket(unitId, key) < 5000 ? \"control\" : \"variant\";\n}\n```\n\nIncluding the experiment key in the hash makes assignments independent across experiments. The modulo bias is negligible at this bucket count.\n\n## Where to assign\n\n| Approach | Benefit | Risk |\n|---|---|---|\n| Server or edge | No flicker, consistent across routes | Needs a stable ID early (cookie), caching must vary by variant |\n| Client-side | Easy for marketers | Flicker, extra JavaScript, layout shifts |\n\n## Exposure logging\n\nLog an `experiment_exposure` event (experiment key, variant, unit ID, timestamp) when the user actually reaches the changed experience, not at page load if the change is below the fold or on a different step. Analyse only exposed users, or you dilute the effect with people who never saw the change. Use the same trigger rule for both arms.\n\n## Contamination and consistency\n\n- Use layers or mutual exclusion for experiments likely to interact.\n- Keep assignment sticky, including across micro frontends and after login if identity changes.\n- Attach the variant label to downstream analytics events so conversions can be joined to exposure.\n- Respect consent: if storing an assignment cookie needs consent, define what happens without it and verify that it does not bias arms.\n- Cache carefully: a CDN must not serve one variant to everyone.",
+      "diagrams": [],
+      "followUps": [
+        "How would you keep assignment consistent when an anonymous user logs in?",
+        "Why log exposure rather than assignment?",
+        "How do you prevent CDN caching from breaking an experiment?"
+      ],
+      "related": [
+        "hypothesis-randomization-control-treatment",
+        "sample-ratio-mismatch",
+        "tags-experiments-performance-impact"
+      ]
+    },
+    {
+      "slug": "tags-experiments-performance-impact",
+      "title": "How can analytics tags and A/B testing tools affect performance and Core Web Vitals?",
+      "topic": "Performance and Privacy",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "performance",
+        "core-web-vitals",
+        "tags",
+        "experimentation"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-cdp-analytics-a-b-testing",
+          "pages": [
+            8,
+            9
+          ]
+        }
+      ],
+      "quick": "Tags and experiment tools add JavaScript, network requests and sometimes DOM changes. Synchronous scripts can delay rendering and hurt LCP. Variants that swap content after load cause layout shifts and hurt CLS. Heavy variant logic or many listeners can worsen INP. I would load tools asynchronously or deferred, prefer server-side or edge variant rendering, reserve space to avoid shifts, keep third-party scripts to a budget, and monitor Core Web Vitals per variant.",
+      "revision": "Tags add JS and requests: blocking scripts hurt LCP, content swaps hurt CLS, heavy logic hurts INP. Load async, render variants server-side, budget scripts, monitor vitals per variant.",
+      "detailed": "Measurement itself has a cost, and the cost can bias the thing being measured.\n\n## Impact by metric\n\n| Metric | Typical cause |\n|---|---|\n| LCP (loading) | Synchronous tag or anti-flicker snippet blocking render; extra requests competing with the main content |\n| CLS (visual stability) | Client-side variant replaces content after first paint; late-loading banners |\n| INP (responsiveness) | Long tasks from tag scripts or expensive variant code; many event listeners |\n| Reliability | Tag errors, failed requests, blocked scripts |\n\n## Mitigations\n\n- **Load asynchronously** (`async` or `defer`), after critical content, and keep third-party scripts on a budget. Audit them regularly.\n- **Render variants on the server or at the edge** so the correct HTML arrives first. This avoids flicker and layout shift. Where client-side changes are unavoidable, keep them small and reserve space.\n- **Avoid blanket anti-flicker hiding** (hiding the page until a tool loads) because it can delay LCP; use a short timeout if used at all.\n- **Batch and defer events**, for example send with `navigator.sendBeacon` or a queue during idle time instead of making many blocking calls.\n- **Move work off the main thread** where possible, or use server-side collection to reduce client code.\n- **Consent-gate** non-essential tags so denied users do not download them.\n- **Measure by variant.** Use real-user monitoring segmented by experiment arm; a variant that is slower may win on conversions for the wrong reasons or lose despite a better design.\n\n## Measurement bias\n\nAd blockers, consent denial, slow connections and failed requests mean some users never send events. If the variant loads more scripts, more of its users may drop out before logging, producing differences in measured conversion (and sample-ratio issues) that are not real behaviour changes.\n\n```html\n<script src=\"/vendor/analytics.js\" defer></script>\n```\n\nPerformance should be a guardrail metric in every experiment.",
+      "diagrams": [],
+      "followUps": [
+        "Why can an anti-flicker snippet hurt LCP?",
+        "How would you measure Core Web Vitals per experiment variant?",
+        "Would you use client-side or server-side tracking for performance?"
+      ],
+      "related": [
+        "scenario-conversion-up-performance-down",
+        "experiment-assignment-and-exposure",
+        "privacy-and-consent-enforcement"
+      ]
+    },
+    {
+      "slug": "analytics-for-micro-frontends",
+      "title": "How would you design analytics for a micro frontend architecture?",
+      "topic": "Analytics Architecture",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "analytics",
+        "micro-frontends",
+        "architecture",
+        "governance"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-cdp-analytics-a-b-testing",
+          "pages": [
+            5,
+            9,
+            10
+          ]
+        }
+      ],
+      "quick": "I would define one shared analytics contract and let the platform shell own cross-cutting concerns: page context, page views, consent state, and a single tracking client. Each micro frontend emits its domain events through that client according to the common schema and owns its own event definitions. That prevents duplicate page views, keeps consent enforcement and experiment assignment consistent, and lets teams deploy independently. I would validate events in CI and monitor event volume per micro frontend.",
+      "revision": "Shell owns the shared tracking client, page views, consent and context; each micro frontend emits domain events via the common contract. Validate and monitor per team.",
+      "detailed": "Independently deployed teams make drift and duplication the default risks. The design goal is consistency without central bottlenecks.\n\n{{diagram:mfe}}\n\n## Responsibilities\n\n**Shell or platform**\n\n- Provides a single tracking client (one library, one instance) exposed through a small API or event bus\n- Emits page views on route changes, once\n- Attaches shared context: page type, locale, app and micro frontend versions, consent state, experiment assignments\n- Enforces consent before anything is sent\n\n**Micro frontends**\n\n- Emit domain events (`vehicle_comparison_started`) via the shared client, following the schema\n- Own the definitions and documentation of their events\n- Do not load their own analytics libraries or tags\n\n## Key risks and mitigations\n\n| Risk | Mitigation |\n|---|---|\n| Duplicate page views | Only the shell emits page views; the client dedupes by event ID |\n| Different naming | Central naming convention, schema validation in CI |\n| Consent bypass | Consent enforced inside the shared client, not in each app |\n| Version skew | Shared contract is versioned, additive changes, client handles older callers |\n| Inconsistent experiment assignment | Shell resolves assignments once and passes them down |\n| Hard to debug | Include `source_app` and version on every event; per-app dashboards |\n\n## Example (illustrative API)\n\n```ts\n// Provided by the shell, consumed by each micro frontend\nwindow.platform.analytics.track(\"dealer_search_submitted\", {\n  search_method: \"postal-code\",\n});\n```\n\nThe client adds context, the event ID and consent checks. The micro frontend never talks to a vendor directly, so changing vendors does not require changes in every team.\n\n## Testing\n\nContract tests per team, an automated check that route changes produce one page view, and monitoring that alerts when a micro frontend's event volume changes sharply after a deploy.",
+      "diagrams": [
+        {
+          "id": "mfe",
+          "title": "Analytics in micro frontends",
+          "alt": "Several micro frontends call a shared tracking client owned by the platform shell. The shell adds page context, consent state and experiment assignments, checks consent, and forwards events to the event collector, which feeds analytics and the CDP.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "mfe1",
+              "label": "Vehicle micro frontend"
+            },
+            {
+              "id": "mfe2",
+              "label": "Dealer micro frontend"
+            },
+            {
+              "id": "mfe3",
+              "label": "Lead form micro frontend"
+            },
+            {
+              "id": "shell",
+              "label": "Shell: shared tracking client"
+            },
+            {
+              "id": "consent",
+              "label": "Consent check and context"
+            },
+            {
+              "id": "collector",
+              "label": "Event collector"
+            },
+            {
+              "id": "sinks",
+              "label": "Analytics and CDP"
+            }
+          ],
+          "edges": [
+            {
+              "from": "mfe1",
+              "to": "shell"
+            },
+            {
+              "from": "mfe2",
+              "to": "shell"
+            },
+            {
+              "from": "mfe3",
+              "to": "shell"
+            },
+            {
+              "from": "shell",
+              "to": "consent"
+            },
+            {
+              "from": "consent",
+              "to": "collector"
+            },
+            {
+              "from": "collector",
+              "to": "sinks"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "What if a micro frontend needs a vendor-specific feature?",
+        "How do you handle a micro frontend running an older client version?",
+        "Who should emit the page view, and why?"
+      ],
+      "related": [
+        "event-governance-taxonomy",
+        "preventing-duplicate-analytics-events",
+        "experiment-assignment-and-exposure"
+      ]
+    },
+    {
+      "slug": "enterprise-experimentation-platform",
+      "title": "How would you design an enterprise experimentation platform?",
+      "topic": "Experimentation Architecture",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "experimentation",
+        "architecture",
+        "platform",
+        "governance"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-cdp-analytics-a-b-testing",
+          "pages": [
+            8,
+            9,
+            10
+          ]
+        }
+      ],
+      "quick": "I would build around five parts: an experiment configuration service with eligibility and allocation rules; deterministic assignment, preferably server or edge side; consistent exposure and outcome event collection; an analysis pipeline with automated checks such as sample ratio, plus statistical results; and governance for ownership, review, mutual exclusion and a decision log. Consent, performance guardrails and privacy are built in, and the platform serves many teams including micro frontends.",
+      "revision": "Config service, deterministic assignment, exposure and outcome events, automated validity checks and analysis, plus governance: ownership, mutual exclusion, guardrails, consent and decision logs.",
+      "detailed": "An experimentation platform should make valid experiments the easy path and invalid ones hard to run.\n\n{{diagram:platform}}\n\n## Components\n\n1. **Experiment registry and config.** Hypothesis, owner, eligibility rules, allocation, primary and guardrail metrics, planned sample size and dates. Versioned and auditable. Feature flags often share this layer.\n2. **Assignment service or SDK.** Deterministic hashing, sticky assignment, targeting, mutual-exclusion layers, kill switch. Server or edge evaluation reduces flicker; a client SDK may be needed for client-only UI.\n3. **Event pipeline.** Exposure and outcome events using the shared event contract, with deduplication, consent filtering and variant labels.\n4. **Metrics and analysis.** Metric definitions maintained centrally, computed per variant, with confidence intervals, corrections for multiple comparisons, and appropriate sequential or fixed-horizon methods.\n5. **Automated quality checks.** Sample-ratio mismatch, event completeness, exposure coverage, guardrail alarms (errors, latency).\n6. **Decision and rollout.** Gradual ramp, documented decision, cleanup of losing code paths, and a searchable log of results.\n\n## Cross-cutting concerns\n\n- **Consent and privacy:** assignment and tracking respect consent; no personal data in experiment payloads.\n- **Performance:** SDK is small and non-blocking; vitals tracked per variant.\n- **Multi-team use:** micro frontends share one assignment source; interaction control through layers.\n- **Reliability:** if the platform is unavailable, default to control and fail safe, never block page rendering.\n- **Build versus buy:** commercial tools speed delivery; internal builds offer control over data and cost. Many organisations mix, using a vendor for stats and UI with their own event pipeline.\n\n## Governance\n\nPre-registration of primary metric, review of changes touching sensitive journeys, limits on concurrent tests per page, and a retention policy for experiment data.",
+      "diagrams": [
+        {
+          "id": "platform",
+          "title": "Experimentation platform",
+          "alt": "An experiment registry configures an assignment service. The website calls the assignment service to get a variant and renders it. Exposure and outcome events go through the event pipeline to an analysis service that runs validity checks and statistics, whose decisions feed back into the registry and rollout.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "reg",
+              "label": "Experiment registry"
+            },
+            {
+              "id": "assign",
+              "label": "Assignment service or SDK"
+            },
+            {
+              "id": "site",
+              "label": "Website renders variant"
+            },
+            {
+              "id": "events",
+              "label": "Exposure and outcome events"
+            },
+            {
+              "id": "analysis",
+              "label": "Validity checks and statistics"
+            },
+            {
+              "id": "decision",
+              "label": "Decision and rollout"
+            }
+          ],
+          "edges": [
+            {
+              "from": "reg",
+              "to": "assign"
+            },
+            {
+              "from": "assign",
+              "to": "site"
+            },
+            {
+              "from": "site",
+              "to": "events"
+            },
+            {
+              "from": "events",
+              "to": "analysis"
+            },
+            {
+              "from": "analysis",
+              "to": "decision"
+            },
+            {
+              "from": "decision",
+              "to": "reg"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "What would the platform do if the assignment service is down?",
+        "Build versus buy: what would sway you?",
+        "How do you stop concurrent experiments from interfering?"
+      ],
+      "related": [
+        "experiment-assignment-and-exposure",
+        "sample-ratio-mismatch",
+        "analytics-for-micro-frontends"
+      ]
+    },
+    {
+      "slug": "scenario-page-views-vs-crm-leads",
+      "title": "Scenario: analytics shows many page views, but the CRM shows fewer leads. What do you investigate?",
+      "topic": "Scenarios",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "analytics",
+        "crm",
+        "scenario",
+        "data-quality"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-cdp-analytics-a-b-testing",
+          "pages": [
+            9
+          ]
+        }
+      ],
+      "quick": "I would trace one lead end to end and compare counts at every hop. First I would check that the analytics conversion is defined as a successful submission, not a button click. Then I would look for validation failures, duplicate events, API errors, consent-blocked or ad-blocked tracking, and failures in the handoff from the form to the CRM, such as rejected or deduplicated leads. I would reconcile against backend logs and use the backend record as the source of truth.",
+      "revision": "Trace the lead end to end: conversion definition, validation failures, duplicates, API errors, consent or blocker loss, and CRM handoff. Reconcile with backend as source of truth.",
+      "detailed": "The gap between analytics and CRM numbers is a reconciliation problem. Do not assume either number is right.\n\n## Step 1: define the comparison\n\nCompare like with like: the same time zone, period, form, and unit. A page view is not a lead; compare **successful form submissions** in analytics with **leads created** in the CRM for the same window and source.\n\n## Step 2: list where records can be lost or added\n\n| Stage | Possible issue |\n|---|---|\n| Analytics definition | Event fires on button click rather than successful submission, inflating conversions |\n| Client | Validation errors after the click; user closes the tab; double-clicks produce duplicates |\n| Tracking loss | Consent denied, ad blockers, failed requests (analytics undercounts) |\n| Duplicates | Multiple tags or micro frontends firing the same event |\n| API | Form submission request fails or times out; backend returns errors |\n| Integration | Lead queue failures, field mapping errors, CRM rejects incomplete leads |\n| CRM rules | Deduplication or spam filters remove leads; leads routed to another system |\n| Bots | Analytics counts bot traffic or test submissions |\n\n## Step 3: trace\n\nTake a sample of recent submissions with a correlation or request ID. Follow each through browser event, API log, message queue and CRM record, and see where counts diverge. Compare daily trends to spot the release or date when the gap changed.\n\n## Step 4: fix and prevent\n\n- Emit the business conversion from the backend after the lead is persisted, with the same ID that appears in the CRM.\n- Separate events for started, attempted, succeeded and failed.\n- Add a reconciliation dashboard comparing analytics, API and CRM counts with alert thresholds.\n- Expect a small permanent gap from consent and blockers; track its size rather than aiming for equality.\n\nThe CRM or backend is usually the system of record for leads; analytics is a behavioural measure that is not complete by design.",
+      "diagrams": [],
+      "followUps": [
+        "How large a gap would you consider normal?",
+        "Should the conversion event come from the browser or the backend?",
+        "How would you build an automated reconciliation check?"
+      ],
+      "related": [
+        "preventing-duplicate-analytics-events",
+        "funnel-analysis",
+        "web-analytics-metrics-denominators"
+      ]
+    },
+    {
+      "slug": "scenario-conversion-up-performance-down",
+      "title": "Scenario: an A/B test shows a higher conversion rate but worse page performance. What do you do?",
+      "topic": "Scenarios",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "ab-testing",
+        "performance",
+        "guardrails",
+        "scenario"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-cdp-analytics-a-b-testing",
+          "pages": [
+            9,
+            10
+          ]
+        }
+      ],
+      "quick": "I would not roll the variant out automatically. First I would check that the conversion lift is statistically credible, with an interval and a valid test. Then I would quantify the performance regression against the guardrail thresholds, for example LCP or INP changes, and see how it affects different devices and networks. If the harm is material, I would find the cause, optimise the implementation, and retest. If the regression is small and within agreed limits, I would weigh it against the gain.",
+      "revision": "Check the lift is real, quantify the regression against guardrails, find the cause, optimise and retest. Do not ship automatically if the harm is material.",
+      "detailed": "This tests whether you treat guardrails as real constraints rather than footnotes.\n\n## 1. Confirm the win is credible\n\n- Was the test valid (no sample-ratio mismatch, complete events, planned duration, no peeking)?\n- What is the effect estimate and interval, not just the p-value? A wide interval means the true lift could be small.\n- Is the lift in the primary metric, and does lead quality hold?\n\n## 2. Quantify the regression\n\n- Compare Core Web Vitals and load metrics between arms using real-user data, by device, network and geography. Slow-device users may be hit hardest.\n- Compare against pre-defined guardrail thresholds. If none existed, agree some now and note the gap in process.\n- Check for secondary harms such as more JavaScript errors or accessibility issues.\n\n## 3. Diagnose the cause\n\nCommon sources: heavier images or scripts in the variant, client-side rendering of the variant, layout shifts from late content, or extra third-party calls. Profile the variant to separate design effects from implementation cost.\n\n## 4. Decide\n\n| Situation | Action |\n|---|---|\n| Lift credible and regression negligible | Ship, monitor |\n| Lift credible, regression material but fixable | Optimise the implementation and retest; consider a limited rollout with monitoring |\n| Lift uncertain and regression real | Do not ship |\n| Regression severe | Stop or roll back the variant |\n\n## 5. Think about the long term\n\nPerformance regressions can reduce conversion over time and affect search visibility and user experience, and a short test may not capture that. Note that the measured lift might partly come from the slow variant containing more content or a bigger call to action, so the optimised version might perform differently.\n\nThe outcome: a decision recorded with the evidence, and a retest of the optimised variant to confirm both the lift and the performance.",
+      "diagrams": [],
+      "followUps": [
+        "How would you set a guardrail threshold in advance?",
+        "How could you separate the design effect from the implementation cost?",
+        "Would a limited rollout be acceptable, and how would you monitor it?"
+      ],
+      "related": [
+        "primary-and-guardrail-metrics",
+        "tags-experiments-performance-impact",
+        "scenario-validating-an-ab-test"
+      ]
+    },
+    {
+      "slug": "scenario-validating-an-ab-test",
+      "title": "Scenario: how do you know an A/B test result is valid before acting on it?",
+      "topic": "Scenarios",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "ab-testing",
+        "validity",
+        "scenario",
+        "srm"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-cdp-analytics-a-b-testing",
+          "pages": [
+            10
+          ]
+        }
+      ],
+      "quick": "Before reading the outcome I would validate the experiment. I would check the sample ratio against the design, that assignment was random and sticky, that exposure and outcome events are complete and defined the same in both arms, and that the run covered the planned duration and sample size. I would look for cross-variant contamination and overlapping experiments, and confirm I am using the pre-defined analysis. Only then would I interpret the effect, with its confidence interval and guardrails.",
+      "revision": "Validate first: sample ratio, randomisation, exposure and event completeness, identical definitions, planned duration, no contamination. Then interpret the effect and guardrails.",
+      "detailed": "Treat validation as a gate you pass before looking at which variant won.\n\n## Validity checklist\n\n1. **Sample ratio.** Run a chi-square test of observed arm sizes against the design. A mismatch means do not trust the comparison.\n2. **Assignment integrity.** Randomisation by a stable unit, no re-bucketing between routes or after login, no manual overrides, and balanced pre-experiment characteristics (device, country, traffic source) across arms.\n3. **Exposure.** Only users who saw the change are analysed, using the same trigger rule in both arms.\n4. **Event completeness and identical definitions.** The same events and denominators in both variants; no tag firing in only one arm; no differential loss from consent, blockers or load failures.\n5. **Duplicates and bots.** Deduplicated events, filtered bots and internal traffic.\n6. **Duration and sample size.** The planned sample was reached, covering whole weekly cycles, without peeking-driven stopping.\n7. **Interference.** No overlapping experiments on the same audience that could interact; no major campaign or release that hit one arm differently.\n8. **Pre-registered analysis.** The primary metric and method match the plan; multiple comparisons handled.\n9. **Guardrails.** Performance, errors, accessibility and lead quality reviewed.\n\n## Interpreting after validation\n\n- Report the effect with a confidence interval, not just a winner label.\n- Consider practical importance against the MDE and the cost of the change.\n- Look at segments cautiously; treat unexpected segment wins as hypotheses.\n- Consider novelty effects and whether the result generalises.\n\n## If a check fails\n\nDiagnose the cause, fix it and rerun. Do not patch the data to make the checks pass, and record the incident so the platform can detect it automatically next time.\n\nA/B testing only gives causal evidence when the design and data are sound, which is why these checks matter more than the p-value.",
+      "diagrams": [],
+      "followUps": [
+        "Which of these checks can be automated for every experiment?",
+        "What would you do if the sample ratio is off but the lift looks large?",
+        "How do you check that the arms were balanced before the test?"
+      ],
+      "related": [
+        "sample-ratio-mismatch",
+        "common-ab-testing-mistakes",
+        "experiment-assignment-and-exposure"
+      ]
+    }
+  ]
+}

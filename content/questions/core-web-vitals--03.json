@@ -1,0 +1,554 @@
+{
+  "category": "core-web-vitals",
+  "questions": [
+    {
+      "slug": "micro-frontends-and-core-web-vitals",
+      "title": "How do Micro Frontends affect Core Web Vitals?",
+      "topic": "Architecture & Performance",
+      "difficulty": "advanced",
+      "type": "conceptual",
+      "tags": [
+        "micro-frontends",
+        "module-federation",
+        "bundle-size",
+        "shared-dependencies"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-core-web-vitals",
+          "pages": [
+            12,
+            13
+          ]
+        }
+      ],
+      "quick": "Micro Frontends are not automatically a performance win. They can improve domain-level loading and deployment independence because each team's code loads only when needed. But a shell plus several MFEs, each bundling its own React and libraries, can produce a large JavaScript footprint, extra network requests, hydration overhead and inconsistent styling shifts. I mitigate with lazy loading per route, shared singleton dependencies, central performance budgets and continuous Core Web Vitals monitoring.",
+      "revision": "MFEs can help (load per domain, independent deploys) or hurt (duplicate libraries, many requests, startup cost). Lazy-load, share dependencies, budget, and monitor.",
+      "detailed": "Micro Frontends split a UI into independently built and deployed pieces composed in a shell. Performance depends on how composition is done.\n\n## Potential benefits\n- Load only the MFE for the current route (a vehicle domain app opens only on vehicle pages).\n- Smaller, domain-owned bundles and independent release cadence for performance fixes.\n- Isolation of heavy features so they do not tax unrelated pages.\n\n## Potential problems\n| Problem | Effect on vitals |\n|---|---|\n| Duplicate framework copies (two React versions, repeated UI kit) | Larger JS, longer parse/execute, worse INP and LCP |\n| Many MFEs loaded at startup | Request waterfalls, long tasks |\n| Runtime composition (remote entry fetched, then chunks) | Extra round trips before first meaningful render |\n| Each MFE hydrating separately | Multiple hydration tasks |\n| Inconsistent CSS and late-mounting slots | Layout shift |\n| Independent third-party scripts per team | Uncontrolled main-thread work |\n\n## How to keep them healthy\n- Lazy-load MFEs at route boundaries and keep the shell tiny.\n- Share singleton dependencies (for example with Module Federation's `shared` configuration) and agree on version ranges.\n- Reserve layout space for each MFE slot.\n- Render the shell and critical content on the server or at build time.\n- Apply a per-MFE and overall performance budget enforced in CI, and track vitals per route in RUM.\n- Centralise third-party script governance.\n\n## Example (illustrative)\nA shell that mounts the header, search, vehicle, finance and chat MFEs on every page may download five bundles and several duplicated libraries. Loading finance and chat only on the routes that need them can cut the initial JavaScript considerably.\n\n## Common mistakes\n- Claiming MFEs improve performance without measurement.\n- Optimising each MFE in isolation and ignoring the combined page.",
+      "followUps": [
+        "How does Module Federation help share dependencies?",
+        "What would you do if two MFEs need different React versions?",
+        "How do you assign ownership of a page-level CWV regression across MFE teams?"
+      ],
+      "related": [
+        "optimizing-micro-frontend-architecture",
+        "performance-budgets"
+      ]
+    },
+    {
+      "slug": "optimizing-micro-frontend-architecture",
+      "title": "How would you optimise a Micro Frontend architecture for performance?",
+      "topic": "Architecture & Performance",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "micro-frontends",
+        "lazy-loading",
+        "shared-dependencies",
+        "performance-budget",
+        "cdn"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-core-web-vitals",
+          "pages": [
+            13
+          ]
+        }
+      ],
+      "quick": "I would keep the shell minimal and lazy-load each MFE on its route or when it is needed, never all at startup. Dependencies like the framework and design system are shared as singletons with agreed versions. Everything is served from a CDN with compression and long-lived immutable caching, remote entry files stay short-cached, chunks are kept small, and each MFE and the composed page has a budget enforced in CI and watched in RUM. Critical content should render without waiting on many remotes.",
+      "revision": "Tiny shell, lazy-load MFEs per route, shared singleton deps, CDN and caching, small chunks, budgets in CI, RUM per route.",
+      "detailed": "The aim is that composition adds as little runtime cost as possible.\n\n{{diagram:mfe-shell}}\n\n## Design principles\n1. **Thin shell**: navigation, layout, auth and slot placeholders only. Keep it free of heavy libraries.\n2. **Route-level loading**: mount an MFE when its route is active. Use idle-time or hover prefetching for likely next MFEs.\n3. **Shared dependencies**: the framework, router and design system are shared singletons. Version drift is controlled through contracts and CI checks.\n4. **Server-first for critical content**: render above-the-fold content on the server or statically so users are not waiting for several remotes to boot.\n5. **Stable layout**: fixed-size placeholders for each slot.\n6. **Delivery**: CDN, Brotli, immutable hashed chunks, and a short TTL (or versioned manifest) for entry points so deploys propagate.\n7. **Loading efficiency**: preconnect to the CDN, avoid sequential remote-of-remote chains, and keep remote manifests small.\n8. **Failure isolation**: error boundaries and timeouts so a slow MFE cannot stall the page.\n\n## Governance\n- A per-MFE JS budget and a page-composition budget, checked in CI.\n- Synthetic tests on key composed journeys and RUM with route and MFE identifiers as dimensions.\n- A shared performance guild or platform team owning cross-cutting issues (shared libraries, third parties).\n\n## Trade-offs\nStrong sharing reduces bytes but couples release cycles through version constraints; looser sharing improves autonomy at the cost of duplication. Make the policy explicit and measure.\n\n## Common mistakes\n- Waterfalls: shell loads, then manifest, then remote entry, then chunks, then data.\n- Letting each team add its own analytics and font loaders.",
+      "diagrams": [
+        {
+          "id": "mfe-shell",
+          "title": "Shell with lazily loaded MFEs",
+          "alt": "A shell loads from the CDN and mounts Vehicle, Finance and Account micro frontends lazily only when their routes are needed, all using shared dependencies.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "s",
+              "label": "Shell (thin)"
+            },
+            {
+              "id": "a",
+              "label": "Vehicle MFE"
+            },
+            {
+              "id": "b",
+              "label": "Finance MFE"
+            },
+            {
+              "id": "c",
+              "label": "Account MFE"
+            },
+            {
+              "id": "x",
+              "label": "Shared deps (singleton)"
+            }
+          ],
+          "edges": [
+            {
+              "from": "s",
+              "to": "a",
+              "label": "lazy, on route"
+            },
+            {
+              "from": "s",
+              "to": "b",
+              "label": "lazy, on route"
+            },
+            {
+              "from": "s",
+              "to": "c",
+              "label": "lazy, on route"
+            },
+            {
+              "from": "s",
+              "to": "x"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you avoid a remote-loading waterfall?",
+        "How do you deploy MFEs without stale manifests in cache?",
+        "What is a reasonable per-MFE budget process?"
+      ],
+      "related": [
+        "micro-frontends-and-core-web-vitals",
+        "performance-budgets"
+      ]
+    },
+    {
+      "slug": "performance-budgets",
+      "title": "What is a performance budget and how do you enforce it?",
+      "topic": "Governance & Measurement",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "performance-budget",
+        "ci-cd",
+        "lighthouse-ci",
+        "governance"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-core-web-vitals",
+          "pages": [
+            13,
+            14
+          ]
+        }
+      ],
+      "quick": "A performance budget is a set of agreed limits that a page or release must stay within, treated as an engineering constraint rather than a late optimisation. It can cover Core Web Vitals targets, JavaScript and CSS size, image weight, number of third-party requests, total page weight and API latency. I enforce it with automated checks in CI, such as bundle-size and Lighthouse assertions, then confirm with real-user monitoring and assign owners for regressions.",
+      "revision": "Budget = agreed limits on vitals, JS/CSS/image size, third parties and API latency; enforce in CI, verify in RUM, with named owners.",
+      "detailed": "A **performance budget** turns \"be fast\" into measurable, enforceable thresholds that teams can check on every change.\n\n## What to budget\n| Type | Examples |\n|---|---|\n| Outcome (field) | LCP ≤ 2.5 s, INP ≤ 200 ms, CLS ≤ 0.1 at p75 |\n| Quantity | JavaScript per route (compressed KB), CSS size, total image weight, number of requests |\n| Timing (lab proxies) | Lighthouse performance score, Total Blocking Time, lab LCP |\n| Third parties | Count and combined main-thread time of tags |\n| Backend | API p95 latency, TTFB |\n\nQuantity budgets are the most actionable in CI because they are deterministic; outcome budgets are the real goal but come from field data.\n\n## Enforcing it\n```json\n{\n  \"ci\": {\n    \"assert\": {\n      \"assertions\": {\n        \"largest-contentful-paint\": [\"error\", { \"maxNumericValue\": 2500 }],\n        \"total-blocking-time\": [\"warn\", { \"maxNumericValue\": 300 }],\n        \"resource-summary:script:size\": [\"error\", { \"maxNumericValue\": 250000 }]\n      }\n    }\n  }\n}\n```\n\n(An example Lighthouse CI configuration; choose thresholds from your own baselines.)\n\n- Run bundle-size checks and Lighthouse CI on pull requests; fail or warn on budget breach.\n- Show size diffs in the PR so authors see the cost of a new dependency.\n- Monitor production RUM by route, device and region with alerts on p75 regressions.\n- Require an explicit exception with an owner and expiry when a budget is exceeded.\n\n## Setting numbers\nStart from current baselines and competitor or industry benchmarks, then tighten gradually. Do not invent a universal JS size; it depends on audience devices.\n\n## Common mistakes\n- A budget nobody owns or enforces.\n- Only budgeting lab scores, not field outcomes.\n- Setting a budget once and never revisiting it.",
+      "followUps": [
+        "What would you budget for a third-party tag?",
+        "How do you set the initial budget numbers?",
+        "What happens when a business-critical feature exceeds budget?"
+      ],
+      "related": [
+        "enterprise-performance-governance",
+        "lab-vs-rum-data"
+      ]
+    },
+    {
+      "slug": "lab-vs-rum-data",
+      "title": "What is the difference between lab data and Real User Monitoring (RUM)?",
+      "topic": "Governance & Measurement",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "lab-data",
+        "rum",
+        "crux",
+        "lighthouse",
+        "field-data"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-core-web-vitals",
+          "pages": [
+            14,
+            15
+          ]
+        }
+      ],
+      "quick": "Lab data comes from a controlled, repeatable environment such as Lighthouse or WebPageTest with a fixed device and network profile. It is ideal for debugging, regression testing and CI. Real User Monitoring collects metrics from actual visitors, capturing real devices, networks, locations, browsers and behaviour, and it is what Core Web Vitals are judged on. A global site needs both: lab to diagnose and prevent regressions, RUM to know what users really experience.",
+      "revision": "Lab = controlled, repeatable, great for debugging and CI. RUM/field = real users at p75, the source of truth. Use both.",
+      "detailed": "| | Lab (synthetic) | Field (RUM, CrUX) |\n|---|---|---|\n| Source | Scripted run in a defined environment | Real visitors' browsers |\n| Examples | Lighthouse, WebPageTest, DevTools | Chrome UX Report, web-vitals library to your analytics, RUM vendors |\n| Strengths | Repeatable, detailed traces, pre-release | Real devices, networks, geographies, behaviour |\n| Weaknesses | Misses real variety, interactions and personalisation | Less detail, needs traffic, noisy, slower feedback |\n| INP | Not directly (TBT is a proxy; user-flow scripts can approximate) | Measured directly |\n| Use | Debug, CI gates, before/after comparison | Pass/fail on Core Web Vitals, find segments |\n\n## Why they disagree\nA lab run on a fast machine with an empty cache can show a 1.8 s LCP while real users on mid-range phones, with cookies, consent banners, A/B variants and slower networks, see 3.5 s. CLS can also differ because users scroll and interact, and lab runs often stop after load.\n\n## Recommended practice\n1. Use **CrUX or RUM** to find which pages, devices and countries fail.\n2. Reproduce with **lab** under comparable throttling and trace the cause.\n3. Ship the fix, check synthetic regression tests in CI.\n4. Confirm in **RUM** that the p75 moved. CrUX takes weeks to catch up; your own RUM is faster.\n\n## What to collect in RUM\nMetric value, rating, URL or route template, device class, connection type, country, navigation type, the LCP element or INP interaction target, and release version.\n\n## Common mistakes\n- Treating a Lighthouse score as the official result.\n- Using only averages from RUM rather than percentiles.\n- Having no segmentation, so a regression in one region is invisible.",
+      "followUps": [
+        "Why can Lighthouse show good LCP while CrUX fails?",
+        "How is INP measured without a user?",
+        "What attribution data would you add to RUM?"
+      ],
+      "related": [
+        "measuring-core-web-vitals-with-rum",
+        "performance-budgets"
+      ]
+    },
+    {
+      "slug": "measuring-core-web-vitals-with-rum",
+      "title": "How would you collect Core Web Vitals from real users?",
+      "topic": "Governance & Measurement",
+      "difficulty": "intermediate",
+      "type": "coding",
+      "tags": [
+        "rum",
+        "web-vitals",
+        "attribution",
+        "sendbeacon",
+        "crux"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would use Google's web-vitals library, which reports LCP, INP and CLS with the same definitions as Chrome. Each metric is sent with sendBeacon, ideally when the page is hidden, together with dimensions like route template, device class, connection, country and release version. I use the attribution build to capture the LCP element or the slow interaction target. Data goes to our analytics or RUM store, where I chart p75 per segment and alert on regressions. CrUX provides an external cross-check.",
+      "revision": "Use the web-vitals library, send with sendBeacon, add route, device, geo and release dimensions plus attribution, and monitor p75 per segment.",
+      "detailed": "Collecting your own field data gives faster feedback than CrUX and richer segmentation.\n\n## Instrumenting with web-vitals\n```js\nimport { onLCP, onINP, onCLS } from 'web-vitals/attribution';\n\nfunction send(metric) {\n  const body = JSON.stringify({\n    name: metric.name,\n    value: metric.value,\n    rating: metric.rating,          // good | needs-improvement | poor\n    id: metric.id,\n    navigationType: metric.navigationType,\n    route: window.__ROUTE_TEMPLATE__, // e.g. /vehicles/:model\n    release: window.__RELEASE__,\n    attribution: metric.attribution   // element / target info; sanitise before sending\n  });\n  // sendBeacon survives page unload\n  if (!navigator.sendBeacon('/rum', body)) {\n    fetch('/rum', { method: 'POST', body, keepalive: true });\n  }\n}\n\nonLCP(send);\nonINP(send);\nonCLS(send);\n```\n\nNote: the library reports final values when the page is hidden or the metric is finalised, so use `sendBeacon` or `fetch` with `keepalive`. Reduce the attribution object to a few primitive fields before sending.\n\n## Dimensions worth capturing\n- Route template (not the full URL with IDs) to avoid high cardinality\n- Device class and memory or CPU hints, connection type\n- Country or region (derived server-side from IP rather than collected on the client)\n- Release/version and A/B variant, so regressions map to changes\n- Navigation type (navigate, reload, back-forward, prerender)\n\n## Analysis\nCompute **p75** per metric and per segment, not averages. Alert on a relative change after a release. Cross-check with CrUX and the PageSpeed Insights field section.\n\n## Privacy and cost\nAvoid personal data in payloads, respect consent requirements, and consider sampling for high traffic sites. Keep the RUM script small and non-blocking: measurement must not harm the metrics.\n\n## Common mistakes\n- Sending on every metric update, causing noise and extra traffic.\n- Not tagging release version, so regression sources are unknown.\n- Ignoring bfcache restores and prerenders when interpreting numbers.",
+      "followUps": [
+        "Why send beacons on visibilitychange or pagehide?",
+        "How would you handle high-cardinality URLs?",
+        "How does CrUX differ from your own RUM?"
+      ],
+      "related": [
+        "lab-vs-rum-data",
+        "diagnose-poor-inp"
+      ]
+    },
+    {
+      "slug": "diagnose-poor-lcp-in-production",
+      "title": "How do you diagnose poor LCP in production?",
+      "topic": "Diagnosis Workflows",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "lcp",
+        "diagnosis",
+        "devtools",
+        "rum",
+        "crux"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-core-web-vitals",
+          "pages": [
+            15
+          ]
+        }
+      ],
+      "quick": "I start with field data to see which pages, devices and regions fail, then identify the LCP element. I break the time into TTFB, resource load delay, load duration and render delay to find the dominant part. Depending on that, I look at backend and CDN behaviour, discovery and priority of the resource, image size and format, or render-blocking CSS and JavaScript. I fix the real bottleneck, then validate in lab and in RUM.",
+      "revision": "Diagnose LCP: field data for scope, identify the element, split into four sub-parts, fix the dominant one, verify in lab and RUM.",
+      "detailed": "A repeatable workflow avoids guessing.\n\n{{diagram:lcp-diagnosis}}\n\n## 1. Scope with field data\nUse RUM, CrUX or Search Console to find the failing templates, device classes and countries. A failure only on mobile in one region points at network or CDN; failure everywhere points at the page.\n\n## 2. Identify the LCP element\nUse DevTools Performance (LCP marker), Lighthouse's \"Largest Contentful Paint element\" audit, or RUM attribution. Confirm whether it is an image, a heading, a background image or a video poster.\n\n## 3. Break down the timing\nSplit into **TTFB, load delay, load duration, render delay**. DevTools' Performance insights and PageSpeed Insights show this; the web-vitals attribution build provides the numbers in RUM.\n\n## 4. Map the dominant part to a cause\n| Dominant part | Look at |\n|---|---|\n| TTFB | CDN cache hit ratio, origin or SSR time, redirects, DNS and TLS |\n| Load delay | How the resource is discovered: JS-injected, CSS background, lazy attribute, priority hints |\n| Load duration | File size, format, dimensions, CDN, contention with other downloads |\n| Render delay | Render-blocking CSS and JS, main-thread long tasks, hydration, fonts |\n\n## 5. Fix, then verify\nChange one thing at a time. Compare before and after with a lab run under the same throttling, then watch p75 in RUM, segmenting by release.\n\n## Example (illustrative)\nRUM shows the vehicle detail page failing on mobile. The LCP element is the hero. Load delay is 1.2 s because the hero is rendered by a client component. Moving it to the server HTML with `fetchpriority=\"high\"` removes that delay without touching the image.\n\n## Common mistakes\n- Starting by compressing images without knowing the breakdown.\n- Testing only warm-cache loads.\n- Ignoring that the LCP element differs between breakpoints.",
+      "diagrams": [
+        {
+          "id": "lcp-diagnosis",
+          "title": "LCP diagnosis workflow",
+          "alt": "Steps from field data to identifying the LCP element, breaking down the four sub-parts, locating the bottleneck, applying a fix and validating with lab and RUM data.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "a",
+              "label": "Field data scope"
+            },
+            {
+              "id": "b",
+              "label": "Find LCP element"
+            },
+            {
+              "id": "c",
+              "label": "Four sub-parts"
+            },
+            {
+              "id": "d",
+              "label": "Locate bottleneck"
+            },
+            {
+              "id": "e",
+              "label": "Fix one thing"
+            },
+            {
+              "id": "f",
+              "label": "Validate lab + RUM"
+            }
+          ],
+          "edges": [
+            {
+              "from": "a",
+              "to": "b"
+            },
+            {
+              "from": "b",
+              "to": "c"
+            },
+            {
+              "from": "c",
+              "to": "d"
+            },
+            {
+              "from": "d",
+              "to": "e"
+            },
+            {
+              "from": "e",
+              "to": "f"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "What if the sub-parts are all small but LCP is still high?",
+        "How would you verify a CDN problem specifically?",
+        "How do you diagnose LCP in a region where you have no test machines?"
+      ],
+      "related": [
+        "lcp-causes-and-subparts",
+        "scenario-lcp-4s-to-under-2-5s"
+      ]
+    },
+    {
+      "slug": "diagnose-poor-inp",
+      "title": "How do you diagnose poor INP?",
+      "topic": "Diagnosis Workflows",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "inp",
+        "diagnosis",
+        "long-tasks",
+        "react-profiler",
+        "devtools"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-core-web-vitals",
+          "pages": [
+            16
+          ]
+        }
+      ],
+      "quick": "I first find which interactions and which pages are slow, using RUM attribution that records the interaction target and phase breakdown. Then I reproduce with CPU throttling in the DevTools Performance panel, looking at the interaction track and long tasks to see whether the time is input delay, handler processing or presentation delay. I use the React Profiler for excessive renders, and check third-party scripts. After fixing, I confirm in field data.",
+      "revision": "Diagnose INP: RUM for slow interaction targets, reproduce with throttling, split input delay, processing, presentation, profile handlers and React, check third parties.",
+      "detailed": "INP problems are interaction-specific, so the diagnosis starts by finding which interaction.\n\n## 1. Find the slow interactions\n- RUM with the web-vitals attribution build reports the target element, event type and the three phase durations for the worst interaction.\n- Chrome's field data tells you which pages fail but not which control.\n\n## 2. Reproduce realistically\nUse DevTools Performance with **CPU throttling** (4x or 6x slowdown), then perform the interaction. Phones are far slower than a laptop, and INP is CPU-bound. The \"Interactions\" track shows each interaction with its input delay, processing and presentation delay.\n\n## 3. Read the three phases\n| Phase large | Likely cause |\n|---|---|\n| Input delay | Main thread busy: hydration, timers, third-party tasks |\n| Processing time | Heavy handlers, synchronous state updates and renders, analytics in the handler |\n| Presentation delay | Large DOM, layout thrash, expensive paint, big rendering updates |\n\n## 4. Go deeper\n- **Performance panel** flame chart: find long tasks (over 50 ms) and the functions inside.\n- **React Profiler** (and the \"highlight updates\" option): count and cost of renders caused by the interaction, why components rendered.\n- **Coverage and bundle analysis** if big script evaluation shows up.\n- **Long Animation Frames (LoAF)** data, where available, attributes slow frames to scripts.\n\n## 5. Fix and verify\nReduce, split or defer the work, and re-measure under the same throttling, then watch p75 INP in RUM.\n\n## Example (illustrative)\nFiltering a catalogue of 2,000 items re-renders the whole list on each keystroke: processing time is 350 ms. Virtualising the list and using `useDeferredValue` for the filter text cuts it dramatically.\n\n## Common mistakes\n- Testing only one click on a fast machine.\n- Ignoring input delay caused by background scripts.\n- Optimising code that a profile shows is not in the slow task.",
+      "followUps": [
+        "What is a long animation frame?",
+        "How does CPU throttling change what you see?",
+        "How can a third-party script cause input delay?"
+      ],
+      "related": [
+        "how-to-improve-inp",
+        "scenario-inp-400ms"
+      ]
+    },
+    {
+      "slug": "third-party-scripts-and-core-web-vitals",
+      "title": "How do third-party scripts affect Core Web Vitals and how do you control them?",
+      "topic": "Third Parties",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "third-party",
+        "tag-manager",
+        "main-thread",
+        "performance-budget",
+        "chat",
+        "ads"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-core-web-vitals",
+          "pages": [
+            18
+          ]
+        }
+      ],
+      "quick": "Third-party scripts such as analytics, advertising, chat, A/B testing and social widgets are a common source of regressions because we do not control their execution cost. They compete for bandwidth and the main thread, delaying LCP, causing long tasks that hurt INP, and injecting content that shifts layout. I inventory them, require a business owner, load only what is needed, defer non-critical ones, facade heavy widgets, and monitor their impact in RUM against a budget.",
+      "revision": "Third parties cost bandwidth and main-thread time and inject layout. Inventory, own, defer, facade, budget and monitor them.",
+      "detailed": "Third-party code often accounts for a large share of main-thread time on commercial sites, and it is not reviewed like first-party code.\n\n## Impact\n| Metric | How third parties hurt |\n|---|---|\n| LCP | Blocking scripts or CSS, bandwidth contention, extra connections, A/B anti-flicker delays |\n| INP | Long tasks on load or on interaction; event listeners attached by tags |\n| CLS | Injected banners, chat bubbles, ad slots, late embeds |\n\n## Control strategy\n1. **Inventory**: list every script, who requested it, its purpose, and measured cost. Tag managers hide a lot.\n2. **Justify and own**: each tag needs a business owner and an expiry review.\n3. **Load strategy**: `async` or `defer`; load after consent, after first paint, on interaction, or on visibility.\n4. **Facades**: show a lightweight placeholder for chat, video and maps; load the real widget when clicked.\n5. **Connections**: `preconnect` only for the few that matter.\n6. **Isolation**: sandboxed iframes, or running tag code off the main thread (for example with web-worker-based approaches) where compatible.\n7. **Governance**: a budget for number of requests and main-thread time, enforced via CI tests with recorded third-party behaviour and RUM.\n8. **Contracts**: ask vendors for size and performance commitments.\n\n```html\n<script src=\"https://tags.example.com/analytics.js\" defer></script>\n<!-- Chat widget loads on first interaction -->\n<button id=\"chat-open\">Chat with us</button>\n<script type=\"module\">\n  document.getElementById('chat-open').addEventListener('click', () => import('/js/chat-loader.js'), { once: true });\n</script>\n```\n\n## Common mistakes\n- Tag manager free-for-all: anyone can add heavy tags without review.\n- Testing in lab with tags disabled, then shipping them.\n- Not reserving space for ad or consent elements.",
+      "followUps": [
+        "How would you measure the cost of one specific tag?",
+        "What is a facade?",
+        "How do you govern a tag manager across many teams?"
+      ],
+      "related": [
+        "ab-testing-and-performance",
+        "analytics-and-inp"
+      ]
+    },
+    {
+      "slug": "ab-testing-and-performance",
+      "title": "How does A/B testing affect performance and how do you design experiments safely?",
+      "topic": "Third Parties",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "ab-testing",
+        "experimentation",
+        "anti-flicker",
+        "edge",
+        "cls",
+        "lcp"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-core-web-vitals",
+          "pages": [
+            18,
+            19
+          ]
+        }
+      ],
+      "quick": "Client-side A/B tools often must load, decide a variant and then change the page. If that script blocks rendering, or an anti-flicker snippet hides the page until it finishes, LCP suffers, and late DOM changes cause layout shift. I prefer deciding the variant on the server or at the edge and serving the right HTML, keeping experiment code small and non-blocking, and holding experiments to the same performance budget as other code.",
+      "revision": "Blocking client-side experiment scripts hurt LCP and CLS. Prefer server or edge variant assignment, non-blocking scripts, and budgets for experiments.",
+      "detailed": "Experimentation platforms need to know the variant before showing it, which creates a tension with fast rendering.\n\n## Common client-side pattern and its cost\n1. Browser loads the experiment script (often synchronously in the head).\n2. Script fetches configuration, chooses a variant.\n3. It rewrites the DOM, often after hiding the page with an \"anti-flicker\" style.\n\nEffects:\n- **LCP**: render delay while the page is hidden or the script blocks parsing.\n- **CLS**: DOM rewriting after first paint moves content.\n- **INP**: extra main-thread work from mutation observers and tracking.\n- **Cache**: per-user variants make HTML harder to cache.\n\n## Better designs\n| Approach | Performance effect | Notes |\n|---|---|---|\n| Server-side variant selection | HTML arrives already correct | Needs consistent bucketing (cookie or ID) |\n| Edge assignment (CDN edge compute) | Fast, cacheable per variant | Include variant in cache key, with a small number of variants |\n| Feature flags in application code | No DOM flicker | Experiment analytics sent asynchronously |\n| Client-side with safeguards | Last resort | Small script, timeout on any hiding, reserved layout |\n\n```js\n// Edge-style sketch: assign a bucket and vary the cache key\nconst bucket = request.cookies.get('exp_bucket') ?? (Math.random() < 0.5 ? 'a' : 'b');\nconst res = await fetchVariant(bucket);          // returns pre-rendered variant HTML\nres.headers.append('Set-Cookie', `exp_bucket=${bucket}; Path=/; Max-Age=2592000`);\nres.headers.set('Vary', 'Cookie');                // or use a normalised cache key\nreturn res;\n```\n\n(Illustrative; real implementations depend on the CDN or edge platform, and `Vary: Cookie` can fragment caches, so normalise to the bucket only.)\n\n## Governance\n- Experiments must meet the page's performance budget and run for a limited time.\n- Measure vitals by variant in RUM, so a \"winning\" variant that is slower is spotted.\n- Hide the page for a minimum time only, with a hard timeout.\n\n## Common mistakes\n- Long anti-flicker timeouts that delay the whole page.\n- Ignoring the performance cost when judging conversion results.",
+      "followUps": [
+        "How would you keep experiment variants cacheable at the CDN?",
+        "What is anti-flicker code and what are its risks?",
+        "How would you compare vitals between variants?"
+      ],
+      "related": [
+        "third-party-scripts-and-core-web-vitals",
+        "how-cdn-improves-core-web-vitals"
+      ]
+    },
+    {
+      "slug": "analytics-and-inp",
+      "title": "How does analytics code affect INP and how do you keep it off the critical path?",
+      "topic": "Third Parties",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "analytics",
+        "inp",
+        "sendbeacon",
+        "batching",
+        "long-tasks"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-core-web-vitals",
+          "pages": [
+            19
+          ]
+        }
+      ],
+      "quick": "Analytics often runs inside user interactions: a click handler calls tracking code, which builds payloads, calls vendor SDKs and sometimes serialises large objects. If that adds to the handler's work or runs a long task before the next paint, INP gets worse. I keep tracking out of the critical interaction path by loading the SDK asynchronously, queuing events, batching them, sending with sendBeacon, and scheduling non-urgent processing after the paint or in idle time.",
+      "revision": "Analytics inside click handlers lengthens INP. Load async, queue and batch events, send via sendBeacon, and run processing after the next paint.",
+      "detailed": "Tracking is usually triggered by interactions, so any synchronous cost lands exactly where INP is measured.\n\nClick, then application code, then analytics processing, then one large task: the browser cannot paint until the task completes, so the visible response is late.\n\n## Typical offenders\n- Synchronous SDK calls inside event handlers that serialise big objects (for example whole product or cart state).\n- Vendor libraries doing DOM queries or hashing on each event.\n- Many tags each attaching listeners to the same elements.\n- Initial SDK downloads and evaluation causing input delay.\n\n## Techniques\n1. **Load asynchronously**, after critical rendering, and avoid blocking tags in the head.\n2. **Queue events** in memory with a lightweight function and flush later.\n3. **Batch** several events into one network request.\n4. **Defer after paint**: schedule processing so the UI updates first.\n5. **Use `sendBeacon`** (or `fetch` with `keepalive`) for reliability on unload without blocking.\n6. **Send small payloads**: IDs and enums rather than large objects.\n\n```js\nconst queue = [];\nexport function track(event) {\n  queue.push({ ...event, t: Date.now() });   // cheap, synchronous\n  schedule();\n}\nlet scheduled = false;\nfunction schedule() {\n  if (scheduled) return;\n  scheduled = true;\n  const run = () => {\n    scheduled = false;\n    navigator.sendBeacon('/events', JSON.stringify(queue.splice(0)));\n  };\n  // Run after the browser has had a chance to paint\n  if ('requestIdleCallback' in window) requestIdleCallback(run, { timeout: 2000 });\n  else setTimeout(run, 0);\n}\n```\n\nAlso flush on `visibilitychange` to avoid losing events when the tab closes.\n\n## Common mistakes\n- Treating analytics as free because it is \"just a beacon\".\n- Doing JSON serialisation of large state synchronously inside a click.\n- Dropping events by batching without a flush on page hide.",
+      "followUps": [
+        "Why flush the queue on visibilitychange?",
+        "How would you measure the cost of an analytics SDK on INP?",
+        "Would you move tracking into a Web Worker?"
+      ],
+      "related": [
+        "third-party-scripts-and-core-web-vitals",
+        "how-to-improve-inp"
+      ]
+    },
+    {
+      "slug": "vehicle-detail-page-optimization",
+      "title": "How would you optimise a content-rich detail page such as a vehicle detail page?",
+      "topic": "Scenarios",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "detail-page",
+        "lazy-loading",
+        "critical-path",
+        "lcp",
+        "cls",
+        "ssg"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-core-web-vitals",
+          "pages": [
+            17,
+            18
+          ]
+        }
+      ],
+      "quick": "I would separate what is needed for the first view from everything else. Hero image, title and key specifications are server-rendered or static, with the hero eager and prioritised and dimensions reserved. Secondary sections such as gallery, reviews, finance, offers and dealer map are lazy-loaded when they approach the viewport, each with a fixed-size placeholder, and heavy widgets are loaded on interaction. Live data like price or availability is fetched without blocking the first paint, and I verify with RUM.",
+      "revision": "Detail page: render hero, title and key facts first (eager, sized); lazy-load gallery, reviews, finance, maps with reserved space; fetch live data without blocking.",
+      "detailed": "The principle is **prioritise the first view, defer the rest, and keep layout stable**. Take a page with hero image, specifications, gallery, features, finance, offers and dealer information (an illustrative structure).\n\n{{diagram:detail-page}}\n\n## First view (critical)\n- Server-render or statically generate the hero, title and key specs so they exist in the first HTML.\n- Hero image: real `<img>`, responsive AVIF/WebP, explicit dimensions, `fetchpriority=\"high\"`, not lazy.\n- Critical CSS inline or small; critical font preloaded and subsetted.\n\n## Deferred (secondary)\n- Gallery: first image eager, rest on demand; carousel code loaded on interaction.\n- Reviews, offers, features: render below the fold lazily or on server but without blocking JS.\n- Finance calculator: code-split, loaded when the section nears the viewport or on click.\n- Dealer map: use a static map image facade, load the interactive map on click.\n\n## Stability\nFixed-height or aspect-ratio placeholders for every deferred module; do not insert banners above content.\n\n## Data\n- Cache the page (SSG with on-demand revalidation, or CDN-cached SSR).\n- Load price, offers or stock through a small API call that does not block LCP, with a reserved slot.\n- Aggregate calls through a BFF to avoid several sequential requests.\n\n## Third parties\nDefer chat, analytics enrichment and experiments after first paint.\n\n## Measure\nTrack LCP, INP and CLS by route in RUM; set a JS budget for the template.\n\n## Common mistakes\n- Lazy-loading everything including the hero.\n- Rendering the page only after a client-side API waterfall.\n- Loading map and 360 viewers upfront although few users open them.",
+      "diagrams": [
+        {
+          "id": "detail-page",
+          "title": "Prioritising a detail page",
+          "alt": "The detail page is split into first-view content, which loads immediately, and secondary sections like gallery, reviews, finance and dealer map which load lazily.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "p",
+              "label": "Detail page"
+            },
+            {
+              "id": "i",
+              "label": "First view: hero, title, key specs"
+            },
+            {
+              "id": "l",
+              "label": "Lazy sections"
+            },
+            {
+              "id": "g",
+              "label": "Gallery"
+            },
+            {
+              "id": "f",
+              "label": "Finance"
+            },
+            {
+              "id": "m",
+              "label": "Dealer map"
+            }
+          ],
+          "edges": [
+            {
+              "from": "p",
+              "to": "i",
+              "label": "eager"
+            },
+            {
+              "from": "p",
+              "to": "l",
+              "label": "deferred"
+            },
+            {
+              "from": "l",
+              "to": "g"
+            },
+            {
+              "from": "l",
+              "to": "f"
+            },
+            {
+              "from": "l",
+              "to": "m"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you handle live pricing on a cached page?",
+        "Which sections would you load on interaction rather than on scroll?",
+        "How would you prevent shifts from lazy sections?"
+      ],
+      "related": [
+        "code-splitting-and-lazy-loading",
+        "image-optimization-for-performance"
+      ]
+    }
+  ]
+}

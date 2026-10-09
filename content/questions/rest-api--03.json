@@ -1,0 +1,664 @@
+{
+  "category": "rest-api",
+  "questions": [
+    {
+      "slug": "api-gateway",
+      "title": "What is an API gateway and what does it do?",
+      "topic": "Gateways & Edge",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "api-gateway",
+        "routing",
+        "policies",
+        "architecture"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-rest-api-architecture",
+          "pages": [
+            9
+          ]
+        }
+      ],
+      "quick": "An API gateway is the single entry point between clients and backend services. It routes requests to the right service and applies cross-cutting policies in one place: authentication integration, rate limiting, TLS termination, request validation, header and payload transformation, caching, logging and analytics. That keeps those concerns out of each microservice and gives consumers a stable front door. The risks are making it a bottleneck or stuffing business logic into it, so I keep it thin and highly available.",
+      "revision": "A gateway is the managed front door: routing plus cross-cutting policies (auth, rate limits, TLS, analytics) so services stay focused. Keep it thin; no business logic.",
+      "detailed": "An **API gateway** sits between clients and your backend APIs and handles concerns that every API needs.\n\n{{diagram:gw}}\n\n## Typical responsibilities\n\n- **Routing** requests to services by path, host, method or header.\n- **Authentication integration:** validate tokens (or delegate to an identity provider) before traffic reaches services.\n- **Rate limiting and quotas** per client, key or plan.\n- **TLS termination** and enforcing HTTPS.\n- **Request policies:** schema validation, size limits, IP allow/deny lists, CORS.\n- **Transformation** where needed (header mapping, simple protocol translation).\n- **Caching** of suitable GET responses.\n- **Observability:** access logs, metrics, correlation-ID injection, analytics.\n- **Load balancing** and health-aware routing to backends.\n\n## Benefits\n\n- One consistent security and policy enforcement point.\n- Services can change internally without clients knowing (layered system).\n- Central place to publish, version and monitor APIs.\n\n## Risks and trade-offs\n\n| Risk | Mitigation |\n|---|---|\n| Single point of failure | Run multiple instances across zones |\n| Added latency (extra hop) | Keep policies light; measure |\n| Becomes a \"god\" component with business logic | Limit to cross-cutting concerns |\n| Team bottleneck for every route change | Self-service config, declarative as code |\n| Duplicated gateways per team | Agree on a platform standard |\n\n## Gateway versus BFF\n\nA gateway handles generic, cross-cutting policy for all clients. A **BFF** shapes data for one specific user experience and holds some UI-oriented logic. Many architectures use both: gateway in front, BFF behind it.\n\n## Common mistakes\n\nPutting orchestration and domain rules in gateway scripts (hard to test and version), and assuming the gateway replaces service-level authorisation.",
+      "diagrams": [
+        {
+          "id": "gw",
+          "title": "API gateway in front of domain APIs",
+          "alt": "Clients send requests to an API gateway, which routes them to the Vehicle API, Finance API and Customer API.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "c",
+              "label": "Clients"
+            },
+            {
+              "id": "g",
+              "label": "API Gateway"
+            },
+            {
+              "id": "v",
+              "label": "Vehicle API"
+            },
+            {
+              "id": "f",
+              "label": "Finance API"
+            },
+            {
+              "id": "u",
+              "label": "Customer API"
+            }
+          ],
+          "edges": [
+            {
+              "from": "c",
+              "to": "g"
+            },
+            {
+              "from": "g",
+              "to": "v"
+            },
+            {
+              "from": "g",
+              "to": "f"
+            },
+            {
+              "from": "g",
+              "to": "u"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you avoid the gateway becoming a bottleneck?",
+        "Gateway versus BFF?",
+        "What should never go into the gateway?"
+      ],
+      "related": [
+        "gateway-vs-load-balancer",
+        "bff-pattern"
+      ]
+    },
+    {
+      "slug": "gateway-vs-load-balancer",
+      "title": "API gateway vs load balancer: what is the difference?",
+      "topic": "Gateways & Edge",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "api-gateway",
+        "load-balancer",
+        "networking"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-rest-api-architecture",
+          "pages": [
+            9,
+            10
+          ]
+        }
+      ],
+      "quick": "A load balancer distributes traffic across instances of the same service so no single instance is overloaded, and it removes unhealthy ones. It typically works at layer 4 or 7 and understands very little about your API. An API gateway understands API-level concerns: routes by path to different services, authenticates callers, applies rate limits and quotas, transforms requests, and collects analytics. They coexist: a load balancer in front of gateway instances, and the gateway or another balancer in front of services.",
+      "revision": "Load balancer spreads traffic across instances and checks health; gateway applies API policies (auth, rate limits, routing, analytics). They complement each other and often coexist.",
+      "detailed": "They solve different problems, but their features overlap, which is why this question is common.\n\n| Aspect | Load balancer | API gateway |\n|---|---|---|\n| Main job | Distribute traffic across identical instances | Manage and secure API access |\n| Awareness | Connections (L4) or HTTP (L7) basics | API routes, consumers, plans, tokens |\n| Routing | Instances of one service or target group | Different services by path, method, version |\n| Auth and policies | Usually minimal (TLS, sometimes simple rules) | Token validation, API keys, quotas, schema validation |\n| Rate limiting | Rare or coarse | Per-consumer, per-route |\n| Analytics | Traffic and health metrics | Per-API, per-consumer usage |\n| Transformation | No | Often (headers, simple mapping) |\n\nNote that many cloud \"application load balancers\" do L7 path routing and some authentication, and many gateways include load balancing, so the boundary is a matter of emphasis.\n\n## How they fit together\n\n{{diagram:chain}}\n\nA common chain: **CDN/WAF -> load balancer -> gateway instances -> (internal load balancing or service discovery) -> services**. The load balancer keeps the gateway tier itself highly available; the gateway enforces API policy; internal balancing spreads load across service instances.\n\n## Choosing\n\n- One simple service, no consumer management: a load balancer may be enough.\n- Many services, external consumers, quotas, centralised security: add a gateway.\n- Service-to-service traffic inside a cluster is often handled by a service mesh or internal balancers rather than a full gateway.\n\n## Common mistake\n\nSaying \"a gateway is a fancy load balancer\". The distinction is **traffic distribution versus API policy and management**; features overlap, purposes do not.",
+      "diagrams": [
+        {
+          "id": "chain",
+          "title": "Load balancer and gateway together",
+          "alt": "Traffic flows from clients through a load balancer to multiple API gateway instances, which route to backend services.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "c",
+              "label": "Clients"
+            },
+            {
+              "id": "lb",
+              "label": "Load Balancer"
+            },
+            {
+              "id": "g1",
+              "label": "Gateway 1"
+            },
+            {
+              "id": "g2",
+              "label": "Gateway 2"
+            },
+            {
+              "id": "s",
+              "label": "Backend Services"
+            }
+          ],
+          "edges": [
+            {
+              "from": "c",
+              "to": "lb"
+            },
+            {
+              "from": "lb",
+              "to": "g1"
+            },
+            {
+              "from": "lb",
+              "to": "g2"
+            },
+            {
+              "from": "g1",
+              "to": "s"
+            },
+            {
+              "from": "g2",
+              "to": "s"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Where does a service mesh fit?",
+        "Do you still need a load balancer if you have a gateway?",
+        "Layer 4 versus layer 7 balancing?"
+      ],
+      "related": [
+        "api-gateway",
+        "api-management-platforms"
+      ]
+    },
+    {
+      "slug": "api-management-platforms",
+      "title": "What role does an API management or integration platform play in an architecture?",
+      "topic": "Gateways & Edge",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "api-management",
+        "integration",
+        "developer-portal",
+        "governance"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-rest-api-architecture",
+          "pages": [
+            10
+          ]
+        }
+      ],
+      "quick": "An API management platform wraps APIs with enterprise capabilities: a gateway runtime, security and traffic policies, rate limiting, analytics, a developer portal, API keys and subscriptions, and lifecycle and version management. Integration platforms focus on connecting systems: orchestration, protocol and data mapping, and reusable system, process and experience APIs. Architecturally I judge them by the concerns they centralise, and I keep business logic in services, not in platform policies.",
+      "revision": "API management adds gateway, policies, analytics, developer portal and lifecycle control; integration platforms connect systems and orchestrate flows. Keep business logic in services.",
+      "detailed": "Large organisations rarely stop at a bare gateway. Two platform categories commonly appear (specific products vary, so evaluate concrete features individually).\n\n## API management platforms\n\nThey provide a **control plane and a runtime** for APIs:\n\n- Gateway runtime for routing and enforcement.\n- Security policies: token validation, API keys, IP rules, threat protection.\n- Traffic management: rate limits, quotas, spike arrest, caching.\n- Analytics and monitoring per API, app and consumer.\n- **Developer portal:** documentation, onboarding, API keys, subscriptions.\n- Lifecycle: publishing, versioning, deprecation, approval workflows, monetisation in some cases.\n\n## Integration platforms\n\nThey focus on **connecting applications and data**:\n\n- Orchestration and routing between systems of record (ERP, CRM, legacy services).\n- Protocol and format mediation (SOAP to REST, file to API, messaging).\n- Reusable connectors and mapping tools.\n- Often an **API-led connectivity** layering: system APIs (wrap a source system), process APIs (combine and apply business rules) and experience APIs (shape for a channel).\n\n## How they relate\n\n| Concern | API management | Integration platform |\n|---|---|---|\n| Primary goal | Expose, secure and govern APIs | Connect systems and orchestrate flows |\n| Typical users | API producers and consumers | Integration developers |\n| Overlap | Both can host policies and transformations | Many products offer both |\n\n## Architectural guidance\n\n- Use the platform for **cross-cutting, declarative policy**, not domain logic that needs unit tests and versioning in code.\n- Keep configuration in source control (APIs and policies as code).\n- Avoid duplicating authentication and authorisation inconsistently across platform and services.\n- Beware of vendor lock-in for logic embedded in proprietary policy languages.",
+      "followUps": [
+        "What belongs in a gateway policy versus in a service?",
+        "What is API-led connectivity?",
+        "How would you avoid vendor lock-in?"
+      ],
+      "related": [
+        "api-gateway",
+        "rest-api-security"
+      ]
+    },
+    {
+      "slug": "rest-api-security",
+      "title": "How do you secure a REST API? Outline the layers of defence.",
+      "topic": "Security",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "security",
+        "oauth",
+        "owasp",
+        "authorization"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-rest-api-architecture",
+          "pages": [
+            10,
+            11
+          ]
+        }
+      ],
+      "quick": "I layer controls. Transport: TLS everywhere. Authentication: OAuth 2.0 with OpenID Connect, with tokens validated on every request. Authorization: scope and role checks, plus object-level checks such as \"can this user read this order\", using RBAC or ABAC. Input: strict schema validation and size limits. Protection: rate limiting, gateway or WAF policies. Operations: secrets management, audit logging, monitoring, security headers, and the OWASP API Security Top 10 as a checklist.",
+      "revision": "Layer it: TLS, OAuth2/OIDC authentication, scope and object-level authorization, input validation, rate limiting and WAF, secrets management, audit logs, OWASP API Top 10.",
+      "detailed": "API security is defence in depth. No single control, including the gateway, is enough.\n\n## Authentication (who are you?)\n\n- **OAuth 2.0** for delegated access and **OpenID Connect** for user identity, usually with an enterprise or customer identity provider.\n- Machine-to-machine with the client credentials flow; browser and mobile apps with Authorization Code plus PKCE.\n- Validate tokens on every request: signature, issuer, audience, expiry.\n\n## Authorization (what may you do?)\n\n- **Scopes and permissions** for coarse access (`vehicles:read`).\n- **RBAC** for role-based rules, **ABAC** for attribute rules (department, region, ownership) where needed.\n- **Object-level checks:** verify the caller may access *that* resource id. Broken object-level authorisation is the top item in the OWASP API Security list, so it deserves explicit tests.\n\n## Other controls\n\n| Area | Controls |\n|---|---|\n| Transport | TLS 1.2+ (ideally 1.3), HSTS |\n| Input | Schema validation, parameterised queries, body size limits, content-type checks |\n| Abuse | Rate limiting, quotas, bot protection, pagination caps |\n| Edge | WAF, gateway policies, IP restrictions where appropriate |\n| Secrets | Vault or secret manager; no secrets in code or URLs; rotation |\n| Data | Minimal responses, mask sensitive fields, encrypt at rest |\n| Operations | Audit logging, alerting, dependency scanning, patching |\n| Headers | `Cache-Control` for sensitive data, `X-Content-Type-Options`, correct CORS |\n\n## Common mistakes\n\n- Relying on the frontend to hide features instead of enforcing on the server.\n- Authenticating at the gateway but trusting any internal caller without authorisation downstream.\n- Returning detailed errors or whole objects with internal fields.\n- Long-lived tokens with broad scopes.\n- Using sequential ids with no ownership checks.\n\nDocument the security scheme in the OpenAPI specification so clients and tools know what is required.",
+      "followUps": [
+        "What is object-level authorization and how do you test it?",
+        "Which OAuth flow for a single-page app?",
+        "What do you validate in a JWT?"
+      ],
+      "related": [
+        "oauth2-vs-jwt",
+        "securing-public-apis"
+      ]
+    },
+    {
+      "slug": "oauth2-vs-jwt",
+      "title": "OAuth 2.0 vs JWT: how are they different?",
+      "topic": "Security",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "oauth2",
+        "jwt",
+        "oidc",
+        "tokens"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-rest-api-architecture",
+          "pages": [
+            11
+          ]
+        }
+      ],
+      "quick": "They are not alternatives. OAuth 2.0 is an authorization framework: it defines roles and flows by which a client obtains limited access to a resource on a user's or its own behalf. JWT, a JSON Web Token, is a compact signed token format that can carry claims. An OAuth access token may be a JWT, but it can also be an opaque string. OpenID Connect adds an identity layer on top of OAuth 2.0, and its ID token is a JWT.",
+      "revision": "OAuth 2.0 is a framework for delegated authorization; JWT is a token format. Access tokens can be JWTs or opaque. OIDC adds authentication, with JWT ID tokens.",
+      "detailed": "This is one of the most commonly confused pairs, because they sit at different layers.\n\n| | OAuth 2.0 | JWT |\n|---|---|---|\n| What it is | Authorization framework (flows and roles) | Token format (RFC 7519) |\n| Answers | \"How does a client get permission to call an API?\" | \"How is information packaged and verified in a token?\" |\n| Contains | Defines grants, scopes, token endpoints | Header, payload (claims), signature |\n\n## How they fit together\n\nIn OAuth 2.0 a client obtains an **access token** from an authorization server and presents it to a resource server (`Authorization: Bearer ...`). The spec does not mandate the token format. Two common choices:\n\n- **JWT access token:** self-contained; the API validates the signature locally and reads claims (`sub`, `scope`, `aud`, `exp`). No lookup per request, but revocation is harder.\n- **Opaque token:** a random string; the API asks the authorization server to introspect it. Easy revocation, extra network call (can be cached).\n\n**OpenID Connect** extends OAuth 2.0 to provide user authentication, issuing an **ID token** that is always a JWT.\n\n## What to validate in a JWT\n\nSignature using the issuer's published keys, `iss` (issuer), `aud` (intended audience), `exp`/`nbf` (time bounds), and the scopes or roles required. Reject the `none` algorithm and pin allowed algorithms.\n\n## Trade-offs and cautions\n\n- JWTs are **signed, not encrypted** (unless using JWE): do not put secrets in the payload.\n- Keep access tokens short-lived and use refresh tokens, stored safely, for continuity.\n- A large JWT adds overhead to every request.\n- Stateless validation means a stolen token is valid until it expires, so lifetimes and token binding matter.\n\n## Common mistake\n\nSaying \"we use JWT for authorization\" without saying how tokens are issued, scoped, validated and revoked. JWT alone is not a security design.",
+      "followUps": [
+        "JWT access token versus opaque token: how do you choose?",
+        "How do you revoke a JWT?",
+        "Which OAuth flow do you use for a browser app?"
+      ],
+      "related": [
+        "rest-api-security",
+        "401-vs-403"
+      ]
+    },
+    {
+      "slug": "rate-limiting",
+      "title": "What is API rate limiting and how do you implement it?",
+      "topic": "Protection",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "rate-limiting",
+        "429",
+        "throttling",
+        "quotas"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-rest-api-architecture",
+          "pages": [
+            11,
+            12
+          ]
+        }
+      ],
+      "quick": "Rate limiting caps how many requests a client can make in a time window, for example 100 per minute per API key. It protects backends from abuse and overload, shares capacity fairly, and softens traffic spikes. It is usually enforced at the gateway using algorithms like token bucket or sliding window, with counters in a shared store. Excess requests get 429 Too Many Requests with a Retry-After header, and clients should back off. I set separate limits per consumer and per expensive route.",
+      "revision": "Rate limiting caps requests per client per window (token bucket, sliding window), enforced at the gateway; reject excess with 429 and Retry-After.",
+      "detailed": "**Rate limiting** controls the request rate a given identity (API key, user, IP, tenant) may sustain.\n\n{{diagram:rl}}\n\n## Why\n\n- Abuse and scraping protection\n- Protecting backends and shared resources from overload\n- Fair allocation across consumers or plans\n- Cost control and absorbing traffic spikes\n\n## Common algorithms\n\n| Algorithm | Idea | Notes |\n|---|---|---|\n| Fixed window | Count per minute, reset at boundary | Simple; allows bursts at window edges |\n| Sliding window | Counts over a rolling interval | Smoother, more state |\n| Token bucket | Tokens refill at a rate; each request spends one | Allows controlled bursts |\n| Leaky bucket | Requests drain at a fixed rate | Smooths output |\n| Concurrency limit | Cap simultaneous in-flight requests | Protects slow endpoints |\n\n## Implementation points\n\n- Enforce at the **gateway or edge**, so rejected calls never reach services. Add service-level limits too, to protect against internal callers.\n- In a multi-instance deployment, counters need a **shared store** (for example Redis) or an approximate, per-node strategy.\n- Choose the **key** carefully: per client id for authenticated APIs; IP alone penalises users behind shared NATs.\n- Different limits for different routes (search versus checkout) and plans.\n\n## Client contract\n\n```http\nHTTP/1.1 429 Too Many Requests\nRetry-After: 30\nRateLimit-Limit: 100\nRateLimit-Remaining: 0\n```\n\n`Retry-After` is standard. The `RateLimit-*` headers follow an IETF draft and are used inconsistently, so document what you emit. Clients should honour it and use exponential backoff with jitter.\n\n## Rate limiting versus related ideas\n\n- **Quotas:** longer-term allowances (per month).\n- **Throttling:** slowing rather than rejecting.\n- **Backpressure:** signalling upstream to slow down.\n\n## Common mistake\n\nTreating rate limiting as DDoS protection. It helps against abuse, but volumetric attacks need CDN and network-level defences.",
+      "diagrams": [
+        {
+          "id": "rl",
+          "title": "Rate limiting at the gateway",
+          "alt": "A client sends requests to an API gateway that checks a counter store; requests within the limit reach the backend, and excess requests get a 429 response.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "c",
+              "label": "Client"
+            },
+            {
+              "id": "g",
+              "label": "API Gateway"
+            },
+            {
+              "id": "r",
+              "label": "Counter Store"
+            },
+            {
+              "id": "b",
+              "label": "Backend API"
+            }
+          ],
+          "edges": [
+            {
+              "from": "c",
+              "to": "g",
+              "label": "request"
+            },
+            {
+              "from": "g",
+              "to": "r",
+              "label": "check count"
+            },
+            {
+              "from": "g",
+              "to": "b",
+              "label": "within limit"
+            },
+            {
+              "from": "g",
+              "to": "c",
+              "label": "429 if exceeded"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Token bucket versus fixed window?",
+        "How do you rate limit across many gateway nodes?",
+        "What should a client do on a 429?"
+      ],
+      "related": [
+        "handling-traffic-spikes",
+        "api-gateway"
+      ]
+    },
+    {
+      "slug": "http-caching-cache-control",
+      "title": "How does caching work for REST APIs across the stack?",
+      "topic": "Caching",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "caching",
+        "cache-control",
+        "cdn",
+        "redis"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-rest-api-architecture",
+          "pages": [
+            12,
+            13
+          ]
+        }
+      ],
+      "quick": "Caching can happen at several layers: the browser, a CDN, the API gateway, an application cache like Redis, and the database. For GET responses I use HTTP caching headers: Cache-Control to set freshness (max-age, public or private, no-store for sensitive data), plus ETag or Last-Modified for revalidation. Public data like a vehicle catalogue can cache at the CDN; personalised responses use private or no-store. The hard part is invalidation, so I choose TTLs by how stale data may be.",
+      "revision": "Cache at browser, CDN, gateway, app cache and DB. Control with Cache-Control, validate with ETag/Last-Modified; public vs private matters; plan invalidation.",
+      "detailed": "Caching reduces latency and load, and it is one of REST's main advantages because GET is safe and cacheable by design.\n\n{{diagram:layers}}\n\n## Layers\n\n| Layer | Typical content | Control |\n|---|---|---|\n| Browser | Per-user responses, static assets | `Cache-Control`, `ETag` |\n| CDN / edge | Public catalogue and content responses | `Cache-Control: public, s-maxage`, purge APIs |\n| API gateway | Shared GET responses | Gateway cache policies |\n| Application cache (Redis) | Computed results, lookups | TTL, explicit invalidation |\n| Database | Query and buffer caches | Engine settings |\n\n## Key headers\n\n```http\nCache-Control: public, max-age=300, s-maxage=600\nCache-Control: private, max-age=60\nCache-Control: no-store\nETag: \"v42\"\nVary: Accept-Language\n```\n\n- `max-age` freshness for any cache; `s-maxage` overrides for shared caches such as CDNs.\n- `public`/`private` decide whether shared caches may store it. Personalised data must not be `public`.\n- `no-store` forbids storing; `no-cache` allows storing but requires revalidation.\n- `Vary` tells caches which request headers affect the response (language, encoding). Missing `Vary` can serve the wrong variant.\n- `stale-while-revalidate` lets caches serve stale data while refreshing.\n\n## Strategy\n\n1. Classify data: static, slowly changing, personalised, real-time.\n2. Choose a TTL according to acceptable staleness.\n3. Use validators (ETag) so expired entries are cheap to refresh.\n4. Plan invalidation: short TTLs, versioned URLs, purge on change, or event-driven invalidation.\n5. Protect against stampedes when a popular key expires (request coalescing, jitter on TTL).\n\n## Common mistakes\n\nCaching responses containing user data in shared caches, forgetting `Vary`, long TTLs with no invalidation path, and caching error responses unintentionally.",
+      "diagrams": [
+        {
+          "id": "layers",
+          "title": "Caching layers for an API",
+          "alt": "Request path from browser through CDN, API gateway, application cache such as Redis, application and database, each layer able to answer from cache.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "b",
+              "label": "Browser"
+            },
+            {
+              "id": "cdn",
+              "label": "CDN"
+            },
+            {
+              "id": "g",
+              "label": "API Gateway"
+            },
+            {
+              "id": "r",
+              "label": "Redis"
+            },
+            {
+              "id": "a",
+              "label": "Application"
+            },
+            {
+              "id": "d",
+              "label": "Database"
+            }
+          ],
+          "edges": [
+            {
+              "from": "b",
+              "to": "cdn"
+            },
+            {
+              "from": "cdn",
+              "to": "g"
+            },
+            {
+              "from": "g",
+              "to": "a"
+            },
+            {
+              "from": "a",
+              "to": "r"
+            },
+            {
+              "from": "a",
+              "to": "d"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "no-cache versus no-store?",
+        "How do you invalidate a CDN cache?",
+        "What is a cache stampede?"
+      ],
+      "related": [
+        "etag-conditional-requests",
+        "handling-traffic-spikes"
+      ]
+    },
+    {
+      "slug": "etag-conditional-requests",
+      "title": "What is an ETag and how do conditional requests work?",
+      "topic": "Caching",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "etag",
+        "if-none-match",
+        "if-match",
+        "304",
+        "concurrency"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-rest-api-architecture",
+          "pages": [
+            13
+          ]
+        }
+      ],
+      "quick": "An ETag is an opaque identifier for a particular version of a resource representation. The server returns it with a response. On the next request the client sends If-None-Match with that value; if the resource is unchanged the server replies 304 Not Modified with no body, saving bandwidth. ETags also support optimistic concurrency: an update with If-Match fails with 412 Precondition Failed if someone else changed the resource first, preventing lost updates.",
+      "revision": "ETag versions a representation. If-None-Match gives cheap revalidation via 304; If-Match on writes gives optimistic concurrency, failing with 412 on conflict.",
+      "detailed": "An **ETag** (entity tag) is a validator: an opaque string that changes when the representation changes. It enables two important behaviours.\n\n## 1. Conditional GET (cache revalidation)\n\n```http\nGET /vehicles/123\n-> 200 OK\n   ETag: \"a1b2c3\"\n   Cache-Control: max-age=60\n   { ... full body ... }\n\n(later, after the cached copy is stale)\nGET /vehicles/123\nIf-None-Match: \"a1b2c3\"\n-> 304 Not Modified     (no body; client reuses its cached copy)\n```\n\nThe server still does the work of checking the version, but the payload is not resent. This saves bandwidth and often reduces compute, if the ETag can be derived cheaply (for example from a version column or last-modified timestamp).\n\n## 2. Optimistic concurrency for writes\n\n```http\nPUT /vehicles/123\nIf-Match: \"a1b2c3\"\n-> 200 OK                     (resource still at that version)\n-> 412 Precondition Failed    (someone else updated it first)\n-> 428 Precondition Required  (server insists clients send If-Match)\n```\n\nThis prevents the **lost update** problem, where two clients read the same version and the later write silently overwrites the earlier one.\n\n## Strong versus weak ETags\n\n- **Strong:** `\"abc\"` indicates byte-for-byte identical representations.\n- **Weak:** `W/\"abc\"` indicates semantic equivalence; suitable for caching but not for byte-range requests.\n\n## Related validator\n\n`Last-Modified` with `If-Modified-Since` works similarly but with one-second timestamp granularity.\n\n## Practical notes\n\n- Compute ETags from a stable version or content hash, not from something that changes per request.\n- Different content encodings and variants may need distinct ETags.\n- Behind multiple servers, make sure all instances generate the same ETag for the same representation.",
+      "followUps": [
+        "How do ETags prevent lost updates?",
+        "Strong versus weak ETags?",
+        "ETag versus Last-Modified?"
+      ],
+      "related": [
+        "http-caching-cache-control",
+        "put-vs-patch"
+      ]
+    },
+    {
+      "slug": "timeouts",
+      "title": "Why must every API call have a timeout, and how do you choose values?",
+      "topic": "Resilience",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "timeouts",
+        "resilience",
+        "latency",
+        "deadlines"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-rest-api-architecture",
+          "pages": [
+            15
+          ]
+        }
+      ],
+      "quick": "Without a timeout, a slow or hung dependency can hold threads, connections and memory indefinitely, and the slowness spreads upstream until the whole system stalls. So every network call gets explicit connect and read timeouts, set from the business operation and the downstream's latency profile, such as a bit above its observed p99. Timeouts must also nest: the caller's budget must exceed the sum of what it waits for downstream. I propagate deadlines and pair timeouts with retries and circuit breakers.",
+      "revision": "Always set connect and read timeouts based on the SLA and observed p99; nested budgets must fit; unbounded waits turn slow dependencies into cascading failures.",
+      "detailed": "A **timeout** bounds how long a caller waits for a response. Default settings in many HTTP clients are very long or infinite, which is dangerous.\n\n## What happens without one\n\n```text\nFrontend -> API -> Payment service (hung)\n             threads/connections pile up waiting\n             -> API exhausts its pool -> frontend requests fail\n```\n\nOne slow dependency can consume all capacity, even for requests that never touch it.\n\n## Kinds of timeouts\n\n- **Connect timeout:** how long to establish a connection (usually short).\n- **Read / response timeout:** how long to wait for data.\n- **Overall request deadline:** total allowed time including retries.\n- **Idle and pool-acquire timeouts** for connection pools.\n\n## Choosing values\n\n- Start from the **user or business requirement** (for example a checkout step must respond within 2 seconds).\n- Use the downstream's **measured latency** (percentiles) and SLA; set above normal tail latency but well below the point where the user gives up.\n- Different operations get different values: search versus report generation.\n- Review after changes; timeouts that are too tight create false failures and retries.\n\n## Nesting and deadlines\n\n{{diagram:budget}}\n\nThe outer timeout must be larger than the inner calls plus retries, otherwise the caller gives up while the work continues downstream. Pass a **deadline** (or remaining time budget) along the call chain so downstream services can stop work that nobody is waiting for.\n\n## Pairing with other patterns\n\n- **Retries** apply after a timeout, but only for idempotent operations.\n- **Circuit breakers** count timeouts as failures.\n- **Fallbacks** supply a degraded response.\n\n## Common mistakes\n\nUsing identical long timeouts everywhere, retrying within a fixed overall budget without accounting for it, and treating a timeout as a definitive failure: the operation may have succeeded.",
+      "diagrams": [
+        {
+          "id": "budget",
+          "title": "Nested timeout budget",
+          "alt": "A frontend with a 3 second timeout calls an API with a 2 second budget, which calls a payment service with a 1 second timeout, showing timeouts shrinking along the chain.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "f",
+              "label": "Frontend 3s"
+            },
+            {
+              "id": "a",
+              "label": "API 2s"
+            },
+            {
+              "id": "p",
+              "label": "Payment Service 1s"
+            }
+          ],
+          "edges": [
+            {
+              "from": "f",
+              "to": "a"
+            },
+            {
+              "from": "a",
+              "to": "p"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "What is the difference between connect and read timeouts?",
+        "What do you do after a timeout on a payment call?",
+        "How do deadlines propagate across services?"
+      ],
+      "related": [
+        "retries-backoff-jitter",
+        "circuit-breaker"
+      ]
+    },
+    {
+      "slug": "retries-backoff-jitter",
+      "title": "When should you retry failed API calls, and how do you do it safely?",
+      "topic": "Resilience",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "retries",
+        "backoff",
+        "jitter",
+        "idempotency"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-rest-api-architecture",
+          "pages": [
+            14
+          ]
+        }
+      ],
+      "quick": "Retry only transient failures, such as network errors, timeouts, 503, or 429 with Retry-After, and only for operations that are idempotent or protected by an idempotency key. I use a small bounded number of attempts with exponential backoff and random jitter so clients do not retry in lockstep, plus an overall deadline. I do not retry validation errors or most 4xx responses. Uncontrolled retries multiply load on a struggling dependency, so I pair them with circuit breakers.",
+      "revision": "Retry only transient errors on idempotent operations: bounded attempts, exponential backoff with jitter, overall deadline, honour Retry-After; unlimited retries amplify outages.",
+      "detailed": "Retries recover from short-lived faults, but they are a double-edged tool: they can turn a minor slowdown into an outage.\n\n## What to retry\n\n| Retry | Do not retry |\n|---|---|\n| Connection resets, DNS blips | `400`, `401`, `403`, `404`, `422` (the client must change something) |\n| Timeouts (if safe) | Non-idempotent operations without a key |\n| `502`, `503`, `504` | Errors that will persist (bad config, permanent failure) |\n| `429` after `Retry-After` | Operations that already exceeded their deadline |\n\n## How to retry safely\n\n1. **Bound** attempts (for example three) and set an overall deadline.\n2. **Exponential backoff:** wait roughly base x 2^attempt between attempts.\n3. **Jitter:** randomise the delay so many clients do not retry at the same instant (a thundering herd).\n4. **Respect `Retry-After`** from the server.\n5. **Idempotency:** only retry safe methods, or POST with an `Idempotency-Key`.\n6. **Retry at one layer.** If the client, gateway and service each retry three times, one failure becomes 27 calls.\n7. Use a **retry budget** (for example, retries limited to a percentage of normal traffic) in large systems.\n\n## Example logic\n\n```js\nasync function callWithRetry(fn, { attempts = 3, baseMs = 200 } = {}) {\n  for (let i = 0; i < attempts; i++) {\n    try {\n      return await fn();\n    } catch (err) {\n      const retryable = err.transient === true;\n      if (!retryable || i === attempts - 1) throw err;\n      const delay = Math.random() * baseMs * 2 ** i; // full jitter\n      await new Promise((r) => setTimeout(r, delay));\n    }\n  }\n}\n```\n\n## Common mistakes\n\nFixed-interval retries, unlimited attempts, retrying inside several layers, and retrying non-idempotent writes, which leads to duplicate orders or payments.",
+      "followUps": [
+        "What is the thundering herd problem?",
+        "Where should retries live: client, gateway or service?",
+        "How do retries interact with timeouts?"
+      ],
+      "related": [
+        "circuit-breaker",
+        "idempotency-keys"
+      ]
+    },
+    {
+      "slug": "circuit-breaker",
+      "title": "What is the circuit breaker pattern and how do its states work?",
+      "topic": "Resilience",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "circuit-breaker",
+        "resilience",
+        "fail-fast",
+        "cascading-failure"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-rest-api-architecture",
+          "pages": [
+            13,
+            14
+          ]
+        }
+      ],
+      "quick": "A circuit breaker wraps calls to a dependency and tracks failures. While healthy it is closed and calls pass through. When failures or slow calls cross a threshold it opens, and calls fail immediately or return a fallback instead of waiting on a sick service. After a cool-down it goes half-open and lets a few trial requests through: success closes it again, failure re-opens it. This prevents cascading failure and gives the dependency room to recover.",
+      "revision": "Closed passes calls; open fails fast after a failure threshold; half-open sends trial calls after a cool-down, then closes on success or reopens on failure.",
+      "detailed": "When a downstream service is failing, continuing to call it wastes resources and slows everything down. A **circuit breaker** (like an electrical one) stops calls once failure is evident.\n\n{{diagram:states}}\n\n## The three states\n\n- **Closed:** normal operation. Calls pass through; failures and slow calls are counted over a window.\n- **Open:** failure rate or slow-call rate exceeded the threshold. Calls are rejected immediately (fail fast) or served by a fallback, without touching the dependency.\n- **Half-open:** after a wait period, a limited number of trial calls are allowed. If they succeed the breaker closes; if they fail it reopens.\n\n## Scenario\n\nAn Order API calls a Payment API. Payment goes down. Without a breaker, each order request waits for a timeout, threads pile up, and the Order API degrades. With a breaker, after a burst of failures the Order API immediately returns \"payment temporarily unavailable\" (or queues the order), keeping its own resources free.\n\n## Configuration choices\n\n| Setting | Considerations |\n|---|---|\n| Failure threshold | Percentage or count over a sliding window; require a minimum call volume |\n| What counts as failure | Timeouts, 5xx, connection errors; usually not 4xx |\n| Slow-call threshold | Treat very slow responses as failures |\n| Open duration | Long enough to let the dependency recover |\n| Half-open permits | Small number of probes |\n\n## Fallback options\n\nCached data, a default response, a degraded feature, queuing for later, or a clear error. Make the fallback a conscious product decision.\n\n## Cautions\n\n- Breakers are per dependency (and often per route), not global.\n- Expose breaker state in metrics and alerts.\n- They do not replace timeouts; they rely on them to detect failure.\n- Library or service-mesh implementations are common; do not hand-roll them.",
+      "diagrams": [
+        {
+          "id": "states",
+          "title": "Circuit breaker states",
+          "alt": "State diagram of a circuit breaker: closed moves to open when failures exceed a threshold, open moves to half-open after a wait period, and half-open returns to closed on success or back to open on failure.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "c",
+              "label": "Closed"
+            },
+            {
+              "id": "o",
+              "label": "Open"
+            },
+            {
+              "id": "h",
+              "label": "Half-Open"
+            }
+          ],
+          "edges": [
+            {
+              "from": "c",
+              "to": "o",
+              "label": "failures exceed threshold"
+            },
+            {
+              "from": "o",
+              "to": "h",
+              "label": "wait elapsed"
+            },
+            {
+              "from": "h",
+              "to": "c",
+              "label": "trial succeeds"
+            },
+            {
+              "from": "h",
+              "to": "o",
+              "label": "trial fails"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "What should a fallback return for a payment call?",
+        "What counts as a failure for the breaker?",
+        "How do you monitor breaker state?"
+      ],
+      "related": [
+        "retries-backoff-jitter",
+        "timeouts"
+      ]
+    }
+  ]
+}

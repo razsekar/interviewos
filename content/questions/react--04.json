@@ -1,0 +1,521 @@
+{
+  "category": "react",
+  "questions": [
+    {
+      "slug": "structure-large-react-app",
+      "title": "How would you structure a large React application?",
+      "topic": "React Architecture",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "react",
+        "architecture",
+        "folder-structure",
+        "feature-modules"
+      ],
+      "sourceType": "enhanced",
+      "quick": "I organize by feature or domain rather than by file type, so everything for a capability such as vehicles, orders or customers sits together: components, hooks, API calls and tests. A shared layer holds design-system components and generic utilities, and an app layer wires routing, providers and configuration. I enforce one-way dependencies, features may use shared but not each other's internals, using lint rules or module boundaries. That keeps ownership clear, limits coupling and lets teams work independently.",
+      "revision": "Organize by feature, with shared and app layers. Enforce one-way dependencies and public module interfaces so features do not reach into each other's internals.",
+      "detailed": "In a large codebase, grouping by technical type (`components/`, `hooks/`, `utils/` at the top level) forces developers to hop across many folders for one change and hides ownership. **Feature (domain) based structure** keeps related code together.\n\n## Example layout\n\n{{diagram:layers}}\n\n```text\nsrc/\n  app/            # providers, routing, app shell, global config\n  features/\n    vehicles/     # components, hooks, api, types, tests for this domain\n    customers/\n    orders/\n  shared/\n    ui/           # design-system components (Button, Modal)\n    hooks/        # generic hooks (useDebounce)\n    lib/          # utilities, formatting, http client\n```\n\n## Rules that make it work\n\n1. **Dependency direction**: `app` can import features and shared; features can import shared; shared never imports features; features do not import each other's internals.\n2. **Public API per feature**: expose a small `index.ts` and treat everything else as private.\n3. **Separate concerns inside a feature**: UI components, data access (API client and query hooks), and domain logic (pure functions) so each is testable alone.\n4. **Colocate** tests, styles and types with the code they cover.\n5. **Enforce with tooling**: ESLint import restrictions, or a monorepo with packages and clear ownership (CODEOWNERS).\n\n## Scaling choices\n\n- **Modular monolith**: a single deployable app with strong module boundaries. Often the best default.\n- **Monorepo with packages** (design system, API clients, feature libraries) when multiple apps share code.\n- **Micro frontends** only when independent deployment by autonomous teams is a real requirement.\n\n## Common mistakes\n\n- Dumping everything into a global `components` folder until it is unsearchable.\n- Over-engineering layers before the domain is understood.\n- Allowing circular imports between features.\n- Putting business rules inside UI components.",
+      "diagrams": [
+        {
+          "id": "layers",
+          "title": "Dependency direction between layers",
+          "alt": "The app layer imports from the features layer and from the shared layer; each feature such as vehicles, customers and orders imports only from shared and not from other features.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "app",
+              "label": "app (routing, providers)"
+            },
+            {
+              "id": "v",
+              "label": "features/vehicles"
+            },
+            {
+              "id": "c",
+              "label": "features/customers"
+            },
+            {
+              "id": "o",
+              "label": "features/orders"
+            },
+            {
+              "id": "s",
+              "label": "shared (ui, hooks, lib)"
+            }
+          ],
+          "edges": [
+            {
+              "from": "app",
+              "to": "v"
+            },
+            {
+              "from": "app",
+              "to": "c"
+            },
+            {
+              "from": "app",
+              "to": "o"
+            },
+            {
+              "from": "v",
+              "to": "s"
+            },
+            {
+              "from": "c",
+              "to": "s"
+            },
+            {
+              "from": "o",
+              "to": "s"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you prevent features from importing each other directly?",
+        "When would you move from a single app to a monorepo?",
+        "Where should business logic live relative to UI components?"
+      ],
+      "related": [
+        "avoid-tight-coupling",
+        "reusable-components",
+        "component-composition"
+      ],
+      "sources": [
+        {
+          "file": "ref-react-js",
+          "pages": [
+            7,
+            8
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "reusable-components",
+      "title": "How do you design reusable React components?",
+      "topic": "React Architecture",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "react",
+        "components",
+        "design-system",
+        "api-design"
+      ],
+      "sourceType": "enhanced",
+      "quick": "I start from a single clear responsibility and design the props as a small, stable public API that hides implementation details. I separate generic design-system components, which know nothing about the business, from domain components that combine them with business logic. I prefer composition through children and slots over many boolean flags, support controlled and uncontrolled usage where it makes sense, type props, handle accessibility by default, and avoid abstracting until I see real repetition.",
+      "revision": "Single responsibility, small stable prop API, composition over flags, separate design-system from domain components, accessible by default, abstract only after real repetition.",
+      "detailed": "A reusable component is one whose interface is stable, small and clear enough that other developers can use it without reading its internals.\n\n## Design principles\n\n1. **Single responsibility**: do one thing well. A `Modal` handles overlay and focus, not fetching.\n2. **A deliberate public API**: expose meaningful props (`variant`, `size`, `onChange`) rather than internal details. Document and type them (TypeScript).\n3. **Composition over configuration**: prefer `children` and slot props to piles of boolean flags.\n4. **Controlled or uncontrolled**: for inputs and similar components, support a controlled mode (`value` + `onChange`) and optionally an uncontrolled mode (`defaultValue`).\n5. **Accessibility built in**: semantic elements, labels, keyboard support, focus management and ARIA only where native HTML falls short.\n6. **Sensible defaults, escape hatches**: allow `className`, spread remaining props onto the root element and forward refs for DOM access.\n\n## Layers of reuse\n\n| Layer | Knows about | Example |\n|---|---|---|\n| Design-system primitives | Visual style and behavior only | `Button`, `Modal`, `TextField` |\n| Composite/shared components | Layout patterns | `DataTable`, `FormField` |\n| Domain components | Business concepts | `VehicleCard`, `DealerResultList` |\n\nKeep business logic out of the lower layers so they stay reusable across products.\n\n## Example\n\n```jsx\n// Flag-heavy and brittle\n<Card showHeader showFooter headerIcon=\"car\" footerText=\"Details\" />\n\n// Composed and flexible\n<Card>\n  <Card.Header><CarIcon /> Sedan</Card.Header>\n  <Card.Body>...</Card.Body>\n  <Card.Footer><a href=\"/details\">Details</a></Card.Footer>\n</Card>\n```\n\n## Pitfalls\n\n- **Premature abstraction**: wait until a pattern appears two or three times; the wrong abstraction costs more than duplication.\n- **Prop explosion**: dozens of options signal that the component does too much.\n- **Leaky APIs** that expose internal state shapes or CSS details.\n- **Missing tests and docs** (a Storybook or similar catalog helps adoption).",
+      "followUps": [
+        "What is the difference between controlled and uncontrolled components?",
+        "How do you avoid prop explosion in a shared component?",
+        "How would you version and document a shared component library?"
+      ],
+      "related": [
+        "component-composition",
+        "structure-large-react-app",
+        "avoid-tight-coupling"
+      ],
+      "sources": [
+        {
+          "file": "ref-react-js",
+          "pages": [
+            8
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "component-composition",
+      "title": "What is component composition, and why prefer it over inheritance?",
+      "topic": "React Architecture",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "react",
+        "composition",
+        "children",
+        "patterns"
+      ],
+      "sourceType": "enhanced",
+      "quick": "Composition means building complex UI by combining smaller components, passing content in through children or props, rather than extending base classes. React's model favors it because components are just functions that return elements, and props can carry any value, including JSX or functions. Composition avoids deep inheritance hierarchies, makes dependencies explicit, supports slots and compound components like Card.Header, and can even improve performance because elements passed as children are not re-created by a parent's state changes.",
+      "revision": "Composition builds UI by nesting and combining components via children and props instead of inheritance. It keeps dependencies explicit and avoids rigid hierarchies.",
+      "detailed": "Composition means building larger components out of smaller ones, passing in what varies through `children` or props. React deliberately favors composition over class inheritance for reuse.\n\n## Common patterns\n\n**Containment with `children`**\n\n```jsx\nfunction Card({ children }) {\n  return <section className=\"card\">{children}</section>;\n}\n\n<Card>\n  <h2>Sedan</h2>\n  <p>Starting at ...</p>\n</Card>\n```\n\n**Slots via props**\n\n```jsx\n<Layout header={<NavBar />} sidebar={<Filters />}>\n  <Results />\n</Layout>\n```\n\n**Compound components** (shared implicit state, often via context): `<Tabs>`, `<Tabs.List>`, `<Tabs.Panel>`.\n\n**Specialization by wrapping**: `<DangerButton>` renders `<Button variant=\"danger\">` rather than extending a Button class.\n\n**Custom hooks** compose behavior rather than UI.\n\n## Why not inheritance\n\n- Components receive behavior through props and hooks, so there is rarely a need for a base class.\n- Inheritance hierarchies couple children to parents' internals and make changes risky.\n- Composition lets you combine behaviors freely, and consumers see all dependencies in the JSX.\n\n## Performance side effect\n\nElements passed as `children` are created by the component that owns them. If a wrapper's state changes, the same `children` elements are reused, so that subtree can skip re-rendering without `React.memo`.\n\n```jsx\nfunction ScrollTracker({ children }) {\n  const [y, setY] = useState(0);        // changes often\n  return <div onScroll={(e) => setY(e.currentTarget.scrollTop)}>{children}</div>;\n}\n```\n\n## Common mistakes\n\n- Prop-heavy \"mega components\" with many conditional flags.\n- Deep prop drilling when composition (passing the element itself) would remove the intermediate layers.\n- Over-nesting wrapper components with no purpose.",
+      "followUps": [
+        "What is a compound component?",
+        "How can composition replace prop drilling?",
+        "How can children help avoid re-renders?"
+      ],
+      "related": [
+        "reusable-components",
+        "props",
+        "structure-large-react-app"
+      ],
+      "sources": [
+        {
+          "file": "ref-react-js",
+          "pages": [
+            8
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "avoid-tight-coupling",
+      "title": "How do you keep a large React application from becoming tightly coupled?",
+      "topic": "React Architecture",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "react",
+        "architecture",
+        "coupling",
+        "boundaries",
+        "api-layer"
+      ],
+      "sourceType": "enhanced",
+      "quick": "I define clear boundaries and enforce them. Domains are separated into feature modules with a small public interface. Components do not call fetch directly; they use a data-access layer or query hooks that hide endpoints and map responses to domain types. Shared UI contains no business logic. I limit global state to cross-cutting concerns, use typed contracts at module and API edges, and add lint rules and dependency checks so violations fail in CI rather than relying on convention.",
+      "revision": "Separate features with public interfaces, hide APIs behind a data layer, keep shared UI free of business logic, limit global state, and enforce boundaries with tooling.",
+      "detailed": "Tight coupling shows up as \"I changed one screen and three unrelated ones broke\". Preventing it is mostly about **explicit boundaries** and **enforcing them automatically**.\n\n{{diagram:boundaries}}\n\n## Techniques\n\n1. **Feature modules with public APIs**: each domain exposes a narrow entry point. Other modules import only from it, never from deep paths.\n2. **Data-access layer**: components depend on hooks such as `useVehicle(id)` rather than URLs and response shapes. This layer handles authentication headers, errors, retries, caching and mapping API DTOs to domain types, so backend changes are absorbed in one place.\n3. **Presentation separate from logic**: keep business rules as pure functions or hooks, and keep presentational components free of fetching and domain decisions.\n4. **Shared UI stays generic**: the design system never imports from features.\n5. **Limit global state**: use it for truly cross-cutting data; otherwise colocate state. Avoid a shared mutable \"god store\".\n6. **Typed contracts**: TypeScript types or schemas (for example runtime validation at API edges) define what crosses boundaries.\n7. **Communicate through props, events and URLs** rather than reaching into another module's state.\n8. **Automate enforcement**: ESLint import restrictions, dependency-graph checks, CODEOWNERS and architecture decision records.\n\n## Example\n\n```ts\n// features/vehicles/api.ts  (the only place that knows the endpoint)\nexport async function getVehicle(id: string): Promise<Vehicle> {\n  const res = await http.get(`/vehicles/${id}`);\n  return toVehicle(res.data);   // map API shape to domain type\n}\n```\n\nUI code calls `useVehicle(id)` and never sees raw responses.\n\n## Trade-offs\n\nMore boundaries mean more files and indirection. Apply them where change is likely and teams are many; a small app does not need every layer.\n\n## Common mistakes\n\n- Boundaries that exist only in a diagram and are not enforced.\n- Leaky abstractions: raw API shapes in components.\n- Circular dependencies between features.",
+      "diagrams": [
+        {
+          "id": "boundaries",
+          "title": "Layered boundaries in a React application",
+          "alt": "UI components call feature hooks, which use a data-access layer that talks to backend APIs. Domain logic is separate pure code used by the hooks, and shared design-system components are used by the UI without depending on features.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "ui",
+              "label": "UI components"
+            },
+            {
+              "id": "ds",
+              "label": "Design system"
+            },
+            {
+              "id": "h",
+              "label": "Feature hooks"
+            },
+            {
+              "id": "d",
+              "label": "Domain logic"
+            },
+            {
+              "id": "api",
+              "label": "Data-access layer"
+            },
+            {
+              "id": "be",
+              "label": "Backend APIs"
+            }
+          ],
+          "edges": [
+            {
+              "from": "ui",
+              "to": "ds"
+            },
+            {
+              "from": "ui",
+              "to": "h"
+            },
+            {
+              "from": "h",
+              "to": "d"
+            },
+            {
+              "from": "h",
+              "to": "api"
+            },
+            {
+              "from": "api",
+              "to": "be"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you enforce module boundaries in CI?",
+        "Why map API responses to domain types?",
+        "What are the costs of adding more layers?"
+      ],
+      "related": [
+        "structure-large-react-app",
+        "client-vs-server-state",
+        "reusable-components"
+      ],
+      "sources": [
+        {
+          "file": "ref-react-js",
+          "pages": [
+            8
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "optimize-react-performance",
+      "title": "How do you optimize the performance of a React application?",
+      "topic": "Performance",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "react",
+        "performance",
+        "profiling",
+        "bundle-size",
+        "optimization"
+      ],
+      "sourceType": "enhanced",
+      "quick": "I start by measuring, not guessing: Lighthouse and field metrics for the user experience, the network waterfall, bundle analysis, and the React Profiler for rendering. Then I fix the dominant bottleneck. Typical levers are code splitting and lazy loading, trimming dependencies, caching and CDN delivery, image optimization, virtualizing large lists, moving state down or restructuring components, and selective memoization. For public pages, server rendering can improve initial load. After each change I re-measure to confirm improvement.",
+      "revision": "Measure first, find the dominant bottleneck, then apply targeted fixes: split bundles, cut JS, cache, optimize images, virtualize lists, fix renders. Re-measure each change.",
+      "detailed": "Performance work is a loop: **measure, find the biggest bottleneck, change one thing, verify**. Guessing leads to wasted effort and unnecessary complexity.\n\n{{diagram:loop}}\n\n## Step 1: Measure\n\n- **Real-user and lab metrics**: Core Web Vitals, Lighthouse, field data where available.\n- **Network**: waterfall, request count, payload size, caching headers, slow API calls.\n- **JavaScript**: bundle analysis, long tasks in the Performance panel.\n- **Rendering**: React DevTools Profiler for slow or frequent renders.\n\n## Step 2: Identify the category\n\n| Symptom | Likely area | Typical fixes |\n|---|---|---|\n| Slow first load | Large JS, slow server, heavy images | Code splitting, trimmed dependencies, SSR/SSG for public pages, CDN, compression, image formats and sizing |\n| Slow interactions | Long tasks, heavy renders | Reduce render work, move state down, memoize selectively, `useTransition`, virtualization, defer non-critical work |\n| Slow data | API latency, waterfalls | Caching, parallel requests, prefetching, pagination, server-side filtering |\n| Janky scrolling or huge pages | Too many DOM nodes | Virtualization, pagination |\n\n## Step 3: React-specific levers\n\n- Keep state local so fewer components re-render.\n- Use stable keys; avoid recreating large objects each render.\n- Memoize only where measured (see memoization questions).\n- Lazy-load routes and heavy components.\n- Avoid expensive work in render; move it to memoized calculations or the server.\n\n## Step 4: Guard against regressions\n\nSet performance budgets (bundle size, metrics) in CI and monitor real-user metrics over time.\n\n## Common mistakes\n\n- Memoizing everywhere before measuring.\n- Optimizing React renders when the real problem is a 3 MB image or slow API.\n- Testing only on a fast development machine with a local network.",
+      "diagrams": [
+        {
+          "id": "loop",
+          "title": "Performance optimization loop",
+          "alt": "A cycle: measure with profiling tools, identify the dominant bottleneck, apply one targeted fix, then verify by measuring again and monitor for regressions.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "m",
+              "label": "Measure"
+            },
+            {
+              "id": "i",
+              "label": "Identify bottleneck"
+            },
+            {
+              "id": "f",
+              "label": "Apply targeted fix"
+            },
+            {
+              "id": "v",
+              "label": "Verify and monitor"
+            }
+          ],
+          "edges": [
+            {
+              "from": "m",
+              "to": "i"
+            },
+            {
+              "from": "i",
+              "to": "f"
+            },
+            {
+              "from": "f",
+              "to": "v"
+            },
+            {
+              "from": "v",
+              "to": "m",
+              "label": "repeat"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "A page is slow on first load but fast afterwards. Where do you look?",
+        "How do you set up performance budgets in CI?",
+        "When would server-side rendering help performance?"
+      ],
+      "related": [
+        "code-splitting-and-lazy-loading",
+        "find-unnecessary-renders",
+        "rendering-thousands-of-records"
+      ],
+      "sources": [
+        {
+          "file": "ref-react-js",
+          "pages": [
+            9
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "code-splitting-and-lazy-loading",
+      "title": "What are code splitting and lazy loading in React?",
+      "topic": "Performance",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "react",
+        "performance",
+        "code-splitting",
+        "lazy",
+        "suspense"
+      ],
+      "sourceType": "enhanced",
+      "quick": "Code splitting breaks one large JavaScript bundle into smaller chunks that the browser loads when needed, using dynamic import(). Lazy loading means deferring a resource until it is needed. In React I use React.lazy with Suspense, most commonly at route level, and also for heavy widgets such as charts, editors or modals. This shrinks the initial payload and improves startup time. I must provide a fallback and an error boundary, and avoid splitting so finely that it creates request waterfalls.",
+      "revision": "Code splitting divides the bundle into chunks via dynamic import(); lazy loading fetches them on demand. Use React.lazy plus Suspense, typically per route or heavy component.",
+      "detailed": "**Code splitting** is a build-time technique: the bundler turns each dynamic `import()` into a separate chunk. **Lazy loading** is the runtime behavior: loading that chunk (or other resource) only when it is needed. Together they reduce the JavaScript the browser must download, parse and run at startup.\n\n```jsx\nimport { lazy, Suspense } from 'react';\n\nconst VehiclePage = lazy(() => import('./VehiclePage'));\n\nfunction App() {\n  return (\n    <Suspense fallback={<PageSkeleton />}>\n      <Routes>\n        <Route path=\"/vehicles/:id\" element={<VehiclePage />} />\n      </Routes>\n    </Suspense>\n  );\n}\n```\n\n`React.lazy` expects the dynamic import to resolve to a module with a **default export**. `Suspense` shows the fallback until the chunk arrives.\n\n## Where to split\n\n- **Routes**: the best first target; users rarely need every page at once.\n- **Heavy, conditionally shown components**: charts, rich text editors, maps, modals.\n- **Large libraries** used in only one area, imported dynamically.\n\n## Practical refinements\n\n- **Prefetch** chunks likely to be needed soon, for example on link hover or when idle, to hide the loading delay.\n- **Wrap in an error boundary** so a failed chunk load (network error, new deployment replaced old files) shows a recoverable message rather than a blank screen.\n- **Design good fallbacks** (skeletons matching layout) to avoid layout shift.\n- **Frameworks** such as Next.js split by route automatically and provide their own dynamic import helpers.\n- Use a bundle analyzer to verify what ended up in each chunk.\n\n## Trade-offs\n\n- Too many small chunks can create request waterfalls and overhead.\n- Lazy components cannot render until the chunk loads, so do not lazy-load content above the fold that is needed for the first paint.\n- Server-rendered setups need framework-supported handling.\n\n## Common mistakes\n\n- Lazy-loading tiny components, which adds requests for little gain.\n- Omitting the Suspense boundary or error boundary.\n- Believing lazy loading fixes slow rendering; it only reduces load cost.",
+      "followUps": [
+        "Why do you need an error boundary around lazy components?",
+        "How would you prefetch a route chunk?",
+        "What should you not lazy-load?"
+      ],
+      "related": [
+        "optimize-react-performance",
+        "rendering-thousands-of-records",
+        "structure-large-react-app"
+      ],
+      "sources": [
+        {
+          "file": "ref-react-js",
+          "pages": [
+            9
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "rendering-thousands-of-records",
+      "title": "How would you optimize a page that displays thousands of records?",
+      "topic": "Performance",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "react",
+        "performance",
+        "large-lists",
+        "pagination",
+        "virtualization"
+      ],
+      "sourceType": "enhanced",
+      "quick": "The core idea is to avoid putting thousands of DOM nodes on the page at once. First I ask whether users need them all: server-side pagination, filtering and sorting often solve it. If they do need a long scrollable list, I virtualize it, rendering only the visible rows. I use stable keys, memoized row components with stable props, debounced search input, and caching or incremental loading such as infinite scroll. I also keep row state local and measure with the Profiler.",
+      "revision": "Do not render everything: paginate or filter on the server, virtualize long lists, use stable keys and memoized rows, debounce inputs, cache and load incrementally.",
+      "detailed": "Thousands of rows are slow because of cost in **three places**: transferring and parsing data, creating and updating many components, and keeping a huge DOM that makes layout, style and scrolling expensive. Fix them in order of impact.\n\n## 1. Reduce what is loaded\n\n- **Server-side pagination, filtering and sorting**: send only the page the user needs. Sorting and filtering thousands of items in the browser is wasteful when the server can do it.\n- **Cursor-based or infinite loading** for feeds.\n- **Request only needed fields**, and compress responses.\n- Cache results so navigating back is instant.\n\n## 2. Reduce what is rendered\n\n- **Virtualization (windowing)**: render only visible rows plus a small buffer (libraries such as TanStack Virtual or react-window).\n- If rows are few enough for plain rendering, use **pagination** with a fixed page size.\n\n## 3. Make updates cheap\n\n- **Stable keys** from data IDs.\n- **Memoized row components** (`React.memo`) with stable props so one row change does not re-render all.\n- **Keep per-row state local** (for example hover or expanded) instead of in a parent holding all rows.\n- **Update immutably and surgically**: map only the changed item.\n- **Debounce** search and filter inputs; consider `useDeferredValue` or `useTransition` for heavy list updates.\n- **Avoid heavy work per row**, such as formatting or computing in render; precompute once.\n\n```jsx\nconst Row = React.memo(function Row({ item, onSelect }) {\n  return <li onClick={() => onSelect(item.id)}>{item.name}</li>;\n});\n```\n\n## Choosing an approach\n\n| Situation | Approach |\n|---|---|\n| Users search or browse | Server pagination plus filters |\n| Long continuous scroll (logs, feeds) | Virtualized or infinite list |\n| Data grid with many columns | Virtualized rows and columns |\n| Bulk selection across pages | Keep selection by ID, not by DOM state |\n\n## Accessibility and UX\n\nVirtualized lists must retain keyboard navigation and screen-reader semantics; provide count and position information, and test with assistive technologies.\n\n## Common mistakes\n\n- Filtering large arrays on every keystroke in render.\n- Using index keys with sortable lists.\n- Virtualizing without fixed or measured row heights, causing scroll jumps.",
+      "followUps": [
+        "When would you choose pagination over virtualization?",
+        "How do you keep selection state across pages?",
+        "How do you handle variable row heights in a virtualized list?"
+      ],
+      "related": [
+        "list-virtualization",
+        "keys-in-lists",
+        "optimize-react-performance"
+      ],
+      "sources": [
+        {
+          "file": "ref-react-js",
+          "pages": [
+            9
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "list-virtualization",
+      "title": "What is list virtualization (windowing)?",
+      "topic": "Performance",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "react",
+        "performance",
+        "virtualization",
+        "windowing",
+        "lists"
+      ],
+      "sourceType": "enhanced",
+      "quick": "Virtualization, or windowing, renders only the rows currently visible in the viewport, plus a small overscan buffer, instead of creating DOM nodes for the entire dataset. A tall spacer element or absolute positioning keeps the scrollbar the right size, and as the user scrolls the library swaps which items are rendered. It keeps the DOM small and rendering cheap for lists with thousands of items. The trade-offs are complexity with variable heights, find-in-page behavior, and accessibility considerations.",
+      "revision": "Virtualization renders only visible rows plus a buffer, using spacing to fake full height. It keeps DOM and render cost small for huge lists.",
+      "detailed": "Virtualization (also called windowing) renders only the items inside, or near, the scroll viewport. A list of 50,000 items might have only 20 to 30 real DOM nodes at any time.\n\n## How it works\n\n1. The container has a fixed height and scrolls.\n2. The library computes which index range is visible from the scroll offset and item sizes.\n3. It renders just those items, plus an **overscan** buffer above and below to avoid blank flashes.\n4. It maintains the total scroll height with a spacer element or positions items with absolute offsets or transforms, so the scrollbar behaves as if all rows existed.\n5. As the user scrolls, items leaving the window are unmounted or recycled and new ones mount.\n\n```jsx\n// Illustrative usage with TanStack Virtual\nconst rowVirtualizer = useVirtualizer({\n  count: items.length,\n  getScrollElement: () => parentRef.current,\n  estimateSize: () => 48,\n  overscan: 5,\n});\n```\n\nCommon libraries include TanStack Virtual, react-window and react-virtuoso.\n\n## Benefits\n\n- Initial render and updates cost depends on the visible window rather than the dataset size.\n- Lower memory use and less layout work.\n- Smoother scrolling for large lists and tables.\n\n## Limitations and trade-offs\n\n- **Variable item heights** require measurement or estimates; wrong estimates cause scroll jumps.\n- **Browser find (Ctrl+F)** cannot see rows that are not rendered.\n- **Accessibility**: screen readers need accurate row counts and positions (`aria-rowcount`, `aria-rowindex` for grids), and keyboard focus must survive unmounting.\n- **Row state** is lost when a row scrolls out unless stored outside the row.\n- **SEO and print** need alternate handling; virtualized content is client rendered.\n- More complexity than plain pagination, which is often enough.\n\n## When to use\n\nLarge, continuously scrolling lists or grids where users need smooth browsing of many items. For search-like experiences where users narrow results, server pagination and filtering is usually simpler.\n\n## Common mistakes\n\n- Virtualizing a short list.\n- Putting heavy, non-memoized row components in the window.\n- Forgetting to keep selection or expanded state outside the row component.",
+      "followUps": [
+        "What problems do variable-height rows create?",
+        "How does virtualization affect accessibility?",
+        "Virtualization or pagination: how do you choose?"
+      ],
+      "related": [
+        "rendering-thousands-of-records",
+        "keys-in-lists",
+        "optimize-react-performance"
+      ],
+      "sources": [
+        {
+          "file": "ref-react-js",
+          "pages": [
+            9,
+            10
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "find-unnecessary-renders",
+      "title": "How do you identify unnecessary re-renders in a React app?",
+      "topic": "Performance",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "react",
+        "performance",
+        "profiler",
+        "devtools",
+        "re-renders"
+      ],
+      "sourceType": "enhanced",
+      "quick": "I use the React DevTools Profiler to record an interaction and see which components rendered, how long each took, and why they rendered. Enabling the option to highlight updates and the why-did-this-render information points to the trigger: state, props, hooks or parent. Then I look at state placement, changing object and function props, context values and component boundaries. I only act when renders are frequent or slow enough to matter, and I confirm the fix with another profile.",
+      "revision": "Record with the React Profiler, see what rendered and why, then inspect state placement, unstable props, context and boundaries. Fix only costly renders and re-profile.",
+      "detailed": "A re-render is not automatically a problem; React renders are usually fast. You are looking for renders that are **frequent, slow, or pointless** in a way that affects the user.\n\n## Tools\n\n- **React DevTools Profiler**: record an interaction (typing, scrolling, clicking), then inspect the flamegraph or ranked view to see what rendered and how long each took. The \"why did this render\" information (enabled in profiler settings) reports whether props, state, hooks or the parent caused it.\n- **Highlight updates** in DevTools settings to see re-rendering components flash visually.\n- **Browser Performance panel** to link React work to long tasks and to see if rendering is the real cost.\n- Temporary logging or helper tools in development (for example a \"why-did-you-render\" style library), used sparingly.\n\n## Investigation checklist\n\n1. **Who rendered first?** Trace upward to the component whose state or context actually changed. Children render because the parent did.\n2. **State placement**: is state held higher than needed? Move it down to the component that uses it.\n3. **Unstable props**: inline objects, arrays and arrow functions create new references each render and defeat `React.memo`.\n4. **Context**: is a frequently changing context value re-rendering many consumers?\n5. **Effects**: does an effect set state that triggers another render, or depend on an unstable value, creating loops?\n6. **Keys**: do changing or random keys cause remounts?\n7. **Store subscriptions**: is a component subscribed to the entire store instead of a selected slice?\n\n## Fixing\n\nApply the least invasive change that works: restructure or move state, pass `children`, stabilize props, split contexts, use selectors, then memoize. Re-profile to confirm.\n\n```jsx\n// Quick development check for how often a component renders\nfunction useRenderCount(name) {\n  const count = useRef(0);\n  count.current += 1;\n  console.log(`${name} rendered ${count.current}`);\n}\n```\n\n(Strict Mode double-invokes rendering in development, so counts can look doubled; use the Profiler for accurate data.)\n\n## Common mistakes\n\n- Optimizing based on a render count alone without measuring duration.\n- Profiling a development build, which is slower and not representative; use a production build with profiling enabled where possible.",
+      "followUps": [
+        "A component renders 100 times for one action. What do you check?",
+        "Why can render counts look doubled in development?",
+        "How do you profile a production build?"
+      ],
+      "related": [
+        "causes-of-re-renders",
+        "excessive-memoization",
+        "optimize-react-performance"
+      ],
+      "sources": [
+        {
+          "file": "ref-react-js",
+          "pages": [
+            10
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "causes-of-re-renders",
+      "title": "What causes unnecessary re-renders in React?",
+      "topic": "Performance",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "react",
+        "re-renders",
+        "performance",
+        "context",
+        "referential-equality"
+      ],
+      "sourceType": "enhanced",
+      "quick": "A component re-renders when its own state changes, when its parent re-renders, or when a context it consumes changes. The pain usually comes from patterns around those triggers: state held too high in the tree, new object or function references passed to memoized children, context values that change often, broad store subscriptions, and poor component boundaries where a small change forces a large subtree to render. Fixing them means better state placement, stable references, selectors and composition.",
+      "revision": "Re-renders come from own state, parent renders, and context changes. Problems arise from state too high, new object or function props, wide contexts and store subscriptions.",
+      "detailed": "React re-renders a component for exactly three reasons: its **state** changed, its **parent** rendered, or a **context** it consumes changed. (Props changing is a consequence of the parent rendering.) Most \"unnecessary\" re-renders are patterns that amplify those triggers.\n\n## Common causes and fixes\n\n| Cause | Why it hurts | Fix |\n|---|---|---|\n| State held too high | A small change re-renders a large subtree | Move state down into the component that uses it |\n| Parent re-renders | Children render even if props did not change | `React.memo` on expensive children, or pass `children` elements so they are reused |\n| New object/array/function props | A new reference defeats `React.memo` and dependency checks | Hoist constants, `useMemo`, `useCallback` |\n| Frequently changing context | All consumers render on every update | Split contexts, memoize value, or use a selector-based store |\n| Broad store subscriptions | Component re-renders for unrelated store changes | Subscribe with selectors to just the needed slice |\n| Unstable keys | Remount instead of update | Stable IDs as keys |\n| Effects that set state | Extra render cycles or loops | Derive values during render, fix dependencies |\n| Poor component boundaries | Cheap and expensive parts rendered together | Split components so only the changing part renders |\n\n## Example of an unstable prop\n\n```jsx\nfunction Parent() {\n  const [open, setOpen] = useState(false);\n  return (\n    <>\n      <button onClick={() => setOpen(!open)}>Toggle</button>\n      {/* Chart is memoized, but options is a new object each render */}\n      <Chart options={{ smooth: true }} />\n    </>\n  );\n}\n// Fix: const options = { smooth: true } outside the component (or useMemo)\n```\n\n## Keep perspective\n\n- Many re-renders are cheap and harmless. Prioritize those that are slow, frequent, or visibly janky.\n- The render phase should be pure and quick; if it is, extra renders rarely matter.\n- Optimization tools (`memo`, `useMemo`, `useCallback`) address symptoms; **structure** (state placement, composition) usually addresses causes more cleanly.\n\n## Common mistakes\n\n- Assuming props changing causes re-rendering independent of the parent.\n- Thinking `React.memo` protects against context or own-state updates.\n- Using one giant context or store object for everything.",
+      "followUps": [
+        "Does a child re-render if its parent re-renders with identical props?",
+        "How do selectors in a store reduce re-renders?",
+        "How can passing children reduce re-renders?"
+      ],
+      "related": [
+        "find-unnecessary-renders",
+        "react-memo",
+        "context-api"
+      ],
+      "sources": [
+        {
+          "file": "ref-react-js",
+          "pages": [
+            10
+          ]
+        }
+      ]
+    }
+  ]
+}

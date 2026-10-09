@@ -1,0 +1,518 @@
+{
+  "category": "rest-api",
+  "questions": [
+    {
+      "slug": "what-is-rest",
+      "title": "What is REST and what makes an API RESTful?",
+      "topic": "REST Fundamentals",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "rest",
+        "http",
+        "resources"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-rest-api-architecture",
+          "pages": [
+            1
+          ]
+        }
+      ],
+      "quick": "REST, Representational State Transfer, is an architectural style for networked systems built around resources. Each resource has a URL, and clients act on it using standard HTTP methods like GET, POST, PUT, PATCH and DELETE. Requests are stateless, so the server keeps no conversation between calls, and responses use HTTP status codes, headers and caching. In practice most \"REST APIs\" are resource-oriented JSON over HTTP; I treat that as the useful core and apply it consistently.",
+      "revision": "REST models resources behind URLs, manipulated through uniform HTTP methods, with stateless requests and standard status codes, headers and caching.",
+      "detailed": "REST is an architectural style, not a protocol or a library. It describes how to design networked systems around **resources** (things such as a vehicle, a dealer or an order) that clients read and change by exchanging **representations** of them, usually JSON.\n\n## What it looks like in practice\n\n```http\nGET    /vehicles          # list the collection\nGET    /vehicles/123      # read one resource\nPOST   /vehicles          # create a new one\nPATCH  /vehicles/123      # partially update\nDELETE /vehicles/123      # remove\n```\n\nThe URL names the thing; the HTTP method says what to do with it. Status codes (`200`, `201`, `404`...) report the outcome, and headers carry caching, content negotiation and authentication information.\n\n## Why it is popular\n\n- It reuses what HTTP already gives you: caching, proxies, CDNs, load balancers, tooling.\n- The uniform interface keeps clients and servers loosely coupled, so each can evolve independently.\n- Statelessness makes horizontal scaling straightforward.\n\n## A common nuance\n\nStrictly, Roy Fielding's definition also includes hypermedia (HATEOAS), where responses contain links that drive the client. Most production \"REST APIs\" skip this and are better described as resource-oriented HTTP APIs. In an interview it is fine to say so: be clear about which constraints you actually follow and document the rest in the API contract.\n\n## Common mistakes\n\n- Treating REST as \"JSON over HTTP\" with verbs in the URL (`/getVehicle`).\n- Using POST for everything and ignoring status codes.\n- Storing client session state on the server between requests.",
+      "followUps": [
+        "Is every JSON HTTP API RESTful?",
+        "What is HATEOAS and do you use it?",
+        "How is REST different from RPC-style APIs?"
+      ],
+      "related": [
+        "rest-constraints",
+        "resource-oriented-urls"
+      ]
+    },
+    {
+      "slug": "rest-constraints",
+      "title": "What are the REST architectural constraints?",
+      "topic": "REST Fundamentals",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "rest",
+        "constraints",
+        "architecture"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-rest-api-architecture",
+          "pages": [
+            1
+          ]
+        }
+      ],
+      "quick": "There are six classic constraints: client-server, stateless, cacheable, uniform interface, layered system, and optional code-on-demand. Client-server separates UI from data concerns. Stateless means each request is self-contained. Cacheable means responses declare whether they can be reused. Uniform interface gives consistent resource identification and standard methods. Layered system allows proxies, gateways and CDNs in between. Day to day I focus on statelessness, resource-oriented design, correct HTTP semantics and cacheability.",
+      "revision": "Client-server, stateless, cacheable, uniform interface, layered system, optional code-on-demand. Practically: stateless, resources, HTTP semantics, caching.",
+      "detailed": "Fielding's REST style is defined by a small set of constraints. Each one trades some freedom for a property such as scalability or evolvability.\n\n| Constraint | Meaning | What it buys you |\n|---|---|---|\n| Client-server | UI and data/business logic are separate concerns | Independent evolution of web, mobile and backend |\n| Stateless | Every request carries what the server needs | Horizontal scaling, simpler failure recovery |\n| Cacheable | Responses state whether they may be reused | Fewer round trips, lower latency, CDN offload |\n| Uniform interface | Resource identifiers, representations, standard methods, self-descriptive messages | Loose coupling, generic tooling |\n| Layered system | Client cannot tell whether it talks to the origin or an intermediary | Gateways, CDNs, WAFs and load balancers can be inserted freely |\n| Code-on-demand (optional) | Server may ship executable code to the client | Rarely relevant for JSON APIs; browsers already do it with JavaScript |\n\n## The uniform interface has four sub-constraints\n\n1. Identification of resources (URLs).\n2. Manipulation through representations (JSON, XML).\n3. Self-descriptive messages (media type, status codes, cache headers).\n4. Hypermedia as the engine of application state (links in responses).\n\nThe fourth is the one most \"REST\" APIs omit.\n\n## How to answer in an interview\n\nName all six, then say which you apply rigorously. A credible answer is: statelessness, resource-oriented URLs, standard HTTP semantics and cacheability, with the client-server separation and layering being natural outcomes of a web plus gateway architecture. Mentioning that hypermedia is often skipped shows you understand the gap between the academic definition and industry practice.",
+      "followUps": [
+        "Which constraint matters most for scalability?",
+        "What is HATEOAS and why is it rarely implemented?",
+        "Which constraint does an API gateway rely on?"
+      ],
+      "related": [
+        "what-is-rest",
+        "stateless-requests"
+      ]
+    },
+    {
+      "slug": "stateless-requests",
+      "title": "What does \"stateless\" mean in REST?",
+      "topic": "REST Fundamentals",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "rest",
+        "stateless",
+        "sessions"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-rest-api-architecture",
+          "pages": [
+            2
+          ]
+        }
+      ],
+      "quick": "Stateless means every request carries all the information the server needs to process it, such as credentials, identifiers and parameters. The server does not keep conversational session state between requests, so any instance can handle any request. That does not mean the system has no state: the data still lives in databases, caches and queues. It only means the application tier does not remember the client between calls. An access token in the header replaces a server-side session.",
+      "revision": "Stateless: each request is self-contained; no per-client conversation is kept in server memory. Persistent data still exists, just outside the request-handling tier.",
+      "detailed": "**Stateless** means the server can understand and process a request using only that request (plus shared, persistent data). It does not rely on in-memory conversational state from earlier requests.\n\n## What it is not\n\nStatelessness does not mean the application has no data. Orders, carts and users live in a database or cache. The constraint concerns *session state held by the request-handling instance*, for example \"this user is on step 3 of a wizard and server instance 2 remembers it\".\n\n## Stateful versus stateless\n\n```text\nStateful:   POST /login        -> server stores session in instance memory\n            GET  /account      -> must hit the SAME instance (sticky session)\n\nStateless:  GET /account\n            Authorization: Bearer <token>   -> any instance can validate and answer\n```\n\n## How to keep an API stateless\n\n- Send authentication on every request (bearer token, signed cookie).\n- Put workflow position in the request or in a shared store keyed by an identifier the client sends (cart id, job id).\n- Keep sessions, if needed, in a shared store such as Redis rather than instance memory.\n- Make requests independent: do not require \"call A before B\" on the same instance.\n\n## Trade-offs\n\n- Each request may be slightly larger (token, parameters).\n- Token validation happens on every request, so it must be cheap (for example local JWT signature verification or a cached introspection).\n- Revoking access is harder with self-contained tokens, so short lifetimes matter.\n\n## Common mistake\n\nCalling an API stateless while depending on sticky sessions. If the load balancer must pin a user to a node, the tier is effectively stateful.",
+      "followUps": [
+        "How would you handle a multi-step checkout statelessly?",
+        "Is a JWT stateless authentication? What are the downsides?",
+        "Where do you keep session data if you need it?"
+      ],
+      "related": [
+        "statelessness-and-scalability",
+        "oauth2-vs-jwt"
+      ]
+    },
+    {
+      "slug": "statelessness-and-scalability",
+      "title": "Why does statelessness make APIs easier to scale?",
+      "topic": "REST Fundamentals",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "scalability",
+        "stateless",
+        "load-balancing"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-rest-api-architecture",
+          "pages": [
+            2
+          ]
+        }
+      ],
+      "quick": "If no request depends on memory held by a specific instance, a load balancer can send any request to any instance. I can add instances to scale out, remove them when load drops, and replace a crashed container without losing user sessions. Rolling deploys and autoscaling become routine because instances are interchangeable. The state still has to live somewhere, so the scaling bottleneck shifts to shared stores like the database and cache, which I then scale and protect separately.",
+      "revision": "Stateless instances are interchangeable, so load balancing, autoscaling, rolling deploys and failure recovery are simple; the scaling problem moves to shared data stores.",
+      "detailed": "When instances hold no per-client state, they become **interchangeable**. That single property unlocks most of the operational benefits teams care about.\n\n{{diagram:lb}}\n\n## Concrete benefits\n\n- **Horizontal scaling:** add API instances behind the load balancer; no data migration or session replication is needed.\n- **Simple load balancing:** round-robin or least-connections works; no sticky sessions.\n- **Failure tolerance:** if one instance dies, in-flight clients retry and land on another one.\n- **Disposable containers:** autoscalers, spot instances and rolling deployments can terminate instances freely.\n- **Easier testing:** a request fully describes its inputs.\n\n## Where the state goes\n\nState does not disappear; it moves to systems built to hold it: a database for durable data, a cache for hot data, a queue for work in progress, a token for identity. Those become the scaling constraints, so you plan for read replicas, caching, partitioning and connection limits there.\n\n## Trade-offs and pitfalls\n\n- Per-request overhead: tokens and parameters travel on every call.\n- Local caches inside instances are fine as optimisations, but correctness must not depend on them.\n- WebSockets or long-lived streams are connection-stateful; handle reconnects and keep business state in shared stores.\n- Sticky sessions mask a stateful design and reduce resilience.\n\nA good interview answer ties it together: stateless application tier, stateful data tier, and each scaled with the technique that suits it.",
+      "diagrams": [
+        {
+          "id": "lb",
+          "title": "Stateless API behind a load balancer",
+          "alt": "A load balancer distributes requests from clients to three interchangeable API instances, all of which read and write a shared data store.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "c",
+              "label": "Clients"
+            },
+            {
+              "id": "lb",
+              "label": "Load Balancer"
+            },
+            {
+              "id": "a1",
+              "label": "API-1"
+            },
+            {
+              "id": "a2",
+              "label": "API-2"
+            },
+            {
+              "id": "a3",
+              "label": "API-3"
+            },
+            {
+              "id": "db",
+              "label": "Shared DB / Cache"
+            }
+          ],
+          "edges": [
+            {
+              "from": "c",
+              "to": "lb"
+            },
+            {
+              "from": "lb",
+              "to": "a1"
+            },
+            {
+              "from": "lb",
+              "to": "a2"
+            },
+            {
+              "from": "lb",
+              "to": "a3"
+            },
+            {
+              "from": "a1",
+              "to": "db"
+            },
+            {
+              "from": "a2",
+              "to": "db"
+            },
+            {
+              "from": "a3",
+              "to": "db"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "What breaks if you use sticky sessions?",
+        "Where would you keep a shopping cart?",
+        "How do you scale the shared data store?"
+      ],
+      "related": [
+        "stateless-requests",
+        "handling-traffic-spikes"
+      ]
+    },
+    {
+      "slug": "resource-oriented-urls",
+      "title": "How do you design resource-oriented URLs, and what makes a URL \"bad\"?",
+      "topic": "Resource Design",
+      "difficulty": "beginner",
+      "type": "design",
+      "tags": [
+        "rest",
+        "urls",
+        "naming"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-rest-api-architecture",
+          "pages": [
+            6
+          ]
+        }
+      ],
+      "quick": "I model nouns, not actions: collections like /vehicles and /customers/123/orders, with the HTTP method expressing the operation. So GET /customers/123 instead of /getCustomer, and DELETE /customers/123 instead of POST /deleteCustomer. I use plural nouns consistently, keep nesting shallow, and put filtering in query parameters. For genuinely action-like operations, such as cancelling an order, I either model a sub-resource or use a clearly documented action endpoint rather than hiding it.",
+      "revision": "URLs name resources (plural nouns, shallow nesting); HTTP methods carry the verb. Avoid /getX or /deleteX; model real actions as sub-resources.",
+      "detailed": "Good REST URLs identify **things**; the method identifies the **action**.\n\n| Less RESTful | Better |\n|---|---|\n| `GET /getCustomer?id=123` | `GET /customers/123` |\n| `POST /createCustomer` | `POST /customers` |\n| `POST /deleteCustomer` | `DELETE /customers/123` |\n| `GET /customerOrders?c=123` | `GET /customers/123/orders` |\n\n## Guidelines\n\n- **Plural nouns for collections** (`/vehicles`), identifier for a member (`/vehicles/123`). Pick one convention and keep it.\n- **Hierarchy shows ownership**, but keep it shallow. `/customers/123/orders` is fine; `/customers/123/orders/9/items/4/discounts` is a smell. Expose `/orders/9` as a top-level resource once it has its own identity.\n- **Query parameters filter, sort and paginate** (`/vehicles?type=suv&sort=price`), not identify.\n- **Lowercase, hyphenated paths**; no file extensions or verbs; no trailing implementation details such as `.php`.\n- **Stable identifiers** that are not leaking database internals if you may change storage.\n\n## Actions that are not CRUD\n\nSome operations do not map cleanly to a noun: cancel an order, publish a draft, recalculate a quote. Options:\n\n```http\nPOST /orders/9/cancellation      # model the result as a sub-resource\nPOST /orders/9/cancel            # explicit action endpoint, documented\nPATCH /orders/9  {\"status\":\"CANCELLED\"}   # state change as an update, if rules allow\n```\n\nChoose one style and apply it consistently. Pragmatic, predictable naming beats dogmatic purity.\n\n## Common mistake\n\nPutting verbs in paths and then using POST for all of them. It discards HTTP semantics such as safe retries of GET, caching, and meaningful methods in logs and gateways.",
+      "followUps": [
+        "How would you model \"cancel order\"?",
+        "When would you flatten a nested route?",
+        "Singular or plural resource names?"
+      ],
+      "related": [
+        "what-is-rest",
+        "get-vs-post"
+      ]
+    },
+    {
+      "slug": "get-vs-post",
+      "title": "GET vs POST: how do HTTP methods differ in safety and idempotency?",
+      "topic": "HTTP Methods",
+      "difficulty": "beginner",
+      "type": "comparison",
+      "tags": [
+        "http",
+        "methods",
+        "safe",
+        "idempotent"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-rest-api-architecture",
+          "pages": [
+            2,
+            3
+          ]
+        }
+      ],
+      "quick": "GET retrieves a resource and must be safe: it should not change server state. That makes it cacheable and retryable. POST usually creates a resource or triggers a processing action, and it is neither safe nor idempotent by default, so a retry may duplicate the effect. PUT and DELETE are idempotent but not safe. I pick methods for their semantics, because caches, proxies, gateways and retry logic depend on them.",
+      "revision": "GET is safe and idempotent; PUT and DELETE are idempotent but not safe; POST is neither by default. Retries and caching depend on these semantics.",
+      "detailed": "HTTP defines two properties that matter for API design:\n\n- **Safe:** the request is read-only from the client's perspective (no intended state change).\n- **Idempotent:** repeating the same request has the same intended effect on the server as sending it once.\n\n| Method | Typical use | Safe | Idempotent | Body in request |\n|---|---|---|---|---|\n| GET | Read a resource or collection | Yes | Yes | No |\n| HEAD | Headers only | Yes | Yes | No |\n| POST | Create, or run a non-idempotent operation | No | No (by default) | Yes |\n| PUT | Replace a resource at a known URL | No | Yes | Yes |\n| PATCH | Partial update | No | Not guaranteed | Yes |\n| DELETE | Remove a resource | No | Yes | Usually no |\n\n## Why it matters\n\n- **Caching:** only safe, cacheable requests (GET, HEAD) are normally cached by browsers and CDNs.\n- **Retries:** clients, proxies and gateways may automatically retry idempotent methods after a timeout. A retried POST can create a duplicate.\n- **Security:** a GET that changes state can be triggered by a prefetching crawler or a malicious image tag, which is a CSRF risk.\n\n## Practical rules\n\n- Never mutate state in a GET, and do not put secrets in query strings (they appear in logs).\n- Use POST for creation where the server picks the identifier, and for operations that do not map to a resource update.\n- Idempotent here refers to server state, not the response: a repeated DELETE may return `204` then `404` and is still idempotent.\n- Complex read queries that cannot fit in a URL are sometimes sent with POST; document it as a read-only operation.",
+      "followUps": [
+        "Is DELETE idempotent if the second call returns 404?",
+        "Can a GET request have a body?",
+        "Why can a retried POST be dangerous?"
+      ],
+      "related": [
+        "put-vs-patch",
+        "idempotency"
+      ]
+    },
+    {
+      "slug": "put-vs-patch",
+      "title": "PUT vs PATCH: replacement versus partial update, and which is idempotent?",
+      "topic": "HTTP Methods",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "put",
+        "patch",
+        "idempotency",
+        "updates"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-rest-api-architecture",
+          "pages": [
+            3
+          ]
+        }
+      ],
+      "quick": "PUT replaces the whole resource representation at a known URL, so the client sends the full object. By HTTP definition it is idempotent: sending it twice leaves the same state. PATCH applies a partial change, such as just the colour. PATCH is not guaranteed idempotent, because a patch like \"increment mileage by 10\" changes state every time, though \"set colour to blue\" is naturally idempotent. I document the semantics, and use ETags to avoid lost updates.",
+      "revision": "PUT replaces the full representation and is idempotent by definition. PATCH applies a partial change and is idempotent only if the patch itself is. Document semantics.",
+      "detailed": "**PUT** means \"make the resource at this URL look like the representation I am sending\". **PATCH** means \"apply this set of changes to the resource\".\n\n```http\nPUT /vehicles/123\nContent-Type: application/json\n\n{ \"name\": \"Trail Runner\", \"color\": \"Blue\", \"trim\": \"Sport\", \"price\": 41500 }\n\nPATCH /vehicles/123\nContent-Type: application/merge-patch+json\n\n{ \"color\": \"Blue\" }\n```\n\n## Idempotency: a common misconception\n\n- **PUT is idempotent** by HTTP definition. Sending the same full representation repeatedly yields the same state.\n- **PATCH is not necessarily idempotent.** It depends on the patch: `{\"color\":\"Blue\"}` is idempotent, but a JSON Patch operation that appends to an array, or a custom \"increase stock by 1\" instruction, is not. HTTP does not promise idempotency for PATCH, so an API that needs retry safety should say so and protect it (for example with a precondition or an idempotency key).\n\n## Practical differences\n\n| Aspect | PUT | PATCH |\n|---|---|---|\n| Payload | Complete representation | Only changed fields or operations |\n| Missing fields | Typically reset or removed | Left untouched |\n| Bandwidth | Larger | Smaller |\n| Concurrency risk | Overwrites other clients' changes | Narrower, but still possible |\n\n## PATCH formats\n\nJSON Merge Patch (`application/merge-patch+json`) is simple but cannot express \"set to null\" versus \"remove\" clearly in every case and replaces arrays wholesale. JSON Patch (`application/json-patch+json`) is a list of operations (`add`, `replace`, `remove`) and is more precise.\n\n## Avoiding lost updates\n\nUse `ETag` with `If-Match` so an update fails with `412 Precondition Failed` if someone else modified the resource first. Also be explicit about whether PUT can create a resource (`201`) when none exists.",
+      "followUps": [
+        "How do you prevent two clients overwriting each other with PUT?",
+        "JSON Patch vs JSON Merge Patch?",
+        "Would you make PATCH retry-safe, and how?"
+      ],
+      "related": [
+        "idempotency",
+        "etag-conditional-requests"
+      ]
+    },
+    {
+      "slug": "idempotency",
+      "title": "What is idempotency and why does it matter in API design?",
+      "topic": "Idempotency",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "idempotency",
+        "retries",
+        "reliability"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-rest-api-architecture",
+          "pages": [
+            3
+          ]
+        }
+      ],
+      "quick": "An operation is idempotent if performing it several times has the same intended effect on server state as performing it once. It matters because networks fail: a client that times out cannot know whether the server processed the request, so it retries. For idempotent operations like PUT or DELETE that is harmless. For a POST that charges a card, a blind retry could bill twice. So I design retry-sensitive operations to be idempotent, naturally or with an idempotency key.",
+      "revision": "Idempotent: repeating a request leaves the same server state as doing it once. It makes retries safe after timeouts and ambiguous failures.",
+      "detailed": "An operation is **idempotent** when repeating it produces the same intended final state as running it once. It is about the effect on the server, not whether each response is identical.\n\n## Why it is central to reliable APIs\n\nA client that sends a request and gets a timeout is in an ambiguous situation. The request may have been lost, or processed with the response lost. The only safe client behaviour is to retry, which is only safe if the operation is idempotent. This is the foundation of the retry, queue redelivery and at-least-once delivery patterns used throughout distributed systems.\n\n## Examples\n\n| Operation | Idempotent? | Why |\n|---|---|---|\n| `GET /vehicles/123` | Yes | Read only |\n| `PUT /vehicles/123` with the same body | Yes | Ends with the same state |\n| `DELETE /vehicles/123` | Yes | Resource is gone after one or many calls (status may differ) |\n| `POST /payments` | No by default | Each call can create a new payment |\n| `PATCH /stock` with `{\"increment\":1}` | No | State changes each time |\n\n## Making non-idempotent operations safe\n\n- **Redesign naturally:** use PUT with a client-generated identifier (`PUT /orders/{clientGeneratedId}`) so a retry targets the same resource.\n- **Use idempotency keys** for POST (see the next question).\n- **Use conditional requests** (`If-Match`) so a repeated update fails instead of applying twice.\n- **Deduplicate at the consumer** for message-driven systems by tracking processed message ids.\n\n## Common mistakes\n\n- Assuming \"idempotent\" means \"same response\". A repeated DELETE can return `404` and still be idempotent.\n- Retrying POST blindly at the gateway, client library or service mesh.\n- Making the idempotency check non-atomic, so concurrent retries both pass.",
+      "followUps": [
+        "Is DELETE idempotent if it returns 404 the second time?",
+        "How would you make a payment endpoint retry-safe?",
+        "How does idempotency relate to at-least-once message delivery?"
+      ],
+      "related": [
+        "idempotency-keys",
+        "retries-backoff-jitter"
+      ]
+    },
+    {
+      "slug": "idempotency-keys",
+      "title": "How do you make a POST endpoint idempotent with an idempotency key?",
+      "topic": "Idempotency",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "idempotency-key",
+        "payments",
+        "retries",
+        "post"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-rest-api-architecture",
+          "pages": [
+            4
+          ]
+        }
+      ],
+      "quick": "The client generates a unique key per logical operation and sends it in an Idempotency-Key header. The server atomically records the key with a fingerprint of the request and, once finished, the stored response. If the same key arrives again with the same payload, I return the stored result instead of repeating the work. A key reused with a different payload gets an error. Keys expire after a documented window, and concurrent duplicates are handled with a lock or an in-progress state.",
+      "revision": "Client sends a unique Idempotency-Key; server atomically stores key, request fingerprint and response, replays it on retry, and rejects the same key with a different body.",
+      "detailed": "For retry-sensitive operations such as payments or order creation, an **idempotency key** lets the server recognise a retry of the *same logical request* and return the original outcome instead of repeating the side effect.\n\n{{diagram:flow}}\n\n## Protocol\n\n```http\nPOST /orders\nIdempotency-Key: 5c2d1e0a-8b7f-4f3a-9d41-2f0e6a1b7c10\nContent-Type: application/json\n\n{ \"cartId\": \"c-77\", \"paymentMethod\": \"pm-9\" }\n```\n\n1. The client generates a unique key (a UUID) per logical operation and reuses it on every retry of that operation.\n2. The server looks the key up in a durable store, scoped to the caller.\n3. **Not found:** record the key as \"in progress\" together with a hash of the request, perform the operation, store the status and body, and return it.\n4. **Found, completed, same fingerprint:** return the stored response (often with the same status).\n5. **Found, different fingerprint:** reject with `422` or `409` because the key is being misused.\n6. **Found, still in progress:** return `409` (or make the caller wait) rather than running twice.\n\n## Implementation details that matter\n\n- The insert of the key must be **atomic** (unique constraint, conditional write) so two concurrent retries cannot both proceed.\n- Store the key and the business change in the **same transaction** where possible, or the system can crash between them.\n- Scope keys per client or tenant and expire them after a documented window (for example, 24 hours; the value is your choice).\n- Do not cache failures caused by transient server errors if the client is expected to retry successfully.\n\n## Notes\n\nThe header is a widely used convention, and an IETF draft exists, but it is not part of core HTTP. Document the exact behaviour in the API contract.",
+      "diagrams": [
+        {
+          "id": "flow",
+          "title": "Idempotency key request flow",
+          "alt": "The client sends a POST with an idempotency key; the API checks a key store, runs the operation on the first request and stores the result, and on a retry returns the stored result without repeating the operation.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "c",
+              "label": "Client"
+            },
+            {
+              "id": "api",
+              "label": "Order API"
+            },
+            {
+              "id": "ks",
+              "label": "Key Store"
+            },
+            {
+              "id": "op",
+              "label": "Create Order"
+            }
+          ],
+          "edges": [
+            {
+              "from": "c",
+              "to": "api",
+              "label": "POST + key"
+            },
+            {
+              "from": "api",
+              "to": "ks",
+              "label": "lookup / insert"
+            },
+            {
+              "from": "api",
+              "to": "op",
+              "label": "first time only"
+            },
+            {
+              "from": "op",
+              "to": "ks",
+              "label": "store result"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you handle two concurrent requests with the same key?",
+        "How long should keys be kept?",
+        "What if the client reuses a key with a different body?"
+      ],
+      "related": [
+        "idempotency",
+        "retries-backoff-jitter"
+      ]
+    },
+    {
+      "slug": "http-status-codes",
+      "title": "Which HTTP status codes should an API use, and when?",
+      "topic": "HTTP Semantics",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "http",
+        "status-codes"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-rest-api-architecture",
+          "pages": [
+            4
+          ]
+        }
+      ],
+      "quick": "I group them by class. 2xx for success: 200 OK, 201 Created with a Location header, 202 Accepted for async work, 204 No Content. 4xx means the client can fix it: 400 for malformed input, 401 and 403 for authentication and permission, 404 for missing, 409 for state conflicts, 422 for semantically invalid data, 429 for rate limits. 5xx means the server or an upstream failed: 500, 502, 503, 504. The key is consistency, so clients can rely on the codes.",
+      "revision": "2xx success (200, 201, 202, 204); 4xx client's fault (400, 401, 403, 404, 409, 422, 429); 5xx server or upstream fault (500, 502, 503, 504).",
+      "detailed": "Status codes let clients, gateways and monitoring distinguish outcomes without parsing bodies. Use them consistently and use the *most specific* meaningful code.\n\n## Success (2xx)\n\n| Code | Use |\n|---|---|\n| 200 OK | Successful read or update returning a body |\n| 201 Created | New resource created; include a `Location` header |\n| 202 Accepted | Request accepted for asynchronous processing |\n| 204 No Content | Success with no body (typical for DELETE or PUT) |\n\n## Client errors (4xx)\n\n| Code | Use |\n|---|---|\n| 400 Bad Request | Malformed syntax or unparseable request |\n| 401 Unauthorized | Missing or invalid authentication |\n| 403 Forbidden | Authenticated but not permitted |\n| 404 Not Found | Resource does not exist (or is deliberately hidden) |\n| 409 Conflict | Conflicts with current state (duplicate, version clash) |\n| 422 Unprocessable Content | Well-formed but fails validation or business rules |\n| 429 Too Many Requests | Rate limit exceeded; add `Retry-After` |\n\n## Server errors (5xx)\n\n| Code | Use |\n|---|---|\n| 500 Internal Server Error | Unexpected failure in the service |\n| 502 Bad Gateway | Gateway got an invalid response from upstream |\n| 503 Service Unavailable | Temporarily overloaded or down; may include `Retry-After` |\n| 504 Gateway Timeout | Gateway timed out waiting for upstream |\n\n## Other useful codes\n\n`304 Not Modified` (conditional GET), `412 Precondition Failed` (failed `If-Match`), `415 Unsupported Media Type`, `405 Method Not Allowed`.\n\n## Common mistakes\n\n- Returning `200` with an error in the body.\n- Using `500` for validation failures (client mistakes must be 4xx).\n- Using `400` and `422` interchangeably without a documented rule; many teams use 400 for syntax, 422 for validation.",
+      "followUps": [
+        "400 vs 422: how do you decide?",
+        "When do you return 409?",
+        "What is the difference between 502, 503 and 504?"
+      ],
+      "related": [
+        "401-vs-403",
+        "error-response-model"
+      ]
+    },
+    {
+      "slug": "401-vs-403",
+      "title": "What is the difference between 401 and 403?",
+      "topic": "HTTP Semantics",
+      "difficulty": "beginner",
+      "type": "comparison",
+      "tags": [
+        "401",
+        "403",
+        "authentication",
+        "authorization"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-rest-api-architecture",
+          "pages": [
+            4,
+            5
+          ]
+        }
+      ],
+      "quick": "401 means the request lacks valid authentication: no token, an expired token or a bad signature. It should carry a WWW-Authenticate header, and the client can fix it by authenticating. 403 means the caller is authenticated, but not allowed to do this, and re-authenticating will not help. The 401 name is \"Unauthorized\" in HTTP, but it really means unauthenticated. I sometimes return 404 instead of 403 to avoid revealing that a resource exists.",
+      "revision": "401: not authenticated (missing or invalid credentials). 403: authenticated but not permitted. Despite its name, 401 is about authentication, not authorization.",
+      "detailed": "**401** and **403** are often confused because HTTP names 401 \"Unauthorized\", yet it signals a failed *authentication*.\n\n| | 401 | 403 |\n|---|---|---|\n| Meaning | No valid credentials | Valid identity, insufficient permission |\n| Typical causes | Missing token, expired token, bad signature | Wrong role, missing scope, resource owned by someone else |\n| Can the client fix it? | Yes, by authenticating (or refreshing the token) | Not by retrying; needs different privileges or account |\n| Extra header | `WWW-Authenticate` challenge is required by HTTP | None required |\n\nA memorable framing: 401 asks \"who are you?\", 403 says \"I know who you are, but you cannot do this.\"\n\n## Examples\n\n```http\nGET /orders/77\n(no Authorization header)\n-> 401 Unauthorized\n   WWW-Authenticate: Bearer realm=\"api\"\n\nGET /admin/users\nAuthorization: Bearer <valid token for a customer>\n-> 403 Forbidden\n```\n\n## Related decisions\n\n- **Insufficient scope under OAuth 2.0:** bearer-token specifications use `403` with an `insufficient_scope` error (and a `WWW-Authenticate` hint); an invalid or expired token is `401` with `invalid_token`.\n- **Hiding existence:** for sensitive resources, return `404` to a caller who may not know the resource exists, so you do not leak information. Apply this deliberately and consistently.\n- **Authorization checks go on the server** for every request; a frontend that hides a button is not access control.\n\n## Common mistakes\n\n- Returning `403` for missing tokens, so clients do not know to refresh.\n- Returning `401` for permission failures, which causes clients to loop on token refresh.\n- Leaking details such as \"user exists but password wrong\" in login errors.",
+      "followUps": [
+        "When would you return 404 instead of 403?",
+        "What status for a valid token with the wrong scope?",
+        "What should a 401 response include?"
+      ],
+      "related": [
+        "http-status-codes",
+        "oauth2-vs-jwt"
+      ]
+    },
+    {
+      "slug": "error-response-model",
+      "title": "How do you design consistent API error responses?",
+      "topic": "Error Handling",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "errors",
+        "problem-details",
+        "api-design"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-rest-api-architecture",
+          "pages": [
+            17
+          ]
+        }
+      ],
+      "quick": "I use one error shape across every endpoint, with the right HTTP status plus a body containing a stable machine-readable code, a human message, a request or correlation ID, and optional field-level details. Clients branch on the code, not on message text. I never expose stack traces, SQL or internal hostnames. Validation errors list each failing field. Where possible I follow RFC 9457 Problem Details so the format is standard and tooling understands it.",
+      "revision": "One consistent error body: correct HTTP status, stable error code, safe message, request ID and field details; follow RFC 9457; never leak internals.",
+      "detailed": "A good error model lets clients react programmatically, lets support find the failing request, and never helps an attacker.\n\n## A practical shape\n\n```json\n{\n  \"code\": \"VEHICLE_NOT_FOUND\",\n  \"message\": \"Vehicle was not found.\",\n  \"requestId\": \"req-7d41a\",\n  \"details\": []\n}\n```\n\nFor validation:\n\n```json\n{\n  \"code\": \"VALIDATION_FAILED\",\n  \"message\": \"One or more fields are invalid.\",\n  \"requestId\": \"req-7d41b\",\n  \"details\": [\n    { \"field\": \"price\", \"issue\": \"must be greater than 0\" }\n  ]\n}\n```\n\n## Standard option: Problem Details\n\nRFC 9457 (which obsoletes RFC 7807) defines `application/problem+json` with members `type`, `title`, `status`, `detail` and `instance`, and allows extension members such as `requestId` or `errors`. Using it gives you a recognised format rather than a custom one.\n\n## Design rules\n\n- **HTTP status first**, body second. The status must be correct; the body adds detail.\n- **Stable codes** are part of the contract. Message text may change or be localised.\n- **Include a request/correlation ID** so users can quote it to support.\n- **Field-level details** for validation, so the UI can highlight inputs.\n- **Be safe:** no stack traces, SQL, file paths or internal service names. Log them server-side against the request ID instead.\n- **Same format everywhere**, including errors produced by the gateway, auth layer and framework defaults.\n- Document error codes in the OpenAPI specification.\n\n## Common mistakes\n\n- Returning `200` with `\"success\": false`.\n- Different shapes from different services behind the same gateway.\n- Using free-text messages as the only way to distinguish errors.",
+      "followUps": [
+        "How would you localise error messages?",
+        "Where does the gateway fit in error formatting?",
+        "How do you represent multiple validation errors?"
+      ],
+      "related": [
+        "http-status-codes",
+        "correlation-request-id"
+      ]
+    }
+  ]
+}

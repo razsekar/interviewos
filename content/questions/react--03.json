@@ -1,0 +1,325 @@
+{
+  "category": "react",
+  "questions": [
+    {
+      "slug": "usememo-hook",
+      "title": "What is useMemo and when is it worth using?",
+      "topic": "Memoization",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "react",
+        "hooks",
+        "useMemo",
+        "memoization",
+        "performance"
+      ],
+      "sourceType": "enhanced",
+      "quick": "useMemo caches the result of a calculation between renders and recomputes it only when its dependencies change. I use it for genuinely expensive computations, such as filtering or sorting large lists, and when I need a stable object or array reference to pass to a memoized child or an effect dependency. I do not wrap cheap calculations, because the memo itself has overhead, and it is a performance hint rather than a semantic guarantee, so my code must still be correct if React recomputes.",
+      "revision": "useMemo caches a computed value until its dependencies change. Use it for measured expensive work or stable references; it is an optimization, not a guarantee.",
+      "detailed": "`useMemo` caches the result of a function between renders. React reruns the function only when a value in the dependency array has changed.\n\n```jsx\nfunction VehicleList({ vehicles, query }) {\n  const visible = useMemo(\n    () => vehicles.filter((v) => v.name.toLowerCase().includes(query.toLowerCase())),\n    [vehicles, query]\n  );\n  return <List items={visible} />;\n}\n```\n\n## When it helps\n\n1. **Expensive calculations**: large filtering, sorting, grouping or parsing that measurably slows renders.\n2. **Referential stability**: keeping an object or array identical across renders so a `React.memo` child, a context value, or an effect dependency does not see a \"new\" value every time.\n\n```jsx\nconst contextValue = useMemo(() => ({ user, logout }), [user, logout]);\nreturn <AuthContext.Provider value={contextValue}>{children}</AuthContext.Provider>;\n```\n\n## When it does not help\n\n- Cheap work such as adding numbers or mapping a small array. Comparing dependencies and storing the cache costs about as much.\n- When the dependencies change on nearly every render, so the cache never hits.\n- When the real cost is elsewhere, for example rendering a huge list.\n\n## Important caveats\n\n- **It is an optimization, not a semantic guarantee.** React may discard cached values (for instance, in some development or future scenarios). Code must remain correct if it recomputes.\n- **The calculation must be pure**, with no side effects.\n- **Dependencies must be complete.** A missing dependency returns stale results.\n- **React Compiler**, where adopted, can automatically memoize many cases, reducing the need to write these by hand; the manual form is still valid.\n\n## Practical workflow\n\nMeasure with the Profiler first. If a component's render is slow because of a computation, wrap it. Otherwise, leave the code simple.\n\n## Common mistakes\n\n- Memoizing everything \"just in case\".\n- Using useMemo to run side effects.\n- Passing an inline object as a dependency, which breaks the cache.",
+      "followUps": [
+        "How would you decide whether a calculation justifies useMemo?",
+        "Does useMemo guarantee the function runs only once per dependency change?",
+        "How does React Compiler change manual memoization?"
+      ],
+      "related": [
+        "usecallback-hook",
+        "usememo-vs-usecallback",
+        "excessive-memoization"
+      ],
+      "sources": [
+        {
+          "file": "ref-react-js",
+          "pages": [
+            5,
+            6
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "usecallback-hook",
+      "title": "What is useCallback and when does it matter?",
+      "topic": "Memoization",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "react",
+        "hooks",
+        "useCallback",
+        "memoization",
+        "referential-equality"
+      ],
+      "sourceType": "enhanced",
+      "quick": "useCallback returns the same function reference between renders until its dependencies change. Functions are recreated on every render, so a new reference can break React.memo on a child or retrigger an effect that lists the function as a dependency. I use useCallback when passing a handler to a memoized child, or when a function is an effect dependency. Without a memoized consumer it usually gives no benefit, because the function is still created, and the dependency comparison adds cost.",
+      "revision": "useCallback keeps a function reference stable between renders. It only pays off when a memoized child or an effect depends on that reference.",
+      "detailed": "Every render creates new function objects. `useCallback` lets you reuse the previous function while its dependencies are unchanged.\n\n```jsx\nfunction VehicleTable({ vehicles }) {\n  const [selectedId, setSelectedId] = useState(null);\n\n  const handleSelect = useCallback((id) => {\n    setSelectedId(id);          // setState is stable, so no dependency needed\n  }, []);\n\n  return vehicles.map((v) => (\n    <VehicleRow key={v.id} vehicle={v} onSelect={handleSelect} />\n  ));\n}\n\nconst VehicleRow = React.memo(function VehicleRow({ vehicle, onSelect }) { /* ... */ });\n```\n\nHere `handleSelect` keeps the same identity, so `React.memo` on `VehicleRow` can skip re-rendering rows whose `vehicle` did not change.\n\n## When it helps\n\n- Passing callbacks to children wrapped in `React.memo`.\n- A function used as a dependency of `useEffect`, `useMemo` or another hook, where a new identity every render would cause unwanted re-runs.\n- Custom hooks that return functions, to give consumers stable references.\n\n## When it does not help\n\n- Passing a callback to a plain (non-memoized) child. The child re-renders anyway when the parent renders.\n- Handlers on DOM elements like `<button onClick>`; React handles these cheaply.\n- When the dependencies change every render.\n\n## Stale closures\n\nA memoized function captures the values from the render in which it was created. If it uses props or state, they must be listed in the dependency array, or it will read old values. The updater form of setState (`setX(prev => ...)`) often removes the need for such a dependency.\n\n## Alternatives\n\n- Move the function outside the component if it does not use props or state.\n- Define the function inside the effect that uses it.\n- Restructure so that the child does not need the callback.\n\n## Common mistakes\n\n- Wrapping every handler in `useCallback` without any memoized consumer.\n- Memoizing the callback but passing other unstable props (inline objects), so the child still re-renders.",
+      "followUps": [
+        "Why does useCallback alone not stop a child from re-rendering?",
+        "How can the updater form of setState help avoid dependencies?",
+        "What is a stale closure in a callback?"
+      ],
+      "related": [
+        "usememo-hook",
+        "react-memo",
+        "usememo-vs-usecallback"
+      ],
+      "sources": [
+        {
+          "file": "ref-react-js",
+          "pages": [
+            6
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "usememo-vs-usecallback",
+      "title": "What is the difference between useMemo and useCallback?",
+      "topic": "Memoization",
+      "difficulty": "beginner",
+      "type": "comparison",
+      "tags": [
+        "react",
+        "hooks",
+        "useMemo",
+        "useCallback",
+        "comparison"
+      ],
+      "sourceType": "reference-derived",
+      "quick": "useMemo caches the return value of a function I give it, while useCallback caches the function itself. Technically useCallback(fn, deps) is equivalent to useMemo(() => fn, deps). I reach for useMemo for expensive computed data or stable objects, and for useCallback for stable handler references passed to memoized children or effect dependencies. Both use dependency arrays compared by reference and both are optimizations that should be justified by measurement, not applied by default.",
+      "revision": "useMemo memoizes a computed value; useCallback memoizes a function. useCallback(fn, deps) equals useMemo(() => fn, deps). Both use dependency arrays.",
+      "detailed": "Both hooks cache something between renders and use a dependency array. The difference is **what** they cache.\n\n| | `useMemo` | `useCallback` |\n|---|---|---|\n| Caches | The **result** of calling your function | The **function** itself |\n| You pass | A function that returns a value | The function to preserve |\n| Returns | The computed value | The same function reference |\n| Typical use | Expensive derivations, stable object or array | Stable handlers for memoized children and effects |\n\n```jsx\nconst filtered = useMemo(() => filterUsers(users, query), [users, query]);\n\nconst handleClick = useCallback(() => {\n  trackClick(userId);\n}, [userId]);\n\n// These two are equivalent:\nconst a = useCallback(fn, deps);\nconst b = useMemo(() => fn, deps);\n```\n\n## Shared behavior\n\n- Dependencies are compared with `Object.is`, so unstable object dependencies break caching.\n- Both can return stale data if dependencies are incomplete.\n- Neither prevents the **parent's** render; they preserve values for downstream consumers.\n- Neither is needed unless something compares references: `React.memo`, effect dependency arrays, context values, or an expensive computation.\n\n## Choosing\n\n1. Is the thing a function you pass down or depend on? `useCallback` (if a consumer benefits).\n2. Is it a computed value, object or array? `useMemo`.\n3. Is the computation cheap and nothing compares the reference? Neither.\n\n## Common mistakes\n\n- Treating them as interchangeable and calling `useMemo(fn)` expecting to cache the function.\n- Using them as defaults on all variables and handlers.\n- Forgetting `React.memo` on the child, which leaves the stable reference unused.",
+      "followUps": [
+        "How can you write useCallback using useMemo?",
+        "What do these hooks compare dependencies with?",
+        "When would neither be necessary?"
+      ],
+      "related": [
+        "usememo-hook",
+        "usecallback-hook",
+        "react-memo"
+      ],
+      "sources": [
+        {
+          "file": "ref-react-js",
+          "pages": [
+            6
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "react-memo",
+      "title": "What is React.memo and how does it prevent re-renders?",
+      "topic": "Memoization",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "react",
+        "memo",
+        "performance",
+        "re-renders"
+      ],
+      "sourceType": "enhanced",
+      "quick": "React.memo wraps a function component so React skips re-rendering it when its props are shallowly equal to the previous props. It helps when a component is expensive to render and its parent re-renders often with unchanged props. It does not help if I pass new object, array or function references each render, so it is often paired with useMemo and useCallback. It does not block re-renders caused by the component's own state or context. I apply it selectively after profiling.",
+      "revision": "React.memo skips re-rendering when props are shallowly equal. It fails with new object or function props, and does not stop state or context re-renders.",
+      "detailed": "By default, when a parent re-renders, all its children re-render too. `React.memo` wraps a component and tells React to reuse the last rendered result if the props have not changed.\n\n```jsx\nconst VehicleCard = React.memo(function VehicleCard({ vehicle, onSelect }) {\n  return <button onClick={() => onSelect(vehicle.id)}>{vehicle.name}</button>;\n});\n```\n\n## How the comparison works\n\nReact compares each prop with `Object.is` (a **shallow** comparison). Primitives compare by value; objects, arrays and functions compare by reference. You can pass a custom comparison function as the second argument, though that is rarely a good idea since it is easy to get wrong.\n\n## When it helps\n\n- The component is costly to render (large subtree, heavy calculations).\n- It re-renders often because of a parent but receives the same props.\n- Items in a long list that rarely change individually.\n\n## When it does not help\n\n```jsx\n<VehicleCard vehicle={v} style={{ margin: 8 }} onSelect={(id) => open(id)} />\n```\n\nThe inline `style` object and arrow function are new on every render, so props are never shallowly equal and memoization is wasted. Stabilize them with `useMemo`, `useCallback`, or by moving constants outside the component.\n\n## What it does not stop\n\n- Re-renders triggered by the component's **own state**.\n- Re-renders caused by a **context** it consumes changing.\n- A parent's render, which still runs; only the child's render is skipped.\n\n## Alternatives that avoid memo\n\n- **Move state down** so that only the part that changes re-renders.\n- **Pass children as props** (composition): elements created above the stateful component are reused.\n\n## Common mistakes\n\n- Wrapping every component in `React.memo`.\n- Forgetting about the unstable props that defeat it.\n- Custom comparators that skip changed props, causing stale UI.",
+      "followUps": [
+        "Why does an inline arrow function prop defeat React.memo?",
+        "Does React.memo prevent re-renders caused by context?",
+        "What are alternatives to memo for avoiding re-renders?"
+      ],
+      "related": [
+        "usecallback-hook",
+        "excessive-memoization",
+        "causes-of-re-renders"
+      ],
+      "sources": [
+        {
+          "file": "ref-react-js",
+          "pages": [
+            6
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "excessive-memoization",
+      "title": "Can excessive memoization hurt performance?",
+      "topic": "Memoization",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "react",
+        "memoization",
+        "performance",
+        "profiling"
+      ],
+      "sourceType": "enhanced",
+      "quick": "Yes. Memoization is not free: React must store the cached value, compare dependencies on every render, and keep closures and old values in memory. If the computation is cheap or the dependencies change on nearly every render, the overhead can exceed the savings. It also adds code noise and stale-closure risk from incomplete dependencies. I profile first, memoize where the Profiler shows real cost or where reference stability is required, and prefer structural fixes like moving state down.",
+      "revision": "Memoization costs memory and comparisons, adds stale-closure risk and noise. Measure first; prefer structural fixes like moving state down over blanket memoization.",
+      "detailed": "Memoization can help, but applying it everywhere is a common anti-pattern.\n\n## Costs\n\n- **Per-render comparison**: every render compares each dependency, even when the result is unused.\n- **Memory**: cached values, closures and previous props are retained.\n- **Complexity**: dependency arrays are easy to get wrong, causing stale values, and more code is harder to read.\n- **Defeated by unstable inputs**: one inline object prop or changing dependency invalidates the cache, so you pay the cost with no benefit.\n\n## A sensible process\n\n1. **Measure**: use the React DevTools Profiler to find components that render often or slowly.\n2. **Fix structure first**: move state closer to where it is used, split components so changing state affects less, pass `children` to avoid re-rendering stable subtrees, virtualize long lists.\n3. **Then memoize selectively**: `React.memo` on expensive components, `useMemo` for heavy calculations, `useCallback` for handlers given to memoized children.\n4. **Re-measure**: verify that the change actually reduced render time or counts.\n\n```jsx\n// Often better than memoizing: move state down so the heavy tree is not affected\nfunction Page() {\n  return (\n    <>\n      <SearchBox />      {/* owns the fast-changing input state */}\n      <HeavyChart />     {/* does not re-render on each keystroke */}\n    </>\n  );\n}\n```\n\n## Where memoization is justified\n\n- Measurably expensive derived data.\n- Stable references required by an effect, context value or memoized child.\n- Large lists with rarely changing rows.\n\n## Automatic memoization\n\nReact Compiler, in setups that use it, can insert memoization automatically for components and hooks that follow the Rules of React. This reduces the need for manual wrappers but does not remove the need for sound component structure.\n\n## Common mistakes\n\n- Defaulting to memoize everything.\n- Assuming memoization is the first fix for a slow page; network, bundle size or DOM size is frequently the real bottleneck.",
+      "followUps": [
+        "What would you try before reaching for React.memo?",
+        "How do you verify that a memoization change helped?",
+        "How does React Compiler affect manual memoization?"
+      ],
+      "related": [
+        "react-memo",
+        "usememo-hook",
+        "find-unnecessary-renders"
+      ],
+      "sources": [
+        {
+          "file": "ref-react-js",
+          "pages": [
+            6
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "context-api",
+      "title": "What is the Context API and how do you use it?",
+      "topic": "Context and State",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "react",
+        "context",
+        "state",
+        "prop-drilling"
+      ],
+      "sourceType": "enhanced",
+      "quick": "Context lets a component provide a value that any descendant can read without passing props through every level. I create it with createContext, wrap a subtree in a Provider with a value, and read it with useContext. It suits low-frequency, app-wide data such as the current user, theme, locale, or configuration. It solves prop drilling but is not a full state manager: whenever the provided value changes, every consuming component re-renders.",
+      "revision": "Context passes values to descendants without prop drilling via Provider and useContext. Good for low-frequency global data; all consumers re-render when the value changes.",
+      "detailed": "Context lets a parent make a value available to its whole subtree without threading it through intermediate props (\"prop drilling\").\n\n```jsx\nconst ThemeContext = createContext('light');\n\nfunction App() {\n  const [theme, setTheme] = useState('light');\n  const value = useMemo(() => ({ theme, setTheme }), [theme]);\n  return (\n    <ThemeContext.Provider value={value}>\n      <Layout />\n    </ThemeContext.Provider>\n  );\n}\n\nfunction ThemeToggle() {\n  const { theme, setTheme } = useContext(ThemeContext);\n  return <button onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}>{theme}</button>;\n}\n```\n\n(In React 19 you can render the context itself as the provider, `<ThemeContext value={value}>`; earlier versions use `.Provider`.)\n\n## Good candidates\n\n- Authenticated user and permissions for display\n- Theme, locale, direction\n- Feature flags and runtime configuration\n- Compound components sharing internal state (tabs, accordions)\n\n## How updates work\n\nWhen the provider's `value` changes (compared by reference), React re-renders every component that calls `useContext` for that context, regardless of which part of the value they use. Components between the provider and consumers are not forced to re-render by context itself.\n\n## Practical tips\n\n- **Memoize the value** object so it only changes when its contents do.\n- **Split contexts** by concern or by update frequency (for example state in one context and dispatchers in another).\n- **Wrap in a custom hook** (`useTheme()`) to hide the context and throw a helpful error if no provider exists.\n- **Keep the provider low** in the tree when only a section needs it.\n- Pair with `useReducer` for structured updates.\n\n## Common mistakes\n\n- Passing a new object literal as `value` on every render, re-rendering all consumers.\n- Putting rapidly changing state (mouse position, form input values) in a broad context.\n- Treating context as a drop-in replacement for a state library.",
+      "followUps": [
+        "What re-renders when a context value changes?",
+        "How would you avoid unnecessary context re-renders?",
+        "How does context compare with prop drilling and composition?"
+      ],
+      "related": [
+        "when-not-to-use-context",
+        "local-vs-global-state",
+        "causes-of-re-renders"
+      ],
+      "sources": [
+        {
+          "file": "ref-react-js",
+          "pages": [
+            7
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "when-not-to-use-context",
+      "title": "When should you not use Context for state management?",
+      "topic": "Context and State",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "react",
+        "context",
+        "state-management",
+        "performance"
+      ],
+      "sourceType": "enhanced",
+      "quick": "I avoid Context for frequently changing or large global state, because every consumer re-renders whenever the value changes, even if it only uses one field. Context is a dependency-injection mechanism, not a state management solution; it has no built-in selectors, caching or devtools. For complex client state I would use a store with selector subscriptions such as Zustand or Redux Toolkit, and for remote data a server-state library such as TanStack Query. Props or composition are enough when state is only used a few levels down.",
+      "revision": "Avoid Context for fast-changing or large shared state: all consumers re-render. Use selector-based stores for client state and a server-state library for API data.",
+      "detailed": "Context is excellent for values that change rarely and are needed widely. It becomes a poor fit when used as the main engine for application state.\n\n## The core limitation\n\nA context consumer re-renders when the provider's value changes, and it cannot subscribe to just a slice. If one context holds `{ user, cart, filters, theme }`, a change to `filters` re-renders components that only read `theme`.\n\n## Poor fits\n\n- **Rapidly changing state**: typing, drag position, animation, live tickers.\n- **Large state objects** with many independent consumers.\n- **Remote data**: caching, deduplication, refetching and invalidation are not part of context.\n- **Complex update logic** needing middleware, devtools, persistence or undo.\n\n## Alternatives\n\n| Need | Option |\n|---|---|\n| State used a few levels down | Props or composition (pass elements as children) |\n| Shared client state with fine-grained subscriptions | A store with selectors (Redux Toolkit, Zustand, Jotai and similar) |\n| API data | A server-state library (TanStack Query, SWR) or framework data loaders |\n| URL-driven state (filters, pagination) | Router and search params |\n| Rarely changing global values | Context |\n\n## Making context behave if you do use it\n\n- Split into several smaller contexts (separate state from dispatch).\n- Memoize provider values.\n- Keep providers close to the consumers that need them.\n- Move consumers' expensive work into memoized children that receive only the needed slice as props.\n\n## Common mistakes\n\n- Starting with a single \"AppContext\" that holds everything.\n- Mixing server data and UI state in the same context.\n- Assuming `React.memo` on children prevents context-triggered re-renders; it does not.\n\n## Decision rule\n\nUse context for dependency injection of stable, widely needed values; use a dedicated tool when you need selection, caching or heavy updates.",
+      "followUps": [
+        "How would you split a large context to reduce re-renders?",
+        "Why does React.memo not help against context updates?",
+        "When would you pick a store library over context?"
+      ],
+      "related": [
+        "context-api",
+        "local-vs-global-state",
+        "client-vs-server-state"
+      ],
+      "sources": [
+        {
+          "file": "ref-react-js",
+          "pages": [
+            7
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "local-vs-global-state",
+      "title": "How do you decide between local state and global state?",
+      "topic": "Context and State",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "react",
+        "state-management",
+        "architecture",
+        "lifting-state"
+      ],
+      "sourceType": "enhanced",
+      "quick": "I keep state as close as possible to where it is used and only widen its scope when needed. If one component uses it, it stays local. If a few nearby components need it, I lift it to their common parent. Truly cross-cutting data such as the signed-in user, preferences or a shared cart goes to global state like context or a store. Anything in the URL, such as filters and pagination, belongs in the router. Narrow scope means fewer re-renders and simpler reasoning.",
+      "revision": "Start local, lift to the nearest common parent when shared, go global only for cross-cutting concerns. Put shareable view state in the URL.",
+      "detailed": "The guiding principle is **colocation**: keep state as close as possible to the components that use it, and widen the scope only when there is a concrete need.\n\n## A scale of options\n\n1. **Local state** (`useState`/`useReducer` in the component): form inputs, open/closed toggles, hover state.\n2. **Lifted state**: when siblings need the same value, move it to the closest common parent and pass it down via props.\n3. **Context**: values needed across a subtree that change infrequently, such as theme, locale, current user.\n4. **Global store**: shared client state with frequent updates or complex logic, such as a multi-step configurator or cart state used across pages.\n5. **URL state**: filters, sort order, pagination and selected tab that users should be able to bookmark and share.\n6. **Server state**: remote data managed by a data-fetching library rather than stored by hand.\n\n## Decision questions\n\n| Question | If yes |\n|---|---|\n| Does only one component need it? | Local |\n| Do a few related components need it? | Lift up |\n| Is it needed on many unrelated screens? | Global (context or store) |\n| Should it survive refresh or be shareable by link? | URL (or persisted storage) |\n| Is it a copy of backend data? | Server-state tool |\n\n## Why not make everything global?\n\n- Broader subscriptions cause more re-renders.\n- Hidden dependencies make components harder to reuse and test.\n- Global state lives for the whole session, so stale or leaked state is likelier.\n\n## Example\n\nOn a vehicle search page, the text typed in the filter box is local, the applied filters live in the URL, the list of results is server state, and the signed-in user's preferences are global.\n\n## Common mistakes\n\n- Reaching for a global store at the start of a project.\n- Lifting state too high, re-rendering large trees for small changes.\n- Duplicating the same data in local and global state.",
+      "followUps": [
+        "What does lifting state up mean, and what are its downsides?",
+        "Why is URL state useful for filters?",
+        "What would you put in a global store in a large app?"
+      ],
+      "related": [
+        "client-vs-server-state",
+        "context-api",
+        "props-vs-state"
+      ],
+      "sources": [
+        {
+          "file": "ref-react-js",
+          "pages": [
+            7
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "client-vs-server-state",
+      "title": "What is the difference between client state and server state?",
+      "topic": "Context and State",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "react",
+        "state-management",
+        "server-state",
+        "tanstack-query",
+        "caching"
+      ],
+      "sourceType": "enhanced",
+      "quick": "Client state is owned by the browser UI: modal visibility, selected tab, form drafts. It is synchronous and always current. Server state is a cached copy of data owned by a remote system, so it is asynchronous, shared, and can go stale, and it needs loading and error handling, caching, deduplication, refetching and invalidation. I keep them separate and manage server state with a library such as TanStack Query or SWR, rather than copying API responses into a global store.",
+      "revision": "Client state is UI-owned and synchronous; server state is a remote, cached, possibly stale copy needing fetching, caching and invalidation. Manage them separately.",
+      "detailed": "These two kinds of state have different lifecycles and problems, so mixing them in one store causes pain.\n\n| | Client state | Server state |\n|---|---|---|\n| Owner | The browser/UI | A remote system (API, database) |\n| Examples | Modal open, selected tab, draft form text, theme | Vehicle list, user profile, orders |\n| Access | Synchronous | Asynchronous |\n| Freshness | Always current | Can become stale; others can change it |\n| Concerns | Update logic, scope | Caching, loading and error states, retries, deduplication, refetching, invalidation, pagination |\n| Typical tool | `useState`, `useReducer`, context, small store | TanStack Query, SWR, RTK Query, framework loaders |\n\n## Why separate them\n\nIf you fetch an API response and put it into a Redux or context store by hand, you take responsibility for:\n\n- Tracking loading and error flags for every request\n- Deciding when data is stale and when to refetch\n- Avoiding duplicate requests when several components need the same data\n- Updating or invalidating after mutations\n- Cancelling outdated requests\n\nServer-state libraries solve these once, with a cache keyed by request:\n\n```jsx\nconst { data, isPending, error } = useQuery({\n  queryKey: ['vehicle', id],\n  queryFn: () => fetchVehicle(id),\n});\n```\n\nMultiple components using the same key share one cached request.\n\n## Practical guidance\n\n- Keep UI-only state local or in a lightweight store.\n- Treat server data as a cache you synchronize, not as state you own.\n- When a form edits server data, keep the draft in client state and submit it through a mutation, then invalidate the related queries.\n\n## Common mistakes\n\n- Copying fetched data into `useState` and then having to keep two copies in sync.\n- Putting all API data in a global store without cache invalidation.\n- Hand-rolling fetch logic in each component, duplicating loading and error handling.",
+      "followUps": [
+        "How do you keep a form draft separate from server data?",
+        "What does query invalidation do after a mutation?",
+        "How does a server-state library prevent duplicate requests?"
+      ],
+      "related": [
+        "local-vs-global-state",
+        "when-not-to-use-context",
+        "avoid-tight-coupling"
+      ],
+      "sources": [
+        {
+          "file": "ref-react-js",
+          "pages": [
+            7
+          ]
+        }
+      ]
+    }
+  ]
+}

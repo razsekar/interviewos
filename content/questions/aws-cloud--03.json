@@ -1,0 +1,506 @@
+{
+  "category": "aws-cloud",
+  "questions": [
+    {
+      "slug": "iam-least-privilege",
+      "title": "What is IAM and what does least privilege mean in practice?",
+      "topic": "Networking & Security",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "iam",
+        "policies",
+        "least-privilege",
+        "security"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-cloud",
+          "pages": [
+            10,
+            11
+          ]
+        }
+      ],
+      "quick": "IAM controls who or what can do which actions on which AWS resources, through identities (users, roles), policies and permissions. Least privilege means granting only the permissions a workload needs, scoped to specific actions and resources, not AdministratorAccess. For an API that reads one S3 prefix, I'd give its role s3:GetObject on just that bucket path. I'd review with IAM Access Analyzer, use conditions where useful, avoid wildcards, and audit usage through CloudTrail.",
+      "revision": "IAM = authN/authZ for AWS via identities and policies. Least privilege: only needed actions on only needed resources, reviewed and audited over time.",
+      "detailed": "**AWS IAM** decides whether a **principal** (user, role, service) may perform an **action** on a **resource**, optionally under **conditions**. Requests are denied by default; an explicit allow is needed, and an explicit deny always wins.\n\n## Policy anatomy\n```json\n{\n  \"Version\": \"2012-10-17\",\n  \"Statement\": [{\n    \"Effect\": \"Allow\",\n    \"Action\": [\"s3:GetObject\"],\n    \"Resource\": \"arn:aws:s3:::example-vehicle-media/public-images/*\"\n  }]\n}\n```\n\n## Least privilege in practice\n- Start with the **job to be done**, grant specific actions, scope to specific resource ARNs, add conditions (source VPC, tags, MFA) where they add value.\n- One **role per workload** (for example, a separate task role per ECS service), not one broad shared role.\n- Avoid ```\"Action\": \"*\"``` and ```\"Resource\": \"*\"``` except where an API genuinely requires it.\n- Use **permission boundaries** and organisation-level **service control policies (SCPs)** as guardrails.\n- Use **IAM Access Analyzer** and last-accessed information to trim unused permissions; log activity with **CloudTrail**.\n- Humans: use centralised sign-in (IAM Identity Center/SSO), MFA, and short-lived credentials.\n\n## Policy types\n| Type | Attached to | Purpose |\n|---|---|---|\n| Identity-based | Users, roles, groups | What the identity can do |\n| Resource-based | S3 bucket, KMS key, queue | Who can access this resource |\n| Boundaries / SCPs | Role or organisation | Maximum permissions allowed |\n\n## Common mistakes\n- Granting administrator rights \"temporarily\" and never removing them.\n- Sharing one role across all services, so a compromise reaches everything.\n- Long-lived access keys in code or CI instead of roles and federation.\n- Not testing policies (the IAM policy simulator helps).",
+      "followUps": [
+        "How is an explicit deny evaluated against allows?",
+        "What is a permission boundary?",
+        "How would you find and remove unused permissions?"
+      ],
+      "related": [
+        "iam-user-vs-role",
+        "secure-aws-application",
+        "secrets-management"
+      ]
+    },
+    {
+      "slug": "iam-user-vs-role",
+      "title": "IAM user vs IAM role: when do you use each?",
+      "topic": "Networking & Security",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "iam",
+        "roles",
+        "sts",
+        "credentials"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-cloud",
+          "pages": [
+            11
+          ]
+        }
+      ],
+      "quick": "An IAM user is a long-lived identity with permanent credentials, historically for a person or a program. An IAM role has no permanent credentials; it's assumed by a trusted principal, such as an EC2 instance, ECS task, Lambda function, another account or a federated user, and issues temporary credentials through STS. For applications I always prefer roles, because credentials rotate automatically and nothing secret sits in code. For people I prefer SSO with roles over individual IAM users.",
+      "revision": "Users hold long-lived credentials; roles are assumed and give temporary credentials. Prefer roles for apps and CI, and federated SSO for humans.",
+      "detailed": "| Aspect | IAM user | IAM role |\n|---|---|---|\n| Credentials | Long-lived password or access keys | Temporary credentials from STS |\n| Who uses it | A specific identity | Anyone/anything trusted to assume it |\n| Rotation burden | Yours | Automatic |\n| Typical use | Legacy integrations, break-glass | Workloads, cross-account access, federation |\n\n## How roles work\nA role has a **trust policy** (who may assume it) and **permission policies** (what it can do). A principal calls STS ```AssumeRole``` (or the platform does it for you) and receives short-lived credentials with an expiry.\n\n## Workload examples\n- **EC2**: instance profile attaches a role; the SDK retrieves credentials from instance metadata.\n- **ECS**: a **task role** gives the application its permissions; the separate **task execution role** lets ECS pull images and write logs.\n- **Lambda**: the function's execution role.\n- **CI/CD**: GitHub Actions can assume a role through OIDC federation, so no stored AWS keys exist.\n- **Cross-account**: a role in the target account trusts the source account.\n\n```ts\n// No keys in code: the SDK resolves credentials from the task/instance/function role.\nimport { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';\nconst s3 = new S3Client({ region: 'eu-west-1' });\n```\n\n## Human access\nPrefer IAM Identity Center (SSO) with permission sets, MFA and session duration limits over creating an IAM user per engineer.\n\n## Common mistakes\n- Access keys in environment files, repos or container images.\n- A shared user for multiple services, making auditing and revocation hard.\n- Overly broad trust policies (for example allowing any principal in an account to assume a powerful role).\n- Mixing up the ECS task role and the task execution role.",
+      "followUps": [
+        "What is the difference between a trust policy and a permission policy?",
+        "How does GitHub Actions authenticate to AWS without access keys?",
+        "What is the ECS task role vs execution role?"
+      ],
+      "related": [
+        "iam-least-privilege",
+        "secrets-management",
+        "deploy-nestjs-on-aws"
+      ]
+    },
+    {
+      "slug": "what-is-aws-waf",
+      "title": "What is AWS WAF and where do you attach it?",
+      "topic": "Networking & Security",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "waf",
+        "security",
+        "rate-limiting",
+        "owasp"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-cloud",
+          "pages": [
+            11
+          ]
+        }
+      ],
+      "quick": "AWS WAF is a web application firewall that inspects HTTP and HTTPS requests against rules in a web ACL and allows, blocks, counts or challenges them. I'd use AWS managed rule groups for common attack patterns such as SQL injection and XSS, add rate-based rules against abuse, IP and geo rules, and bot controls. I attach it to CloudFront, an ALB or API Gateway REST APIs, starting in count mode to avoid blocking real users. It complements, but doesn't replace, secure code and authentication.",
+      "revision": "WAF filters HTTP(S) requests with web ACL rules: managed rule groups, rate limits, IP/geo and bot controls. Attach at CloudFront/ALB/API Gateway; tune in count mode first.",
+      "detailed": "**AWS WAF** evaluates web requests against a **web ACL** made of ordered rules. Each rule can **allow, block, count** or issue a **CAPTCHA/challenge** action.\n\n## Attach points\nWAF can be associated with CloudFront distributions, Application Load Balancers, API Gateway REST APIs, and several other supported services. Check the current list in the documentation, as support evolves (HTTP APIs, for example, are handled differently from REST APIs). For a global site, attaching at CloudFront stops bad traffic at the edge, before it reaches the Region.\n\n## Useful rule types\n- **AWS managed rule groups**: common exploit patterns (including SQL injection and cross-site scripting indicators), known bad inputs, IP reputation lists.\n- **Rate-based rules**: block or challenge a client exceeding a request rate over a window, useful against brute force, scraping and simple floods.\n- **IP set and geo-match rules**: allow-list partners, block regions where you have no users or have legal restrictions.\n- **Custom rules**: match headers, paths, body size, regex patterns.\n- **Bot control and fraud-prevention options** (additional managed features, billed separately).\n- Logging to S3, CloudWatch Logs or Firehose for analysis.\n\n## Rollout practice\n1. Deploy new rules in **count** mode.\n2. Review logs for false positives (for example legitimate JSON bodies matched by an XSS rule).\n3. Switch to block with targeted exclusions.\n\n## What WAF does not do\n- Replace input validation, output encoding, authorisation or patching.\n- Fully stop large volumetric DDoS alone; it works with AWS Shield and CloudFront's edge capacity.\n- Understand your business logic abuse (for example credential stuffing) without tailored rules.\n\n## Common mistakes\nBlocking immediately without tuning; applying WAF only to one entry point and leaving a second, unprotected path (such as a direct ALB DNS name); not logging requests.",
+      "followUps": [
+        "How do you detect and handle false positives?",
+        "How does AWS Shield relate to WAF?",
+        "How would you stop clients reaching the ALB directly, bypassing CloudFront WAF?"
+      ],
+      "related": [
+        "secure-aws-application",
+        "api-gateway-vs-cloudfront",
+        "cloudfront-with-s3"
+      ]
+    },
+    {
+      "slug": "security-groups-vs-nacls",
+      "title": "Security groups vs network ACLs: what is the difference?",
+      "topic": "Networking & Security",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "security-groups",
+        "nacl",
+        "vpc",
+        "firewall"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Security groups are stateful firewalls attached to resources like network interfaces; they only have allow rules, and return traffic is automatically permitted. Network ACLs apply at the subnet boundary, are stateless, support both allow and deny rules, and are evaluated in numbered order, so return traffic must be allowed explicitly. In practice, security groups do most of the work, including referencing other security groups, while NACLs are a coarse extra layer or a way to block specific ranges.",
+      "revision": "Security group: stateful, resource-level, allow-only. NACL: stateless, subnet-level, allow and deny with ordered rules. Use SGs primarily, NACLs for coarse blocks.",
+      "detailed": "Both control network traffic in a VPC but at different levels and with different semantics.\n\n| Aspect | Security group | Network ACL |\n|---|---|---|\n| Scope | Attached to a network interface or resource (instance, task, database) | Associated with a subnet |\n| State | **Stateful**: responses to allowed requests are allowed automatically | **Stateless**: inbound and outbound rules are evaluated separately |\n| Rule types | Allow only | Allow and deny |\n| Evaluation | All rules considered together | Rules checked in number order, first match wins |\n| Default | Deny inbound, allow outbound | Default NACL allows all; custom NACLs deny until rules are added |\n| Can reference | Other security groups | CIDR ranges only |\n\n## How they are typically used\n```text\nALB security group:      inbound 443 from the internet\nApp security group:      inbound 3000 from the ALB security group only\nDatabase security group: inbound 5432 from the App security group only\n```\nReferencing security groups instead of IP ranges keeps rules correct as tasks scale and IPs change.\n\n## NACL use cases\n- Blocking a specific abusive CIDR range at the subnet edge.\n- A compliance-driven extra layer around sensitive subnets.\n- Remember ephemeral ports: because NACLs are stateless, return traffic on high-numbered ports must be allowed.\n\n## Common mistakes\n- Opening ```0.0.0.0/0``` on admin or database ports.\n- Writing complicated NACLs that unintentionally break return traffic, then struggling to debug.\n- Duplicating every rule in both layers without a reason; keep NACLs simple.\n\nUse VPC Flow Logs to see accepted and rejected traffic when troubleshooting.",
+      "followUps": [
+        "Why does a stateless NACL need ephemeral port rules?",
+        "How would you debug a connection that is silently dropped?",
+        "Can a security group reference another security group across VPCs?"
+      ],
+      "related": [
+        "vpc-fundamentals",
+        "public-vs-private-subnets"
+      ]
+    },
+    {
+      "slug": "route-53",
+      "title": "What is Route 53 and which routing policies matter for a global site?",
+      "topic": "Networking & Security",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "route53",
+        "dns",
+        "failover",
+        "latency-routing"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-cloud",
+          "pages": [
+            11,
+            12
+          ]
+        }
+      ],
+      "quick": "Route 53 is AWS's highly available DNS service. It hosts zones, resolves names, registers domains and supports health checks and routing policies. For a CloudFront-fronted site I'd use alias records pointing the apex and www names at the distribution. For multi-Region setups I can use latency-based, weighted, geolocation or failover routing, with health checks deciding what is served. I'd keep TTLs in mind, because DNS caching affects how fast failover or cutover takes effect.",
+      "revision": "Route 53 = managed DNS with health checks and routing policies (simple, weighted, latency, geolocation, failover). Use alias records to CloudFront/ALB; mind TTLs.",
+      "detailed": "**Amazon Route 53** is DNS: it translates names like ```www.example.com``` into targets. It also offers domain registration and health checking.\n\n{{diagram:dns}}\n\n## Records and aliases\nAn **alias record** maps a name, including the zone apex, to AWS resources such as CloudFront distributions, load balancers and S3 website endpoints. Alias queries to AWS resources are not charged the way standard queries are and, unlike CNAME, are permitted at the apex.\n\n## Routing policies\n| Policy | Behaviour | Example use |\n|---|---|---|\n| Simple | One or more values, no logic | Single origin |\n| Weighted | Split by percentage | Canary or gradual migration |\n| Latency-based | Route to the Region with lowest latency to the user | Multi-Region active-active |\n| Geolocation / geoproximity | By user location | Regional content or data residency |\n| Failover | Primary/secondary with health checks | Active-passive DR |\n| Multi-value answer | Several healthy values returned | Basic client-side spread |\n\n## Health checks\nRoute 53 can check endpoints (or CloudWatch alarms) and stop answering with unhealthy targets. Health checks must test something meaningful but cheap.\n\n## Trade-offs\n- DNS is cached by resolvers and clients, so lower TTLs speed failover but increase query volume.\n- DNS failover is not instantaneous and cannot fix a partially broken application on its own.\n- For a single-Region site behind CloudFront, Route 53 often only needs simple alias records; the CDN already handles edge routing.\n\n## Common mistakes\nVery long TTLs before a planned migration; failover health checks that test a static page while the real API is down; forgetting DNSSEC/ownership concerns when changing records.",
+      "diagrams": [
+        {
+          "id": "dns",
+          "title": "Route 53 resolving to CloudFront",
+          "alt": "A user looks up the website name. Route 53 answers with an alias record to a CloudFront distribution. CloudFront then serves cached content or forwards to origins such as S3 or an API.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "u",
+              "label": "User browser"
+            },
+            {
+              "id": "r",
+              "label": "Route 53 alias record"
+            },
+            {
+              "id": "c",
+              "label": "CloudFront distribution"
+            },
+            {
+              "id": "o",
+              "label": "S3 or API origin"
+            }
+          ],
+          "edges": [
+            {
+              "from": "u",
+              "to": "r",
+              "label": "DNS lookup"
+            },
+            {
+              "from": "r",
+              "to": "c",
+              "label": "alias"
+            },
+            {
+              "from": "u",
+              "to": "c",
+              "label": "HTTPS"
+            },
+            {
+              "from": "c",
+              "to": "o",
+              "label": "cache miss"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Alias record vs CNAME: what is the difference?",
+        "How would you do a weighted canary of a new Region?",
+        "What happens to failover speed if the TTL is 1 hour?"
+      ],
+      "related": [
+        "multi-az-vs-multi-region",
+        "improve-global-website-performance",
+        "global-website-design-on-aws"
+      ]
+    },
+    {
+      "slug": "what-is-auto-scaling",
+      "title": "What is Auto Scaling and how do you configure it sensibly?",
+      "topic": "Reliability & Scaling",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "auto-scaling",
+        "ecs",
+        "ec2",
+        "scaling-policies"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-cloud",
+          "pages": [
+            12,
+            13
+          ]
+        }
+      ],
+      "quick": "Auto Scaling adjusts capacity automatically, adding or removing instances, tasks or concurrency based on metrics or schedules, so I can balance performance, availability and cost. For ECS I'd use target tracking on CPU or requests per target, with minimum capacity across at least two AZs and a sensible maximum. I'd also use scheduled scaling for known events, tune cooldowns and health checks, and make the app stateless and quick to start; scaling only helps if the database can keep up.",
+      "revision": "Auto Scaling adds or removes capacity from metrics or schedules. Use target tracking, multi-AZ minimums, sensible maximums, stateless apps, and check downstream limits.",
+      "detailed": "**Auto Scaling** matches capacity to demand. On AWS, the mechanism differs by service: EC2 Auto Scaling groups, **Application Auto Scaling** for ECS services, DynamoDB and others, and Lambda concurrency scaling handled by the service itself.\n\n## Policy types\n| Type | How it works | Good for |\n|---|---|---|\n| Target tracking | Keep a metric near a target (e.g. 60% CPU, requests per target) | Default choice, simple |\n| Step scaling | Different adjustments per alarm threshold | Fine-tuned reactions |\n| Scheduled | Change capacity at set times | Predictable peaks (campaign launch) |\n| Predictive (EC2) | Forecast-based scaling | Recurring daily or weekly patterns |\n\n## Design guidance\n- **Stateless services**: sessions and files outside the instance, so any task can be added or removed.\n- **Min capacity** of at least two across AZs for availability; **max capacity** as a cost and downstream-protection ceiling.\n- **Scale on the right metric**: CPU suits compute-bound services; requests per target or queue depth suits I/O-bound or worker services.\n- **Warm-up and cooldowns**: allow new tasks to become healthy before judging the metric again.\n- **Fast start**: small images, quick health checks and lean startup shorten reaction time.\n- **Scale in gently** and rely on connection draining so users are not dropped.\n\n## Limits and risks\n- Scaling takes time; a sudden spike may exceed capacity before new tasks arrive, so keep headroom or use edge caching and queues.\n- Scaling the app tier can overload the **database**, caches or third parties; they need their own protection.\n- Misconfigured alarms cause flapping (scale up and down repeatedly).\n- Unbounded maximums can turn a bug or attack into a large bill.\n\n## Example\n```text\nECS service: min 2, max 20 tasks\nPolicy: target tracking, ALBRequestCountPerTarget = 800\nScheduled: min 6 tasks from 08:00-20:00 on launch day (example)\n```",
+      "followUps": [
+        "What metric would you scale a queue worker on?",
+        "Why can autoscaling fail to save you during a sudden spike?",
+        "How do you prevent scale-in from dropping in-flight requests?"
+      ],
+      "related": [
+        "ten-x-traffic-spike",
+        "high-availability-design",
+        "cost-optimization-on-aws"
+      ]
+    },
+    {
+      "slug": "high-availability-design",
+      "title": "How would you design a highly available architecture on AWS?",
+      "topic": "Reliability & Scaling",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "high-availability",
+        "multi-az",
+        "alb",
+        "rds",
+        "health-checks"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-cloud",
+          "pages": [
+            13
+          ]
+        }
+      ],
+      "quick": "I'd remove single points of failure at every tier. DNS and CDN at the edge; an ALB spanning at least two Availability Zones; stateless application tasks in each AZ with Auto Scaling and health checks; a Multi-AZ database with backups; and managed services that are already multi-AZ, like S3 and SQS. I'd keep state out of compute, set sensible timeouts and retries, test failure with game days, and define availability targets so the design matches the business need and cost.",
+      "revision": "High availability = no single point of failure: multi-AZ at every tier, load balancing, health checks, auto scaling, Multi-AZ data with backups, and tested failure handling.",
+      "detailed": "**High availability (HA)** means the system keeps serving requests when components or an entire Availability Zone fail. Start by asking what availability target the business needs, because each extra \"nine\" costs complexity.\n\n{{diagram:ha}}\n\n## Layer by layer\n| Layer | Technique |\n|---|---|\n| DNS and edge | Route 53 with health checks, CloudFront (globally distributed) |\n| Entry | ALB across at least two AZs; WAF for protection |\n| Compute | Stateless tasks/instances in each AZ, Auto Scaling min capacity of 2 or more, health checks replacing failed units |\n| Cache | ElastiCache replication group with failover; app works on cache miss |\n| Database | RDS Multi-AZ (or Aurora across AZs), backups, tested restores |\n| Messaging and storage | SQS, SNS, S3 are built to span AZs |\n| Network | Subnets in each AZ; a NAT gateway per AZ where egress is critical |\n| Dependencies | Timeouts, retries with backoff, circuit breakers, bulkheads |\n\n## Principles\n- **Eliminate single points of failure**: one instance, one AZ, one NAT, one engineer who knows the runbook.\n- **Isolate failure**: separate services and use limits so one failing dependency does not take down everything.\n- **Automate recovery**: health checks, replacement, infrastructure as code.\n- **Degrade gracefully**: serve cached or partial content instead of errors.\n- **Capacity for failure**: if one of two AZs fails, the other must handle full load (or you accept degraded service).\n- **Test it**: failure injection, failover drills, restore drills.\n\n## Common mistakes\n- \"Multi-AZ\" compute but a single-AZ database or NAT gateway.\n- Not provisioning enough headroom to survive losing an AZ.\n- Health checks too shallow (instance up, app broken) or too deep (a downstream blip removes every task).\n- Assuming HA replaces backups; it does not protect against data corruption or accidental deletion.",
+      "diagrams": [
+        {
+          "id": "ha",
+          "title": "Multi-AZ web architecture",
+          "alt": "Route 53 and CloudFront direct users through WAF to an application load balancer spanning two availability zones. ECS tasks run in each zone and both use a Multi-AZ RDS database with a primary and a standby in different zones.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "r",
+              "label": "Route 53 and CloudFront"
+            },
+            {
+              "id": "w",
+              "label": "WAF"
+            },
+            {
+              "id": "l",
+              "label": "ALB across two AZs"
+            },
+            {
+              "id": "a",
+              "label": "ECS tasks in AZ 1"
+            },
+            {
+              "id": "b",
+              "label": "ECS tasks in AZ 2"
+            },
+            {
+              "id": "p",
+              "label": "RDS primary AZ 1"
+            },
+            {
+              "id": "s",
+              "label": "RDS standby AZ 2"
+            }
+          ],
+          "edges": [
+            {
+              "from": "r",
+              "to": "w"
+            },
+            {
+              "from": "w",
+              "to": "l"
+            },
+            {
+              "from": "l",
+              "to": "a"
+            },
+            {
+              "from": "l",
+              "to": "b"
+            },
+            {
+              "from": "a",
+              "to": "p"
+            },
+            {
+              "from": "b",
+              "to": "p"
+            },
+            {
+              "from": "p",
+              "to": "s",
+              "label": "sync replication"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "What availability target would you set for a marketing website vs a transaction service?",
+        "How do you size capacity so losing an AZ is survivable?",
+        "What is graceful degradation and how would you implement it here?"
+      ],
+      "related": [
+        "az-vs-region",
+        "multi-az-vs-multi-region",
+        "what-is-auto-scaling"
+      ]
+    },
+    {
+      "slug": "az-vs-region",
+      "title": "Availability Zone vs Region: what is the difference?",
+      "topic": "Reliability & Scaling",
+      "difficulty": "beginner",
+      "type": "comparison",
+      "tags": [
+        "regions",
+        "availability-zones",
+        "resilience",
+        "latency"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-cloud",
+          "pages": [
+            14
+          ]
+        }
+      ],
+      "quick": "A Region is a separate geographic area, such as eu-west-1 or ap-south-1, with its own independent set of services and data residency boundary. An Availability Zone is one or more discrete data centres inside a Region, with independent power, cooling and networking, connected to the other zones by low-latency links. I spread workloads across AZs for high availability and across Regions for disaster recovery, global latency or data-residency needs, accepting extra complexity.",
+      "revision": "Region = geographic area with isolated services; AZ = independent data-centre group inside a Region. Multiple AZs for HA, multiple Regions for DR, locality or residency.",
+      "detailed": "AWS infrastructure is organised hierarchically.\n\n```text\nAWS Global Infrastructure\n ├── Region (e.g. eu-west-1)\n │    ├── Availability Zone A\n │    ├── Availability Zone B\n │    └── Availability Zone C\n └── Edge locations (CloudFront, Route 53 points of presence)\n```\n\n| Aspect | Region | Availability Zone |\n|---|---|---|\n| What it is | Geographic location with multiple AZs | One or more isolated data centres within a Region |\n| Isolation | Strongly isolated from other Regions | Isolated for power, cooling and networking, but in the same metro area |\n| Latency between | Tens to hundreds of ms | Low single-digit ms (typically) |\n| Data movement | Cross-Region transfer is explicit and billed | Cross-AZ traffic is possible and often billed |\n| Typical purpose | Latency to users, residency, DR | High availability |\n\n## Practical implications\n- **Data residency**: data stays in a chosen Region unless you replicate it. Regulatory needs can dictate Region choice.\n- **Service availability and pricing** vary by Region; check that required services exist where you deploy.\n- **Resources are regional or zonal**: subnets and EC2 instances are zonal; VPCs, S3 buckets and Lambda functions are regional constructs; IAM, Route 53 and CloudFront are global or edge services.\n- **AZ names are account-specific**: the mapping of ```eu-west-1a``` to a physical zone differs between accounts, so use zone IDs when coordinating across accounts.\n- **Cost**: cross-AZ and cross-Region data transfer can add up for chatty designs.\n\n## Rule of thumb\nUse **multiple AZs by default** for production. Move to **multiple Regions** only when the business requirement (RTO/RPO, global latency, sovereignty) justifies the added operational and data-consistency complexity.",
+      "followUps": [
+        "What failure does Multi-AZ not protect against?",
+        "How does Region choice affect compliance and latency?",
+        "Which AWS services are global rather than regional?"
+      ],
+      "related": [
+        "high-availability-design",
+        "multi-az-vs-multi-region",
+        "disaster-recovery-rto-rpo"
+      ]
+    },
+    {
+      "slug": "disaster-recovery-rto-rpo",
+      "title": "How do you design disaster recovery? Explain RTO and RPO.",
+      "topic": "Reliability & Scaling",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "disaster-recovery",
+        "rto",
+        "rpo",
+        "backups",
+        "pilot-light"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-cloud",
+          "pages": [
+            14
+          ]
+        }
+      ],
+      "quick": "I start from business requirements: RTO is how quickly service must be restored, and RPO is how much recent data we can afford to lose. Those numbers drive the strategy, from cheap backup and restore, through pilot light and warm standby, to active-active multi-site, with rising cost and complexity. I'd back up data, replicate where RPO demands, automate infrastructure with code, define failover steps, and rehearse them, because untested DR plans commonly fail.",
+      "revision": "RTO = time to recover; RPO = tolerable data loss. They pick the DR strategy (backup/restore, pilot light, warm standby, active-active); automate and rehearse it.",
+      "detailed": "**Disaster recovery (DR)** is the ability to restore service after a major failure: a Region outage, data corruption, a bad deployment, accidental deletion or an attack.\n\n## Key metrics\n- **RTO (Recovery Time Objective)**: maximum acceptable downtime.\n- **RPO (Recovery Point Objective)**: maximum acceptable data loss, measured as time back from the failure.\n\nDifferent systems deserve different targets; a marketing site and a payments service should not share the same DR budget.\n\n## Strategy spectrum\n| Strategy | Idea | Typical RTO / RPO | Cost |\n|---|---|---|---|\n| Backup and restore | Back up to another Region, rebuild when needed | Hours / hours | Lowest |\n| Pilot light | Core data replicated; minimal infrastructure kept ready, scaled up on failover | Tens of minutes to hours | Low |\n| Warm standby | Scaled-down full copy always running | Minutes | Medium |\n| Multi-site active-active | Full capacity in several Regions serving traffic | Near zero to seconds | Highest |\n\n## Building blocks\n- **Data**: automated backups, snapshots copied to another Region, cross-Region read replicas or Aurora Global Database, S3 cross-Region replication, versioning.\n- **Infrastructure**: everything in infrastructure as code so a Region can be recreated reliably.\n- **Traffic**: Route 53 failover or health-checked routing, CloudFront origin failover.\n- **Services**: AWS Backup for centralised policies; plan for IAM, secrets and certificates in the recovery Region.\n- **Runbooks and drills**: practise failover and failback; measure real RTO/RPO.\n\n## Common mistakes\n- Setting RTO/RPO without asking the business, or promising RPO zero with asynchronous replication.\n- Backups never restored in test, or stored in the same account and Region as the primary with no protection from deletion.\n- Forgetting dependencies (DNS, identity provider, third-party APIs, secrets).\n- Treating Multi-AZ as DR; it addresses zone failure, not Region loss or data corruption.",
+      "followUps": [
+        "How would you meet an RPO of a few seconds?",
+        "What is the difference between failover and failback?",
+        "How often should DR be tested and how?"
+      ],
+      "related": [
+        "multi-az-vs-multi-region",
+        "az-vs-region",
+        "infrastructure-as-code"
+      ]
+    },
+    {
+      "slug": "multi-az-vs-multi-region",
+      "title": "Multi-AZ vs Multi-Region: when is each justified?",
+      "topic": "Reliability & Scaling",
+      "difficulty": "advanced",
+      "type": "comparison",
+      "tags": [
+        "multi-az",
+        "multi-region",
+        "resilience",
+        "trade-offs"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-cloud",
+          "pages": [
+            14,
+            15
+          ]
+        }
+      ],
+      "quick": "Multi-AZ spreads a workload across zones in one Region and protects against a data-centre or AZ failure; it's low-friction and should be the default for production. Multi-Region protects against a regional outage, helps global latency and can satisfy residency rules, but brings data replication, consistency, deployment and cost complexity. I don't pick it automatically: I evaluate business RTO and RPO, regulation, traffic distribution, consistency needs and the team's ability to operate it.",
+      "revision": "Multi-AZ: default, handles zone failures cheaply. Multi-Region: handles regional loss and global latency but costs complexity; justify with RTO/RPO, regulation and traffic.",
+      "detailed": "| Aspect | Multi-AZ | Multi-Region |\n|---|---|---|\n| Protects against | AZ or data-centre failure, host failures | Regional outage, large-scale events, also enables regional locality |\n| Data replication | Synchronous options within Region (e.g. RDS Multi-AZ) | Asynchronous across Regions; potential data loss and conflicts |\n| Latency impact | Low | Cross-Region latency for synchronous designs is prohibitive |\n| Complexity | Low to moderate | High |\n| Cost | Moderate | Substantial (duplicate capacity, data transfer, tooling) |\n| Typical need | Almost all production workloads | Strict RTO/RPO, sovereignty or global low-latency requirements |\n\n## Patterns for Multi-Region\n- **Active-passive**: one Region serves traffic, another is on standby (pilot light or warm standby); failover through DNS or CloudFront origin failover.\n- **Active-active**: several Regions serve traffic; users are routed by latency or geography. Needs a **data strategy**: global tables, per-Region data ownership, conflict resolution, or read-local/write-primary.\n\n## Hard problems\n- **Data consistency**: with asynchronous replication, failover may lose recent writes and writes in two Regions can conflict.\n- **Deployments** must be coordinated and safe across Regions; configuration drift is a risk.\n- **Dependencies** (identity, secrets, third parties) must exist in each Region.\n- **Operational readiness**: tested failover, observability per Region, on-call familiarity.\n\n## Decision approach\n1. Quantify the cost of downtime and data loss.\n2. Compare against the actual risk; Regional outages are rare and many incidents are self-inflicted (bad releases) which Multi-Region does not prevent.\n3. Prefer the cheapest strategy that meets RTO/RPO; consider a static fallback site or cached content for graceful degradation.\n4. Start with Multi-AZ plus tested cross-Region backups; escalate if requirements demand.\n\n## Common mistake\nDeclaring \"we are multi-Region\" while the database, identity provider or deployment pipeline remains single-Region.",
+      "followUps": [
+        "How would you handle writes in an active-active design?",
+        "Which AWS features help with cross-Region data replication?",
+        "What would make you reject multi-Region for a marketing site?"
+      ],
+      "related": [
+        "az-vs-region",
+        "disaster-recovery-rto-rpo",
+        "route-53"
+      ]
+    },
+    {
+      "slug": "sqs-vs-sns-vs-eventbridge",
+      "title": "SQS vs SNS vs EventBridge: how do they differ and when do you use each?",
+      "topic": "Messaging & Async",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "sqs",
+        "sns",
+        "eventbridge",
+        "messaging",
+        "pub-sub"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-cloud",
+          "pages": [
+            15,
+            16
+          ]
+        }
+      ],
+      "quick": "SQS is a durable queue: producers add messages, consumers pull and process them, which decouples and buffers work. SNS is pub/sub: one published message fans out to many subscribers such as queues, Lambda or HTTP endpoints. EventBridge is an event bus: events are matched by rules and patterns and routed to targets, with schema and many AWS and SaaS integrations. A common combination is EventBridge or SNS for routing and fan-out, with an SQS queue in front of each consumer for buffering and retries.",
+      "revision": "SQS = queue for buffering work; SNS = pub/sub fan-out; EventBridge = rule-based event routing. Often combine: route or fan out, then queue per consumer.",
+      "detailed": "All three decouple producers from consumers, but with different models.\n\n| Aspect | SQS | SNS | EventBridge |\n|---|---|---|---|\n| Model | Queue (pull) | Topic pub/sub (push) | Event bus with rules (push) |\n| Consumers | Competing consumers share messages | Many subscribers each get a copy | Many targets chosen by event patterns |\n| Persistence | Messages retained until processed or expired | Delivery with retries; not a store | Delivery with retries, optional archive/replay |\n| Filtering | None built in | Subscription filter policies | Rich content-based event patterns |\n| Strengths | Buffering, back-pressure, retries, DLQ | Simple fan-out, notifications | Cross-service routing, SaaS and AWS events, schedules |\n\n## SQS essentials\n- **Standard queues**: high throughput, at-least-once delivery, best-effort ordering; consumers must be **idempotent**.\n- **FIFO queues**: ordering within a message group and deduplication, with throughput trade-offs.\n- **Visibility timeout** hides a message while it is processed; unprocessed messages reappear.\n- **Dead-letter queue (DLQ)** collects messages that repeatedly fail.\n\n## Choosing\n- Need to absorb bursts and process at your own pace: **SQS**.\n- One event, several independent reactions (email, analytics, search index): **SNS** or **EventBridge**.\n- Routing by event content between many services, including AWS service events and scheduled rules: **EventBridge**.\n\n## Combined pattern\n```text\nVehicle Service -> EventBridge -> rule \"VehiclePriceChanged\"\n                                   ├── SQS -> Search indexer\n                                   └── SQS -> Notification worker\n```\nEach consumer gets its own queue so a slow or failing one does not affect the others.\n\n## Common mistakes\n- Assuming exactly-once processing.\n- No DLQ, causing poison messages to loop.\n- Using an event bus where a simple queue would do, or vice versa.\n- Unversioned event schemas that break consumers.",
+      "followUps": [
+        "How do you make an SQS consumer idempotent?",
+        "Standard vs FIFO queues: how do you choose?",
+        "How would you replay events after a consumer bug?"
+      ],
+      "related": [
+        "async-work-with-queues",
+        "what-is-eventbridge"
+      ]
+    }
+  ]
+}

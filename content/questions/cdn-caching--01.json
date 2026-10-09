@@ -1,0 +1,419 @@
+{
+  "category": "cdn-caching",
+  "questions": [
+    {
+      "slug": "what-is-a-cdn",
+      "title": "What is a CDN and why does a global website need one?",
+      "topic": "CDN Fundamentals",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "cdn",
+        "edge",
+        "latency",
+        "origin"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-cdn-caching",
+          "pages": [
+            1
+          ]
+        }
+      ],
+      "quick": "A CDN is a geographically distributed network of edge servers that sit between users and my origin. Cacheable responses are served from a location near the user, which cuts round-trip latency and keeps repeat traffic off the origin. For a global site I would put images, scripts, styles and public pages behind it, design cache policies per content type, and also use it for TLS termination and DDoS or WAF protection. I would monitor hit ratio, latency and error rates.",
+      "revision": "A CDN serves cacheable content from edge locations near users, cutting latency and origin load; it also adds TLS, security and resilience at the edge.",
+      "detailed": "A **Content Delivery Network (CDN)** is a geographically distributed set of edge servers (points of presence) that sit in front of your origin. When a user requests a resource, DNS or anycast routing sends them to a nearby edge. If the edge holds a fresh copy (a **cache hit**) it answers immediately; otherwise (a **cache miss**) it fetches the object from the origin or an upstream cache, stores it according to the caching rules, and returns it.\n\n{{diagram:flow}}\n\n## Why a global site needs one\n\n- **Latency:** physical distance and the number of network round trips dominate time-to-first-byte for far-away users. Serving from a nearby edge removes most of that distance.\n- **Origin offload:** thousands of users asking for the same public image should produce one origin fetch per edge (or fewer), not thousands.\n- **Scalability and availability:** the edge absorbs traffic spikes such as a campaign launch, and can keep serving cached content during short origin trouble.\n- **Connection efficiency:** edges commonly terminate TLS close to the user and reuse warm connections to the origin, which helps even uncacheable requests.\n- **Security:** many CDNs bundle DDoS mitigation, WAF rules and bot controls at the same layer.\n\nExamples of CDN products include CloudFront, Akamai, Cloudflare and Azure Front Door.\n\n## What a CDN does not do\n\nIt does not make a slow origin fast for uncacheable requests, and it does not fix a bad frontend. It also introduces a new consistency problem: copies of content now live in many places, so you need a deliberate expiry and invalidation strategy.\n\n## Example\n\nA global automotive site serves vehicle images, CSS and JavaScript from the CDN with long cache lifetimes, serves public model pages with a short TTL, and passes account and checkout requests through to the origin uncached.",
+      "diagrams": [
+        {
+          "id": "flow",
+          "title": "CDN request path",
+          "alt": "Users in several regions reach a nearby CDN edge location. A cache hit is returned directly from the edge, while a cache miss is forwarded to the origin infrastructure and the response is stored at the edge.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "users",
+              "label": "Users (many regions)"
+            },
+            {
+              "id": "edge",
+              "label": "CDN edge location"
+            },
+            {
+              "id": "hit",
+              "label": "Cache hit: serve from edge"
+            },
+            {
+              "id": "origin",
+              "label": "Origin (storage, CMS, APIs)"
+            }
+          ],
+          "edges": [
+            {
+              "from": "users",
+              "to": "edge"
+            },
+            {
+              "from": "edge",
+              "to": "hit",
+              "label": "object cached and fresh"
+            },
+            {
+              "from": "edge",
+              "to": "origin",
+              "label": "miss"
+            },
+            {
+              "from": "origin",
+              "to": "edge",
+              "label": "response, stored"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "What kinds of content should not be served from a CDN edge?",
+        "How does a CDN reduce latency even for uncacheable requests?",
+        "What new problem does a CDN introduce?"
+      ],
+      "related": [
+        "caching-layers-browser-to-database",
+        "cache-hit-miss-and-hit-ratio",
+        "cdn-vs-reverse-proxy-vs-redis"
+      ]
+    },
+    {
+      "slug": "caching-layers-browser-to-database",
+      "title": "What are the common caching layers between a user and the database?",
+      "topic": "CDN Fundamentals",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "caching",
+        "layers",
+        "browser-cache",
+        "redis",
+        "consistency"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-cdn-caching",
+          "pages": [
+            2
+          ]
+        }
+      ],
+      "quick": "Caching exists at several layers. The browser caches assets per user. The CDN caches public content at the edge. A reverse proxy or page cache near the origin caches rendered HTTP responses. The application caches computed results or API data, often in Redis. The database caches pages and plans in memory. Each layer has its own expiry and invalidation mechanism, so clearing one does not clear the others, and I have to plan freshness across the whole chain.",
+      "revision": "Browser, CDN, reverse proxy, application cache, database buffer: each layer has separate invalidation, so a purge at one layer never fixes stale data in another.",
+      "detailed": "Caching is layered, and a single request may pass several caches before it reaches the system of record.\n\n{{diagram:layers}}\n\n| Layer | What it caches | Typical example |\n|---|---|---|\n| Browser (private) | Per-user copies of assets and responses | Versioned JS, CSS, images |\n| CDN / edge (shared) | Public responses close to users | Images, static pages, cacheable API GETs |\n| Reverse proxy / page cache | HTTP responses near the origin | NGINX, Varnish, a CMS dispatcher |\n| Application cache | Computed values, API results, sessions | Redis, Memcached, in-process memory |\n| Database cache | Data pages, query plans | Buffer pool / buffer cache |\n\n## The key point: independent invalidation\n\nEvery layer has its own expiry rules, its own purge mechanism and its own consistency guarantees. Purging the CDN does not clear Redis; clearing Redis does not make a browser drop its cached copy. If a CMS editor publishes a new offer and users still see the old one, you must trace the response through *every* layer that might hold a copy.\n\n## Design guidance\n\n- Cache as close to the user as is safe: the nearer the layer, the bigger the latency win, but the harder it is to invalidate (you cannot purge a user's browser).\n- Use long lifetimes only where URLs are versioned, and short lifetimes or revalidation where content changes in place.\n- Make each layer's staleness budget explicit, because worst-case staleness is roughly the sum of what each layer can add.\n- Decide per layer whether data is shared or private. Personalized data belongs in private caches or none at all.\n\n## Common mistake\n\nAdding a cache at each layer \"to be safe\" without documenting TTLs, which makes stale-data bugs almost impossible to diagnose.",
+      "diagrams": [
+        {
+          "id": "layers",
+          "title": "Caching layers in a typical web stack",
+          "alt": "A request flows from the browser cache to the CDN edge, then a reverse proxy, then the application with its Redis cache, and finally the database with its buffer cache. Each hop is a possible place where a cached response is returned early.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "browser",
+              "label": "Browser cache"
+            },
+            {
+              "id": "cdn",
+              "label": "CDN edge cache"
+            },
+            {
+              "id": "proxy",
+              "label": "Reverse proxy cache"
+            },
+            {
+              "id": "app",
+              "label": "Application + Redis"
+            },
+            {
+              "id": "db",
+              "label": "Database buffer cache"
+            }
+          ],
+          "edges": [
+            {
+              "from": "browser",
+              "to": "cdn"
+            },
+            {
+              "from": "cdn",
+              "to": "proxy"
+            },
+            {
+              "from": "proxy",
+              "to": "app"
+            },
+            {
+              "from": "app",
+              "to": "db"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "If a user still sees old content after you purge the CDN, where do you look next?",
+        "Which layer can you not invalidate directly, and how do you design around that?",
+        "What is the worst-case staleness when three layers each have a 5-minute TTL?"
+      ],
+      "related": [
+        "what-is-a-cdn",
+        "cdn-vs-reverse-proxy-vs-redis",
+        "cache-invalidation-strategies"
+      ]
+    },
+    {
+      "slug": "cdn-vs-reverse-proxy-vs-redis",
+      "title": "How do a CDN, a reverse proxy and Redis differ?",
+      "topic": "CDN Fundamentals",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "cdn",
+        "reverse-proxy",
+        "redis",
+        "comparison"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-cdn-caching",
+          "pages": [
+            2,
+            3
+          ]
+        }
+      ],
+      "quick": "They solve different problems at different positions. A CDN is a globally distributed HTTP cache that brings public content near users. A reverse proxy such as NGINX sits in front of my servers, routes requests, terminates TLS and can cache HTTP responses locally. Redis is an in-memory data store my application code uses explicitly for API data, sessions or computed results. They are complementary: CloudFront for global delivery, a proxy for routing, Redis for application-level data.",
+      "revision": "CDN: global HTTP edge cache. Reverse proxy: local routing, TLS and optional HTTP cache. Redis: app-controlled in-memory data store. Complementary, not substitutes.",
+      "detailed": "These three are often confused because all of them can make responses faster, but they sit at different places and are controlled differently.\n\n| | CDN | Reverse proxy | Redis |\n|---|---|---|---|\n| Position | Globally distributed edge, near users | In front of your servers, in one region/data centre | Beside your application, behind it |\n| Speaks | HTTP | HTTP | Redis protocol, called by app code |\n| Primary purpose | Geographic delivery, offload, edge security | Routing, load balancing, TLS termination, optional response caching | Fast shared in-memory data: sessions, computed results, rate counters |\n| What is cached | Whole HTTP responses keyed by URL and selected headers | Whole HTTP responses | Any value your code chooses to store |\n| Who decides | HTTP headers plus CDN configuration | HTTP headers plus proxy configuration | Application code decides key, TTL and invalidation |\n| Latency benefit | Removes long-distance network travel | Removes origin application work | Removes database or downstream work |\n\n## How they combine\n\nA common production chain is user, then CDN, then load balancer or reverse proxy, then the application, then Redis, then the database. A hit at the CDN never reaches anything behind it. A miss falls through; the application may still answer from Redis instead of running an expensive query.\n\n## Choosing\n\n- Same public response requested by many users in many regions: CDN.\n- Need to route paths to different services, terminate TLS, or cache close to the app: reverse proxy.\n- Need to store data shared across app instances (sessions, feature flags, results of a costly aggregation), or caching decisions that depend on application logic: Redis.\n\n## Common mistake\n\nTreating Redis as an alternative to a CDN. Redis does not reduce the distance between the user and your servers, and it cannot be reached sensibly by browsers. Conversely, a CDN cannot cache a database row that never appears as a cacheable HTTP response.",
+      "diagrams": [],
+      "followUps": [
+        "Could a reverse proxy replace a CDN for a global audience? What would you lose?",
+        "What would you cache in Redis that a CDN could never cache?",
+        "Where does a CDN end and an API gateway begin?"
+      ],
+      "related": [
+        "caching-layers-browser-to-database",
+        "what-is-a-cdn",
+        "caching-api-responses"
+      ]
+    },
+    {
+      "slug": "cache-hit-miss-and-hit-ratio",
+      "title": "What are cache hits, misses and the cache hit ratio, and how do you read them?",
+      "topic": "CDN Fundamentals",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "cache-hit",
+        "cache-miss",
+        "hit-ratio",
+        "metrics"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-cdn-caching",
+          "pages": [
+            3
+          ]
+        }
+      ],
+      "quick": "A hit means the cache served the object without going to the origin. A miss means it could not, so it fetched from the origin or an upstream cache. Hit ratio is cache hits divided by total cache requests, times 100, so 9,000 hits out of 10,000 requests is 90 percent. A high ratio usually means less origin traffic and lower latency, but I also look at byte hit ratio, origin latency and which objects are missing, because the ratio alone can hide problems.",
+      "revision": "Hit ratio = cache hits / total cache requests x 100. High usually means low origin load, but check bytes, origin latency and what is missing.",
+      "detailed": "A **cache hit** means the requested object was stored, still usable, and returned without a trip to the origin. A **cache miss** means it was absent, expired, or not eligible, so the CDN had to fetch it from the origin or an upstream cache layer.\n\n## The formula\n\n```text\ncache hit ratio (%) = cache hits / total cache requests x 100\n\nexample: 9,000 hits / 10,000 requests x 100 = 90%\n```\n\nProviders differ in what counts as a \"cache request\" (for example whether revalidations, bypassed requests or errors are included), so compare numbers only within one provider's definition.\n\n## Reading the number\n\n- **Request hit ratio** counts objects; **byte hit ratio** counts bytes. A site can have a 95 percent request hit ratio while a few large uncached files cause most of the origin bandwidth.\n- A **low ratio** is a clue, not a diagnosis. Causes include short TTLs, a fragmented cache key (extra query strings, cookies or headers), `private` or `no-store` responses, frequent purges, or truly unique content.\n- A **high ratio is not automatic success**. A badly keyed cache can score well while serving the wrong variant, and caching the cheap objects does nothing for the slow, uncacheable HTML that dominates user-visible time.\n- Some traffic is legitimately uncacheable (checkout, personalised APIs). Measure hit ratio per content group, not only globally.\n\n## What to track with it\n\n- Origin request rate and origin latency.\n- Edge response time and error rate (4xx and 5xx).\n- Hit ratio split by path pattern or behaviour.\n- Response headers such as `Age` and the CDN's own cache-status header, which show whether an individual response was a hit.\n\n## Example\n\nIf images are 98 percent hits but the model-page HTML is 5 percent, the question becomes whether that HTML can be cached with a short TTL, not whether the CDN is working.",
+      "diagrams": [],
+      "followUps": [
+        "What is the difference between request hit ratio and byte hit ratio?",
+        "Your hit ratio is 95 percent but pages are slow. What do you check?",
+        "How would you raise the hit ratio of a dynamic HTML page safely?"
+      ],
+      "related": [
+        "what-is-a-cdn",
+        "hit-ratio-drop-investigation",
+        "cache-key-design"
+      ]
+    },
+    {
+      "slug": "cache-control-directives",
+      "title": "What do the main Cache-Control directives mean?",
+      "topic": "HTTP Caching Headers",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "cache-control",
+        "http-headers",
+        "max-age",
+        "s-maxage"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-cdn-caching",
+          "pages": [
+            3
+          ]
+        }
+      ],
+      "quick": "Cache-Control is the response header that tells caches how to treat a response. public allows shared caches to store it; private restricts it to the user's own browser. max-age sets freshness in seconds for any cache, while s-maxage overrides it for shared caches like a CDN. no-cache means store but revalidate before reuse; no-store means do not store at all. must-revalidate forbids serving the response once stale without checking the origin. I set them per content type, not globally.",
+      "revision": "public/private set who may store; max-age/s-maxage set freshness; no-cache means revalidate first; no-store means never store; must-revalidate bans stale use.",
+      "detailed": "`Cache-Control` is the main way an origin tells browsers and shared caches how to store and reuse a response.\n\n```http\nCache-Control: public, max-age=3600\n```\n\nThis permits any cache, including a CDN, to store the response and treat it as fresh for 3,600 seconds.\n\n| Directive | Meaning |\n|---|---|\n| `public` | Shared caches may store the response (also useful when a request carried `Authorization`). |\n| `private` | Only the end user's private cache (browser) may store it; shared caches must not. |\n| `max-age=N` | Fresh for N seconds from generation, in all caches. |\n| `s-maxage=N` | Freshness for shared caches only; overrides `max-age` there, and browsers ignore it. |\n| `no-cache` | May be stored, but must be validated with the origin before every reuse. |\n| `no-store` | Do not store the response at all. |\n| `must-revalidate` | Once stale, do not serve it without successful validation. |\n| `immutable` | The body will not change during its freshness lifetime, so skip revalidation on reload. |\n| `stale-while-revalidate=N` | Allows serving a stale response for N seconds while refreshing it in the background. |\n| `stale-if-error=N` | Allows serving stale content for N seconds if the origin fails. |\n\n## Useful combinations\n\n```http\n# versioned static asset\nCache-Control: public, max-age=31536000, immutable\n\n# public API: browsers keep it 1 min, the CDN 5 min\nCache-Control: public, max-age=60, s-maxage=300\n\n# personalised page\nCache-Control: private, no-cache\n```\n\n## Practical notes\n\n- CDNs can be configured to honour, override or ignore origin headers; always verify what your CDN actually does.\n- `Cache-Control` takes precedence over the older `Expires` header and `Pragma`.\n- Directive support, especially for the stale-* extensions, varies by cache implementation.\n- Setting headers is not enough; test them by inspecting responses at the edge and in the browser.",
+      "diagrams": [],
+      "followUps": [
+        "How do max-age and s-maxage interact when both are present?",
+        "What happens when a response has no Cache-Control header at all?",
+        "Which directive would you use to let browsers cache briefly but the CDN longer?"
+      ],
+      "related": [
+        "no-cache-vs-no-store",
+        "validators-etag-and-conditional-requests",
+        "static-vs-dynamic-caching-policy"
+      ]
+    },
+    {
+      "slug": "no-cache-vs-no-store",
+      "title": "What is the difference between no-cache and no-store?",
+      "topic": "HTTP Caching Headers",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "no-cache",
+        "no-store",
+        "cache-control",
+        "security"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-cdn-caching",
+          "pages": [
+            3,
+            4
+          ]
+        }
+      ],
+      "quick": "Despite its name, no-cache does not forbid storing. A cache may keep the response, but must validate it with the origin, usually with a conditional request, before reusing it. no-store tells caches not to store the response at all, so it is the directive for sensitive data. If I want always-fresh but still efficient, I use no-cache with an ETag. If the content is confidential, like account or payment details, I use no-store, often with private.",
+      "revision": "no-cache: store it, but revalidate before every reuse. no-store: do not store it at all. Use no-store for sensitive data.",
+      "detailed": "The names are misleading, which is why this is a classic interview question.\n\n## `no-cache`\n\nThe response **may be stored**, but a cache must **validate it with the origin before reusing it**. Validation is normally a conditional request using `If-None-Match` (ETag) or `If-Modified-Since`. If nothing changed, the origin returns `304 Not Modified` with no body, so the cache reuses its copy cheaply.\n\n```http\nCache-Control: no-cache\nETag: \"v42\"\n```\n\nGood for HTML shells or content that must always be current but is large enough that avoiding a re-download is valuable.\n\n## `no-store`\n\nCaches **must not store** any part of the request or response. Every request goes back to the origin and the full body is transferred.\n\n```http\nCache-Control: no-store\n```\n\nGood for sensitive data such as account details, payment steps or one-time tokens, where you do not want a copy sitting in a shared proxy or on disk.\n\n| | no-cache | no-store |\n|---|---|---|\n| Stored by cache | Yes | No |\n| Reused without checking origin | No | Not applicable |\n| Saves bandwidth | Yes, via 304 | No |\n| Typical use | Always-fresh but cacheable | Confidential data |\n\n## Common mistakes\n\n- Using `no-cache` to protect sensitive data. The response can still be stored; use `no-store` (and `private` where appropriate).\n- Using `no-store` everywhere \"to be safe\", which removes the performance benefit, including the back/forward cache in some browsers.\n- Confusing both with `max-age=0`, which makes a response stale immediately but allows stale reuse in some situations unless `must-revalidate` is also set.\n\n## Example\n\nPublic model page HTML: `public, max-age=0, s-maxage=60`. Account page: `private, no-store`.",
+      "diagrams": [],
+      "followUps": [
+        "What does a 304 response actually save?",
+        "Is no-cache, private enough to protect a user's account page?",
+        "How does max-age=0, must-revalidate compare with no-cache?"
+      ],
+      "related": [
+        "cache-control-directives",
+        "validators-etag-and-conditional-requests",
+        "authenticated-responses-caching"
+      ]
+    },
+    {
+      "slug": "validators-etag-and-conditional-requests",
+      "title": "How do ETag and conditional requests let a cache revalidate cheaply?",
+      "topic": "HTTP Caching Headers",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "etag",
+        "last-modified",
+        "304",
+        "revalidation"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "When a cached response becomes stale, the cache does not have to download it again. It sends a conditional request with If-None-Match carrying the stored ETag, or If-Modified-Since carrying the stored date. If the resource is unchanged, the origin replies 304 Not Modified with no body and the cache refreshes the stored copy's lifetime. If it changed, the origin returns a full 200 with a new ETag. This saves bandwidth and transfer time, though it still costs one round trip.",
+      "revision": "Stale copy plus If-None-Match or If-Modified-Since; origin answers 304 with no body if unchanged, otherwise a full 200. Saves bytes, not the round trip.",
+      "detailed": "Freshness (`max-age`) answers \"may I reuse this without asking?\". **Validators** answer the next question: \"I am not sure it is still fresh, has it changed?\".\n\n## The two validators\n\n- **ETag**: an opaque identifier for a specific version of the representation, for example a content hash.\n- **Last-Modified**: a timestamp. Coarser (one-second resolution) and weaker than an ETag.\n\nThe origin sends them on the original response:\n\n```http\nHTTP/1.1 200 OK\nCache-Control: no-cache\nETag: \"a1b2c3\"\nLast-Modified: Tue, 06 Oct 2026 09:00:00 GMT\n```\n\n## Revalidation flow\n\n```http\nGET /models/explorer HTTP/1.1\nIf-None-Match: \"a1b2c3\"\n```\n\n- **Unchanged:** origin returns `304 Not Modified` with no body. The cache keeps its copy and restarts the freshness clock.\n- **Changed:** origin returns `200 OK` with the new body and a new ETag.\n\n## Why it matters for CDNs\n\n- A CDN revalidating with the origin after a TTL expires transfers only headers when content is unchanged, reducing origin bandwidth and processing.\n- `no-cache` and `must-revalidate` depend on validators to be efficient. Without an ETag or Last-Modified, every revalidation becomes a full download.\n- It still costs a round trip, so it improves bytes and server work more than raw latency.\n\n## Pitfalls\n\n- ETags that differ between servers behind a load balancer (for instance derived from inode or server-specific metadata) defeat revalidation. Generate them from content.\n- Compression and `Vary` can interact with ETags; weak ETags (`W/\"...\"`) are used when only semantic equivalence is guaranteed.\n- The origin must actually implement conditional handling cheaply; if it re-renders the whole page just to compute the ETag, you save bandwidth but not backend load.",
+      "diagrams": [],
+      "followUps": [
+        "Why can load-balanced servers produce different ETags for the same file?",
+        "How does stale-while-revalidate relate to conditional requests?",
+        "Does a 304 save latency, or only bandwidth?"
+      ],
+      "related": [
+        "no-cache-vs-no-store",
+        "cache-control-directives",
+        "stale-while-revalidate-and-stale-if-error"
+      ]
+    },
+    {
+      "slug": "static-vs-dynamic-caching-policy",
+      "title": "How do you decide the caching policy for static versus dynamic content?",
+      "topic": "Caching Strategy",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "caching-policy",
+        "static",
+        "dynamic",
+        "personalization"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-cdn-caching",
+          "pages": [
+            4
+          ]
+        }
+      ],
+      "quick": "I never use one policy for everything. I classify content by how often it changes, whether it is personalised, and the business cost of staleness. Hashed JS, CSS and images get year-long immutable caching. Public CMS pages get a CDN TTL plus event-driven invalidation. Promotions and inventory get short TTLs or revalidation based on a freshness requirement. Authenticated account, payment and other sensitive responses are generally not cached in shared caches. Policies are defined per route and verified at the edge.",
+      "revision": "Policy follows change rate, personalization and cost of staleness: immutable for versioned assets, short TTL plus purge for public content, none shared for private data.",
+      "detailed": "The architectural principle is simple: **freshness, personalisation, authorisation and business correctness decide the policy, not convenience.** Classify first, then configure.\n\n| Content | Suggested approach |\n|---|---|\n| Hashed JS and CSS | Very long TTL, `immutable`; filename changes when content changes |\n| Versioned vehicle images | Long TTL when the URL is versioned; moderate TTL if URLs are stable |\n| Public CMS pages | CDN caching with a suitable TTL plus publish-triggered invalidation |\n| Promotions, banners | Short TTL, or event-driven revalidation |\n| Dealer or stock inventory | TTL derived from the stated freshness requirement, with revalidation |\n| Authenticated account data | Avoid shared caching unless explicitly designed and proven safe |\n| Payment and sensitive responses | `private, no-store`; follow data-handling policy |\n\n## Questions to ask for each route\n\n1. Is the response identical for every user (or every user in a locale or market)?\n2. How quickly must a change be visible, and who agreed to that number?\n3. What happens if a user briefly sees old data: cosmetic, financial, legal?\n4. How expensive is it to regenerate, and how bursty is demand?\n5. Can the URL change when content changes (versioning)?\n\n## Implementation\n\n```http\n# hashed bundle\nCache-Control: public, max-age=31536000, immutable\n\n# public page: browsers revalidate, CDN holds 60 s\nCache-Control: public, max-age=0, s-maxage=60, stale-while-revalidate=30\n\n# account page\nCache-Control: private, no-store\n```\n\n## Common mistakes\n\n- One global default TTL.\n- Caching HTML for long periods because \"it is mostly static\" without an invalidation path.\n- Letting personalised fragments make an entire page uncacheable; consider splitting the shell from the personalised parts, loaded separately.",
+      "diagrams": [],
+      "followUps": [
+        "How would you cache a page that is mostly public but shows a logged-in user's name?",
+        "Who should own the freshness requirement for promotions?",
+        "How do you enforce the policy across many teams' services?"
+      ],
+      "related": [
+        "immutable-versioned-assets",
+        "choosing-ttl-values",
+        "authenticated-responses-caching"
+      ]
+    },
+    {
+      "slug": "immutable-versioned-assets",
+      "title": "Why can versioned static assets be cached for a year, and how does that work?",
+      "topic": "Caching Strategy",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "immutable",
+        "fingerprinting",
+        "versioned-urls",
+        "static-assets"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-cdn-caching",
+          "pages": [
+            4,
+            5
+          ]
+        }
+      ],
+      "quick": "If a file's URL contains a content hash, like app.3f9a1c.js, the URL uniquely identifies that exact content. A change produces a new URL, so the old URL can safely be cached for a year with public, max-age=31536000, immutable. Invalidation becomes unnecessary because you simply reference the new URL from the HTML. The one thing that must stay short-lived is the HTML that points at the assets. The build pipeline must emit hashed names, and old files should stay available for a while.",
+      "revision": "Content-hashed URLs never change meaning, so cache them for a year as immutable; ship updates as new URLs and keep the referring HTML short-lived.",
+      "detailed": "Cache invalidation is hard because a URL can mean different things at different times. **Versioned (fingerprinted) URLs remove that ambiguity**: the URL is derived from the content, so one URL always means one set of bytes.\n\n```text\n/assets/app.3f9a1c7e.js       <- content hash in the name\n/assets/hero-model-x.b81d.webp\n```\n\n```http\nCache-Control: public, max-age=31536000, immutable\n```\n\n- `max-age=31536000` is one year, the conventional upper bound for a long lifetime.\n- `immutable` tells browsers not to revalidate on a normal reload, saving conditional requests.\n- The CDN stores the object for as long as its policy permits; it may evict it earlier under capacity pressure, which is harmless because it can refetch it.\n\n## How an update ships\n\n1. The build produces `app.77d0e2aa.js` because the source changed.\n2. The HTML (short TTL or revalidated) now references the new file.\n3. Users load the new HTML and fetch the new asset; the old asset is never requested again, so no purge is needed.\n\n## Requirements and pitfalls\n\n- **The HTML must not be cached long.** If the page that references `app.3f9a1c7e.js` sits in caches for a day, users keep loading the old bundle.\n- **Keep old assets deployed for a grace period.** A user with an old HTML page open, or a cached page at the edge, may still request previous hashes; deleting them causes 404s and broken pages.\n- **Hash everything the file depends on.** If a CSS file references images by unhashed URL, those images are still stale-prone.\n- **Do not use `immutable` on stable URLs** like `/logo.png` that you overwrite in place.\n\n## Example\n\nA retailer ships three deploys a day. Hashed bundles stay cached for a year while the HTML shell uses `s-maxage=60`, so new code reaches users within a minute without any CDN purge.",
+      "diagrams": [],
+      "followUps": [
+        "What breaks if the HTML referencing the asset is cached for a day?",
+        "How would you version images uploaded by editors in a CMS?",
+        "Why keep old asset versions deployed after a release?"
+      ],
+      "related": [
+        "static-vs-dynamic-caching-policy",
+        "cache-invalidation-strategies",
+        "cdn-and-core-web-vitals"
+      ]
+    }
+  ]
+}

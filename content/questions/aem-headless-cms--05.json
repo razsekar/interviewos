@@ -1,0 +1,503 @@
+{
+  "category": "aem-headless-cms",
+  "questions": [
+    {
+      "slug": "aem-cache-invalidation-stale-content",
+      "title": "How do you prevent stale AEM content across CDN, Dispatcher and app caches?",
+      "topic": "AEM Delivery",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "aem",
+        "cache",
+        "invalidation",
+        "cdn",
+        "revalidation"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-adobe-experience-manager-aem",
+          "pages": [
+            6,
+            8
+          ]
+        }
+      ],
+      "quick": "I would tie invalidation to publishing events. When content is activated, the affected Dispatcher entries are invalidated, CDN entries are purged by path or tag, and the frontend revalidates the affected pages, for example with on-demand revalidation from a webhook. Sensible TTLs act as a safety net, versioned URLs handle static files, and monitoring catches stale responses. I would avoid purging everything for a small change because it floods the origin.",
+      "revision": "Publish event triggers targeted invalidation at each layer; TTLs are the safety net; version static assets; never purge globally for small edits.",
+      "detailed": "**Stale content happens when a layer keeps serving an old copy after publish. Fix it by connecting publish events to targeted invalidation, and use TTLs only as the safety net.**\n\n## Where staleness hides\nBrowser, CDN, Dispatcher and the framework's rendered-page or data cache can each hold the old version. Total staleness is roughly the sum of what each layer allows, plus delays in the invalidation chain.\n\n## Strategy\n1. **Event-driven**: on activation, AEM (or an integration listening to publish events, such as a webhook or event pipeline; mechanism depends on deployment model) notifies the delivery chain.\n2. **Targeted purge**: invalidate by path, or by surrogate key/tag if the CDN supports it. A change to one vehicle fragment should refresh pages that use it, not the whole site.\n3. **Frontend revalidation**: call the framework's on-demand revalidation for affected routes, or use time-based revalidation for low-risk content.\n4. **Dependency awareness**: a fragment may feed many pages and a persisted query response. Map fragment to pages (or tag responses) so you know what to refresh.\n5. **Static assets**: content-hashed filenames with long TTLs, so no invalidation is needed.\n6. **TTL backstop**: moderate TTLs (and stale-while-revalidate where supported) so a missed event self-heals.\n\n```ts\n// webhook handler sketch (Next.js route handler)\nexport async function POST(req: Request) {\n  const { paths } = await req.json();      // paths derived from the publish event\n  if (!verifySignature(req)) return new Response('forbidden', { status: 403 });\n  paths.forEach((p: string) => revalidatePath(p));\n  return Response.json({ revalidated: paths.length });\n}\n```\n\n## Trade-offs\n| Choice | Benefit | Cost |\n|---|---|---|\n| Long TTL, no purge | Highest hit ratio | Slow to reflect changes |\n| Short TTL only | Simple | More origin load, still delayed |\n| Event-driven targeted purge | Fresh and efficient | Needs dependency mapping and reliable events |\n| Global purge | Easy | Origin stampede, slow pages |\n\n## Common mistakes\n- Purging the CDN but not the Dispatcher or the framework cache.\n- Ignoring unpublish and expiry events, which also change what should be visible.\n- Not testing invalidation as part of release, so staleness is discovered by editors.",
+      "followUps": [
+        "How would you map a changed fragment to the pages that depend on it?",
+        "What do you do if the invalidation webhook fails?",
+        "How do you handle time-boxed content that should disappear at a set moment?"
+      ],
+      "related": [
+        "aem-cdn-dispatcher-caching-layers",
+        "aem-publish-workflow-activation",
+        "aem-graphql-persisted-queries"
+      ]
+    },
+    {
+      "slug": "aem-outage-resilience",
+      "title": "What happens to the website if AEM becomes unavailable, and how do you design for it?",
+      "topic": "AEM Delivery",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "aem",
+        "resilience",
+        "availability",
+        "fallback"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-adobe-experience-manager-aem",
+          "pages": [
+            6,
+            8
+          ]
+        }
+      ],
+      "quick": "First I separate author unavailability from publish delivery failure. If Author is down, editors are blocked but the live site keeps serving. If Publish or the content API fails, cached pages can still be served from the CDN or framework, and I would add timeouts, bounded retries, last-known-good content and clear fallbacks for uncached routes. I would isolate the failure so unrelated journeys keep working, and alert on origin errors and cache misses.",
+      "revision": "Distinguish Author outage (editing only) from Publish failure (delivery). Serve cached or static content, use timeouts, bounded retries, fallbacks and isolation.",
+      "detailed": "**Start by asking which tier failed: Author outage blocks editing, a Publish or API failure threatens delivery.**\n\n## Scenarios\n| Failure | Customer impact | Design response |\n|---|---|---|\n| Author down | None for the live site; editors blocked | Communicate; no public effect; plan editorial fallbacks |\n| Publish or content API slow or down | Cache misses fail; cached pages still served | Cache, stale serving, fallback content |\n| Whole platform down | Everything depending on AEM | Static snapshots, status page, regional failover |\n\n## Resilience techniques\n- **Serve stale on error**: CDN and framework settings (such as stale-if-error or stale-while-revalidate where supported) let users see the last good page while the origin recovers.\n- **Static generation** for critical pages (home, model pages, contact) so they do not need a live AEM call per request.\n- **Timeouts and bounded retries** with backoff and jitter; retries without limits turn a brownout into an outage.\n- **Circuit breaker** on content API calls so failing requests fail fast.\n- **Last-known-good snapshots** of important content in object storage or in the framework cache.\n- **Graceful degradation**: render the page shell with a neutral fallback for a failed non-critical block (for example promotions) instead of a 500.\n- **Isolation**: separate content domains so a promotions failure does not break vehicle search or checkout.\n\n```ts\nasync function getBlock(url: string) {\n  try {\n    const r = await fetch(url, { signal: AbortSignal.timeout(1500), next: { revalidate: 300 } });\n    if (!r.ok) throw new Error(String(r.status));\n    return await r.json();\n  } catch {\n    return null; // caller renders fallback; error is logged and counted\n  }\n}\n```\n\n## Operations\nAlert on origin 5xx, latency, cache-hit ratio drops and publish failures; rehearse failure with a game day. In AEM as a Cloud Service Adobe operates much of the platform, but your integration, caching and fallback design remain yours; confirm SLAs for the target model.\n\n## Common mistake\nDesigning as if \"the CMS never goes down\" and having every page request depend on it synchronously.",
+      "followUps": [
+        "How would you choose which pages are served statically?",
+        "How do you avoid a retry storm during a partial outage?",
+        "How would you test this resilience before launch?"
+      ],
+      "related": [
+        "aem-cdn-dispatcher-caching-layers",
+        "aem-observability",
+        "aem-author-vs-publish"
+      ]
+    },
+    {
+      "slug": "aem-image-delivery",
+      "title": "How would you deliver large vehicle or product imagery from AEM efficiently?",
+      "topic": "AEM Delivery",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "aem",
+        "images",
+        "performance",
+        "dam",
+        "core-web-vitals"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would keep originals in AEM Assets and never ship them to browsers. The frontend requests renditions sized for the layout, in modern formats such as WebP or AVIF where supported, using responsive srcset and sizes, lazy loading below the fold, and explicit width and height to avoid layout shift. Delivery goes through the CDN with long cache lifetimes on versioned URLs. Which image service to use, such as Dynamic Media or a web-optimized delivery option, depends on licensing and deployment model.",
+      "revision": "Never ship DAM originals: use sized renditions, modern formats, responsive srcset, lazy loading, explicit dimensions and CDN caching on versioned URLs.",
+      "detailed": "**Image weight is often the largest factor in page performance for visual brands. Store originals in AEM Assets, but deliver purpose-sized, modern-format renditions through a CDN.**\n\n## Options (verify per licence and deployment model)\n- **Pre-generated renditions** in AEM Assets.\n- **On-demand resizing and format conversion** through an image delivery service (for example Adobe's Dynamic Media or a web-optimized image delivery capability in AEM as a Cloud Service).\n- **A third-party image CDN or framework optimizer** (for example the Next.js image component) fetching from Publish or the DAM.\n\n## Frontend practices\n```tsx\n<img\n  src={`${base}?width=800&format=webp`}   // illustrative parameters; use your service's real ones\n  srcSet={`${base}?width=480 480w, ${base}?width=800 800w, ${base}?width=1200 1200w`}\n  sizes=\"(min-width: 1024px) 50vw, 100vw\"\n  width={800} height={450}\n  alt={vehicle.heroAlt}\n  loading=\"lazy\"\n/>\n```\n- Do **not** lazy-load the largest above-the-fold image (the likely LCP element); prioritise it with a preload or high fetch priority.\n- Provide **intrinsic dimensions or aspect ratio** to prevent layout shift.\n- Use **art direction** (`<picture>`) when crops differ for mobile and desktop.\n\n## Caching\nUse versioned or content-hashed URLs, or a rendition path that changes when the asset changes, so you can apply long TTLs without stale imagery. If an asset is replaced under the same URL, you need an explicit purge.\n\n## Governance\nAlt text and focal-point or crop metadata should be authored in the DAM, not guessed in code. Expiry and rights restrictions must propagate to cached copies.\n\n## Common mistakes\n- Referencing the original asset path directly.\n- Lazy-loading the hero image and hurting LCP.\n- Omitting alt text from the content model.\n- Exposing unpublished assets via guessable URLs on Author.",
+      "followUps": [
+        "How do you keep image alt text authorable but required?",
+        "How do you handle an asset that is replaced under the same path?",
+        "Which Core Web Vitals do images affect most?"
+      ],
+      "related": [
+        "aem-sites-vs-assets",
+        "aem-cdn-dispatcher-caching-layers",
+        "aem-accessibility-authoring"
+      ]
+    },
+    {
+      "slug": "aem-and-mach",
+      "title": "How does AEM fit into a MACH architecture?",
+      "topic": "AEM Architecture",
+      "difficulty": "advanced",
+      "type": "conceptual",
+      "tags": [
+        "aem",
+        "mach",
+        "api-first",
+        "headless",
+        "composable"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-adobe-experience-manager-aem",
+          "pages": [
+            5,
+            6,
+            8
+          ]
+        }
+      ],
+      "quick": "MACH means Microservices, API-first, Cloud-native and Headless. AEM can be the headless content capability: it exposes content through APIs, can be deployed as a cloud-managed service, and is one component among independently owned services such as search, commerce or identity. But using AEM does not make a platform MACH. That depends on clear service boundaries, API contracts, independent deployability and operational practice across the whole architecture.",
+      "revision": "AEM can be the headless, API-first content service inside a MACH platform, but MACH is a property of the whole architecture, not of one product.",
+      "detailed": "**AEM can serve as the content component of a MACH architecture, but MACH is judged on the whole platform.**\n\n## Mapping the principles\n| Principle | How AEM can contribute | What the wider architecture must still do |\n|---|---|---|\n| Microservices | One independently managed capability among others | Define service boundaries and ownership |\n| API-first | Content via GraphQL and other APIs | Stable, versioned contracts and governance |\n| Cloud-native | AEM as a Cloud Service is a cloud-managed model | Elastic, resilient, observable surrounding services |\n| Headless | Content decoupled from the presentation layer | Separately deployed frontends and channels |\n\n## Nuances worth saying out loud\n- AEM is a substantial platform with its own runtime, content repository and release model. It is not a micro-service in the strict sense, so say \"a capability in a composable platform\" rather than \"a microservice\".\n- AEM supports both headless and traditional (coupled) delivery. A site built with AEM page components rendered by AEM is not headless, so it is less MACH-like.\n- Composability is a spectrum: AEM can be combined with commerce, search, personalization and identity services behind an integration or backend-for-frontend layer.\n- The MACH Alliance is an industry body with its own membership criteria; do not confuse the architectural style with certification.\n\n## Architect's view\nGood composable design adds **integration costs**: more contracts, more observability needs, more failure modes. The benefit is independent evolution of frontends and capabilities. Choose it when you have several channels, teams and release cadences to justify it.\n\n## Common mistakes\n- Saying \"we use AEM, so we are MACH\".\n- Exposing AEM content structure directly to every consumer rather than through a stable contract.\n- Ignoring operational ownership of the extra moving parts.",
+      "followUps": [
+        "Is a coupled AEM site MACH-compliant?",
+        "Where would you place a backend-for-frontend relative to AEM?",
+        "What are the downsides of composable architecture?"
+      ],
+      "related": [
+        "aem-vs-micro-frontends",
+        "aem-react-integration",
+        "aem-deployment-models"
+      ]
+    },
+    {
+      "slug": "aem-vs-micro-frontends",
+      "title": "AEM versus Micro Frontends: how do they relate?",
+      "topic": "AEM Architecture",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "aem",
+        "micro-frontends",
+        "architecture",
+        "composition"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-adobe-experience-manager-aem",
+          "pages": [
+            6
+          ]
+        }
+      ],
+      "quick": "They solve different problems and can be combined. AEM manages content, assets and publishing workflows. Micro Frontends split a large frontend into independently owned and deployed application slices, for example search, configurator and content pages. React renders the UI, and APIs link both to content and business services. In a combined design, AEM supplies content and maybe page composition, while micro frontends own interactive features, with shared design tokens and contracts.",
+      "revision": "AEM is about content and publishing; micro frontends are about frontend ownership and deployment. Orthogonal, often combined through shared contracts.",
+      "detailed": "**AEM and Micro Frontends are orthogonal: one manages content, the other divides frontend ownership.**\n\n| | AEM | Micro Frontends |\n|---|---|---|\n| Problem | Governed content, assets, publishing | Independent frontend teams and release cycles |\n| Unit | Page, fragment, asset | Application slice (route or widget) |\n| Owned by | Content and platform teams | Product or domain teams |\n| Integrates via | APIs, templates, components | Module federation, web components, edge or server composition, iframes |\n\n## How they combine\n- **AEM-driven shell**: AEM or a shell app renders the page frame and header/footer; domain micro frontends (vehicle configurator, dealer search) mount into designated regions.\n- **Content as a service to every slice**: each micro frontend fetches its own copy from AEM via the shared API, or via a backend-for-frontend.\n- **Authors place slots, not code**: AEM page authors may position a \"dealer search\" region, while the micro frontend team owns what runs inside.\n\n## Concerns to design explicitly\n- **Shared design system** and tokens to keep a coherent look.\n- **Cross-slice concerns**: routing, authentication state, analytics and consent.\n- **Performance budgets**: several bundles and several content calls can hurt load time; deduplicate shared dependencies and cache content centrally.\n- **SEO**: slices that matter for search need server-side or edge-rendered HTML.\n- **Content contracts**: versioned models so one team's change does not break another's slice.\n\n## Common mistakes\n- Adopting micro frontends to solve a content problem, or AEM features to solve a team-scaling problem.\n- Each slice inventing its own content mapping and cache strategy.\n- No ownership for the shared shell and cross-cutting behaviour.\n\nUse micro frontends when team scale and deployment independence justify the complexity; a single well-structured React app may suffice otherwise.",
+      "followUps": [
+        "How would two micro frontends share the same AEM content without duplicate requests?",
+        "Where would authentication state live?",
+        "When is a monolithic React frontend the better choice?"
+      ],
+      "related": [
+        "aem-and-mach",
+        "aem-react-integration",
+        "aem-seo-headless"
+      ]
+    },
+    {
+      "slug": "aem-seo-headless",
+      "title": "How do you make a headless AEM and React site SEO-friendly?",
+      "topic": "AEM SEO",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "aem",
+        "seo",
+        "ssr",
+        "metadata",
+        "structured-data"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-adobe-experience-manager-aem",
+          "pages": [
+            7,
+            8
+          ]
+        }
+      ],
+      "quick": "AEM provides the content, metadata fields and workflows, but SEO outcomes depend on the full implementation. I would ensure crawlable rendered HTML through SSR or static generation, model titles, descriptions, canonical URLs and structured data as authored fields, generate sitemaps and hreflang, keep clean localized URLs with correct redirects, and monitor performance and Core Web Vitals. I would verify with crawl and rendering tests, because client-only rendering can hide content from some crawlers.",
+      "revision": "AEM supplies metadata, but SEO is delivery: crawlable SSR/SSG HTML, canonical and hreflang tags, sitemaps, structured data, clean URLs and performance.",
+      "detailed": "**AEM helps SEO by managing metadata and governed content, but headless SEO is decided by how the frontend renders and serves that content.**\n\n## What to model in AEM\nPage title, meta description, canonical URL override, robots directives, Open Graph fields, and structured-data inputs (such as product or FAQ details), so editors control them without code changes. Require key fields and validate lengths.\n\n## What the frontend must do\n- **Render meaningful HTML for crawlers**: SSR or static generation for public content. Search engines can execute JavaScript, but client-only rendering adds delay and risk, and not every consumer (social previews, some bots) runs it.\n- **Emit tags from content**: title, description, canonical, robots, Open Graph, and JSON-LD built from authored data.\n- **Return correct status codes**: a missing fragment should produce a real 404, not a 200 with an empty page.\n- **Localization**: locale URL structure, `hreflang` alternates, localized metadata.\n- **Sitemaps and robots**: generated from published content, not from Author. Keep preview and draft hosts `noindex` and blocked.\n- **Redirects**: manage content moves in a governed place (AEM, edge rules or code), not scattered.\n- **Performance**: Core Web Vitals depend on image delivery, caching and JavaScript weight.\n\n```tsx\n// Next.js App Router metadata from authored fields\nexport async function generateMetadata({ params }): Promise<Metadata> {\n  const p = await getPage(params.slug);\n  return {\n    title: p.seoTitle,\n    description: p.seoDescription,\n    alternates: { canonical: p.canonicalUrl },\n  };\n}\n```\n\n## Verification\nFetch pages as a crawler would (raw HTML), use search console reports and rendering tests, and check that canonical and hreflang sets are reciprocal.\n\n## Common mistakes\n- Assuming \"AEM means good SEO\".\n- Duplicate content across locales or between preview and production hosts.\n- Canonicals pointing at Author or internal hostnames.",
+      "followUps": [
+        "How do you prevent preview or Author URLs from being indexed?",
+        "How would you generate hreflang tags from AEM language copies?",
+        "What do you do when a published fragment is deleted but the page is still linked?"
+      ],
+      "related": [
+        "aem-react-integration",
+        "aem-localization-language-copies",
+        "aem-author-preview"
+      ]
+    },
+    {
+      "slug": "aem-accessibility-authoring",
+      "title": "How do accessibility requirements affect AEM content models and components?",
+      "topic": "AEM Governance",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "aem",
+        "accessibility",
+        "wcag",
+        "authoring"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-adobe-experience-manager-aem",
+          "pages": [
+            7
+          ]
+        }
+      ],
+      "quick": "Accessibility is shared between components and content. Developers build components with semantic HTML, keyboard support, focus management and proper landmarks, aligned to WCAG. The content model then enforces authored accessibility data, such as required alt text, decorative image flags, heading level controls and link text guidance, and editors are trained. I would add automated checks in the pipeline and manual audits, and prevent authors from breaking heading structure through free-form layouts.",
+      "revision": "Accessible components plus constrained, validated content: required alt text, heading controls, semantic output, automated and manual WCAG checks.",
+      "detailed": "**Accessibility in AEM is a joint responsibility: components must output accessible markup, and the content model must make accessible authoring the easy default.**\n\n## In components (developer side)\n- Semantic HTML first; ARIA only where native elements cannot do the job.\n- Keyboard operability and visible focus for every interactive component (carousels, tabs, accordions, modals).\n- Sensible heading structure that does not depend on visual styling.\n- Colour contrast through design tokens; respect reduced-motion preferences.\n- Accessible forms: labels, error messages, instructions.\n\n## In the content model (author side)\n| Concern | Modeling approach |\n|---|---|\n| Image alternatives | Required alt-text field, plus an explicit \"decorative\" flag |\n| Heading levels | A level selector with allowed values, not free font-size choices |\n| Link text | Guidance and validation against \"click here\" |\n| Video | Fields for captions, transcripts, audio description references |\n| Language | Language attribute from locale for correct pronunciation |\n| Tables | Header-row options |\n\nConstrain what editors can do: restricted style systems, policies limiting component choices, and validations in Content Fragment models (required, pattern) are the guardrails.\n\n## In headless delivery\nYour React app owns the markup, so accessibility testing happens in the frontend, but the *data* it needs (alt text, captions, language) must exist in AEM. Missing alt text becomes a runtime problem if the model allowed it to be empty.\n\n## Process\n- Automated checks (linters, axe-style tests) in CI.\n- Manual keyboard and screen reader testing for key journeys.\n- Editor training and a content checklist; governance reports for missing alt text.\n\n## Common mistakes\n- Treating accessibility as a frontend-only test.\n- Allowing authors to simulate headings with bold text.\n- Auto-generating alt text from file names.",
+      "followUps": [
+        "How would you enforce required alt text in a Content Fragment model?",
+        "How do you test accessibility of authored pages at scale?",
+        "How do you handle decorative images in a headless model?"
+      ],
+      "related": [
+        "aem-image-delivery",
+        "aem-governance-security",
+        "aem-seo-headless"
+      ]
+    },
+    {
+      "slug": "aem-localization-language-copies",
+      "title": "How does AEM support multi-language and multi-region sites?",
+      "topic": "AEM Localization",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "aem",
+        "localization",
+        "i18n",
+        "msm",
+        "translation"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-adobe-experience-manager-aem",
+          "pages": [
+            7,
+            8
+          ]
+        }
+      ],
+      "quick": "In AEM Sites a common structure is a language root per locale, for example /content/site/en and /content/site/de, with language copies created from a master and kept aligned. Translation can be handled through connectors or integrated services with human or machine translation and review workflows. Regional variants can use live copy style inheritance where appropriate. I would define locale URL conventions, fallback rules, localized metadata and hreflang, and decide how assets and fragments are localized or shared.",
+      "revision": "Language roots per locale, translation workflows, optional inheritance for regional variants, plus URL, fallback, metadata and hreflang decisions.",
+      "detailed": "**AEM localization combines a repository structure convention, translation workflows and governance rules for what is shared and what varies.**\n\n## Structure\nA widely used convention is one language root per locale under the site, such as `/content/example/en`, `/content/example/fr`, and region-specific roots like `/content/example/en-gb`. Fragments and assets can follow a parallel structure. Following the convention lets AEM's language tools, translation integration and cache or URL rules work predictably.\n\n## Mechanisms (verify capabilities for your version and licence)\n- **Language copy**: create a copy of a source tree for translation, then translate and review.\n- **Translation integration**: send content to a translation management system or service (human, machine, or hybrid) and bring results back for review before publishing.\n- **Multi Site Manager (MSM)**: define blueprints and live copies so regional sites inherit from a master and can override selectively. Useful for regional variation, not a replacement for translation.\n- **Locale-aware fragments**: translate Content Fragments in a parallel tree, so GraphQL queries can be scoped to a locale.\n\n## Decisions to make\n| Decision | Options |\n|---|---|\n| URL strategy | Path prefix (/de/), subdomain, or country domain |\n| Fallback | Show source language, redirect, or hide the item |\n| Shared versus localized content | Legal text and specs often differ by market; imagery may be shared |\n| Metadata | Localized titles, descriptions, alt text |\n| Alternate links | `hreflang` sets derived from published language copies |\n\n## Frontend concerns\nLocale-aware routing, number, currency and date formatting (for example with `Intl`), right-to-left support, font coverage, and locale in cache keys so a French page is never served to a German visitor.\n\n## Common mistakes\n- Treating translation as copy-paste with no review workflow.\n- Letting regional inheritance silently overwrite local legal text.\n- Forgetting locale in the cache key or sitemap.\n- Machine-translating without a quality gate.",
+      "followUps": [
+        "How would you scope a GraphQL query to one locale?",
+        "What is the difference between translation and regional inheritance?",
+        "How do you ensure locale is part of the cache key?"
+      ],
+      "related": [
+        "aem-seo-headless",
+        "aem-content-repository",
+        "aem-cdn-dispatcher-caching-layers"
+      ]
+    },
+    {
+      "slug": "aem-governance-security",
+      "title": "How do you secure and govern an AEM platform?",
+      "topic": "AEM Governance",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "aem",
+        "security",
+        "governance",
+        "permissions",
+        "dispatcher"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-adobe-experience-manager-aem",
+          "pages": [
+            7,
+            8
+          ]
+        }
+      ],
+      "quick": "I would apply least privilege with groups and path-based permissions, protect Author behind SSO and network controls, lock down Dispatcher filters so only intended paths reach Publish, and enforce TLS. API access for non-public content uses proper authentication with secrets in a managed vault, rotated and never in browser code. Governance adds approval workflows, separate publish rights, audit trails, rollback plans and regular reviews, plus hardening and patching aligned with the deployment model.",
+      "revision": "Least privilege, protected Author, tight Dispatcher allowlist, TLS, secrets management, authenticated non-public APIs, plus approvals, audit and rollback.",
+      "detailed": "**Security protects the platform; governance controls what content goes live and who is accountable. Cover both.**\n\n## Security layers\n| Area | Practice |\n|---|---|\n| Authoring access | SSO and MFA, groups instead of individuals, path-based permissions, restricted admin accounts |\n| Network | Author not reachable from the public internet, or behind IP allowlists and access proxies |\n| Dispatcher / edge | Default-deny filters; block system consoles and unneeded selectors, extensions and methods; rate limiting and a WAF at the CDN |\n| Transport | TLS everywhere, HSTS |\n| API access | Public content on Publish; non-public content only with authentication and authorisation |\n| Secrets | Held in a secrets manager or deployment platform configuration, rotated, kept out of repositories and out of the browser |\n| Frontend | CSP, output encoding, dependency scanning; sanitise any rich text from AEM before injecting it as HTML |\n| Patching | Stay current; AEM as a Cloud Service handles platform updates, other models need explicit patch processes |\n\nRich text is a frequent risk: if the frontend uses `dangerouslySetInnerHTML` on authored HTML, treat it as untrusted unless sanitised.\n\n## Governance\n- **Roles**: contributors, approvers, publishers, administrators with different rights.\n- **Workflows** for sensitive content (legal, pricing, safety information).\n- **Audit and versions**: who changed and published what, with rollback.\n- **Ownership**: every site section and fragment type has a named owner.\n- **Model governance**: reviewed, versioned changes to content models and persisted queries.\n- **Content quality**: reports for missing alt text, broken links, expired assets.\n\n## Common mistakes\n- Shared admin accounts and broad \"publish everywhere\" groups.\n- Unrestricted Dispatcher rules copied from examples.\n- API keys in client bundles.\n- No rollback beyond a manual edit.",
+      "followUps": [
+        "How would you restrict who can publish pricing or legal content?",
+        "How do you safely render rich text from AEM in React?",
+        "How do you protect Author endpoints in production?"
+      ],
+      "related": [
+        "aem-dispatcher",
+        "aem-publish-workflow-activation",
+        "aem-author-preview"
+      ]
+    },
+    {
+      "slug": "aem-deployment-models",
+      "title": "AEM as a Cloud Service vs AEM Managed Services vs on-premise: what differs for an architect?",
+      "topic": "AEM Architecture",
+      "difficulty": "advanced",
+      "type": "comparison",
+      "tags": [
+        "aem",
+        "aemaacs",
+        "cloud-service",
+        "on-premise",
+        "cloud-manager"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "AEM as a Cloud Service is Adobe-operated and cloud-native, with automatic updates, auto-scaling and a Cloud Manager CI/CD pipeline, and it imposes constraints such as immutable code and a managed CDN. AEM Managed Services is hosted and operated by Adobe for a customer-controlled setup, and on-premise means the customer runs everything, with the most freedom and the most operational duty. Specifics change over time, so I verify against current Adobe documentation before committing a design.",
+      "revision": "Cloud Service: Adobe-operated, auto-updated, pipeline-driven, constrained. Managed Services: hosted by Adobe, more control. On-premise: full control, full operational burden.",
+      "detailed": "**The deployment model changes who operates AEM, how code reaches it, and which delivery features you can rely on.** Treat the following as a broad orientation and confirm details against Adobe's current documentation, since products and terminology evolve.\n\n## Comparison\n| Aspect | AEM as a Cloud Service | AEM Managed Services | On-premise / self-hosted |\n|---|---|---|---|\n| Operated by | Adobe (platform), customer (code and content) | Adobe hosts and operates the customer's instances | Customer |\n| Updates | Continuously updated by Adobe | Planned upgrade cycles | Customer-driven |\n| Scaling | Managed, elastic | Sized and planned with Adobe | Customer sizing |\n| Deployment | Cloud Manager CI/CD pipeline; code and config deployed as immutable packages | More traditional deployment options | Fully customer-defined |\n| CDN | Managed CDN included (details configurable within limits) | Often a customer-chosen CDN | Customer-chosen |\n| Customisation freedom | Constrained by platform rules and quality gates | Higher | Highest |\n\n## Architectural consequences\n- **Immutable code**: on Cloud Service, you cannot hot-patch code in the running repository; changes go through the pipeline and quality gates.\n- **Content distribution and invalidation** mechanisms differ, which affects your stale-content design.\n- **Dispatcher configuration** is deployed with code on the Cloud Service, and has validation rules.\n- **Environments**: Cloud Service offers production plus non-production environments and, in some setups, development environments; check allocations.\n- **Headless features** (GraphQL, persisted queries, newer editing tools) are most actively developed for the Cloud Service, with varying availability elsewhere. Verify support for the specific version.\n- **Operational model**: observability and log access, SLAs and support boundaries differ.\n\n## How to answer in an interview\nState the model you assume, name the two or three things that would change in the others, and avoid claiming specifics you have not verified. If the target model is unknown, ask.\n\n## Common mistakes\n- Applying on-prem practices (direct repository edits, custom replication tuning) on Cloud Service.\n- Designing caching without knowing whether a managed CDN is already in front.",
+      "followUps": [
+        "What does immutable code mean for hot fixes?",
+        "How would your caching design differ between Cloud Service and a self-hosted setup?",
+        "Which headless features would you verify before choosing a model?"
+      ],
+      "related": [
+        "aem-what-is-aem",
+        "aem-and-mach",
+        "aem-dispatcher"
+      ]
+    },
+    {
+      "slug": "aem-observability",
+      "title": "What would you monitor in a headless AEM delivery chain?",
+      "topic": "AEM Delivery",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "aem",
+        "observability",
+        "monitoring",
+        "sli",
+        "core-web-vitals"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-adobe-experience-manager-aem",
+          "pages": [
+            5,
+            7
+          ]
+        }
+      ],
+      "quick": "I would monitor each hop. At the edge: CDN cache hit ratio and error rates. At origin: Dispatcher and Publish response times and 5xx, plus content API latency. In the platform: publish and invalidation failures and queue delays, and workflow errors. In the frontend: Core Web Vitals from real users, JavaScript errors and failed content fetches. I would define SLOs, alert on symptoms, correlate with trace or request IDs, and review regularly.",
+      "revision": "Monitor every hop: CDN hit ratio, origin latency and errors, publish and invalidation health, frontend real-user metrics, with SLOs and correlation IDs.",
+      "detailed": "**Observe the whole chain from author action to user experience, not just the AEM servers.**\n\n## Signals by layer\n| Layer | Signals |\n|---|---|\n| Browser | Real-user Core Web Vitals (LCP, INP, CLS), JS errors, failed fetches |\n| CDN | Hit ratio, origin fetch rate, 4xx/5xx, purge latency |\n| Dispatcher / Publish | Response time percentiles, 5xx, cache-miss latency, resource saturation |\n| Content APIs | Per-query latency, error rate, payload size |\n| Publishing pipeline | Activation failures, invalidation or revalidation failures, workflow errors, publish-to-live delay |\n| Authoring | Author availability and editor-facing errors |\n\n## Practices\n- **SLIs and SLOs**: for example \"published content visible within a defined number of minutes\" and \"content API p95 latency below a target\". Choose numbers with the business; do not copy them.\n- **Alert on symptoms** (users failing, freshness breaches) rather than every CPU blip.\n- **Correlation IDs** propagated from the frontend through CDN and into AEM logs for tracing a bad response.\n- **Synthetic checks** from several regions that exercise key pages and a publish-to-live canary: publish a test fragment and verify it appears.\n- **Dashboards** per audience: editors (publish health), engineers (latency), business (web vitals).\n- **Log access** depends on deployment model; on Cloud Service, Adobe's tooling provides log forwarding or download options, so confirm what is available.\n\n## Common mistakes\n- Only monitoring server CPU and memory.\n- No measure of content freshness, so stale pages are reported by editors.\n- Alert fatigue from unactionable thresholds.",
+      "followUps": [
+        "How would you measure publish-to-live delay?",
+        "Which alerts would page someone at night?",
+        "How do you correlate a slow page with an AEM request?"
+      ],
+      "related": [
+        "aem-outage-resilience",
+        "aem-cache-invalidation-stale-content",
+        "aem-cdn-dispatcher-caching-layers"
+      ]
+    },
+    {
+      "slug": "aem-global-vehicle-site-architecture",
+      "title": "Design a global vehicle-marketing website on AEM with a React frontend.",
+      "topic": "AEM Architecture",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "aem",
+        "architecture",
+        "design",
+        "nextjs",
+        "localization",
+        "caching"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-adobe-experience-manager-aem",
+          "pages": [
+            1,
+            9
+          ]
+        }
+      ],
+      "quick": "I would use AEM as the content and publishing layer, with Content Fragment models for vehicles, trims, features and offers, and Next.js for rendering. Content flows from Author through approval to Publish, is served via persisted GraphQL queries behind a CDN and Dispatcher, with SSG or ISR for SEO. I would add secure preview, locale-aware routing, optimized imagery, event-driven revalidation, graceful degradation, access controls and observability. This is an example design, to be adapted to constraints.",
+      "revision": "AEM models and publishes content; Next.js renders; persisted queries behind CDN; SSG/ISR, preview, localization, revalidation, resilience, security, observability.",
+      "detailed": "**An example end-to-end design (hypothetical brand, adapt to real constraints).**\n\n{{diagram:system}}\n\n## Content model\nContent Fragment models: `Vehicle`, `Trim`, `Feature`, `Offer`, `DealerInfo`, referencing assets in the DAM. Page composition is either a small \"page\" model listing blocks or authored in AEM pages, depending on how much layout control editors need.\n\n## Delivery\n- Frontend queries **persisted GraphQL queries** on Publish through the CDN.\n- **Next.js** renders public pages with static generation and revalidation; interactive tools (configurator, dealer search) are client-driven or separate micro frontends calling dedicated APIs.\n- **Images** are delivered as optimized renditions via the CDN.\n\n## Cross-cutting design\n| Concern | Decision |\n|---|---|\n| Localization | Locale roots per market, path-prefixed URLs, hreflang, locale in cache keys |\n| Freshness | Publish event leads to CDN purge, Dispatcher flush and frontend revalidation |\n| Preview | Draft mode reading from Author, private and uncached |\n| SEO | SSR/SSG HTML, authored metadata, structured data, sitemaps from Publish |\n| Accessibility | Accessible components, required alt text and captions in models |\n| Security | SSO for Author, Dispatcher allowlist, secrets in a vault, sanitised rich text |\n| Resilience | Static generation of key pages, stale-on-error, timeouts, fallbacks |\n| Observability | CDN hit ratio, API latency, publish health, real-user web vitals |\n\n## Trade-offs to discuss\n- Headless gives frontend freedom but moves rendering, SEO and preview work to your team.\n- Fully static pages are fastest, yet frequent price or availability changes need revalidation or client-side fetches.\n- More micro frontends means more autonomy but more consistency work.\n\n## Common mistakes\n- Designing only the happy path and ignoring preview, invalidation and outages.\n- Over-modeling layout into fragments.\n- Choosing technology before establishing freshness and SEO requirements.",
+      "diagrams": [
+        {
+          "id": "system",
+          "title": "Example global site architecture",
+          "alt": "Authors work in AEM Author. Approved content goes to AEM Publish. The Next.js frontend queries Publish via the CDN and renders pages for visitors. A webhook from publish events triggers cache purge and revalidation.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "a",
+              "label": "AEM Author"
+            },
+            {
+              "id": "p",
+              "label": "AEM Publish"
+            },
+            {
+              "id": "d",
+              "label": "Dispatcher"
+            },
+            {
+              "id": "c",
+              "label": "CDN"
+            },
+            {
+              "id": "n",
+              "label": "Next.js frontend"
+            },
+            {
+              "id": "u",
+              "label": "Visitors"
+            },
+            {
+              "id": "w",
+              "label": "Publish webhook"
+            }
+          ],
+          "edges": [
+            {
+              "from": "a",
+              "to": "p",
+              "label": "activate"
+            },
+            {
+              "from": "p",
+              "to": "d"
+            },
+            {
+              "from": "d",
+              "to": "c"
+            },
+            {
+              "from": "c",
+              "to": "n",
+              "label": "GraphQL GET"
+            },
+            {
+              "from": "n",
+              "to": "u",
+              "label": "HTML"
+            },
+            {
+              "from": "p",
+              "to": "w",
+              "label": "event"
+            },
+            {
+              "from": "w",
+              "to": "n",
+              "label": "revalidate"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Which pages would you statically generate and which would you fetch at request time?",
+        "How would you roll out a new content model across markets?",
+        "What would you ask the business before finalising this design?"
+      ],
+      "related": [
+        "aem-react-integration",
+        "aem-cache-invalidation-stale-content",
+        "aem-localization-language-copies"
+      ]
+    }
+  ]
+}

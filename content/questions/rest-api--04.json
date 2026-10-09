@@ -1,0 +1,856 @@
+{
+  "category": "rest-api",
+  "questions": [
+    {
+      "slug": "retry-vs-circuit-breaker",
+      "title": "Retry vs circuit breaker: how do they differ and work together?",
+      "topic": "Resilience",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "retry",
+        "circuit-breaker",
+        "resilience"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-rest-api-architecture",
+          "pages": [
+            14,
+            15
+          ]
+        }
+      ],
+      "quick": "A retry says \"try again\" because the failure may be transient. A circuit breaker says \"stop trying for a while\" because the dependency looks unhealthy. Retries recover from brief blips but amplify load during a real outage. The breaker stops that amplification by failing fast and giving the dependency time to recover. In practice I combine them: timeouts, bounded retries with backoff inside the breaker, and a fallback when the breaker is open.",
+      "revision": "Retry handles transient blips by trying again; the breaker stops calls to an unhealthy dependency. Together: timeout, bounded retry, breaker, fallback.",
+      "detailed": "Both react to failures, but they make opposite bets.\n\n| | Retry | Circuit breaker |\n|---|---|---|\n| Assumption | The failure is temporary | The dependency is persistently unhealthy |\n| Action | Repeat the call after a delay | Reject calls immediately for a period |\n| Helps with | Network blips, brief overload, failover | Sustained outages, slow dependencies |\n| Danger | Multiplies load during an outage | Rejecting calls when the dependency has recovered (if misconfigured) |\n| Scope | One call | Aggregate behaviour over many calls |\n\n## Why you need both\n\n- Retries alone: during an outage, every client retries several times and increases load on the failing service, delaying recovery (a **retry storm**).\n- A breaker alone: a single dropped packet becomes a failed user request even though one more attempt would have succeeded.\n\n## A typical composition\n\n{{diagram:stack}}\n\nFor each outbound call: set a **timeout**; apply a **bounded retry with backoff and jitter** for safe operations; track results in a **circuit breaker**; when open, use a **fallback** or fail fast. Order matters. Usually the breaker wraps the retry (so repeated failures eventually open it), and the retried attempts count towards its statistics. Make sure retries do not continue when the breaker is open.\n\n## Example outcome\n\nPayment API slows down. First calls time out and are retried once or twice. Failure rate crosses the threshold, the breaker opens, and subsequent order requests immediately receive a clear \"try later\" response or queue for processing. After the wait, a probe request succeeds and traffic resumes.\n\n## Common mistakes\n\nRetrying in every layer, no jitter, a breaker that counts client errors (`4xx`) as failures, and no visibility into when the breaker opens.",
+      "diagrams": [
+        {
+          "id": "stack",
+          "title": "Resilience policy stack for one outbound call",
+          "alt": "An outbound call passes through a circuit breaker, then a retry policy, then a timeout before reaching the dependency, with a fallback used when the breaker is open.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "in",
+              "label": "Caller"
+            },
+            {
+              "id": "cb",
+              "label": "Circuit Breaker"
+            },
+            {
+              "id": "rt",
+              "label": "Retry + Backoff"
+            },
+            {
+              "id": "to",
+              "label": "Timeout"
+            },
+            {
+              "id": "dep",
+              "label": "Dependency"
+            },
+            {
+              "id": "fb",
+              "label": "Fallback"
+            }
+          ],
+          "edges": [
+            {
+              "from": "in",
+              "to": "cb"
+            },
+            {
+              "from": "cb",
+              "to": "rt"
+            },
+            {
+              "from": "rt",
+              "to": "to"
+            },
+            {
+              "from": "to",
+              "to": "dep"
+            },
+            {
+              "from": "cb",
+              "to": "fb",
+              "label": "when open"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "What is a retry storm?",
+        "Which wraps which: breaker around retry or retry around breaker?",
+        "What would your fallback be for a pricing call?"
+      ],
+      "related": [
+        "circuit-breaker",
+        "retries-backoff-jitter"
+      ]
+    },
+    {
+      "slug": "bulkhead-pattern",
+      "title": "What is the bulkhead pattern?",
+      "topic": "Resilience",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "bulkhead",
+        "isolation",
+        "resilience",
+        "thread-pools"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-rest-api-architecture",
+          "pages": [
+            15,
+            16
+          ]
+        }
+      ],
+      "quick": "Named after ship compartments, the bulkhead pattern isolates resources so one failing or slow dependency cannot consume everything. For example, the API gives Service A its own pool of 50 threads or connections, and B and C 10 each. If A hangs, B and C keep working. Bulkheads can use separate thread pools, semaphores or connection pools, separate queues, or even separate deployments for critical versus non-critical traffic. The cost is some unused capacity and tuning effort.",
+      "revision": "Bulkhead partitions resources (pools, queues, instances) per dependency or tenant so a failure or overload in one compartment cannot sink the whole service.",
+      "detailed": "A ship's hull is divided into watertight compartments so a leak floods only one. The **bulkhead pattern** applies the same idea to software resources.\n\n{{diagram:bulkhead}}\n\n## The problem\n\nAn API calls Services A, B and C using one shared pool of 70 threads. Service A becomes slow, and every thread ends up waiting on A. Requests for B and C, which are perfectly healthy, now queue and fail. A partial outage becomes a total one.\n\n## The solution\n\nAllocate separate capacity per dependency:\n\n```text\nService A: 50 threads / connections\nService B: 10\nService C: 10\n```\n\nWhen A is saturated, further calls to A are rejected or queued within A's compartment; B and C continue to operate.\n\n## Ways to implement\n\n| Technique | Notes |\n|---|---|\n| Separate thread pools / worker pools | Strong isolation, memory overhead |\n| Semaphore limits (max concurrent calls) | Lightweight; works with async runtimes |\n| Separate connection pools | Per downstream host or database |\n| Separate queues or consumers | Isolate workloads and tenants |\n| Separate instances or clusters | Isolate critical from non-critical APIs (for example checkout versus reporting) |\n| Per-tenant or per-client quotas | Prevent a noisy neighbour |\n\n## Related patterns\n\nBulkheads limit the **blast radius**; circuit breakers stop calls to unhealthy dependencies; timeouts bound waiting. They complement each other.\n\n## Trade-offs\n\n- Lower overall utilisation since reserved capacity may sit idle.\n- Sizing needs data from real traffic and revisiting as load changes.\n- Rejecting calls when a compartment is full needs a defined fallback or error.\n\n## Common mistake\n\nIsolating by dependency but forgetting shared resources such as a single database connection pool or a shared event loop that still couples everything.",
+      "diagrams": [
+        {
+          "id": "bulkhead",
+          "title": "Bulkhead isolation per dependency",
+          "alt": "An API has separate resource pools for Service A with fifty threads and Services B and C with ten threads each, so a failure in A does not exhaust capacity for B and C.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "api",
+              "label": "API"
+            },
+            {
+              "id": "pa",
+              "label": "Pool A: 50"
+            },
+            {
+              "id": "pb",
+              "label": "Pool B: 10"
+            },
+            {
+              "id": "pc",
+              "label": "Pool C: 10"
+            },
+            {
+              "id": "sa",
+              "label": "Service A"
+            },
+            {
+              "id": "sb",
+              "label": "Service B"
+            },
+            {
+              "id": "sc",
+              "label": "Service C"
+            }
+          ],
+          "edges": [
+            {
+              "from": "api",
+              "to": "pa"
+            },
+            {
+              "from": "api",
+              "to": "pb"
+            },
+            {
+              "from": "api",
+              "to": "pc"
+            },
+            {
+              "from": "pa",
+              "to": "sa"
+            },
+            {
+              "from": "pb",
+              "to": "sb"
+            },
+            {
+              "from": "pc",
+              "to": "sc"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Bulkhead versus circuit breaker?",
+        "How would you size the pools?",
+        "How can you apply bulkheads for multi-tenant APIs?"
+      ],
+      "related": [
+        "circuit-breaker",
+        "api-resilience-overview"
+      ]
+    },
+    {
+      "slug": "api-resilience-overview",
+      "title": "What does API resilience involve? Name the patterns and when each applies.",
+      "topic": "Resilience",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "resilience",
+        "fault-tolerance",
+        "patterns"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-rest-api-architecture",
+          "pages": [
+            15
+          ]
+        }
+      ],
+      "quick": "Resilience means the API degrades gracefully instead of failing completely when dependencies misbehave. My toolkit: timeouts so nothing waits forever; bounded retries with backoff for transient faults; circuit breakers to fail fast; bulkheads to isolate resources; rate limiting and backpressure to protect capacity; caching and fallbacks for degraded answers; idempotency so retries are safe; queues to absorb load asynchronously; and observability so I notice problems early. The patterns work as a combination, not individually.",
+      "revision": "Resilience toolkit: timeouts, bounded retries, breakers, bulkheads, rate limits, caching and fallbacks, idempotency, queues, observability. Combine them; each addresses a different failure mode.",
+      "detailed": "**Resilience** is the ability to keep providing acceptable service despite failures in dependencies, load spikes or partial outages. It is achieved with several complementary mechanisms.\n\n| Pattern | Failure mode it addresses |\n|---|---|\n| **Timeout** | Hung or slow dependency holding resources |\n| **Retry (backoff + jitter)** | Transient network or capacity errors |\n| **Circuit breaker** | Sustained dependency failure; cascading failure |\n| **Bulkhead** | One dependency or tenant exhausting shared capacity |\n| **Rate limiting / load shedding** | Overload from clients; protecting capacity |\n| **Backpressure** | Producers faster than consumers |\n| **Caching / stale-if-error** | Dependency unavailable but data is tolerably stale |\n| **Fallback / graceful degradation** | Provide reduced functionality (hide recommendations, show cached prices) |\n| **Idempotency** | Duplicate operations from retries |\n| **Queue-based decoupling** | Bursts and slow downstream processing |\n| **Health checks, redundancy, multi-zone** | Instance and zone failures |\n| **Observability** | Knowing something is wrong, and where |\n\n## Designing for it\n\n1. Identify **critical versus optional** dependencies. A failed recommendations service should not block checkout.\n2. Define **SLOs** and what \"degraded but acceptable\" means.\n3. Set timeouts and retry policy per dependency based on data, not defaults.\n4. **Test failure**: inject latency and errors (chaos or fault-injection tests) and load-test beyond expected peaks.\n5. Practise recovery: runbooks, alerts and game days.\n\n## Interplay to remember\n\n- Retries need timeouts and idempotency.\n- Breakers need timeouts to detect failure and fallbacks to provide value.\n- Bulkheads limit the damage radius while breakers limit repeated damage.\n\n## Common mistake\n\nApplying every pattern everywhere by default. Each adds complexity and failure modes of its own, so apply them where a real failure mode and a defined degraded behaviour exist.",
+      "followUps": [
+        "How would you make a checkout flow resilient to a failing recommendations service?",
+        "How do you test resilience?",
+        "What is load shedding?"
+      ],
+      "related": [
+        "circuit-breaker",
+        "bulkhead-pattern"
+      ]
+    },
+    {
+      "slug": "correlation-request-id",
+      "title": "Why are correlation or request IDs important in distributed APIs?",
+      "topic": "Observability",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "correlation-id",
+        "tracing",
+        "logging",
+        "observability"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-rest-api-architecture",
+          "pages": [
+            17,
+            18
+          ]
+        }
+      ],
+      "quick": "A correlation or request ID is a unique identifier attached to a request at the edge and passed along every hop: gateway, services, queues, and into every log line. When something fails, I can search for that ID and see the whole journey of one user request across all services, instead of piecing together logs by timestamp. I also return it in error responses so a user can quote it to support. It is the minimum viable tracing, and standards like W3C Trace Context extend it.",
+      "revision": "Generate a unique ID at the edge, propagate it through every call and log line, and return it in errors, so one request can be followed across services.",
+      "detailed": "In a distributed system a single user action touches many components. Without a shared identifier, debugging means guessing which log lines belong together.\n\n{{diagram:corr}}\n\n## How it works\n\n1. The **edge** (gateway or BFF) generates an ID (for example a UUID) if the incoming request does not already have a trusted one.\n2. The ID is placed in a header and **forwarded** on every downstream HTTP call and message (`X-Request-Id`, `X-Correlation-Id`, or the standard `traceparent`).\n3. Each service puts the ID into its **logging context** so every log entry includes it.\n4. The ID is **returned** to the client in a response header and in error bodies.\n\n```http\nGET /vehicles/123\nX-Request-Id: 6f1c2a90-3b8e-4c1d-9e57-0a2b7d4c1f33\n\nHTTP/1.1 404 Not Found\nX-Request-Id: 6f1c2a90-3b8e-4c1d-9e57-0a2b7d4c1f33\n{ \"code\": \"VEHICLE_NOT_FOUND\", \"requestId\": \"6f1c2a90-3b8e-4c1d-9e57-0a2b7d4c1f33\" }\n```\n\n## Correlation ID versus trace ID\n\n- A correlation or request ID is a simple, application-level convention.\n- **Distributed tracing** (for example OpenTelemetry with W3C Trace Context `traceparent`) adds trace and span IDs, parent-child relationships and timing, so you can see where latency accrued. Prefer it when available; the trace ID can serve as the correlation ID.\n\n## Practical rules\n\n- Propagate through **async boundaries** (message headers, job records).\n- Validate or regenerate externally supplied IDs to avoid log injection and spoofing.\n- Use **structured logs** (JSON) with the ID as a field so log tools can query it.\n- Do not put personal data in the ID.\n\n## Common mistakes\n\nGenerating a new ID at every service (breaking the chain), forgetting to propagate through queues, and logging IDs only on errors.",
+      "diagrams": [
+        {
+          "id": "corr",
+          "title": "Request ID propagation",
+          "alt": "A request ID is created at the API gateway and passed through Service A, Service B and the database, so every log entry across the chain contains the same identifier.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "f",
+              "label": "Frontend"
+            },
+            {
+              "id": "g",
+              "label": "Gateway (creates ID)"
+            },
+            {
+              "id": "a",
+              "label": "Service A"
+            },
+            {
+              "id": "b",
+              "label": "Service B"
+            },
+            {
+              "id": "d",
+              "label": "Database"
+            }
+          ],
+          "edges": [
+            {
+              "from": "f",
+              "to": "g"
+            },
+            {
+              "from": "g",
+              "to": "a",
+              "label": "X-Request-Id"
+            },
+            {
+              "from": "a",
+              "to": "b",
+              "label": "X-Request-Id"
+            },
+            {
+              "from": "b",
+              "to": "d"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Correlation ID versus trace ID?",
+        "How do you propagate IDs through a message queue?",
+        "What is W3C Trace Context?"
+      ],
+      "related": [
+        "api-observability-monitoring",
+        "error-response-model"
+      ]
+    },
+    {
+      "slug": "api-observability-monitoring",
+      "title": "What is API observability and how do you monitor API performance?",
+      "topic": "Observability",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "observability",
+        "metrics",
+        "logs",
+        "traces",
+        "slo",
+        "latency"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-rest-api-architecture",
+          "pages": [
+            18,
+            19
+          ]
+        }
+      ],
+      "quick": "Observability is being able to understand a system's behaviour from its outputs, using metrics, logs and traces. For APIs I track latency percentiles (p50, p95, p99), throughput, error rates split into 4xx and 5xx, saturation of CPU, memory and queues, dependency and database latency, and cache hit ratio. I look at percentiles rather than averages because tails show what slow users experience, and I define SLIs and SLOs with alerts based on them.",
+      "revision": "Metrics, logs and traces together. Watch latency percentiles (not averages), traffic, errors and saturation; define SLIs/SLOs and alert on user impact.",
+      "detailed": "**Observability** lets you ask new questions about system behaviour without shipping new code. It rests on three signal types.\n\n| Signal | What it gives | API examples |\n|---|---|---|\n| **Metrics** | Aggregated numbers over time | Latency, throughput, error rate, saturation |\n| **Logs** | Detailed event records | Request ID, endpoint, status, duration, error (structured JSON) |\n| **Traces** | The path and timing of one request across services | Frontend -> gateway -> service A -> service B -> database |\n\n## What to measure\n\nThe \"four golden signals\" are a useful frame: **latency, traffic, errors, saturation**. For an API, concretely:\n\n- Latency at **p50, p95, p99**, per endpoint\n- Requests per second\n- Error rate, split into `4xx` (client issues, possible abuse or contract problems) and `5xx` (your problem)\n- Dependency latency and error rate; database query latency\n- CPU, memory, connection-pool and thread-pool usage\n- Queue depth and consumer lag for async work\n- Cache hit ratio\n- Rate-limit rejections, circuit-breaker state\n\n## Why percentiles, not averages\n\nAn average hides the slow tail. If 95 percent of requests take 100 ms and 5 percent take 3 seconds, the average looks acceptable while one user in twenty has a bad experience, and in a fan-out architecture a user request often touches many calls, so tail latency compounds. Use histograms and look at p95 and p99.\n\n## From metrics to action\n\n- Define **SLIs** (for example, the proportion of requests under 300 ms and non-5xx) and **SLOs** (the target, for example 99.9 percent over 30 days).\n- Alert on SLO burn and user impact, not on every CPU blip.\n- Link dashboards to traces and logs using the request ID.\n- Add synthetic checks for key journeys.\n\n## Common mistakes\n\nUnstructured logs, high-cardinality metric labels (for example user ids), alerting on averages, and logging sensitive data.",
+      "followUps": [
+        "Why are averages misleading for latency?",
+        "What are SLIs, SLOs and SLAs?",
+        "How do you decide what to alert on?"
+      ],
+      "related": [
+        "correlation-request-id",
+        "handling-traffic-spikes"
+      ]
+    },
+    {
+      "slug": "bff-pattern",
+      "title": "What is the Backend for Frontend (BFF) pattern, and how does it relate to REST?",
+      "topic": "Architecture Patterns",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "bff",
+        "aggregation",
+        "api-composition",
+        "frontend"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-rest-api-architecture",
+          "pages": [
+            19,
+            20
+          ]
+        }
+      ],
+      "quick": "A Backend for Frontend is a server-side layer built for one client experience, such as the web app or the mobile app. It calls several domain APIs, aggregates and reshapes the data into exactly what that UI needs, and handles UI-specific concerns like session handling or response shaping. It reduces chattiness and keeps frontends decoupled from many services. REST and BFF are not alternatives: REST is an API style, BFF is a pattern, and a BFF can itself expose REST and call REST services.",
+      "revision": "A BFF is a client-specific backend layer that aggregates and shapes domain API data for one UI. REST is a style; BFF is a pattern; they combine.",
+      "detailed": "A **Backend for Frontend (BFF)** is a dedicated backend for a specific frontend or channel. It sits between the UI and the domain services.\n\n{{diagram:bff}}\n\n## What it does\n\n- **Aggregates** several downstream calls into one UI-friendly response, with parallel calls and sensible timeouts.\n- **Shapes data** to the screen: renames, flattens, trims fields, formats for the client.\n- **Hides internal topology** from the browser (no direct exposure of many services).\n- Handles **UI-oriented security concerns**, for example keeping tokens server-side and using session cookies for browsers.\n- Adapts to **client differences**: a mobile BFF can return lighter payloads than a desktop one.\n\n## Why it helps\n\n- Fewer round trips, avoiding the N+1 client pattern.\n- Frontend teams own and evolve their BFF at their own pace, reducing cross-team waiting.\n- Domain APIs stay general and clean instead of accumulating screen-specific fields.\n\n## REST versus BFF\n\nThey are different kinds of thing. **REST** is an API style; **BFF** is where and why a particular API layer exists. A typical stack: React -> BFF (REST or GraphQL) -> domain REST APIs.\n\n## BFF versus API gateway\n\n| | Gateway | BFF |\n|---|---|---|\n| Concern | Cross-cutting policy, routing | Client-specific aggregation and shaping |\n| Audience | All clients | One experience |\n| Logic | Minimal | Some UI-oriented logic, no core business rules |\n\n## Trade-offs\n\n- More services to build, deploy and monitor.\n- Risk of duplicated logic across BFFs, or a BFF that grows into a monolith.\n- An extra network hop.\n- Business rules that leak into a BFF are hard to reuse; keep them in domain services.\n\n## Rule of thumb\n\nIntroduce a BFF when a client has distinct needs that domain APIs serve badly, not by default.",
+      "diagrams": [
+        {
+          "id": "bff",
+          "title": "BFF aggregating domain APIs",
+          "alt": "A React frontend calls a BFF, which fetches data from the Vehicle, Finance and Customer APIs and returns a combined response shaped for the UI.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "r",
+              "label": "React App"
+            },
+            {
+              "id": "b",
+              "label": "BFF"
+            },
+            {
+              "id": "v",
+              "label": "Vehicle API"
+            },
+            {
+              "id": "f",
+              "label": "Finance API"
+            },
+            {
+              "id": "c",
+              "label": "Customer API"
+            }
+          ],
+          "edges": [
+            {
+              "from": "r",
+              "to": "b"
+            },
+            {
+              "from": "b",
+              "to": "v"
+            },
+            {
+              "from": "b",
+              "to": "f"
+            },
+            {
+              "from": "b",
+              "to": "c"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "BFF versus API gateway?",
+        "When is a BFF a bad idea?",
+        "Who should own the BFF?"
+      ],
+      "related": [
+        "apis-for-micro-frontends",
+        "n-plus-one-api-problem"
+      ]
+    },
+    {
+      "slug": "apis-for-micro-frontends",
+      "title": "How would you design APIs for a micro frontend architecture, and when does each MFE need a BFF?",
+      "topic": "Architecture Patterns",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "micro-frontends",
+        "bff",
+        "domain-apis",
+        "boundaries"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-rest-api-architecture",
+          "pages": [
+            20,
+            21
+          ]
+        }
+      ],
+      "quick": "I align APIs to business domains, the same boundaries as the micro frontends: a Vehicle MFE talks to a Vehicle API or BFF, Finance to Finance, and so on. Each domain exposes a clear, versioned contract. A BFF per domain can shield an MFE from many backend services, but I would not create one per MFE by default; only when there is a real aggregation or coupling reason. And a frontend must never bypass service boundaries to read another domain's database.",
+      "revision": "Align APIs with domain and MFE boundaries, give each a clear versioned contract, add a BFF only where aggregation or coupling justifies it, never touch another domain's database.",
+      "detailed": "Micro frontends split the UI into independently owned domain slices; the API design should reinforce that ownership, not undermine it.\n\n{{diagram:mfe}}\n\n## Principles\n\n1. **Domain alignment:** a Vehicle MFE, Finance MFE and Customer MFE each depend primarily on their own domain's API. The team owning the slice owns the contract.\n2. **Explicit contracts:** OpenAPI specs, versioning policy and contract tests, because the MFE and API ship on different schedules.\n3. **BFF where it earns its place:** a domain BFF is justified when the MFE would otherwise call many services or needs significantly reshaped data. It is not needed when the domain API already fits the UI.\n4. **Respect service boundaries:** the frontend (or BFF) never queries another domain's database. Cross-domain data goes through that domain's API or an agreed composition layer.\n5. **Consistency across MFEs:** shared conventions for error format, pagination, authentication, correlation IDs and caching, so MFEs can reuse tooling and behave uniformly.\n6. **Shared concerns at the edge:** one gateway for authentication, rate limiting and routing, so each MFE does not reimplement them.\n\n## Cross-domain screens\n\nA page combining vehicle, finance and customer data needs a plan. Options: the shell or one MFE composes calls on the client; a BFF or aggregation service composes on the server; or domains publish events or read models. Prefer the approach that keeps ownership clear and latency acceptable.\n\n## Anti-patterns\n\n- Shared \"common\" API owned by nobody that every MFE depends on.\n- One BFF per MFE created reflexively, adding hops without value.\n- MFEs relying on undocumented fields of another team's API.\n- Browser calling many internal services directly, exposing topology.\n\n## Trade-off summary\n\nMore autonomy and clearer ownership at the cost of duplicated conventions to police and more integration points to test.",
+      "diagrams": [
+        {
+          "id": "mfe",
+          "title": "Domain-aligned APIs for micro frontends",
+          "alt": "Vehicle, Finance and Customer micro frontends each call their own domain API or BFF through a shared gateway, and each domain API owns its own services and data.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "vm",
+              "label": "Vehicle MFE"
+            },
+            {
+              "id": "fm",
+              "label": "Finance MFE"
+            },
+            {
+              "id": "cm",
+              "label": "Customer MFE"
+            },
+            {
+              "id": "g",
+              "label": "API Gateway"
+            },
+            {
+              "id": "va",
+              "label": "Vehicle API"
+            },
+            {
+              "id": "fa",
+              "label": "Finance API"
+            },
+            {
+              "id": "ca",
+              "label": "Customer API"
+            }
+          ],
+          "edges": [
+            {
+              "from": "vm",
+              "to": "g"
+            },
+            {
+              "from": "fm",
+              "to": "g"
+            },
+            {
+              "from": "cm",
+              "to": "g"
+            },
+            {
+              "from": "g",
+              "to": "va"
+            },
+            {
+              "from": "g",
+              "to": "fa"
+            },
+            {
+              "from": "g",
+              "to": "ca"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you build a page that needs data from three domains?",
+        "Should every MFE have its own BFF?",
+        "How do you keep API conventions consistent across teams?"
+      ],
+      "related": [
+        "bff-pattern",
+        "api-contract"
+      ]
+    },
+    {
+      "slug": "handling-traffic-spikes",
+      "title": "How would you handle a sudden traffic spike on an API-backed website?",
+      "topic": "Scalability",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "scalability",
+        "traffic-spikes",
+        "autoscaling",
+        "caching",
+        "backpressure"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-rest-api-architecture",
+          "pages": [
+            12
+          ]
+        }
+      ],
+      "quick": "I shield and absorb at each layer. A CDN serves cacheable content at the edge; the gateway rate-limits and sheds abusive traffic; stateless APIs behind a load balancer autoscale horizontally; caches protect the database; queues move non-urgent work off the request path; circuit breakers and timeouts stop failures cascading; and I optimise the database with indexes and read replicas. I design for degradation, such as serving cached or reduced responses, and load test to find the first bottleneck beforehand.",
+      "revision": "Absorb the spike in layers: CDN and caching, rate limiting, stateless autoscaling, queues, DB optimisation, circuit breakers and graceful degradation; verify with load tests.",
+      "detailed": "A spike (a campaign launch, a news event) stresses every tier. Handle it by layering defences so each absorbs part of the load.\n\n{{diagram:spike}}\n\n## Layer by layer\n\n| Layer | Technique |\n|---|---|\n| **Edge / CDN** | Cache public pages and API responses; serve static assets; request collapsing; WAF and bot filtering |\n| **Gateway** | Per-client rate limits, quotas, load shedding of low-priority traffic |\n| **Load balancer** | Health checks, even distribution across zones |\n| **Stateless APIs** | Horizontal autoscaling on CPU, request rate or latency; warm capacity for predictable events |\n| **Cache** | Redis or in-memory caches for hot lookups; TTL jitter and stampede protection |\n| **Async processing** | Queue non-urgent work (emails, reports, analytics) so bursts are smoothed |\n| **Database** | Indexes, read replicas, connection pooling, query optimisation; avoid unbounded queries |\n| **Resilience** | Timeouts, bulkheads, circuit breakers, fallbacks |\n| **Backpressure** | Bounded queues and concurrency limits; reject early rather than collapse |\n\n## Planning\n\n- **Predictable spikes:** pre-scale, pre-warm caches, freeze risky deployments, and communicate with dependent teams.\n- **Unpredictable spikes:** rely on autoscaling with sensible limits, but note that scaling takes time. Caching and rate limiting act immediately.\n- **Find the bottleneck first.** Scaling the API tier is pointless if the database or a third-party call saturates; load test and watch saturation metrics.\n- **Degrade gracefully:** disable non-essential features (recommendations), serve stale cache, show a waiting-room page for extreme events.\n\n## Common mistakes\n\nScaling only the stateless tier, ignoring connection limits on the database, unbounded retries from clients that amplify load, and no tested runbook.",
+      "diagrams": [
+        {
+          "id": "spike",
+          "title": "Layered defence for traffic spikes",
+          "alt": "Traffic flows from users through a CDN, API gateway and load balancer to stateless APIs, then to a cache and database, with a queue taking asynchronous work from the APIs.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "u",
+              "label": "Users"
+            },
+            {
+              "id": "cdn",
+              "label": "CDN"
+            },
+            {
+              "id": "g",
+              "label": "API Gateway"
+            },
+            {
+              "id": "lb",
+              "label": "Load Balancer"
+            },
+            {
+              "id": "api",
+              "label": "Stateless APIs"
+            },
+            {
+              "id": "ca",
+              "label": "Cache"
+            },
+            {
+              "id": "db",
+              "label": "Database"
+            },
+            {
+              "id": "q",
+              "label": "Queue"
+            }
+          ],
+          "edges": [
+            {
+              "from": "u",
+              "to": "cdn"
+            },
+            {
+              "from": "cdn",
+              "to": "g"
+            },
+            {
+              "from": "g",
+              "to": "lb"
+            },
+            {
+              "from": "lb",
+              "to": "api"
+            },
+            {
+              "from": "api",
+              "to": "ca"
+            },
+            {
+              "from": "ca",
+              "to": "db"
+            },
+            {
+              "from": "api",
+              "to": "q"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "What bottleneck do you expect to hit first?",
+        "Autoscaling is slow: how do you handle the first minutes?",
+        "What is load shedding?"
+      ],
+      "related": [
+        "rate-limiting",
+        "http-caching-cache-control"
+      ]
+    },
+    {
+      "slug": "securing-public-apis",
+      "title": "How would you secure APIs exposed to public websites?",
+      "topic": "Security",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "security",
+        "waf",
+        "public-api",
+        "owasp",
+        "bot-protection"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-rest-api-architecture",
+          "pages": [
+            21,
+            22
+          ]
+        }
+      ],
+      "quick": "I would put layers in front: a CDN with DDoS absorption, a WAF with bot and abuse rules, then an API gateway that handles TLS, authentication, authorization and rate limiting before traffic reaches the application. The application still validates input, enforces object-level authorization and never trusts the gateway alone. Add secrets management, least-privilege tokens, logging and monitoring, and the OWASP API Security Top 10 as a checklist. Public anonymous endpoints get tighter limits and minimal data.",
+      "revision": "Layered defence: CDN/DDoS, WAF and bot rules, gateway auth and rate limits, then app-level validation and object authorization, secrets management, monitoring; follow OWASP API Top 10.",
+      "detailed": "A public API is reachable by anyone, including attackers and scrapers. Assume hostile input and design layers that each reduce risk.\n\n{{diagram:sec}}\n\n## Layers and what they do\n\n| Layer | Purpose |\n|---|---|\n| **CDN / DDoS protection** | Absorb volumetric traffic, cache public responses, hide origin addresses |\n| **WAF** | Block known attack patterns, enforce bot and abuse rules, geo or reputation filtering |\n| **API gateway** | TLS, token validation, API keys where relevant, quotas and rate limits, request size and schema validation |\n| **Authentication** | OAuth 2.0 / OpenID Connect for users; short-lived tokens; client credentials for server clients |\n| **Authorization** | Scopes and roles plus object-level checks in the service |\n| **Application** | Input validation, parameterised queries, safe error handling, output filtering |\n| **Data and secrets** | Secrets manager, encryption in transit and at rest, minimal data in responses |\n| **Operations** | Audit logs, anomaly alerts, dependency scanning, patching |\n\n## Public-API specifics\n\n- **Anonymous endpoints** (catalogue, dealer search): read-only, cacheable, strictly rate limited, with pagination caps and no personal data.\n- **Authenticated endpoints:** require tokens; never rely on a client secret embedded in a browser or mobile app because it is extractable.\n- **Browser concerns:** correct CORS (explicit origins, not a wildcard with credentials), CSRF protection for cookie-based sessions, secure cookie flags.\n- **Abuse:** bot detection, CAPTCHA or proof-of-work on sensitive flows, credential-stuffing protection on login.\n- **Enumeration:** non-guessable identifiers and consistent error responses.\n\n## OWASP API Security checklist (themes)\n\nObject- and function-level authorisation, authentication weaknesses, excessive data exposure, unrestricted resource consumption, server-side request forgery, misconfiguration, improper inventory of API versions and hosts, unsafe consumption of third-party APIs.\n\n## Common mistakes\n\nTrusting the gateway as the only control, exposing internal services directly, verbose error messages, leaving old API versions running unmonitored, and forgetting that \"public\" does not mean \"unlimited\".",
+      "diagrams": [
+        {
+          "id": "sec",
+          "title": "Security layers for public APIs",
+          "alt": "Requests pass through a CDN, a web application firewall, an API gateway doing authentication, authorization and rate limiting, and finally the application, each layer adding a control.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "cl",
+              "label": "Public Clients"
+            },
+            {
+              "id": "cdn",
+              "label": "CDN"
+            },
+            {
+              "id": "waf",
+              "label": "WAF"
+            },
+            {
+              "id": "gw",
+              "label": "Gateway: AuthN, AuthZ, Rate Limit"
+            },
+            {
+              "id": "app",
+              "label": "Application"
+            }
+          ],
+          "edges": [
+            {
+              "from": "cl",
+              "to": "cdn"
+            },
+            {
+              "from": "cdn",
+              "to": "waf"
+            },
+            {
+              "from": "waf",
+              "to": "gw"
+            },
+            {
+              "from": "gw",
+              "to": "app"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Why is a client secret in a SPA not secret?",
+        "How do you protect a login endpoint from credential stuffing?",
+        "Why still authorize in the service if the gateway already does?"
+      ],
+      "related": [
+        "rest-api-security",
+        "rate-limiting"
+      ]
+    },
+    {
+      "slug": "scalable-api-architecture",
+      "title": "Design a scalable, secure API architecture for a global website",
+      "topic": "System Design",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "architecture",
+        "system-design",
+        "gateway",
+        "bff",
+        "scalability"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-rest-api-architecture",
+          "pages": [
+            23,
+            24
+          ]
+        }
+      ],
+      "quick": "Web and mobile clients go through a CDN and WAF to an API gateway. The gateway routes to either BFFs for UI-specific aggregation or public domain APIs, which call vehicle, finance and customer services owning their data, with caches and events behind them. APIs are stateless, secured with OAuth/OIDC and authorization policies, versioned, cached where appropriate, and use async processing for long tasks. Timeouts, retries, breakers and bulkheads give resilience, and correlation IDs, metrics, logs and traces give observability.",
+      "revision": "Clients, CDN, WAF, gateway, BFF and public APIs, domain services with DB, cache and events; stateless, OAuth-secured, cached, resilient and observable, with clear contracts.",
+      "detailed": "A strong answer starts from boundaries and contracts, then walks the request path and the cross-cutting concerns. The scenario here is an example: a global website with vehicle browsing, financing and customer accounts.\n\n{{diagram:arch}}\n\n## Request path\n\n1. **CDN** serves static assets and caches public GET responses near users; **WAF** filters malicious and abusive traffic.\n2. **API gateway** terminates TLS, validates tokens, applies rate limits and routes by path and version.\n3. **BFFs** (where justified) aggregate and shape data for web or mobile; **public APIs** serve partners and third parties directly.\n4. **Domain APIs** (Vehicle, Finance, Customer) own their contracts and data. Each is stateless and horizontally scalable.\n5. **Services** use their own databases, a shared cache for hot data, and an event broker for asynchronous integration.\n\n## Cross-cutting design\n\n| Concern | Approach |\n|---|---|\n| Contracts | OpenAPI per domain, contract tests, additive evolution, explicit versioning |\n| Security | OAuth 2.0 / OIDC, scopes plus object-level authorisation, TLS, WAF, secrets management |\n| Scalability | Stateless services, autoscaling, caching at several layers, cursor pagination |\n| Long-running work | `202 Accepted` with job status; queues and idempotent workers |\n| Resilience | Timeouts, bounded retries with jitter, circuit breakers, bulkheads, fallbacks |\n| Data consistency | Per-service ownership; idempotency keys for writes; events for propagation |\n| Observability | Correlation IDs, structured logs, RED/golden-signal metrics, distributed tracing, SLOs |\n| Global delivery | Multi-region deployment or edge caching, regional data residency where required |\n\n## Trade-offs to state\n\n- BFFs and gateways add hops and operational weight; justify each.\n- Eventual consistency between domains versus the complexity of distributed transactions.\n- Multi-region improves latency and availability but complicates data replication.\n- Caching aggressively increases staleness risk.\n\n## Closing summary\n\n\"Domain-aligned, stateless REST APIs with clear contracts, secured at the edge and in the service, cached and paginated for scale, asynchronous for long tasks, resilient to dependency failure, and observable end to end.\"",
+      "diagrams": [
+        {
+          "id": "arch",
+          "title": "Global web API architecture",
+          "alt": "Web and mobile clients pass through a CDN, WAF and API gateway, which routes to BFFs and public APIs, which call Vehicle, Finance and Customer domain APIs backed by services with a database, cache and event broker.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "cl",
+              "label": "Web / Mobile"
+            },
+            {
+              "id": "cdn",
+              "label": "CDN"
+            },
+            {
+              "id": "waf",
+              "label": "WAF"
+            },
+            {
+              "id": "gw",
+              "label": "API Gateway"
+            },
+            {
+              "id": "bff",
+              "label": "BFF"
+            },
+            {
+              "id": "pub",
+              "label": "Public APIs"
+            },
+            {
+              "id": "v",
+              "label": "Vehicle API"
+            },
+            {
+              "id": "f",
+              "label": "Finance API"
+            },
+            {
+              "id": "c",
+              "label": "Customer API"
+            },
+            {
+              "id": "data",
+              "label": "DB / Cache / Events"
+            }
+          ],
+          "edges": [
+            {
+              "from": "cl",
+              "to": "cdn"
+            },
+            {
+              "from": "cdn",
+              "to": "waf"
+            },
+            {
+              "from": "waf",
+              "to": "gw"
+            },
+            {
+              "from": "gw",
+              "to": "bff"
+            },
+            {
+              "from": "gw",
+              "to": "pub"
+            },
+            {
+              "from": "bff",
+              "to": "v"
+            },
+            {
+              "from": "bff",
+              "to": "f"
+            },
+            {
+              "from": "pub",
+              "to": "c"
+            },
+            {
+              "from": "v",
+              "to": "data"
+            },
+            {
+              "from": "f",
+              "to": "data"
+            },
+            {
+              "from": "c",
+              "to": "data"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Where would you put authentication, and why?",
+        "How would you serve users in multiple regions?",
+        "Which parts would you build first for an MVP?"
+      ],
+      "related": [
+        "api-gateway",
+        "apis-for-micro-frontends",
+        "handling-traffic-spikes"
+      ]
+    }
+  ]
+}

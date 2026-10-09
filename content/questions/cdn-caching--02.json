@@ -1,0 +1,516 @@
+{
+  "category": "cdn-caching",
+  "questions": [
+    {
+      "slug": "choosing-ttl-values",
+      "title": "How do you choose TTL values for cached content?",
+      "topic": "Caching Strategy",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "ttl",
+        "freshness",
+        "caching-policy",
+        "trade-offs"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-cdn-caching",
+          "pages": [
+            4,
+            5,
+            9
+          ]
+        }
+      ],
+      "quick": "I start from the business freshness requirement: how long may a user see old content before it matters. Then I weigh origin cost, traffic volume and whether I have an invalidation path. Versioned assets get a year. Public pages with publish-triggered purges can have longer TTLs, since purge handles urgency. Content with no purge path gets a short TTL. I add jitter, consider stale-while-revalidate, and tune from measured hit ratio and origin load rather than guessing.",
+      "revision": "TTL = acceptable staleness bounded by origin cost and invalidation ability. Versioned URLs: long; purgeable content: moderate; no purge path: short; always measure.",
+      "detailed": "A TTL is a trade-off between **freshness** (short) and **offload and speed** (long). There is no universal number; derive it.\n\n## Decision inputs\n\n1. **Acceptable staleness.** Ask the content owner: if this changes, how long can users see the old version? A price or legal notice has a tight bound; a brand image does not.\n2. **Invalidation capability.** If publishing triggers a reliable purge, the TTL can be long because it is only the safety net. If you cannot purge, the TTL *is* your staleness bound.\n3. **Origin cost and load.** Expensive-to-generate pages and large traffic justify longer TTLs or stale-while-revalidate.\n4. **URL stability.** Versioned URLs can be cached effectively forever; in-place URLs cannot.\n5. **Traffic distribution.** A TTL longer than the typical gap between requests for an object gives it little chance to hit. Rarely requested objects may need long TTLs just to ever hit.\n\n## Typical starting points (illustrative, not rules)\n\n| Content | Starting TTL idea |\n|---|---|\n| Hashed JS, CSS, images | 1 year, immutable |\n| Public CMS pages with purge on publish | Minutes to hours at the CDN |\n| Public list or search APIs | Seconds to a few minutes |\n| Promotions, stock | Seconds to a minute, or revalidate |\n| Personal or sensitive data | No shared caching |\n\n## Refinements\n\n- Use `s-maxage` for CDN lifetime separately from the browser's `max-age`, since you can purge a CDN but not browsers.\n- Add **jitter** so related entries do not expire together.\n- Pair with `stale-while-revalidate` so expiry does not make a user wait.\n- Even a 5 to 30 second TTL on a hot endpoint can absorb a large share of traffic via request collapsing.\n\n## Common mistakes\n\n- Choosing a number from habit (\"one hour\") instead of a requirement.\n- Long browser `max-age` on HTML, which cannot be invalidated.\n- Never revisiting TTLs after measuring hit ratio and staleness complaints.",
+      "diagrams": [],
+      "followUps": [
+        "Why separate max-age and s-maxage in a response?",
+        "Would you give a hot API endpoint a TTL of 5 seconds? Why might that still help?",
+        "How would you validate that a TTL change worked?"
+      ],
+      "related": [
+        "static-vs-dynamic-caching-policy",
+        "cache-invalidation-strategies",
+        "stale-while-revalidate-and-stale-if-error"
+      ]
+    },
+    {
+      "slug": "cache-invalidation-strategies",
+      "title": "What are the main cache invalidation strategies and their trade-offs?",
+      "topic": "Invalidation",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "invalidation",
+        "purge",
+        "ttl",
+        "versioned-urls"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-cdn-caching",
+          "pages": [
+            4,
+            5
+          ]
+        }
+      ],
+      "quick": "There are four main approaches. TTL expiry is simple but allows staleness until it lapses. Explicit purge removes selected objects or paths quickly, but broad purges cause origin spikes. Versioned URLs avoid the problem entirely for assets because new content gets a new URL. Event-driven invalidation ties CMS publish events to targeted purges or revalidation, which shrinks stale windows but needs reliable event handling and monitoring. In practice I combine them and avoid global purges.",
+      "revision": "TTL (simple, stale), purge (fast, can spike origin), versioned URLs (no purge needed), event-driven (precise, needs reliable pipeline). Combine; avoid global purges.",
+      "detailed": "Invalidation means removing or refreshing cached copies when the source content changes. The right answer is usually a combination.\n\n| Strategy | How it works | Strength | Weakness |\n|---|---|---|---|\n| TTL expiry | Entry expires after a set time | Trivial, robust | Stale until expiry; short TTLs reduce hit ratio |\n| Explicit purge | API call removes paths, tags or keys | Fast, targeted when done well | Broad purge empties the cache and floods the origin; propagation is not always instant |\n| Versioned URLs | New content, new URL (content hash) | No ambiguity, no purge | Only for assets referenced from a short-lived page |\n| Event-driven | CMS publish event triggers purge or refresh of affected URLs | Small stale window | Needs reliable delivery, retries, dependency mapping and monitoring |\n| Soft purge / revalidate | Mark stale; serve while refreshing | Avoids a cold cache | Not supported everywhere |\n\n{{diagram:pipeline}}\n\n## Design considerations\n\n- **Dependency mapping.** Updating one vehicle may affect its page, a listing page, a search index and a sitemap. Invalidate all affected URLs, not just the edited one. Surrogate keys or cache tags (where the CDN supports them) make this manageable.\n- **Prefer precise over broad.** A purge of `/*` turns the next minute into a cold start for the whole site.\n- **Invalidate every layer.** CDN, reverse proxy and application cache are separate; browsers cannot be purged, so HTML needs a short browser lifetime.\n- **Keep a TTL as a safety net** in case an event is lost.\n- **Measure propagation time** from publish to visible, and alert if it drifts.\n\n## Example\n\nA publish event for a promotion purges the promotion page and the two listing pages that embed it, while hashed assets stay untouched.",
+      "diagrams": [
+        {
+          "id": "pipeline",
+          "title": "Publish-driven invalidation",
+          "alt": "A CMS publish event goes to an invalidation service, which maps the change to affected URLs and purges the CDN and the application cache; the next request then refetches fresh content from the origin.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "cms",
+              "label": "CMS publish event"
+            },
+            {
+              "id": "svc",
+              "label": "Invalidation service"
+            },
+            {
+              "id": "cdn",
+              "label": "CDN purge"
+            },
+            {
+              "id": "app",
+              "label": "App cache purge"
+            },
+            {
+              "id": "origin",
+              "label": "Origin refetch"
+            }
+          ],
+          "edges": [
+            {
+              "from": "cms",
+              "to": "svc"
+            },
+            {
+              "from": "svc",
+              "to": "cdn",
+              "label": "affected URLs"
+            },
+            {
+              "from": "svc",
+              "to": "app",
+              "label": "affected keys"
+            },
+            {
+              "from": "cdn",
+              "to": "origin",
+              "label": "next request"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Why can a global purge be dangerous?",
+        "How do surrogate keys or cache tags help?",
+        "How do you handle a purge event that fails or is lost?"
+      ],
+      "related": [
+        "handling-stale-content-after-publishing",
+        "immutable-versioned-assets",
+        "cache-stampede"
+      ]
+    },
+    {
+      "slug": "handling-stale-content-after-publishing",
+      "title": "Editors published a change but users still see the old content. How do you diagnose it?",
+      "topic": "Invalidation",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "stale-content",
+        "troubleshooting",
+        "cms",
+        "propagation"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-cdn-caching",
+          "pages": [
+            5,
+            8,
+            9
+          ]
+        }
+      ],
+      "quick": "I trace the content along its whole path. First confirm the origin returns the new content. Then check each cache layer in order: application cache, reverse proxy, CDN, then the browser, inspecting Age, cache-status and Cache-Control headers. I verify TTLs, the cache key (am I looking at the right variant), and whether the invalidation event fired and covered all dependent URLs. Then I fix the gap, for example missed dependents or a long browser TTL, and add propagation-time monitoring.",
+      "revision": "Trace origin to browser layer by layer: origin correct? app cache, proxy, CDN (Age, status headers), then browser. Check TTL, key, and invalidation coverage.",
+      "detailed": "Stale content after publishing is a **path-tracing problem**. Work outward from the source of truth and find the first layer that returns old data.\n\n## Step by step\n\n1. **Source and origin.** Fetch the URL directly from the origin (bypassing the CDN) and confirm it returns the new content. If not, the problem is the CMS, publish workflow or an application cache, not the CDN.\n2. **Application cache.** Check Redis or in-process caches: was the key invalidated, or is a long TTL holding the old object?\n3. **Reverse proxy or page cache.** Look at its cache status and purge logs.\n4. **CDN edge.** Request through the CDN and inspect headers: `Age`, the provider's cache-status header, `Cache-Control`, `Vary`. A large `Age` with an old body proves the edge is serving a cached copy. Compare results from different edge locations, since purges can propagate unevenly.\n5. **Browser.** Test in a clean profile or with devtools cache disabled; a long `max-age` on HTML means the CDN is not the culprit.\n\n## Typical root causes\n\n- The purge targeted `/offers` but not the listing or search pages that embed the offer (**missed dependents**).\n- The purge covered one cache key while query-string or locale variants remain (**key mismatch**).\n- The invalidation event failed, was dropped or ran before the origin finished updating (**race**), so a refetch re-cached the old content.\n- TTLs are longer than the agreed freshness objective.\n- Browser `max-age` on HTML.\n\n## Fix and prevention\n\n- Map content to every URL that renders it and purge them together.\n- Keep a bounded TTL as a safety net.\n- Retry failed purges and alert on failures.\n- Define a freshness objective and measure publish-to-visible time end to end.\n- Test the full publishing-to-delivery workflow before major campaigns.\n\n## Example\n\nA price banner updated in the CMS appears on 40 pages. Only the edited page was purged; the other 39 show the old price until TTL. The fix is tag-based purging.",
+      "diagrams": [],
+      "followUps": [
+        "How would you know whether the CDN or the browser is serving the old copy?",
+        "How do you avoid a race between publishing and purging?",
+        "How would you set up monitoring for publish-to-visible latency?"
+      ],
+      "related": [
+        "cache-invalidation-strategies",
+        "caching-layers-browser-to-database",
+        "caching-a-headless-cms-response"
+      ]
+    },
+    {
+      "slug": "stale-while-revalidate-and-stale-if-error",
+      "title": "What are stale-while-revalidate and stale-if-error, and when are they safe?",
+      "topic": "Caching Strategy",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "stale-while-revalidate",
+        "stale-if-error",
+        "cache-control",
+        "resilience"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-cdn-caching",
+          "pages": [
+            5,
+            6,
+            9
+          ]
+        }
+      ],
+      "quick": "stale-while-revalidate lets a cache serve an expired response immediately while it refreshes it in the background, so users do not wait on the origin when a TTL expires. stale-if-error lets it keep serving a stale copy for a set time if the origin fails. Both trade a bounded amount of staleness for speed and resilience, so they suit content where slightly old data is acceptable, such as public pages, not account balances. Support depends on the cache, so I verify it.",
+      "revision": "SWR serves stale instantly and refreshes in the background; stale-if-error serves stale during origin failures. Use only where bounded staleness is acceptable; verify CDN support.",
+      "detailed": "Both are `Cache-Control` extensions that let a cache **use an expired response** under defined conditions.\n\n```http\nCache-Control: public, max-age=60, stale-while-revalidate=300, stale-if-error=86400\n```\n\n## stale-while-revalidate (SWR)\n\nOnce the response is stale (after 60 seconds above), the cache may serve it for up to 300 more seconds **while fetching a fresh copy in the background**. The first user after expiry gets an instant response instead of waiting for the origin, and subsequent users get the refreshed copy. It smooths expiry spikes and reduces the effect of a slow origin.\n\n## stale-if-error\n\nIf revalidation fails (origin down, 5xx, timeout), the cache may keep serving the stale copy for up to the stated number of seconds. It turns a short origin outage into a non-event for cached pages.\n\n{{diagram:swr}}\n\n## When it is safe\n\n- Public marketing pages, listings, content APIs: a few seconds or minutes of staleness is invisible.\n- Not appropriate where correctness is critical: prices that must be exact at checkout, stock holds, entitlements, anything personalised.\n\n## Practical points\n\n- **Support varies.** Browsers and CDNs implement these differently; some CDNs have their own equivalents or settings. Confirm in your provider's documentation and by testing, rather than assuming.\n- SWR needs at least occasional traffic: with none, nothing triggers the background refresh.\n- It does not replace invalidation. If content must change *now*, purge as well.\n- The stale window is a deliberate part of your freshness budget; add it to the TTL when stating how old content can be.\n\n## Example\n\nA model overview page with `s-maxage=60, stale-while-revalidate=300` stays fast during the campaign even when regeneration takes two seconds.",
+      "diagrams": [
+        {
+          "id": "swr",
+          "title": "Stale-while-revalidate timeline",
+          "alt": "A request arrives after the TTL has expired. The edge immediately returns the stale copy to the user and, in parallel, sends a refresh request to the origin; the new response replaces the cached copy for later requests.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "user",
+              "label": "User request (entry stale)"
+            },
+            {
+              "id": "edge",
+              "label": "CDN edge"
+            },
+            {
+              "id": "stale",
+              "label": "Stale copy returned now"
+            },
+            {
+              "id": "origin",
+              "label": "Origin (background refresh)"
+            }
+          ],
+          "edges": [
+            {
+              "from": "user",
+              "to": "edge"
+            },
+            {
+              "from": "edge",
+              "to": "stale",
+              "label": "immediate"
+            },
+            {
+              "from": "edge",
+              "to": "origin",
+              "label": "async revalidate"
+            },
+            {
+              "from": "origin",
+              "to": "edge",
+              "label": "fresh copy stored"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Where would you never use stale-while-revalidate?",
+        "How does it help with cache stampede?",
+        "How would you test that your CDN honours these directives?"
+      ],
+      "related": [
+        "cache-stampede",
+        "choosing-ttl-values",
+        "cdn-outage-failure-scenario"
+      ]
+    },
+    {
+      "slug": "cache-stampede",
+      "title": "What is a cache stampede and how do you prevent it?",
+      "topic": "Resilience",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "cache-stampede",
+        "request-coalescing",
+        "ttl-jitter",
+        "thundering-herd"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-cdn-caching",
+          "pages": [
+            5,
+            6
+          ]
+        }
+      ],
+      "quick": "A stampede happens when a popular entry expires or is purged and many concurrent requests all miss and hit the backend together to regenerate it, which can overload the origin. I prevent it with request coalescing so only one request regenerates while others wait, TTL jitter so entries do not expire together, stale-while-revalidate, background refresh for expensive items, prewarming before campaigns, and rate limiting to protect the origin. I also avoid broad purges at peak times.",
+      "revision": "Expiry of a hot entry sends all requests to the origin at once. Fix with coalescing, TTL jitter, stale-while-revalidate, prewarming, and origin rate limits.",
+      "detailed": "A **cache stampede** (also called a thundering herd or dogpile) occurs when a hot entry disappears and many concurrent requests simultaneously fall through to the origin to rebuild it. If regeneration is slow or expensive, the backlog makes it slower, requests time out, nothing gets cached, and the problem compounds.\n\n{{diagram:coalesce}}\n\n## Triggers\n\n- A TTL expiring on a very popular object.\n- A broad purge or deployment that empties the cache.\n- A campaign launch driving a sudden burst at a cold cache.\n- Many keys given the same TTL that expire together.\n\n## Prevention techniques\n\n| Technique | Effect |\n|---|---|\n| Request coalescing (single-flight, collapsed forwarding) | One request fetches from the origin; concurrent requests for the same key wait for it. Many CDNs offer this for identical cache keys. |\n| TTL jitter | Add random variation (for example plus or minus 10 percent) so related entries do not expire in the same instant. |\n| stale-while-revalidate | Serve the old copy while one refresh runs. |\n| Background refresh | A worker refreshes expensive entries before they expire. |\n| Prewarming | Request critical pages before a launch so the cache is hot. |\n| Origin shielding and rate limiting | A mid-tier cache or limit reduces how many edges can query the origin. |\n| Narrow purges | Invalidate only what changed, preferably soft purge. |\n\n## Application-level sketch\n\nIn a Redis cache the same idea is a short lock around regeneration: one worker acquires it and rebuilds; others serve stale or wait briefly.\n\n## Common mistakes\n\n- Relying on a single TTL for everything.\n- Assuming coalescing prevents all herds; it applies per cache key and per edge or tier, so many edges can still hit the origin.\n- Purging at peak traffic.\n\n## Example\n\nA campaign page expires at 09:00 when launch traffic peaks. With coalescing and SWR, one background fetch refreshes it and the origin sees a single request per edge.",
+      "diagrams": [
+        {
+          "id": "coalesce",
+          "title": "Request coalescing during a miss",
+          "alt": "Many concurrent requests for the same expired object arrive at the CDN edge. Request coalescing forwards a single request to the origin and the other requests wait for that one response, which is then served to all.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "reqs",
+              "label": "Many concurrent requests"
+            },
+            {
+              "id": "edge",
+              "label": "CDN edge (coalescing)"
+            },
+            {
+              "id": "origin",
+              "label": "Origin (one request)"
+            },
+            {
+              "id": "all",
+              "label": "Response to all waiters"
+            }
+          ],
+          "edges": [
+            {
+              "from": "reqs",
+              "to": "edge"
+            },
+            {
+              "from": "edge",
+              "to": "origin",
+              "label": "single fetch"
+            },
+            {
+              "from": "origin",
+              "to": "edge"
+            },
+            {
+              "from": "edge",
+              "to": "all"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Why does TTL jitter help?",
+        "Does request coalescing help if you have 200 edge locations?",
+        "How do you protect the origin during a purge at peak traffic?"
+      ],
+      "related": [
+        "protecting-origin-from-traffic-spikes",
+        "stale-while-revalidate-and-stale-if-error",
+        "cache-invalidation-strategies"
+      ]
+    },
+    {
+      "slug": "cache-key-design",
+      "title": "What is a cache key and how should you design it?",
+      "topic": "Cache Keys",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "cache-key",
+        "locale",
+        "headers",
+        "fragmentation"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-cdn-caching",
+          "pages": [
+            6
+          ]
+        }
+      ],
+      "quick": "A cache key decides which requests are treated as the same object. It usually includes host and path, and can include selected query parameters, headers, cookies or a locale or device variant. The rule is that every input that changes the response must be in the key, and nothing that does not should be. Too narrow and users get the wrong variant. Too broad and identical content is stored many times, so hit ratio collapses. For locales I prefer separate URLs.",
+      "revision": "Include every input that changes the response, exclude everything that does not. Too narrow serves wrong content; too broad fragments the cache and kills hit ratio.",
+      "detailed": "The **cache key** is the identity a cache uses to look up a stored response. Two requests with the same key share one cached object.\n\n## What typically goes into it\n\n- Scheme, host and path (and often the normalised path).\n- Selected query-string parameters.\n- Selected request headers, for example `Accept-Language` or a device-class header.\n- Selected cookies, if the response truly varies by them.\n- Compression encoding (often handled automatically).\n\n## The two failure modes\n\n| Key too narrow | Key too broad |\n|---|---|\n| Response varies by an input missing from the key | Key includes inputs that do not affect the response |\n| One user's variant is served to another (wrong language, or worse, wrong user data) | Identical content stored many times; low hit ratio; high origin load |\n| A correctness and security bug | A performance bug |\n\n## Example: locale\n\nIf `/models` returns English or French depending on `Accept-Language`, either put the language in the key (normalised to a small set like `en`, `fr`) or, better, use distinct URLs such as `/en/models` and `/fr/models`. Distinct URLs are simpler to cache, link, index and debug.\n\n## Design practices\n\n- **Allowlist, don't blocklist:** forward only the query parameters, headers and cookies that the origin really uses.\n- **Normalise** before keying: lower-case hosts, sort or drop irrelevant parameters, collapse a header like `Accept-Language` to a few values.\n- **Keep cookies out of the key** for public content, since a tracking cookie unique to each user makes every request a different key.\n- **Align with what the origin sees.** If the CDN forwards a header to the origin but doesn't key on it, the origin may vary on it and poison the cache (see cache poisoning).\n- Review keys when adding features such as A/B testing or personalisation.\n\nA practical check: fetch the same URL with different cookies and headers and confirm the CDN reports a hit when the content is identical.",
+      "diagrams": [],
+      "followUps": [
+        "Why prefer locale in the URL rather than in a header-based key?",
+        "What happens to hit ratio if a unique tracking cookie is part of the key?",
+        "How can an unkeyed header lead to cache poisoning?"
+      ],
+      "related": [
+        "query-parameters-and-caching",
+        "vary-header-and-content-negotiation",
+        "cache-poisoning"
+      ]
+    },
+    {
+      "slug": "query-parameters-and-caching",
+      "title": "How do query parameters affect CDN caching?",
+      "topic": "Cache Keys",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "query-string",
+        "cache-key",
+        "utm",
+        "normalization"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-cdn-caching",
+          "pages": [
+            9
+          ]
+        }
+      ],
+      "quick": "By default many CDNs include the whole query string in the cache key, so /models?utm_source=a and /models?utm_source=b are separate cache entries even though the content is identical. That fragments the cache and lowers hit ratio. I allowlist only parameters that change the response, such as page or sort, and drop tracking parameters from the key. I also normalise order, because ?a=1&b=2 and ?b=2&a=1 can otherwise be two keys.",
+      "revision": "Query strings can fragment the cache. Allowlist the parameters that change content, ignore tracking ones, and normalise order and case.",
+      "detailed": "Query strings are a frequent cause of low hit ratio and, occasionally, of wrong content.\n\n## Why they matter\n\nCDN behaviour is configurable, but a common choice is to include the full query string in the cache key. Then:\n\n```text\n/models?utm_source=email   -> key 1\n/models?utm_source=social  -> key 2\n/models?utm_source=email&x=1 -> key 3\n```\n\nAll three can return identical HTML, yet each is a separate miss. A marketing campaign with unique tracking IDs (for example `?click_id=abc123` per visitor) can drive hit ratio towards zero and send every request to the origin.\n\n## Policy options\n\n| Option | When to use |\n|---|---|\n| Ignore the query string | Static assets and pages where parameters do not change the response |\n| Include all parameters | Rarely right for public pages; fine for cache-busting `?v=2` |\n| Include an allowlist | Best default: only `page`, `sort`, `filter`, `lang` and the like |\n| Exclude a denylist | Acceptable when parameters are unpredictable, but less safe |\n\n## Good practice\n\n- **Allowlist** parameters the origin actually reads; anything else is dropped from the key (and optionally from the origin request).\n- **Normalise:** sort parameters alphabetically and, where valid, lower-case values so equivalent URLs share a key.\n- **Do not rely on query strings for versioning** assets if intermediaries might strip them; filename hashing is more reliable.\n- **Watch for the opposite problem:** if a parameter such as `?currency=EUR` changes content but is excluded from the key, users get the wrong currency.\n- Ensure the **origin ignores** unkeyed parameters, or it may emit varying responses that get cached under one key.\n\n## Example\n\nFor a dealer search page, key on `postcode`, `radius` and `page`, ignore `utm_*` and `fbclid`, and verify the CDN reports a hit for the same search arriving with different tracking tags.",
+      "diagrams": [],
+      "followUps": [
+        "How would you detect that tracking parameters are fragmenting your cache?",
+        "What risk comes from excluding a parameter that actually changes content?",
+        "Should the CDN strip ignored parameters before forwarding to the origin?"
+      ],
+      "related": [
+        "cache-key-design",
+        "hit-ratio-drop-investigation",
+        "cache-poisoning"
+      ]
+    },
+    {
+      "slug": "vary-header-and-content-negotiation",
+      "title": "What does the Vary header do, and why can it hurt cache efficiency?",
+      "topic": "Cache Keys",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "vary",
+        "content-negotiation",
+        "accept-encoding",
+        "cache-key"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Vary tells caches that the response depends on certain request headers, so a stored copy may only be reused for requests with matching values of those headers. For example Vary: Accept-Encoding stores separate gzip and Brotli versions. It is needed for correctness, but Vary: User-Agent or Vary: Cookie can create a huge number of variants and wreck hit ratio. I vary on as few headers as possible, normalise their values at the edge, and prefer separate URLs where practical.",
+      "revision": "Vary lists request headers that change the response, so caches store a variant per value. Needed for correctness, but vary on few, normalised headers.",
+      "detailed": "`Vary` is a response header that names the request headers that influenced the response. A cache must only reuse a stored response for a later request whose values for those headers **match** the original request's values.\n\n```http\nHTTP/1.1 200 OK\nContent-Encoding: br\nVary: Accept-Encoding\n```\n\nThe cache now keeps the Brotli response separately from a gzip or uncompressed one, and serves each to a compatible client.\n\n## Why it exists\n\nWithout `Vary`, a cache could store the French page and serve it to an English reader, or hand a compressed body to a client that cannot decode it. `Vary` makes the server's dependency on request headers explicit.\n\n## Why it hurts\n\nEvery distinct combination of the varied headers becomes a separate variant:\n\n| Header | Typical effect |\n|---|---|\n| `Accept-Encoding` | A few variants (gzip, br, none). Normally fine; CDNs often normalise it. |\n| `Accept-Language` | Dozens of raw values (`en-US,en;q=0.9,fr;q=0.8`), so fragmentation unless normalised. |\n| `User-Agent` | Thousands of values; almost never worth it. |\n| `Cookie` | Effectively one variant per user; defeats shared caching. |\n| `*` | Means the response varies on everything; commonly treated as uncacheable by shared caches. |\n\n## Practical guidance\n\n- Vary on the fewest headers possible.\n- **Normalise at the edge**, for example reduce `Accept-Language` to `en` or `fr` (or a device class) before it becomes part of the key.\n- Prefer **explicit URLs** (`/fr/...`) over negotiation for languages and markets.\n- Remember CDN behaviour: some CDNs use their own cache-key configuration and may ignore or partially honour `Vary`, so check your provider's rules.\n- Set `Vary` consistently; a missing one on a negotiated resource is a correctness bug.\n\n## Example\n\nA page serving different image formats via `Accept` should vary on `Accept`, or the HTML should reference distinct image URLs per format.",
+      "diagrams": [],
+      "followUps": [
+        "Why is Vary: Cookie almost always a problem for shared caches?",
+        "How would you handle device-specific responses without Vary: User-Agent?",
+        "How does your CDN treat Vary compared with its configured cache key?"
+      ],
+      "related": [
+        "cache-key-design",
+        "query-parameters-and-caching",
+        "cache-poisoning"
+      ]
+    },
+    {
+      "slug": "cache-poisoning",
+      "title": "What is cache poisoning and how do you prevent it?",
+      "topic": "Security",
+      "difficulty": "advanced",
+      "type": "conceptual",
+      "tags": [
+        "cache-poisoning",
+        "security",
+        "unkeyed-input",
+        "web-cache-deception"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-cdn-caching",
+          "pages": [
+            6
+          ]
+        }
+      ],
+      "quick": "Cache poisoning is when an attacker gets a shared cache to store a harmful or wrong response and then serves it to other users. It usually exploits an input that influences the origin's response, like a forwarded host header, but is not part of the cache key. I prevent it by normalising and validating requests, allowlisting what is forwarded and keyed, not trusting arbitrary forwarding headers, never caching user-specific responses in shared caches, and testing and monitoring cache behaviour.",
+      "revision": "Poisoning: an attacker-influenced response gets stored under a key shared with others. Fix by keying or ignoring every input, validating requests, and never sharing private responses.",
+      "detailed": "**Cache poisoning** occurs when an attacker causes a shared cache to store a malicious or incorrect response that is then served to other users. The core pattern is an **unkeyed input**: something in the request that changes the origin's response but is not part of the cache key.\n\n{{diagram:poison}}\n\n## Illustrative example\n\nAn application builds absolute links from the `X-Forwarded-Host` header. The CDN does not include that header in the cache key. An attacker requests `/home` with `X-Forwarded-Host: evil.example`; the origin returns a page whose script URLs point to `evil.example`; the CDN stores it under the normal `/home` key, and ordinary visitors now load attacker-controlled scripts.\n\n## Related issue: web cache deception\n\nThe reverse problem is tricking a cache into storing a **private** response. If the CDN caches by file extension, a request such as `/account/profile/anything.css` might be served by the application as the profile page, cached because it looks static, and then fetched by others. The fix is to make cacheability depend on explicit headers, not path suffixes.\n\n## Prevention\n\n- **Allowlist** request headers, cookies and query parameters that are forwarded to the origin; ignore the rest.\n- **Do not trust** forwarding headers from the open internet; set `Host` and scheme at your trusted edge.\n- **Include every response-influencing input in the key**, or remove its influence at the origin.\n- **Never cache user-specific or sensitive responses** in shared caches (`private` or `no-store`, and do not strip these headers).\n- **Restrict cacheable methods and status codes**; avoid caching error responses for long periods.\n- **Validate and normalise** requests at the edge, for example with a WAF.\n- **Test** with probes that vary headers and parameters, and monitor for unexpected content or sudden spikes in unusual keys.\n\nCaching is a security boundary as well as a performance feature.",
+      "diagrams": [
+        {
+          "id": "poison",
+          "title": "How an unkeyed header poisons a shared cache",
+          "alt": "An attacker sends a request with a malicious forwarded host header that is not part of the cache key. The origin builds a harmful response, the CDN stores it under the normal URL, and later normal users receive the harmful cached page.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "attacker",
+              "label": "Attacker request (crafted header)"
+            },
+            {
+              "id": "cdn",
+              "label": "CDN (header not in key)"
+            },
+            {
+              "id": "origin",
+              "label": "Origin builds harmful response"
+            },
+            {
+              "id": "users",
+              "label": "Normal users get cached copy"
+            }
+          ],
+          "edges": [
+            {
+              "from": "attacker",
+              "to": "cdn"
+            },
+            {
+              "from": "cdn",
+              "to": "origin",
+              "label": "miss"
+            },
+            {
+              "from": "origin",
+              "to": "cdn",
+              "label": "stored under normal key"
+            },
+            {
+              "from": "cdn",
+              "to": "users",
+              "label": "hit"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "What is an unkeyed input?",
+        "How does web cache deception differ from poisoning?",
+        "How would you test your CDN configuration for poisoning risk?"
+      ],
+      "related": [
+        "cache-key-design",
+        "authenticated-responses-caching",
+        "vary-header-and-content-negotiation"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,559 @@
+{
+  "category": "rest-api",
+  "questions": [
+    {
+      "slug": "designing-good-rest-api",
+      "title": "How do you approach designing a good REST API end to end?",
+      "topic": "API Design Process",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "api-design",
+        "checklist",
+        "rest"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-rest-api-architecture",
+          "pages": [
+            5,
+            6,
+            24
+          ]
+        }
+      ],
+      "quick": "I start from domain boundaries and consumer needs, then define the contract before code. Then resource-oriented URLs, correct methods, consistent status codes, request and response schemas, input validation, authentication and authorization, a standard error model, pagination and filtering for collections, versioning and compatibility rules, and observability with request IDs and metrics. I review it with consumers and document it in OpenAPI so the design is testable and not just implemented.",
+      "revision": "Design contract-first: domain boundaries, resources, methods, status codes, schemas, validation, security, errors, pagination, versioning, observability.",
+      "detailed": "A good API is designed for **consumers and change**, not only for the database tables behind it. A practical flow:\n\n```text\nDomain boundaries and consumers\n  -> Resources and URLs\n  -> Methods and status codes\n  -> Request/response contracts (schemas)\n  -> Validation\n  -> AuthN / AuthZ\n  -> Error model\n  -> Pagination, filtering, sorting\n  -> Caching and concurrency (ETag)\n  -> Versioning and compatibility rules\n  -> Observability (request ID, metrics, traces)\n```\n\n## Why each step matters\n\n- **Domain first:** endpoints that mirror tables expose internal structure and couple consumers to it. Model business concepts (a quote, a vehicle configuration), not storage.\n- **Contract first:** write the OpenAPI description, review it with frontend and partner teams, then generate mocks and tests. Mismatches are cheaper to fix on paper.\n- **Consistency:** the same naming, pagination, error shape and date formats everywhere (for example ISO 8601 timestamps). A style guide enforced by a linter helps at scale.\n- **Validation at the edge:** reject bad input early with a clear `4xx`; never trust client data.\n- **Security by design:** least privilege scopes, authorisation on every resource, rate limits.\n- **Evolvability:** additive changes only, documented deprecation, versioning when unavoidable.\n- **Operability:** structured logs with request IDs, latency and error metrics, health endpoints.\n\n## Trade-offs to mention\n\n- Chatty fine-grained APIs versus coarse-grained ones that overfetch. Aim for use-case-shaped resources and consider a BFF for UI-specific shapes.\n- Strict REST purity versus pragmatic action endpoints.\n- Contract-first adds upfront work but pays off with multiple consumers.\n\n## Common mistakes\n\nDesigning endpoints one by one as features arrive, with inconsistent naming, error formats and pagination. The result is an API that every consumer must learn separately.",
+      "followUps": [
+        "What would be in your API style guide?",
+        "Contract-first versus code-first: which and why?",
+        "How do you gather consumer requirements for a new API?"
+      ],
+      "related": [
+        "api-contract",
+        "resource-oriented-urls"
+      ]
+    },
+    {
+      "slug": "pagination-offset-vs-cursor",
+      "title": "How do you design pagination, and how do offset and cursor pagination compare?",
+      "topic": "Collections",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "pagination",
+        "cursor",
+        "offset",
+        "performance"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-rest-api-architecture",
+          "pages": [
+            6,
+            7
+          ]
+        }
+      ],
+      "quick": "Never return an unbounded collection. Offset pagination uses page and size, like ?page=100&pageSize=50. It is simple and allows jumping to a page, but deep offsets get slower because the database still walks past skipped rows, and results can shift or repeat if data changes between requests. Cursor pagination returns an opaque token pointing after the last item, giving stable, efficient paging for large or fast-changing data. I prefer cursors for high-scale feeds and offset for small admin lists.",
+      "revision": "Offset is simple and supports page jumps but is slow deep in the set and unstable under changes; cursor (keyset) is efficient and stable but only moves forward and back.",
+      "detailed": "Returning `GET /vehicles` with 500,000 records is slow, wasteful and risky. Always cap and paginate collections, with a sensible default and maximum page size.\n\n## Offset (page-number) pagination\n\n```http\nGET /vehicles?page=3&pageSize=50\nGET /vehicles?offset=100&limit=50\n```\n\n- **Pros:** trivial to implement, easy to understand, can jump to arbitrary pages and show \"page 3 of 20\".\n- **Cons:** `OFFSET n` forces the database to scan and discard n rows, so deep pages get slower. If rows are inserted or deleted between requests, items can be skipped or duplicated.\n\n## Cursor (keyset) pagination\n\n```http\nGET /vehicles?limit=50&cursor=eyJpZCI6MTIzfQ\n```\n\nThe cursor encodes the position of the last item (for example the sort key and id). The query becomes `WHERE (created_at, id) < (:ts, :id) ORDER BY created_at DESC, id DESC LIMIT 50`, which uses an index and stays fast regardless of depth.\n\n- **Pros:** consistent performance, stable results while data changes, good for infinite scroll and feeds.\n- **Cons:** no random page access, no cheap total count, sort order must be deterministic with a unique tie-breaker, and cursors must be treated as opaque.\n\n## Response shape\n\n```json\n{\n  \"items\": [],\n  \"nextCursor\": \"eyJpZCI6MTczfQ\",\n  \"hasMore\": true\n}\n```\n\nLinks or a `Link` header with `rel=\"next\"` are alternatives.\n\n## Choosing\n\n| Situation | Choice |\n|---|---|\n| Large, changing, high-traffic collection | Cursor |\n| Small admin tables needing page numbers | Offset |\n| Need total counts | Offset (or a separate, possibly approximate, count endpoint) |\n\n## Common mistakes\n\nUnbounded `limit`, sorting by a non-unique column, exposing database ids as cursors that clients start to parse, and promising total counts that are expensive to compute.",
+      "followUps": [
+        "Why is a high OFFSET slow?",
+        "How do you paginate with a non-unique sort key?",
+        "How would you provide total counts cheaply?"
+      ],
+      "related": [
+        "filtering-and-sorting",
+        "designing-good-rest-api"
+      ]
+    },
+    {
+      "slug": "filtering-and-sorting",
+      "title": "How do you support filtering and sorting in a REST API safely?",
+      "topic": "Collections",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "filtering",
+        "sorting",
+        "query-parameters",
+        "security"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-rest-api-architecture",
+          "pages": [
+            7
+          ]
+        }
+      ],
+      "quick": "I expose filtering and sorting through documented query parameters, for example /vehicles?type=suv&brand=aster&sort=price&order=asc. I allowlist the fields and operators, validate values, cap page size, and make sure each supported filter is backed by an index. I do not pass raw query expressions through to the database, which invites injection and expensive scans. For richer needs, I define a clear filter syntax or add a dedicated search endpoint.",
+      "revision": "Expose an explicit allowlist of documented filter and sort parameters, validate them, index what you support, and never pass raw database queries through.",
+      "detailed": "Clients need to narrow and order collections, but an API is a contract, not an open window onto your database.\n\n## A typical design\n\n```http\nGET /vehicles?type=suv&brand=aster&minPrice=20000&maxPrice=45000&sort=price&order=asc&limit=25\n```\n\n- **Simple equality filters** as plain parameters (`type=suv`).\n- **Ranges** with explicit names (`minPrice`, `maxPrice`) or a documented operator syntax (`price[gte]=20000`).\n- **Multiple values** as comma-separated or repeated parameters: pick one convention.\n- **Sorting** as `sort=price` and `order=asc`, or the compact `sort=-price,name` (leading minus for descending).\n- **Combine with pagination:** the sort must be deterministic, so add a unique tie-breaker such as id.\n\n## Safety and performance rules\n\n- **Allowlist** filterable and sortable fields. Reject unknown parameters with `400` so typos do not silently return unfiltered data.\n- **Validate types and ranges**; parameterise database queries to prevent injection.\n- **Index** every supported filter and sort combination you advertise; otherwise one request can scan a huge table.\n- **Cap** page size and the number of filter values.\n- **Do not expose internal column names** as the public vocabulary; map from API terms to storage.\n- Authorisation filters (what the caller may see) are applied server-side, not as client-controlled parameters.\n\n## Beyond simple filters\n\nFull-text, faceted or fuzzy search (dealer locators, inventory search) is usually better served by a dedicated search endpoint backed by a search engine (for example `GET /vehicles/search?q=...`) rather than overloading collection filters.\n\n## Common mistake\n\nLetting clients send arbitrary expressions (`filter=price>5 OR 1=1`) that map onto SQL or document-store queries. That combines security and performance risk.",
+      "followUps": [
+        "How would you implement faceted vehicle search?",
+        "How do you stop expensive queries from hurting the database?",
+        "Where do you enforce tenant or ownership filters?"
+      ],
+      "related": [
+        "pagination-offset-vs-cursor",
+        "rest-vs-graphql"
+      ]
+    },
+    {
+      "slug": "api-versioning",
+      "title": "What are the API versioning strategies and which do you prefer?",
+      "topic": "API Evolution",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "versioning",
+        "api-evolution",
+        "compatibility"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-rest-api-architecture",
+          "pages": [
+            5
+          ]
+        }
+      ],
+      "quick": "The main options are URI versioning (/v2/vehicles), header or query-parameter versioning, and media-type versioning (Accept: application/vnd.example.v2+json). URI versioning is the most visible and easiest to route, cache and test. My priority is avoiding breaking changes in the first place through additive evolution. When a break is unavoidable, I publish a new major version, run both, and follow a published migration and deprecation policy.",
+      "revision": "Versions via URI, header or media type. Prefer additive, backward-compatible change; version explicitly only for breaking changes, with a migration and deprecation policy.",
+      "detailed": "Versioning is how you let an API change without breaking consumers you cannot update. The best version strategy is needing a new version rarely.\n\n## Options\n\n| Strategy | Example | Pros | Cons |\n|---|---|---|---|\n| URI | `/api/v2/vehicles` | Obvious, easy routing, caching and docs | Version in the resource identifier; clients hard-code it |\n| Header | `API-Version: 2` | Clean URLs | Hidden; proxies and caches must vary on the header; harder to test in a browser |\n| Media type | `Accept: application/vnd.example.v2+json` | Aligns with content negotiation, per-representation versioning | Complex tooling, less discoverable |\n| Query parameter | `?version=2` | Easy to try | Easy to forget; pollutes cache keys |\n\nNo option is universally correct. Many enterprise teams choose URI major versions (`v1`, `v2`) for operational simplicity, and some date-based schemes exist for fine-grained control.\n\n## What counts as a version\n\nOnly **major, breaking** changes get a new version. Keep minor, additive changes within the same version (new optional fields, new endpoints). Avoid `v1.1`-style proliferation in URLs.\n\n## Lifecycle\n\n```text\nAnnounce -> Release v2 -> Support v1 and v2 -> Deprecate v1 (headers, docs, notices)\n  -> Monitor remaining v1 usage per consumer -> Retire v1\n```\n\n- Publish a deprecation policy with minimum support windows.\n- Signal deprecation in responses (for example `Deprecation` and `Sunset` headers where adopted) and in the developer portal.\n- Track usage by version and consumer to know who must migrate.\n\n## Common mistakes\n\n- Versioning every small change, leaving many live versions to maintain.\n- Breaking a \"stable\" version silently.\n- Sharing one database model across versions without a translation layer, making v1 untouchable.",
+      "followUps": [
+        "What counts as a breaking change?",
+        "How long do you support old versions?",
+        "Why might you avoid header versioning for a public CDN-cached API?"
+      ],
+      "related": [
+        "handling-breaking-changes",
+        "api-contract"
+      ]
+    },
+    {
+      "slug": "handling-breaking-changes",
+      "title": "How do you handle breaking API changes without breaking consumers?",
+      "topic": "API Evolution",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "breaking-changes",
+        "deprecation",
+        "compatibility"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-rest-api-architecture",
+          "pages": [
+            22
+          ]
+        }
+      ],
+      "quick": "First I try to make the change backward compatible: add new fields rather than rename, keep old ones until consumers move, and tolerate unknown fields on both sides. If a break is unavoidable, I introduce a new version alongside the old one, announce a migration path, mark the old version deprecated, monitor per-consumer usage, and only then retire it. Automated contract tests and OpenAPI diff checks in CI catch accidental breaks before release.",
+      "revision": "Prefer additive, backward-compatible change; if breaking, run v1 and v2 side by side, migrate, deprecate, monitor usage, then retire. Catch accidental breaks in CI.",
+      "detailed": "A breaking change is anything that can make a correct existing client fail.\n\n## What breaks consumers\n\n- Removing or renaming a field, endpoint or enum value.\n- Changing a type (number to string) or meaning of a field.\n- Making an optional parameter required, or tightening validation.\n- Changing status codes, error formats or authentication requirements.\n- Changing default sort, page size or ordering that clients assumed.\n\n## Safe, non-breaking evolution\n\n- **Add, do not change:** new optional fields, new endpoints, new optional parameters.\n- **Expand and contract:** add `title` while still returning `name`, migrate consumers, then remove `name` in a later major version.\n- **Tolerant reader:** consumers ignore unknown fields; producers accept unknown optional ones. This is what makes additive change safe.\n- **Do not repurpose** a field; add a new one.\n\n## When a break is unavoidable\n\n{{diagram:lifecycle}}\n\n1. Introduce v2 beside v1 (different URI or media type).\n2. Publish a migration guide and a changelog; give consumers a date.\n3. Mark v1 deprecated in docs and response headers.\n4. Measure traffic per consumer and contact those who have not moved.\n5. Retire v1 on the announced date, or extend with a clear reason.\n\n## Guardrails\n\n- Run **OpenAPI diff** tooling in CI to flag breaking changes in a pull request.\n- Run **consumer-driven contract tests** against the provider.\n- Use **feature flags** or gradual rollout for behavioural changes.\n- For internal APIs with few consumers, coordinate release windows rather than maintain long-lived versions.\n\n## Common mistake\n\nTreating \"no one should depend on that\" as permission. Consumers depend on whatever you ship, including accidental behaviour.",
+      "diagrams": [
+        {
+          "id": "lifecycle",
+          "title": "Breaking change migration lifecycle",
+          "alt": "Sequence of stages for introducing a breaking API change: release a new version, migrate consumers, deprecate the old version, monitor usage and finally retire it.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "a",
+              "label": "Release v2"
+            },
+            {
+              "id": "b",
+              "label": "Migrate consumers"
+            },
+            {
+              "id": "c",
+              "label": "Deprecate v1"
+            },
+            {
+              "id": "d",
+              "label": "Monitor usage"
+            },
+            {
+              "id": "e",
+              "label": "Retire v1"
+            }
+          ],
+          "edges": [
+            {
+              "from": "a",
+              "to": "b"
+            },
+            {
+              "from": "b",
+              "to": "c"
+            },
+            {
+              "from": "c",
+              "to": "d"
+            },
+            {
+              "from": "d",
+              "to": "e"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Is adding a new enum value a breaking change?",
+        "How do you know who is still using v1?",
+        "How can CI detect breaking changes automatically?"
+      ],
+      "related": [
+        "api-versioning",
+        "contract-testing"
+      ]
+    },
+    {
+      "slug": "api-contract",
+      "title": "What is an API contract and why does it matter for teams?",
+      "topic": "Contracts",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "contract",
+        "api-first",
+        "microservices"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-rest-api-architecture",
+          "pages": [
+            7,
+            8
+          ]
+        }
+      ],
+      "quick": "An API contract is the agreed description of what consumers can expect: endpoints, methods, request and response schemas, headers, status codes, error format, authentication requirements and validation rules. It lets frontend and backend teams work in parallel against a shared definition instead of guessing. It becomes critical with micro frontends and many teams, where changing a field without agreement breaks someone else's release. I keep the contract machine-readable, usually OpenAPI, and verify it in CI.",
+      "revision": "A contract is the explicit, versioned agreement of endpoints, schemas, status codes, errors and auth between provider and consumers; it enables parallel work and safe change.",
+      "detailed": "An **API contract** is the explicit promise a provider makes to its consumers. Anything a client can observe and depend on is part of it, whether you wrote it down or not.\n\n## What it contains\n\n- Endpoints and HTTP methods\n- Request parameters and body schemas\n- Response schemas for each status code\n- Headers (including caching and correlation headers)\n- Error format and error codes\n- Authentication and authorisation requirements\n- Validation rules, limits, rate limits\n- Non-functional promises where relevant: latency targets, availability, deprecation policy\n\n## Why it matters\n\n{{diagram:contract}}\n\n- **Parallel work:** the frontend team can build against a mock generated from the contract while the backend is under construction.\n- **Decoupling:** teams change implementation freely as long as the contract holds.\n- **Fewer integration surprises:** mismatches are found in review or CI instead of production.\n- **Multi-team ecosystems:** in a micro frontend or microservice landscape, dozens of consumers rely on each API, so unplanned change is expensive.\n\n## Making it real\n\n1. Describe it formally (OpenAPI for REST, AsyncAPI for events).\n2. Review changes through pull requests like code.\n3. Validate requests and responses against the schema in tests or at the gateway.\n4. Use consumer-driven contract tests to confirm real consumers still work.\n5. Version and deprecate deliberately.\n\n## Common mistakes\n\n- A contract that exists only as a wiki page and drifts from the implementation.\n- Treating undocumented behaviour (field ordering, error text) as free to change.\n- Leaking internal domain objects directly into the contract.",
+      "diagrams": [
+        {
+          "id": "contract",
+          "title": "The contract between frontend and backend",
+          "alt": "A frontend and backend both depend on a shared API contract described in OpenAPI, which also drives mocks and automated tests.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "fe",
+              "label": "Frontend"
+            },
+            {
+              "id": "c",
+              "label": "API Contract (OpenAPI)"
+            },
+            {
+              "id": "be",
+              "label": "Backend"
+            },
+            {
+              "id": "t",
+              "label": "Mocks and Tests"
+            }
+          ],
+          "edges": [
+            {
+              "from": "fe",
+              "to": "c"
+            },
+            {
+              "from": "be",
+              "to": "c"
+            },
+            {
+              "from": "c",
+              "to": "t"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "What is the difference between contract-first and code-first?",
+        "How do you stop the contract and implementation drifting apart?",
+        "Who owns the contract in a multi-team setup?"
+      ],
+      "related": [
+        "openapi-specification",
+        "contract-testing"
+      ]
+    },
+    {
+      "slug": "openapi-specification",
+      "title": "What is OpenAPI and how do teams use it?",
+      "topic": "Contracts",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "openapi",
+        "swagger",
+        "documentation",
+        "tooling"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-rest-api-architecture",
+          "pages": [
+            8
+          ]
+        }
+      ],
+      "quick": "OpenAPI is a standard, language-agnostic format, in YAML or JSON, for describing HTTP APIs: paths, operations, parameters, request and response schemas, security schemes and examples. From one document you can generate interactive documentation, mock servers, client SDKs and server stubs, and validate requests and responses or lint design rules. I treat it as the source of truth for the contract and check changes in CI.",
+      "revision": "OpenAPI is a machine-readable description of an HTTP API enabling docs, mocks, code generation, validation, linting and breaking-change detection from a single source of truth.",
+      "detailed": "**OpenAPI** (formerly Swagger) is a vendor-neutral specification for describing REST-style HTTP APIs in YAML or JSON. Current versions are 3.0.x and 3.1.x; 3.1 aligns its schemas with JSON Schema.\n\n## A small example\n\n```yaml\nopenapi: 3.1.0\ninfo:\n  title: Vehicle API\n  version: 1.0.0\npaths:\n  /vehicles/{id}:\n    get:\n      summary: Get a vehicle\n      parameters:\n        - name: id\n          in: path\n          required: true\n          schema: { type: string }\n      responses:\n        \"200\":\n          description: The vehicle\n          content:\n            application/json:\n              schema:\n                $ref: \"#/components/schemas/Vehicle\"\n        \"404\":\n          description: Vehicle not found\ncomponents:\n  schemas:\n    Vehicle:\n      type: object\n      required: [id, name]\n      properties:\n        id: { type: string }\n        name: { type: string }\n        price: { type: number }\n```\n\n## What you can do with it\n\n| Use | Example |\n|---|---|\n| Documentation | Interactive reference for the developer portal |\n| Mocking | Frontend works before the backend exists |\n| Code generation | Typed client SDKs and server stubs |\n| Validation | Gateway or middleware rejects non-conforming requests |\n| Linting | Enforce naming, pagination and error conventions |\n| Diffing | Detect breaking changes in pull requests |\n| Testing | Generate tests or check responses against schemas |\n\n## Contract-first versus code-first\n\n- **Contract-first:** write the spec, review it, then implement. Better for multi-team APIs.\n- **Code-first:** generate the spec from annotations. Faster to start but the spec can reflect accidental implementation choices.\n\n## Common mistakes\n\n- Generated specs that nobody reviews.\n- Missing error responses, examples and auth schemes.\n- Letting the spec drift from the running service because it is not tested against it.\n\nRelated specification families include AsyncAPI for event-driven APIs.",
+      "followUps": [
+        "Contract-first or code-first, which do you choose?",
+        "How do you keep the spec and implementation in sync?",
+        "What is the difference between OpenAPI and Swagger?"
+      ],
+      "related": [
+        "api-contract",
+        "contract-testing"
+      ]
+    },
+    {
+      "slug": "contract-testing",
+      "title": "What is contract testing and how does it differ from integration testing?",
+      "topic": "Contracts",
+      "difficulty": "advanced",
+      "type": "conceptual",
+      "tags": [
+        "contract-testing",
+        "consumer-driven",
+        "pact",
+        "testing"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-rest-api-architecture",
+          "pages": [
+            22,
+            23
+          ]
+        }
+      ],
+      "quick": "Contract testing verifies that a provider and its consumers still agree on the API's shape without needing a full integrated environment. In consumer-driven testing, each consumer records the requests it makes and the responses it relies on, and the provider's pipeline replays those against the real implementation. If the backend renames id and price to vehicleId and amount, the provider build fails before release. It is faster and more reliable than end-to-end tests and suits many teams.",
+      "revision": "Contract tests check each consumer's expectations against the provider independently, catching breaking changes in CI without a full end-to-end environment.",
+      "detailed": "**Contract testing** checks that two independently deployed services still satisfy the interface they agreed on.\n\n## The problem\n\nA frontend expects:\n\n```json\n{ \"id\": \"123\", \"name\": \"Trail Runner\", \"price\": 41500 }\n```\n\nThe backend team refactors and now returns `{ \"vehicleId\", \"title\", \"amount\" }`. Unit tests on both sides still pass, and the break is found in production or in a slow, flaky end-to-end run.\n\n## Consumer-driven contract testing\n\n1. The **consumer** writes tests describing the requests it sends and the response fields it actually uses. These generate a contract file (a \"pact\" in Pact terminology).\n2. The contract is shared through a broker or repository.\n3. The **provider** pipeline verifies its real implementation against every consumer's contract.\n4. If verification fails, the provider cannot release (or must coordinate), and the broker can answer \"can I deploy?\" for each version.\n\nOnly what consumers actually use is checked, so providers remain free to change everything else.\n\n## Contract tests versus other tests\n\n| Test | Scope | Speed | Catches |\n|---|---|---|---|\n| Unit | One component | Very fast | Logic bugs |\n| Contract | Consumer and provider interface | Fast | Interface drift |\n| Integration | Real dependencies | Moderate | Wiring and configuration |\n| End-to-end | Whole system | Slow, flaky | User journeys |\n\n## Complementary approach: schema validation\n\nProvider-driven checks validate responses against the OpenAPI schema, and spec-diff tools flag breaking edits. These are useful but do not know which fields consumers really rely on.\n\n## Common mistakes\n\n- Contracts that assert exact values instead of shapes and types.\n- Treating contract tests as a replacement for all integration testing.\n- No process for broken contracts, so teams disable the failing check.",
+      "followUps": [
+        "Consumer-driven versus provider-driven contracts?",
+        "Where does contract testing fit in a micro frontend setup?",
+        "Does it replace end-to-end tests?"
+      ],
+      "related": [
+        "handling-breaking-changes",
+        "api-contract"
+      ]
+    },
+    {
+      "slug": "rest-vs-graphql",
+      "title": "REST vs GraphQL: how do you choose?",
+      "topic": "API Styles",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "graphql",
+        "rest",
+        "trade-offs"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-rest-api-architecture",
+          "pages": [
+            8,
+            9
+          ]
+        }
+      ],
+      "quick": "REST exposes resources with standard HTTP semantics, which gives easy caching, mature tooling and clear boundaries. GraphQL lets the client specify exactly the fields it needs in one query against a typed schema, which reduces over-fetching and helps aggregate data across domains. It costs more in caching, query-cost control, authorization per field and operational complexity. I treat them as complementary and choose by access patterns, often GraphQL or a BFF for UI aggregation and REST for domain services.",
+      "revision": "REST: resource endpoints, HTTP caching, simplicity. GraphQL: client-shaped queries and aggregation, but harder caching and query-cost control. Choose by access patterns.",
+      "detailed": "Both are valid ways to expose data. The question is which fits the consumers and the team.\n\n## Same need, two styles\n\n```http\nGET /vehicles/123\nGET /vehicles/123/offers\n```\n\n```graphql\nquery {\n  vehicle(id: \"123\") {\n    name\n    price\n    offers { amount }\n  }\n}\n```\n\nREST needs two calls (or a purpose-built endpoint); GraphQL returns exactly the requested shape in one round trip, from a single endpoint, typically `POST /graphql`.\n\n## Comparison\n\n| Aspect | REST | GraphQL |\n|---|---|---|\n| Unit of design | Resources and URLs | Typed schema and queries |\n| Over/under-fetching | Fixed shapes; can overfetch or require multiple calls | Client selects fields |\n| HTTP caching | Natural (GET, ETag, CDN) | Harder; usually POST to one URL, needs persisted queries or client-side caches |\n| Errors | HTTP status codes | Often `200` with an `errors` array |\n| Versioning | URIs or media types | Schema evolution with deprecation |\n| Tooling | Very mature | Strong typing and introspection |\n| Risk | Chatty clients | Expensive queries, N+1 resolvers, per-field authorisation |\n\n## When GraphQL helps\n\n- Many different clients (web, mobile, partners) needing different field sets.\n- Aggregating several backends for one screen.\n- Fast-moving frontends that would otherwise wait for new endpoints.\n\n## When REST is the better fit\n\n- Resource-oriented domain services and partner-facing public APIs.\n- Strong need for CDN and HTTP caching.\n- Simple CRUD and well-known semantics.\n\n## What GraphQL adds to manage\n\nQuery depth and cost limits, batching (such as DataLoader) to avoid N+1 resolver calls, per-field authorisation, and observability by operation name.\n\nA common architecture: REST domain APIs behind a GraphQL layer or BFF that serves the UI.",
+      "followUps": [
+        "How do you cache GraphQL responses?",
+        "How do you prevent expensive GraphQL queries?",
+        "Can GraphQL and REST coexist?"
+      ],
+      "related": [
+        "n-plus-one-api-problem",
+        "bff-pattern"
+      ]
+    },
+    {
+      "slug": "n-plus-one-api-problem",
+      "title": "What is the N+1 problem at the API level and how do you prevent it?",
+      "topic": "Performance",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "n-plus-one",
+        "performance",
+        "composition",
+        "aggregation"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-rest-api-architecture",
+          "pages": [
+            19
+          ]
+        }
+      ],
+      "quick": "It happens when a client fetches a list, then makes one extra request per item for details: one call for 100 vehicles, then 100 calls for their details. That multiplies latency and load. I reduce it with an expand or include parameter, purpose-built endpoints, batch endpoints that accept multiple ids, or a BFF that composes the data server-side with parallel calls. I avoid dumping everything into every response, so include is opt-in.",
+      "revision": "N+1: one list call plus N detail calls. Fix with include/expand, batch endpoints, or server-side composition in a BFF, without bloating every response.",
+      "detailed": "The **N+1 problem** appears when loading a collection requires N additional round trips, one per element. It exists at the database layer (ORM lazy loading) and at the API layer.\n\n## Example\n\n```text\nGET /vehicles                -> 100 vehicles (ids and names only)\nGET /vehicles/1/details      -> 1\nGET /vehicles/2/details      -> 2\n...                          -> 100 calls\n```\n\nEach call adds network latency, connection overhead and server load. On a mobile connection this can dominate page load time.\n\n## Fixes\n\n| Technique | Example | Notes |\n|---|---|---|\n| Embed on request | `GET /vehicles?include=details,offers` | Opt-in, documented, bounded |\n| Batch endpoint | `GET /vehicles?ids=1,2,3` or `POST /vehicles/batch-get` | Limit batch size |\n| Composition in a BFF | One UI-specific call; BFF fans out in parallel | Keeps clients simple |\n| GraphQL | Select nested fields in one query | Server must batch resolvers |\n| Fit the resource to the use case | Return list-card fields in list responses | Avoids both extremes |\n\n## Server-side side of N+1\n\nFixing the API shape can move the problem inside: a composing service calling a downstream service N times, or a resolver loading each child separately. Use batched queries (`WHERE id IN (...)`), data loaders, caching, and parallel calls with timeouts.\n\n## The opposite mistake\n\nReturning every possible related field on every request creates large payloads, slow queries and tight coupling. Keep list responses lean, let clients opt in to extra data, and measure.\n\n## How to spot it\n\nDistributed traces or network waterfalls showing many near-identical sequential calls, and request counts per page view.",
+      "followUps": [
+        "How does this differ from the database N+1 problem?",
+        "Include/expand versus a separate endpoint: how do you decide?",
+        "How would a BFF avoid this without becoming a bottleneck?"
+      ],
+      "related": [
+        "bff-pattern",
+        "rest-vs-graphql"
+      ]
+    },
+    {
+      "slug": "sync-vs-async-apis",
+      "title": "Synchronous vs asynchronous APIs: when should an API not make the client wait?",
+      "topic": "Async APIs",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "async",
+        "queues",
+        "long-running",
+        "messaging"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-rest-api-architecture",
+          "pages": [
+            16
+          ]
+        }
+      ],
+      "quick": "In a synchronous API the client sends a request and waits for the complete result. That is right for fast operations. When work is slow or heavy, like report generation, file processing, bulk updates or notifications, I accept the request, put it on a queue, and let a worker process it while the client gets an immediate acknowledgement and checks status later or is notified. This protects request threads and timeouts, absorbs spikes, and improves resilience, at the cost of extra complexity in status tracking and failure handling.",
+      "revision": "Use sync for quick results; use async (accept, queue, worker, status or callback) for slow, heavy or bursty work, accepting added complexity in tracking and failures.",
+      "detailed": "**Synchronous:** the client waits on an open connection until the work finishes. **Asynchronous:** the server accepts the work, returns quickly, and finishes it later.\n\n{{diagram:async}}\n\n## When to go async\n\n- Operation duration is long or unpredictable (report generation, video or file processing, large imports).\n- Work is bursty, and a queue smooths traffic into the backend.\n- Downstream systems are slow or unreliable and should not tie up request threads.\n- The result is not needed to complete the user interaction (notifications, emails, audit exports).\n\n## Patterns for telling the client the outcome\n\n1. **Polling:** return `202 Accepted` with a status URL; the client checks periodically.\n2. **Webhooks / callbacks:** the server calls a client-supplied URL on completion (verify signatures, retry delivery).\n3. **Push channels:** Server-Sent Events or WebSockets for live UI updates.\n4. **Events:** other services subscribe to a completion event on a broker.\n\n## Trade-offs\n\n| | Sync | Async |\n|---|---|---|\n| Simplicity | High | Lower: queues, workers, status model |\n| Latency for result | Immediate | Eventual |\n| Failure handling | Direct error | Needs retries, dead-letter queues, status reporting |\n| Scalability | Bound by request capacity | Workers scale independently |\n| Consistency | Immediate | Eventual |\n\n## Design cautions\n\n- Make job creation **idempotent** so retried submissions do not enqueue duplicates.\n- Make workers idempotent, since queues commonly deliver at least once.\n- Set job expiry and retention, and expose failures clearly.\n- Do not use async to hide a slow query that should be fixed.",
+      "diagrams": [
+        {
+          "id": "async",
+          "title": "Asynchronous request processing",
+          "alt": "A client submits a request to the API, which places a job on a queue; a worker processes it and stores the result, while the client reads status from the API.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "c",
+              "label": "Client"
+            },
+            {
+              "id": "api",
+              "label": "API"
+            },
+            {
+              "id": "q",
+              "label": "Queue"
+            },
+            {
+              "id": "w",
+              "label": "Worker"
+            },
+            {
+              "id": "s",
+              "label": "Job Store"
+            }
+          ],
+          "edges": [
+            {
+              "from": "c",
+              "to": "api",
+              "label": "submit"
+            },
+            {
+              "from": "api",
+              "to": "q",
+              "label": "enqueue"
+            },
+            {
+              "from": "q",
+              "to": "w"
+            },
+            {
+              "from": "w",
+              "to": "s",
+              "label": "result"
+            },
+            {
+              "from": "c",
+              "to": "s",
+              "label": "poll status"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How does the client learn the result?",
+        "What happens if a worker crashes mid-job?",
+        "How do you prevent duplicate jobs on retry?"
+      ],
+      "related": [
+        "accepted-202-job-polling",
+        "idempotency-keys"
+      ]
+    },
+    {
+      "slug": "accepted-202-job-polling",
+      "title": "How do you design a 202 Accepted job-polling API?",
+      "topic": "Async APIs",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "202",
+        "polling",
+        "long-running",
+        "job-status"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-rest-api-architecture",
+          "pages": [
+            16,
+            17
+          ]
+        }
+      ],
+      "quick": "For a long-running POST I validate quickly, create a job record, and return 202 Accepted with a Location header pointing to a status resource and a body containing the job id and status. The client polls GET /reports/jobs/{id}, which returns PROCESSING, then COMPLETED with a link to the result, or FAILED with a safe error. I may add a Retry-After hint. When done, the result lives at its own URL. 202 means accepted, not successful.",
+      "revision": "Return 202 with a Location to a job status resource; client polls until completed or failed, then follows a link to the result. 202 means accepted, not done.",
+      "detailed": "When the work cannot finish within a normal request timeout, return **`202 Accepted`**: the server has taken responsibility for the work but has not completed it.\n\n## Request and response\n\n```http\nPOST /reports\nContent-Type: application/json\n\n{ \"type\": \"dealer-sales\", \"month\": \"2026-08\" }\n\nHTTP/1.1 202 Accepted\nLocation: /reports/jobs/12345\nRetry-After: 5\n\n{ \"jobId\": \"12345\", \"status\": \"PROCESSING\" }\n```\n\n## Polling the status resource\n\n```http\nGET /reports/jobs/12345\n\nHTTP/1.1 200 OK\n{ \"jobId\": \"12345\", \"status\": \"COMPLETED\", \"resultUrl\": \"/reports/987\" }\n```\n\nCommon designs after completion:\n\n- Return `200` with the job body including a link to the result (above), or\n- Return `303 See Other` with `Location` pointing at the created resource.\n\n## Status model\n\n`QUEUED` -> `PROCESSING` -> `COMPLETED` or `FAILED` (and optionally `CANCELLED`). Include progress percentage if useful and a safe, structured error on failure.\n\n## Design details\n\n- **Validate first:** reject malformed requests with `400/422` before queuing, so `202` is not used to hide errors.\n- **Idempotency:** accept an `Idempotency-Key` so retries do not create duplicate jobs.\n- **Cancellation:** `DELETE /reports/jobs/12345` where meaningful.\n- **Authorisation:** only the job owner may read the status.\n- **Retention:** expire completed jobs and results after a documented period.\n- **Polling guidance:** `Retry-After` or documented intervals reduce load; consider webhooks for many consumers.\n\n## Common mistakes\n\nReturning `202` but never offering a way to find out what happened, polling too aggressively, or returning `200` immediately for work that has not started.",
+      "followUps": [
+        "Polling or webhooks: how do you decide?",
+        "What does the client do if the job fails?",
+        "Would you ever return 303 when the job completes?"
+      ],
+      "related": [
+        "sync-vs-async-apis",
+        "idempotency-keys"
+      ]
+    }
+  ]
+}

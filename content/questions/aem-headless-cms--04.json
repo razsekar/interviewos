@@ -1,0 +1,580 @@
+{
+  "category": "aem-headless-cms",
+  "questions": [
+    {
+      "slug": "aem-what-is-aem",
+      "title": "What is Adobe Experience Manager, and what problem does it solve?",
+      "topic": "AEM Fundamentals",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "aem",
+        "dxp",
+        "cms"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-adobe-experience-manager-aem",
+          "pages": [
+            1,
+            2,
+            8
+          ]
+        }
+      ],
+      "quick": "AEM is Adobe's enterprise content management and digital experience platform. It lets content teams create, review, approve and publish pages, assets and structured content through governed workflows, without a code release for every change. It can render pages itself or, in a headless setup, expose content through APIs to React or mobile apps. As an architect I focus on content modeling, publishing workflow, caching, localization, security and how the frontend consumes content.",
+      "revision": "AEM is an enterprise CMS plus digital asset manager: governed authoring and publishing, delivered as rendered pages or as headless content APIs.",
+      "detailed": "**AEM is an enterprise content management and digital experience platform** from Adobe, part of the Adobe Experience Cloud. Its core job is to separate the work of *managing* content (authoring, assets, approvals, publishing, localization) from the engineering work of *building and deploying* the experience.\n\n## What it covers\n- **AEM Sites**: web page and experience management, templates, components, editors.\n- **AEM Assets**: a digital asset management (DAM) capability for images, video and documents, with metadata and renditions.\n- **Content Fragments and APIs**: structured, channel-neutral content for headless use.\n- **Workflow, permissions and governance**: who may edit, approve and publish what.\n\n## The problem it solves\nA large organisation (for example a global automotive or retail brand) has many markets, brands, campaigns and editors. Without a CMS, every copy change becomes a ticket and a deployment. With AEM, authors change model descriptions, promotions or dealer text themselves, under approval rules, while developers own components and delivery.\n\n## Delivery styles\n| Style | Who renders HTML | Typical use |\n|---|---|---|\n| Traditional / hybrid | AEM components and templates | Content-heavy marketing sites |\n| Headless | A separate React/Next.js/mobile app | Multi-channel, independent frontend teams |\n\n## Common mistakes\n- Treating AEM as only a website tool and ignoring the asset and fragment capabilities.\n- Assuming AEM alone gives performance or SEO; both depend on the delivery architecture (CDN, caching, rendering).\n- Describing a single deployment model: AEM as a Cloud Service, Adobe Managed Services and on-premise installs differ in operations and tooling, so hedge version-specific claims.",
+      "followUps": [
+        "How does AEM differ from a SaaS headless CMS?",
+        "Which parts of AEM would a frontend architect interact with most?",
+        "What changes between AEM as a Cloud Service and an on-premise install?"
+      ],
+      "related": [
+        "aem-author-vs-publish",
+        "aem-sites-vs-assets",
+        "aem-deployment-models"
+      ]
+    },
+    {
+      "slug": "aem-author-vs-publish",
+      "title": "What is the difference between AEM Author and Publish?",
+      "topic": "AEM Architecture",
+      "difficulty": "beginner",
+      "type": "comparison",
+      "tags": [
+        "aem",
+        "author",
+        "publish",
+        "architecture"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-adobe-experience-manager-aem",
+          "pages": [
+            2,
+            3,
+            8
+          ]
+        }
+      ],
+      "quick": "Author is where people work: authors create and edit content, assets and run workflows and approvals, and it is access-controlled and not meant for public traffic. Publish serves the approved, activated content to visitors or consuming apps and is scaled for read load, normally behind a CDN and Dispatcher. Content moves from Author to Publish by activation, so unpublished drafts never reach the public tier. They are separate responsibilities, not dev and prod environments.",
+      "revision": "Author = create, edit, approve (private, write-heavy). Publish = serve approved content (public-facing, read-heavy). Activation moves content between them.",
+      "detailed": "**Author** and **Publish** are two roles in the AEM content lifecycle, usually run as separate tiers. They are not \"staging\" and \"production\": every environment (dev, stage, prod) normally has both.\n\n{{diagram:tiers}}\n\n## Author tier\n- Used by editors, reviewers and administrators.\n- Hosts authoring UIs, workflows, versioning, permissions and the full content tree, including drafts.\n- Restricted to authenticated users and corporate networks or SSO; it is not sized for anonymous traffic.\n\n## Publish tier\n- Holds only content that has been **activated** (published).\n- Optimised for read traffic and typically fronted by Dispatcher and a CDN.\n- Usually has little or no editing capability and anonymous access to published paths only.\n\n## How content moves\nAn author activates a page or fragment; AEM transfers it to the publish tier (via replication in classic setups, or the managed content distribution mechanism in AEM as a Cloud Service). Unpublishing removes it again. Mechanics differ by deployment model, so describe the principle rather than the plumbing unless you know the target setup.\n\n## Why it matters for a frontend architect\n- A headless frontend in production should call **Publish** (through CDN), never Author.\n- Preview deliberately reads from **Author**, which needs separate credentials and cache isolation.\n- Scaling reads means adding publish capacity; scaling editors means Author sizing, and the two rarely move together.\n\n## Common mistakes\n- Pointing a public app at Author \"because the content is already there\", exposing drafts and overloading a tier not built for it.\n- Assuming content is live the moment it is saved: saved is not published.",
+      "diagrams": [
+        {
+          "id": "tiers",
+          "title": "Author and Publish tiers",
+          "alt": "Content authors work in AEM Author. Approved content is activated to AEM Publish. Visitors reach Publish through a CDN and Dispatcher.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "a",
+              "label": "Content authors"
+            },
+            {
+              "id": "b",
+              "label": "AEM Author"
+            },
+            {
+              "id": "c",
+              "label": "AEM Publish"
+            },
+            {
+              "id": "d",
+              "label": "Dispatcher"
+            },
+            {
+              "id": "e",
+              "label": "CDN"
+            },
+            {
+              "id": "f",
+              "label": "Visitors"
+            }
+          ],
+          "edges": [
+            {
+              "from": "a",
+              "to": "b",
+              "label": "edit, approve"
+            },
+            {
+              "from": "b",
+              "to": "c",
+              "label": "activate"
+            },
+            {
+              "from": "c",
+              "to": "d"
+            },
+            {
+              "from": "d",
+              "to": "e"
+            },
+            {
+              "from": "e",
+              "to": "f"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Why should a production frontend never call Author?",
+        "How does content get replicated or distributed to Publish?",
+        "How would you scale Publish for a campaign spike?"
+      ],
+      "related": [
+        "aem-publish-workflow-activation",
+        "aem-author-preview",
+        "aem-dispatcher"
+      ]
+    },
+    {
+      "slug": "aem-sites-vs-assets",
+      "title": "What are AEM Sites and AEM Assets, and how do they work together?",
+      "topic": "AEM Fundamentals",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "aem",
+        "sites",
+        "assets",
+        "dam"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-adobe-experience-manager-aem",
+          "pages": [
+            2,
+            3
+          ]
+        }
+      ],
+      "quick": "AEM Sites manages websites: pages, templates, components and authoring. AEM Assets is the digital asset management side: it stores images, video and documents with metadata, renditions and permissions. They connect because pages and fragments reference assets from the DAM instead of embedding copies, so one governed image can be reused across sites and channels. Updating or expiring an asset in one place can then be reflected everywhere it is referenced.",
+      "revision": "Sites manages pages and experiences; Assets is the governed DAM of media. Content references assets by path, so one asset serves many places.",
+      "detailed": "**AEM Sites** and **AEM Assets** are separate capabilities of the platform that are almost always used together.\n\n## AEM Sites\n- Manages pages, templates, components, navigation and page-level authoring.\n- Gives editors a visual or form-based way to compose pages.\n- Also the home of site structure and language roots (see the localization question).\n\n## AEM Assets\n- A digital asset management system: upload, tag, enrich with metadata, search, approve and expire media.\n- Generates **renditions** (resized and format-converted versions) so consumers do not receive the original multi-megabyte file.\n- Applies permissions and usage rights, which matters for licensed or time-limited imagery.\n\n## How they connect\nPages, Content Fragments and Experience Fragments store **references** to assets, commonly paths under the DAM tree (the repository convention is a `/content/dam` subtree). A heading image in a vehicle page is not copied into the page; it points to one governed asset.\n\n```json\n{\n  \"title\": \"Example Sedan\",\n  \"heroImage\": \"/content/dam/example/sedan/hero.jpg\"\n}\n```\n\n## Why it matters\n- **Reuse**: one approved image or video across web, app and email.\n- **Governance**: replace or expire an asset once and every reference is affected.\n- **Performance**: image delivery (renditions, modern formats, CDN) is a first-class concern, not an afterthought.\n\n## Headless implication\nA frontend receiving `/content/dam/...` paths must resolve them to a real, publicly deliverable URL on the publish or CDN host, ideally via an optimised delivery service. Which image delivery option exists depends on the licence and deployment model, so verify it.\n\n## Common mistake\nUploading images into pages ad hoc or hard-coding asset URLs in the frontend, losing the reuse and governance benefits.",
+      "followUps": [
+        "How would a React app turn a DAM path into a deliverable image URL?",
+        "What are renditions and why do they matter for performance?",
+        "How do asset expiry and usage rights affect cached pages?"
+      ],
+      "related": [
+        "aem-image-delivery",
+        "aem-content-repository",
+        "aem-what-is-aem"
+      ]
+    },
+    {
+      "slug": "aem-content-repository",
+      "title": "How does AEM store content, and what does the repository layout tell an architect?",
+      "topic": "AEM Architecture",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "aem",
+        "jcr",
+        "oak",
+        "sling",
+        "repository"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "AEM stores everything as a hierarchical content repository based on the JCR standard, implemented by Apache Jackrabbit Oak, and exposes nodes as resources through Apache Sling. Pages typically live under /content, assets under /content/dam, configuration under /conf and code under /apps. URLs map to repository paths, so structure drives routing, permissions, replication and caching. Good tree design and clear separation of content from code are architectural decisions, not housekeeping.",
+      "revision": "AEM is a JCR/Oak content tree served by Sling: content under /content, assets under /content/dam, config in /conf, code in /apps.",
+      "detailed": "**AEM is built on a hierarchical content repository.** Content is stored as a tree of nodes and properties following the JCR (Java Content Repository) standard, with Apache Jackrabbit Oak as the implementation and Apache Sling mapping request URLs to repository resources.\n\n## Conventional areas\n| Path | Typical purpose |\n|---|---|\n| `/content` | Sites, pages and language roots |\n| `/content/dam` | Assets (DAM) and, commonly, Content Fragments |\n| `/conf` | Editable templates, policies, model and API configuration |\n| `/apps` and `/libs` | Code and product-provided definitions |\n\n(Exact layout can vary by project and AEM version; treat these as conventions.)\n\n## Request resolution\nSling resolves a URL such as `/content/example/en/vehicles/sedan.html` to the node at that path, selects a rendering script or component, and applies selectors and extensions. Dispatcher configurations and URL mappings often shorten public URLs, for example removing `/content/example`.\n\n## Why architects care\n- **Permissions** are path-based: a clean tree per brand and locale makes least-privilege simple.\n- **Replication and invalidation** work on paths, so structure affects cache flush scope.\n- **Localization** depends on a consistent language-root convention.\n- **Immutable vs mutable**: in AEM as a Cloud Service, code and configuration under `/apps` and `/libs` are deployed through the pipeline and not edited at runtime, while `/content` is mutable; assuming you can hot-fix code in the repository is an on-prem habit.\n\n## Common mistakes\n- Deep, inconsistent trees that make permissions and flushes unpredictable.\n- Storing large volumes of non-content data (logs, user-generated feeds) in the repository.\n- Hard-coding repository paths in the frontend instead of using stable API contracts.",
+      "followUps": [
+        "How do repository paths relate to public URLs?",
+        "Why does path design affect permissions and cache invalidation?",
+        "What is mutable versus immutable content in AEM as a Cloud Service?"
+      ],
+      "related": [
+        "aem-sites-vs-assets",
+        "aem-localization-language-copies",
+        "aem-deployment-models"
+      ]
+    },
+    {
+      "slug": "aem-content-fragments-vs-experience-fragments",
+      "title": "Content Fragments vs Experience Fragments: what is the difference and when do you use each?",
+      "topic": "AEM Content Modeling",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "aem",
+        "content-fragments",
+        "experience-fragments",
+        "modeling"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-adobe-experience-manager-aem",
+          "pages": [
+            3,
+            8
+          ]
+        }
+      ],
+      "quick": "A Content Fragment is structured, presentation-neutral content defined by a model, like a vehicle spec or an FAQ, and consumed by any channel through APIs such as GraphQL. An Experience Fragment is a reusable, presentation-oriented group of components, like a promo banner or header, that already includes layout and can be reused across pages and, with care, exported to other channels as HTML. I choose Content Fragments for data and Experience Fragments for reusable designed blocks.",
+      "revision": "Content Fragment = structured data, no layout, API-first. Experience Fragment = reusable designed block with layout. Data versus presentation.",
+      "detailed": "**Content Fragments (CF)** hold structured, channel-neutral content. **Experience Fragments (XF)** hold reusable, laid-out groups of components.\n\n## Comparison\n| | Content Fragment | Experience Fragment |\n|---|---|---|\n| Nature | Structured data defined by a Content Fragment Model | Composed experience: components plus layout |\n| Presentation | None; the consumer decides | Included, can have variations (for example web, email) |\n| Typical consumers | React/Next.js, mobile apps, kiosks, other systems | AEM pages, and sometimes external channels via rendered HTML |\n| Main API | GraphQL (commonly with persisted queries), or other AEM delivery APIs | Rendered HTML / JSON export of components, varies by setup |\n| Examples | Vehicle specification, author bio, FAQ item, store details | Promotional banner, header and footer, campaign teaser |\n\n## Content Fragment model\nA model declares typed fields (text, number, enumeration, date, reference to another fragment or asset). Authors fill in instances; developers query them. Because fields are typed, the contract between content and frontend is explicit and can be validated.\n\n```text\nModel: Vehicle\n- name: Short text\n- tagline: Short text\n- bodyStyle: Enumeration\n- heroImage: Content reference\n- variants: Fragment references (many)\n```\n\n## Decision rule\n- Same information needed by several channels or presentations: **Content Fragment**.\n- Same *designed block* needed on many pages, authored once: **Experience Fragment**.\n- A headless React app generally wants CFs, because XFs bring AEM's markup assumptions with them.\n\n## Common mistakes\n- Using XFs as a data source for an app, which couples the app to AEM presentation.\n- Over-modeling CFs into page layouts (hero, column1, column2 fields), which recreates a CMS page tree inside fragments and kills reuse.\n- Forgetting that fragments are referenced, so changing or unpublishing one affects every consumer.",
+      "followUps": [
+        "How would you model a vehicle with trims and specifications as Content Fragments?",
+        "Can Experience Fragments be used in a headless app?",
+        "What happens to consumers when a referenced fragment is unpublished?"
+      ],
+      "related": [
+        "aem-headless-delivery-apis",
+        "aem-graphql-persisted-queries",
+        "aem-sites-vs-assets"
+      ]
+    },
+    {
+      "slug": "aem-headless-delivery-apis",
+      "title": "What APIs does AEM offer for headless content delivery?",
+      "topic": "AEM APIs",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "aem",
+        "api",
+        "graphql",
+        "headless"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-adobe-experience-manager-aem",
+          "pages": [
+            3,
+            5,
+            8
+          ]
+        }
+      ],
+      "quick": "For structured content, the main option is the AEM GraphQL API over Content Fragments, usually with persisted queries. There is also a JSON export of page and component structure, via Sling Model Exporter, used by SPA-style integrations, and the Assets HTTP API for assets and fragments. I choose GraphQL with persisted queries for presentation-free content, the component JSON when authors compose pages in AEM, and always verify availability for the specific deployment model.",
+      "revision": "GraphQL over Content Fragments for data, component JSON export for page composition, Assets HTTP API for assets. Choose by who owns layout.",
+      "detailed": "**AEM exposes several ways to read content as data**; which you choose depends on who controls page composition. Availability and details vary by AEM version and deployment model, so confirm against the Adobe documentation for the target environment.\n\n## Main options\n| API | What it returns | Best for |\n|---|---|---|\n| GraphQL over Content Fragments | Exactly the fields requested from fragment models | Data-driven, multi-channel content; frontend owns layout |\n| Component/page JSON export (Sling Model Exporter, commonly `.model.json`) | The page's component tree as JSON | Authors compose pages in AEM and a SPA renders them |\n| Assets HTTP API | REST view of assets and fragments | Simple reads and management integrations |\n\n## GraphQL in practice\nAuthors maintain fragments; the frontend asks for just what it needs:\n\n```graphql\nquery VehicleBySlug($slug: String!) {\n  vehicleList(filter: { slug: { _expressions: [{ value: $slug }] } }) {\n    items { name tagline heroImage { ... on ImageRef { _path } } }\n  }\n}\n```\n\n(Field and filter shapes depend on your models; this is illustrative.) For production, prefer **persisted queries** so responses are cacheable over GET; see the dedicated question.\n\n## Choosing\n- **Frontend owns layout** (typical React/Next.js product site): fragments plus GraphQL, with the app mapping content types to components.\n- **Authors own layout** inside AEM but you render in React: component JSON export, with an editing integration so authors can still use in-context editing.\n- **Mixed**: fragments for data, a small page model that lists which fragments appear where.\n\n## Cross-cutting concerns\nAuthentication (publish is usually anonymous for public content; author requires credentials), CORS, caching headers, versioning of models, and error handling when a field is missing.\n\n## Common mistakes\n- Querying Author from a public client.\n- Sending ad hoc GraphQL POST queries from browsers, which defeats CDN caching.\n- Treating model changes as free: removing a field breaks every consumer.",
+      "followUps": [
+        "How do you version a content model without breaking consumers?",
+        "When would you choose component JSON over GraphQL?",
+        "How do you secure API access for non-public content?"
+      ],
+      "related": [
+        "aem-graphql-persisted-queries",
+        "aem-react-integration",
+        "aem-content-fragments-vs-experience-fragments"
+      ]
+    },
+    {
+      "slug": "aem-graphql-persisted-queries",
+      "title": "Why use persisted queries with the AEM GraphQL API?",
+      "topic": "AEM APIs",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "aem",
+        "graphql",
+        "persisted-queries",
+        "caching"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Persisted queries store a named GraphQL query on the AEM server, and clients execute it with a cacheable HTTP GET instead of posting the query body. Because it is a GET with a stable URL, the CDN and Dispatcher can cache it, which protects Publish and cuts latency. It also limits what clients can ask for, reducing abuse and expensive arbitrary queries. I would use ad hoc POST queries only for development and use persisted queries in production.",
+      "revision": "Persisted queries turn GraphQL into cacheable GET endpoints and restrict clients to approved queries. Use them in production, ad hoc POST only in development.",
+      "detailed": "**Persisted queries save a named GraphQL query on the server and let clients run it with a simple GET request.** In AEM this is the recommended production approach for the Content Fragment GraphQL API.\n\n## The problem with ad hoc queries\nA normal GraphQL call is an HTTP POST carrying the query text. POST responses are generally not cached by CDNs or Dispatcher, so every page view can hit the AEM Publish tier, and any client can send arbitrarily large or expensive queries.\n\n## How persisted queries help\n1. A developer defines and persists a query under a name (via the AEM tooling or API, in a configuration scope).\n2. The frontend calls a stable URL, commonly of the form `/graphql/execute.json/<configuration>/<query-name>`, with variables passed as parameters. Verify the exact format for your version.\n3. Because it is a GET, **CDN and Dispatcher can cache the response** according to your TTL rules.\n\n```ts\nconst res = await fetch(\n  `${PUBLISH_HOST}/graphql/execute.json/example/vehicle-by-slug;slug=${encodeURIComponent(slug)}`\n);\nconst { data } = await res.json();\n```\n\n## Benefits\n- **Performance and scale**: cached responses, fewer origin hits.\n- **Security surface**: only approved queries run on Publish; no arbitrary exploration.\n- **Stability**: the query is a contract owned jointly by frontend and content teams, reviewed like code.\n\n## Trade-offs and cautions\n- Changing a persisted query affects all callers; promote through environments like an API release.\n- Cached results can be stale after publishing; align TTLs with invalidation (see the stale content question).\n- Variable encoding conventions are specific to AEM; test special characters.\n- Persisted queries must be deployed to Publish for each environment, usually via your delivery pipeline.\n\n## Common mistake\nBuilding GraphQL URLs with unsanitised user input or relying on browser POST queries in production.",
+      "followUps": [
+        "How would you invalidate cached persisted query results after a publish?",
+        "How do you manage persisted queries across dev, stage and prod?",
+        "What are the downsides of exposing arbitrary GraphQL to the public?"
+      ],
+      "related": [
+        "aem-headless-delivery-apis",
+        "aem-cdn-dispatcher-caching-layers",
+        "aem-cache-invalidation-stale-content"
+      ]
+    },
+    {
+      "slug": "aem-react-integration",
+      "title": "How would you integrate AEM with a React or Next.js frontend?",
+      "topic": "AEM Integration",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "aem",
+        "react",
+        "nextjs",
+        "integration"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-adobe-experience-manager-aem",
+          "pages": [
+            4,
+            5,
+            8,
+            9
+          ]
+        }
+      ],
+      "quick": "I would treat AEM as the content and publishing layer and React or Next.js as the presentation layer. I would define typed content models, expose them through a stable API such as persisted GraphQL queries, and map each content type to a reusable React component. For public pages I would use SSR or static generation with revalidation for SEO, plus CDN caching, author preview, localization, error handling and monitoring, and make sure unpublished content is never reachable publicly.",
+      "revision": "AEM owns content, React owns UI. Stable typed API contract, content-type-to-component mapping, SSR/SSG for SEO, cached delivery, secure preview.",
+      "detailed": "**Treat AEM as the content system and React as the renderer, joined by a stable, typed API contract.**\n\n{{diagram:flow}}\n\n## Core design\n1. **Model content** in AEM (Content Fragment models or page structures) with explicit fields, not layout hacks.\n2. **Expose it** via a suitable API (commonly GraphQL persisted queries on Publish).\n3. **Map content to components** in the frontend through a registry keyed by content type.\n4. **Render** with Next.js SSR/SSG (or similar) for public SEO-sensitive pages, client rendering for personalised or authenticated areas.\n5. **Cache** at the CDN and in the framework (for example time-based revalidation or on-demand revalidation triggered by a publish event).\n6. **Observe** API latency, errors and Core Web Vitals.\n\n## Component mapping sketch\n```tsx\ntype Block = { type: 'hero' | 'specs'; data: unknown };\n\nconst registry: Record<Block['type'], React.ComponentType<{ data: any }>> = {\n  hero: Hero,\n  specs: SpecsTable,\n};\n\nexport function Blocks({ blocks }: { blocks: Block[] }) {\n  return <>{blocks.map((b, i) => {\n    const C = registry[b.type];\n    return C ? <C key={i} data={b.data} /> : null; // unknown types fail safe\n  })}</>;\n}\n```\n\n## Decisions to make explicit\n- **Who owns page composition**: content teams in AEM, or code?\n- **Authoring experience**: how do editors preview and, if needed, edit in context (AEM's SPA Editor or Universal Editor are options in some setups; verify support).\n- **Data fetching boundary**: server-side, so API credentials and cache control stay off the client.\n- **Resilience**: timeouts, bounded retries, last-known-good content.\n\n## Common mistakes\n- Calling Author from production code.\n- Exposing raw AEM paths and structure to UI components, so every model change breaks the UI. Add a thin mapping layer.\n- Ignoring preview and SEO until late.",
+      "diagrams": [
+        {
+          "id": "flow",
+          "title": "AEM to React delivery path",
+          "alt": "Authors create content in AEM Author, which is published to AEM Publish. A Next.js app fetches content from Publish through a CDN and renders pages for users.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "a",
+              "label": "AEM Author"
+            },
+            {
+              "id": "b",
+              "label": "AEM Publish"
+            },
+            {
+              "id": "c",
+              "label": "CDN"
+            },
+            {
+              "id": "d",
+              "label": "Next.js app"
+            },
+            {
+              "id": "e",
+              "label": "Browser"
+            }
+          ],
+          "edges": [
+            {
+              "from": "a",
+              "to": "b",
+              "label": "publish"
+            },
+            {
+              "from": "b",
+              "to": "c",
+              "label": "content API"
+            },
+            {
+              "from": "c",
+              "to": "d"
+            },
+            {
+              "from": "d",
+              "to": "e",
+              "label": "HTML"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you handle a content type the frontend does not recognise?",
+        "Would you fetch content on the server or in the browser, and why?",
+        "How do you keep model changes in AEM from breaking the frontend release?"
+      ],
+      "related": [
+        "aem-headless-delivery-apis",
+        "aem-author-preview",
+        "aem-seo-headless"
+      ]
+    },
+    {
+      "slug": "aem-publish-workflow-activation",
+      "title": "How does content move from authoring to live, and where do workflows fit?",
+      "topic": "AEM Governance",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "aem",
+        "workflow",
+        "publishing",
+        "replication"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "An author edits content, optionally submits it into an approval workflow, and an approver publishes, also called activation. AEM then makes the content available on the Publish tier, by replication in classic setups or its managed content distribution in AEM as a Cloud Service, and triggers cache invalidation. Workflows encode review steps, and permissions decide who may publish. I would also support scheduled publish, unpublish and rollback via versions.",
+      "revision": "Edit, review via workflow, activate to Publish, then invalidate caches. Workflows enforce approvals; versions and unpublish enable rollback.",
+      "detailed": "**Content becomes public only when it is activated; workflows and permissions govern who can do that and how.**\n\n## Typical lifecycle\n1. **Create or edit** in Author (a draft; versions can be created).\n2. **Review**: optionally route through a workflow (for example legal or brand review, translation approval).\n3. **Activate** (publish): content and referenced assets or fragments are sent to the Publish tier. In classic setups this is replication; in AEM as a Cloud Service a managed content distribution service does this. Do not over-specify the mechanism without knowing the environment.\n4. **Cache effects**: Dispatcher and CDN entries for changed paths must be invalidated or expire.\n5. **Unpublish or roll back** when needed, using unpublish and earlier versions.\n\n## Workflows\nAEM workflow models define steps such as participant approval, automated processing and notifications. Typical uses: content approval, asset processing, translation hand-off, and expiry reviews.\n\n## Governance levers\n- **Permissions**: separate authors who can edit from approvers who can publish.\n- **Scheduled publish/unpublish** for campaigns and embargoed launches.\n- **Audit trail** via history and versions.\n- **Dependencies**: publishing a page without its referenced fragments or assets is a classic defect; use \"publish with references\" style options and checks.\n\n## Headless-specific wrinkle\nA frontend usually reads a *fragment*, not a page. Authors must understand that publishing a fragment affects every page or app consuming it, and your pipeline may need to trigger a frontend revalidation on publish events (webhooks or event integrations, depending on setup).\n\n## Common mistakes\n- Granting broad publish rights \"for speed\".\n- Publishing content but not its referenced assets.\n- No rollback plan beyond hoping someone remembers the old text.",
+      "followUps": [
+        "How would you trigger a Next.js revalidation when a fragment is published?",
+        "How do you handle a time-boxed campaign launch?",
+        "Who should be allowed to publish, and how would you enforce it?"
+      ],
+      "related": [
+        "aem-author-vs-publish",
+        "aem-governance-security",
+        "aem-cache-invalidation-stale-content"
+      ]
+    },
+    {
+      "slug": "aem-author-preview",
+      "title": "How would you implement author preview for a headless AEM site?",
+      "topic": "AEM Integration",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "aem",
+        "preview",
+        "author",
+        "nextjs",
+        "security"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-adobe-experience-manager-aem",
+          "pages": [
+            7
+          ]
+        }
+      ],
+      "quick": "I would build a separate preview path that reads unpublished content from Author using authenticated, server-side calls, and renders it in the same React components used in production. Preview requests are clearly distinguished, for example through a protected route or draft mode, never cached publicly or shared with production cache keys, and only accessible to authenticated editors. The editing UI links to it, and the preview shows publish state so authors know what visitors currently see.",
+      "revision": "Preview = authenticated server-side reads from Author, same components, isolated from public caches, restricted to editors, with visible draft state.",
+      "detailed": "**Author preview lets editors see unpublished content in the real frontend, without ever exposing drafts publicly.**\n\n## Requirements\n- Reuse the **production components** so preview matches reality.\n- Read from **Author** (drafts) instead of Publish.\n- Keep it **private**: only authenticated editors, never indexable.\n- **Isolate caches**: preview responses must never be stored under keys that public traffic can hit.\n\n## A common design (Next.js flavoured)\n1. The editor clicks \"Preview\" in AEM (or a link/extension); it opens `/api/preview?path=...` on the frontend.\n2. That route verifies the editor (SSO, a signed token or a shared secret from the editing tool) and enables the framework's draft mode, which sets a cookie.\n3. Pages in draft mode fetch content **server-side** from Author using service credentials held in server-only configuration.\n4. Responses carry `Cache-Control: private, no-store` and are excluded from CDN caching; add `noindex`.\n\n```ts\n// pseudo-handler: verify editor, then enable draft mode\nexport async function GET(req: Request) {\n  if (!(await isEditor(req))) return new Response('Unauthorized', { status: 401 });\n  (await draftMode()).enable();\n  return Response.redirect(new URL(targetPath(req), req.url));\n}\n```\n\n## Variants\n- **In-context editing**: AEM's own editors (SPA Editor or Universal Editor in some setups) load the frontend inside the editor and annotate components; support depends on version and model, so verify.\n- **Preview environment**: a separate deployment pointing at Author, simpler isolation but extra infrastructure.\n\n## Pitfalls\n- Putting Author credentials in browser code.\n- Letting a CDN cache a preview response and serve a draft to the public.\n- Preview showing content visitors cannot yet see with no indicator, causing \"it works in preview\" confusion.\n- Forgetting referenced fragments and assets that exist only as unpublished drafts.\n\n## Related decision\nAlso define how long drafts take to appear (Author reads are live, but your framework cache might not be).",
+      "followUps": [
+        "How do you prevent a CDN from caching preview responses?",
+        "What credentials would the preview server use, and where are they stored?",
+        "How would you support in-context editing rather than a separate preview?"
+      ],
+      "related": [
+        "aem-author-vs-publish",
+        "aem-react-integration",
+        "aem-governance-security"
+      ]
+    },
+    {
+      "slug": "aem-dispatcher",
+      "title": "What is the AEM Dispatcher and what does it do?",
+      "topic": "AEM Delivery",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "aem",
+        "dispatcher",
+        "caching",
+        "security"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-adobe-experience-manager-aem",
+          "pages": [
+            3,
+            8
+          ]
+        }
+      ],
+      "quick": "Dispatcher is AEM's caching and request-filtering layer, typically a module on a web server such as Apache HTTP Server in front of Publish. It caches rendered responses as files, serves repeat requests without touching AEM, and filters which URLs can reach Publish, blocking admin and internal paths. It supports invalidation when content is activated. It both speeds up delivery and protects the origin, and in AEM as a Cloud Service it is part of the managed publish setup.",
+      "revision": "Dispatcher: web-server caching and URL-filtering layer in front of Publish. It offloads traffic, blocks unsafe paths and is flushed on activation.",
+      "detailed": "**Dispatcher is AEM's reverse-proxy caching and filtering layer** in front of the Publish tier. It is commonly implemented as a module for a web server such as Apache HTTP Server.\n\n## Responsibilities\n1. **Caching**: stores rendered pages, assets and cacheable API responses as files; later requests are served without invoking AEM.\n2. **Filtering**: an allowlist of what may be requested (paths, selectors, extensions, methods), so only intended content reaches Publish.\n3. **Load balancing and routing**: can distribute requests across several Publish instances (classic setups).\n4. **Rewrites**: friendly URLs and mapping between public and repository paths.\n\n## What gets cached\nGenerally GET requests for cacheable resources that carry no query string or authorisation data, subject to rules. You configure what is cacheable and what is not; personalised or secured responses should be excluded or isolated.\n\n## Invalidation\nWhen content is activated, Publish can notify Dispatcher to invalidate affected cache files. Many setups use \"statfile\" style invalidation (a marker timestamp that makes older files stale) rather than deleting everything, plus optional TTL-based expiry. Details depend on configuration.\n\n## Security role\nA tight filter is a first-line defence: block admin consoles, system paths, and unneeded selectors or extensions. Treat the default as deny and open specific patterns.\n\n## Deployment-model notes\nIn AEM as a Cloud Service, Dispatcher configuration is part of the code you deploy through Cloud Manager, within platform constraints, and a CDN is provided in front. On-premise or Managed Services setups give more freedom and more responsibility. Check the target.\n\n## Common mistakes\n- Treating Dispatcher as a CDN: it is regional origin infrastructure, not an edge network.\n- Broad filter rules copied from samples.\n- Caching responses that vary by user or query, then leaking or confusing content.\n- Flushing the whole cache on every small change.",
+      "followUps": [
+        "How does Dispatcher decide what is cacheable?",
+        "How would you harden Dispatcher filter rules?",
+        "How do Dispatcher and a CDN divide responsibilities?"
+      ],
+      "related": [
+        "aem-cdn-dispatcher-caching-layers",
+        "aem-cache-invalidation-stale-content",
+        "aem-governance-security"
+      ]
+    },
+    {
+      "slug": "aem-cdn-dispatcher-caching-layers",
+      "title": "How do CDN, Dispatcher and application caching fit together for AEM?",
+      "topic": "AEM Delivery",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "aem",
+        "cdn",
+        "dispatcher",
+        "caching",
+        "performance"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-adobe-experience-manager-aem",
+          "pages": [
+            2,
+            6
+          ]
+        }
+      ],
+      "quick": "I think in layers. The browser cache holds static versioned files, the CDN caches public responses at the edge near users, Dispatcher caches at the origin edge in front of Publish, and the application layer, such as Next.js, may cache rendered pages and API data. Each layer has its own TTL and invalidation story. The design goal is a high CDN hit ratio, few origin requests, correct cache keys, and publish events that invalidate only what changed.",
+      "revision": "Layered caches: browser, CDN edge, Dispatcher at origin, app cache. Each needs TTLs, cache keys and targeted invalidation tied to publish events.",
+      "detailed": "**Cache in layers, closest to the user first, and give every layer an explicit TTL, key and invalidation rule.**\n\n{{diagram:layers}}\n\n## The layers\n| Layer | Scope | Strength | Watch for |\n|---|---|---|---|\n| Browser | One user | Zero network for repeat visits | Stale files unless URLs are versioned |\n| CDN | Global edge | Latency and origin offload | Purge speed and granularity; cache key (query strings, headers, cookies) |\n| Dispatcher | Regional origin | Protects Publish; file-based cache | Flush rules, filters, exclusions |\n| App/framework | Rendered pages, data | Avoids rework | Revalidation timing; duplicate TTL logic |\n\n## Design principles\n- **Static, versioned assets** (hashed filenames) get long, immutable cache lifetimes.\n- **HTML and API JSON** get shorter TTLs, possibly with stale-while-revalidate behaviour where the CDN supports it.\n- **Cache keys** should include only what changes the response (path, locale, selected parameters); avoid varying on cookies for public content.\n- **Personalised or preview traffic** bypasses shared caches.\n- **Invalidate narrowly** by path or surrogate tags/keys where available, rather than purging everything.\n\n## Example header policy (illustrative)\n```http\n# hashed JS/CSS\nCache-Control: public, max-age=31536000, immutable\n# published content API\nCache-Control: public, max-age=300, stale-while-revalidate=60\n```\n\n## Deployment-model notes\nAEM as a Cloud Service ships with a managed CDN and Dispatcher setup, with rules you configure within platform limits; AEM on-premise or Managed Services commonly uses a customer-chosen CDN plus Dispatcher. Mention the options rather than assuming one.\n\n## Common mistakes\n- Different TTLs in each layer that add up to surprisingly long staleness.\n- Cache keys containing tracking parameters, which fragments the cache.\n- No monitoring of hit ratio or origin load, so problems appear as outages.",
+      "diagrams": [
+        {
+          "id": "layers",
+          "title": "Cache layers in front of AEM Publish",
+          "alt": "A browser request passes through the CDN, then Dispatcher, and only on a cache miss reaches AEM Publish. A Next.js layer can sit between the CDN and Dispatcher.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "b",
+              "label": "Browser cache"
+            },
+            {
+              "id": "c",
+              "label": "CDN edge"
+            },
+            {
+              "id": "n",
+              "label": "Next.js cache"
+            },
+            {
+              "id": "d",
+              "label": "Dispatcher"
+            },
+            {
+              "id": "p",
+              "label": "AEM Publish"
+            }
+          ],
+          "edges": [
+            {
+              "from": "b",
+              "to": "c",
+              "label": "miss"
+            },
+            {
+              "from": "c",
+              "to": "n",
+              "label": "miss"
+            },
+            {
+              "from": "n",
+              "to": "d",
+              "label": "miss"
+            },
+            {
+              "from": "d",
+              "to": "p",
+              "label": "miss"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you choose cache keys for localized pages?",
+        "What cache policy would you use for GraphQL persisted query responses?",
+        "How do you monitor cache effectiveness?"
+      ],
+      "related": [
+        "aem-dispatcher",
+        "aem-cache-invalidation-stale-content",
+        "aem-graphql-persisted-queries"
+      ]
+    }
+  ]
+}

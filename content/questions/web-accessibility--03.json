@@ -1,0 +1,466 @@
+{
+  "category": "web-accessibility",
+  "questions": [
+    {
+      "slug": "accessible-modal-dialog",
+      "title": "How do you build an accessible modal dialog?",
+      "topic": "Interactive Components",
+      "difficulty": "intermediate",
+      "type": "coding",
+      "tags": [
+        "dialog",
+        "modal",
+        "focus-management",
+        "react"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-wcag-web-accessibility",
+          "pages": [
+            5
+          ]
+        }
+      ],
+      "quick": "An accessible modal has an accessible name, moves focus inside when opened, keeps Tab within it, closes with Escape, makes the background inert, and returns focus to the trigger on close. The easiest robust route is the native dialog element opened with showModal, which provides most of this: top-layer rendering, an inert background, Escape handling and focus management. I add a label with aria-labelledby, a visible close button, and wire the close event to restore focus if needed. I test with keyboard and screen reader.",
+      "revision": "Use native dialog with showModal() when possible: it gives inert background, Escape and focus handling. Add a name, a close button, return focus to the trigger, and test by keyboard and screen reader.",
+      "detailed": "A modal dialog blocks interaction with the rest of the page until dismissed. Requirements:\n\n1. An **accessible name** (`aria-labelledby` pointing to its heading).\n2. **Focus moves into** the dialog on open.\n3. Focus is **contained** while open, and the background is not reachable or readable.\n4. **Escape** closes it (unless the action is destructive and needs confirmation).\n5. A visible **close** control.\n6. Focus **returns** to the triggering element on close.\n\n## Native `<dialog>` first\n\nOpened with `showModal()`, the native element renders in the top layer, makes the rest of the document inert, handles Escape (the `cancel` event), and places focus inside. It has `role=\"dialog\"` implicitly. Browsers have improved a lot here and support is broad in modern versions, but verify behavior in the browsers and screen readers you support.\n\n```tsx\nimport { useEffect, useRef } from \"react\";\n\nexport function Dialog({ open, onClose, title, children }: {\n  open: boolean; onClose: () => void; title: string; children: React.ReactNode;\n}) {\n  const ref = useRef<HTMLDialogElement>(null);\n\n  useEffect(() => {\n    const el = ref.current;\n    if (!el) return;\n    if (open && !el.open) el.showModal();\n    if (!open && el.open) el.close();\n  }, [open]);\n\n  return (\n    <dialog ref={ref} aria-labelledby=\"dlg-title\" onClose={onClose}>\n      <h2 id=\"dlg-title\">{title}</h2>\n      {children}\n      <button type=\"button\" onClick={onClose}>Close</button>\n    </dialog>\n  );\n}\n```\n\nThe `close` event fires on Escape and `close()`, which keeps React state in sync. Browsers commonly restore focus to the previously focused element, but if the trigger can unmount, restore it yourself.\n\n## When custom is needed\n\nIf you cannot use `<dialog>`, such as with an older support matrix, build it with `role=\"dialog\"`, `aria-modal=\"true\"`, a focus trap, `inert` or `aria-hidden` on siblings, a portal and a scroll lock. A tested library, such as one from a vetted design system, is safer than rolling your own.\n\n## Common mistakes\n\n- Opening with `show()` (non-modal) and expecting modal behavior.\n- No label or no initial focus target.\n- Auto-focusing the close button for long content (focusing the heading or first field may suit better).\n- Focus not returned, or lost when the trigger is removed.\n- Nested scroll or page scroll behind the dialog.\n- Using a modal where an inline disclosure would do.",
+      "followUps": [
+        "Why prefer native dialog over a custom div with role dialog?",
+        "Where should initial focus go in a long dialog?",
+        "How would you handle a dialog triggered by an element that gets removed?"
+      ],
+      "related": [
+        "keyboard-accessibility",
+        "what-is-aria-and-when-to-use-it"
+      ]
+    },
+    {
+      "slug": "custom-dropdown-keyboard-fix",
+      "title": "A custom dropdown works only with a mouse. How would you fix it?",
+      "topic": "Interactive Components",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "dropdown",
+        "select",
+        "combobox",
+        "listbox"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-wcag-web-accessibility",
+          "pages": [
+            8
+          ]
+        }
+      ],
+      "quick": "First I would ask whether a native select meets the need, since it is accessible, mobile-friendly and free. If a custom widget is truly required, I follow the ARIA Authoring Practices pattern for a select-only combobox or listbox. That means a focusable trigger with a role, accessible name, aria-expanded and aria-controls, a listbox of options with aria-selected, Arrow, Home, End, Enter and Escape keys, type-ahead, and managed focus via aria-activedescendant. Then I test with keyboard and screen readers.",
+      "revision": "Prefer native select. Otherwise follow the APG select-only combobox: name, role, aria-expanded, listbox options, arrow/Enter/Escape keys, managed focus, then test with keyboard and screen readers.",
+      "detailed": "## Step 1: Do you need a custom control?\n\nA native `<select>` provides role, name, state, keyboard, type-ahead, and platform pickers on mobile. It has styling limits, but those are often acceptable. Custom dropdowns frequently exist for visual reasons that could be handled by styling or by a different pattern, such as radio buttons for a few options or a menu button.\n\n## Step 2: If custom, choose the right pattern\n\n| Need | Pattern |\n|---|---|\n| Choose one value from a list | Select-only combobox with a listbox popup |\n| Type to filter | Editable combobox |\n| List of actions, not values | Menu button |\n\n## Select-only combobox (simplified)\n\n```html\n<label id=\"trim-label\">Trim</label>\n<div\n  role=\"combobox\"\n  tabindex=\"0\"\n  aria-labelledby=\"trim-label\"\n  aria-haspopup=\"listbox\"\n  aria-expanded=\"false\"\n  aria-controls=\"trim-list\"\n  aria-activedescendant=\"\"\n>Select a trim</div>\n<ul role=\"listbox\" id=\"trim-list\" aria-labelledby=\"trim-label\" hidden>\n  <li role=\"option\" id=\"opt-1\" aria-selected=\"false\">Base</li>\n  <li role=\"option\" id=\"opt-2\" aria-selected=\"false\">Sport</li>\n</ul>\n```\n\n## Required behavior\n\n- Enter, Space or Down Arrow opens the list and moves the active option.\n- Up and Down move the active option, Home and End jump, and typing selects by prefix.\n- Enter or Space selects and closes. Escape closes without changing the value.\n- Focus stays on the combobox, and `aria-activedescendant` points to the highlighted option.\n- Update `aria-expanded` and `aria-selected`, and keep the visual highlight in sync.\n- Close on blur and click outside.\n\n## Verify\n\nUse keyboard only, then NVDA with a browser and VoiceOver with Safari. Check the options are announced with position, such as \"2 of 5\", and the selection is announced.\n\n## Caution\n\nCombobox and listbox support varies between assistive technologies, which is why a native select, or a well-tested library whose patterns have already been verified, is usually the better architectural choice.",
+      "followUps": [
+        "When would you choose a native select despite design pushback?",
+        "What is aria-activedescendant used for?",
+        "What is the difference between a menu button and a listbox?"
+      ],
+      "related": [
+        "what-is-aria-and-when-to-use-it",
+        "keyboard-accessibility"
+      ]
+    },
+    {
+      "slug": "accessible-react-components",
+      "title": "What accessibility practices matter in React applications?",
+      "topic": "React & Frameworks",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "react",
+        "spa",
+        "focus-management",
+        "routing"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-wcag-web-accessibility",
+          "pages": [
+            5,
+            6,
+            9
+          ]
+        }
+      ],
+      "quick": "In React I start with native elements and JSX equivalents like htmlFor, then handle what single-page apps break. After a route change, I move focus to the main heading or announce the new page title, because the browser no longer does. I manage focus on dialogs, inline errors and dynamically inserted content, use useId for label associations, keep live regions for status updates, and avoid div-based controls. I lint with eslint-plugin-jsx-a11y, test with Testing Library queries by role and axe, and verify manually.",
+      "revision": "Use native elements, manage focus after route changes and dynamic content, use useId for label links, announce updates with live regions, and test with jsx-a11y, role queries, axe and manual checks.",
+      "detailed": "React does not make a site inaccessible by itself, but single-page apps remove behaviors the browser provides on full page loads, so you must replace them.\n\n## Practices\n\n- **Native elements** in components. A `Button` component should render `<button>` and forward props and refs.\n- **Route changes**: update `document.title`, then move focus to the new page's `h1` (with `tabIndex={-1}`) or a main wrapper, or announce through a live region.\n\n```tsx\nfunction PageHeading({ children }: { children: React.ReactNode }) {\n  const ref = React.useRef<HTMLHeadingElement>(null);\n  React.useEffect(() => { ref.current?.focus(); }, []);\n  return <h1 ref={ref} tabIndex={-1}>{children}</h1>;\n}\n```\n\n- **Dynamic content**: insert status messages into a pre-existing `role=\"status\"` container. A live region added at the same time as its content is often not announced.\n- **Focus**: restore focus when UI is removed, such as a closed panel or deleted list item.\n- **IDs**: use `useId` rather than hard-coded ids.\n- **Fragments and wrappers**: avoid extra `div`s inside `ul`, `table` or `dl`, since invalid structure damages semantics.\n- **Events**: `onClick` on a `div` is a smell. Use `button` or `a`.\n- **Images and icons**: pass `alt`, mark decorative SVGs `aria-hidden`.\n- **Language**: set `lang` on `html` and on passages in other languages.\n\n## Tooling\n\n| Tool | Purpose |\n|---|---|\n| `eslint-plugin-jsx-a11y` | Static checks of JSX |\n| Testing Library `getByRole` | Encourages role and name based queries, which doubles as an accessibility check |\n| `jest-axe` or Playwright with axe | Automated rule checks in tests |\n| Storybook a11y addon | Component-level checks |\n\n```tsx\nimport { render } from \"@testing-library/react\";\nimport { axe } from \"jest-axe\";\n\nit(\"has no detectable violations\", async () => {\n  const { container } = render(<ExploreButton onExplore={() => {}} />);\n  expect(await axe(container)).toHaveNoViolations();\n});\n```\n\nThis check is a baseline only. Keyboard flows and announcements still need manual testing.\n\n## Common mistakes\n\nNot moving focus on navigation, third-party UI kits with unverified accessibility, and `aria-live` regions rerendered on every state change.",
+      "followUps": [
+        "How do you handle focus after a client-side route change?",
+        "Why is getByRole a useful testing habit?",
+        "What can jest-axe not catch?"
+      ],
+      "related": [
+        "testing-accessibility-methods",
+        "accessibility-in-micro-frontends"
+      ]
+    },
+    {
+      "slug": "accessibility-in-micro-frontends",
+      "title": "How do you manage accessibility across micro frontends and a shared design system?",
+      "topic": "Architecture & Governance",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "micro-frontends",
+        "design-system",
+        "architecture"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-wcag-web-accessibility",
+          "pages": [
+            7
+          ]
+        }
+      ],
+      "quick": "Accessibility must hold in every domain, not only the shell. I would provide an accessible shared design system with buttons, form controls, dialogs, menus and navigation, documented keyboard and screen-reader contracts for each, and accessibility requirements for third-party widgets. Every micro frontend runs automated checks in CI, with manual testing for complex interactions, and the integrated shell gets end-to-end journey tests. Teams have clear ownership and remediation SLAs. The risk is that one defective shared component spreads everywhere, so I protect those components most heavily.",
+      "revision": "Share an accessible design system with documented keyboard and screen-reader contracts, enforce CI checks in every MFE, test integrated journeys, assign ownership, and guard shared components closely.",
+      "detailed": "{{diagram:mfe}}\n\nIn a micro-frontend platform, vehicle discovery, dealer search, finance information and forms may belong to different teams. The user experiences one site, so a keyboard trap in any domain is a failure of the whole platform.\n\n## What the architecture should provide\n\n- **An accessible design system.** Buttons, inputs, dialogs, menus, tabs, tooltips and navigation implemented once, with tests, and published as versioned packages.\n- **Interaction contracts.** For each component, document the roles, names, keyboard behavior, focus management, and announcements, plus what consumers must supply (labels, alt text).\n- **Third-party widgets.** Require an accessibility conformance statement or audit before integration, and wrap or replace what does not meet it. Chat, consent and map widgets are common offenders.\n- **CI gates.** Linting, component and page-level axe checks, and visual checks for contrast tokens, in every pipeline.\n- **Manual testing criteria.** Keyboard and screen-reader scripts for complex flows.\n- **Integration concerns.** Single `main` landmark and consistent heading outline across fragments, unique ids (no duplicate `id` collisions between MFEs), consistent focus handling on route changes, a shared skip link, and Shadow DOM considerations for `aria-labelledby` references, which cannot cross shadow boundaries.\n- **Ownership.** A named accessibility owner per team, and a central guild or platform team for standards.\n\n## Trade-offs\n\n| Choice | Benefit | Risk |\n|---|---|---|\n| Central design system | Consistency, fix once | A shared defect has wide blast radius |\n| Team-owned custom components | Flexibility | Fragmentation, inconsistent behavior |\n| Strict CI gate | Prevents regressions | Slows adoption if false positives are not managed |\n\nMitigate the blast radius by version pinning and canary releases of the library, and by requiring accessibility test suites on every shared component before release.\n\n## Common mistakes\n\nFixing only the shell, assuming each MFE passes so the composed page also passes, and not testing combinations such as a dialog opened from one MFE inside another's layout.",
+      "diagrams": [
+        {
+          "id": "mfe",
+          "title": "Shared accessibility contract across micro frontends",
+          "alt": "A shared accessible design system and CI checks feed three micro frontends, which are all hosted in an app shell that is covered by an end-to-end accessibility test and governance review.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "ds",
+              "label": "Accessible design system"
+            },
+            {
+              "id": "ci",
+              "label": "CI a11y checks"
+            },
+            {
+              "id": "v",
+              "label": "Vehicle discovery MFE"
+            },
+            {
+              "id": "d",
+              "label": "Dealer search MFE"
+            },
+            {
+              "id": "f",
+              "label": "Forms MFE"
+            },
+            {
+              "id": "shell",
+              "label": "App shell"
+            },
+            {
+              "id": "gov",
+              "label": "Audits and release gate"
+            }
+          ],
+          "edges": [
+            {
+              "from": "ds",
+              "to": "v"
+            },
+            {
+              "from": "ds",
+              "to": "d"
+            },
+            {
+              "from": "ds",
+              "to": "f"
+            },
+            {
+              "from": "ci",
+              "to": "v"
+            },
+            {
+              "from": "ci",
+              "to": "d"
+            },
+            {
+              "from": "ci",
+              "to": "f"
+            },
+            {
+              "from": "v",
+              "to": "shell"
+            },
+            {
+              "from": "d",
+              "to": "shell"
+            },
+            {
+              "from": "f",
+              "to": "shell"
+            },
+            {
+              "from": "shell",
+              "to": "gov",
+              "label": "end-to-end journeys"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you avoid one defective shared component spreading everywhere?",
+        "What integration issues arise when several MFEs render on one page?",
+        "How do you vet third-party widgets?"
+      ],
+      "related": [
+        "enforcing-accessibility-across-teams",
+        "accessible-react-components"
+      ]
+    },
+    {
+      "slug": "testing-accessibility-methods",
+      "title": "How do you test accessibility?",
+      "topic": "Testing",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "testing",
+        "axe",
+        "nvda",
+        "voiceover",
+        "manual-testing"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-wcag-web-accessibility",
+          "pages": [
+            7,
+            8
+          ]
+        }
+      ],
+      "quick": "I combine several methods because none is sufficient. Automated scanning with axe-core, Lighthouse or WAVE finds missing labels, invalid ARIA, and some contrast and structure issues. Manual keyboard testing checks focus order, traps and visibility. Screen-reader testing with NVDA and VoiceOver checks names, states and announcements. A visual review covers contrast, zoom, reflow and text spacing. And user testing with people with disabilities catches real-world usability problems. I automate what I can in CI and script the manual checks.",
+      "revision": "Layer automated scans, keyboard testing, screen-reader testing, visual review, and user testing. Automate in CI, but complex flows need manual and assistive-technology checks.",
+      "detailed": "No single test type covers accessibility, so use layers.\n\n| Method | Finds | Typical tools |\n|---|---|---|\n| Automated scanning | Missing labels and alt, invalid ARIA, duplicate ids, some contrast, structural issues | axe-core / axe DevTools, Lighthouse, WAVE, Pa11y |\n| Keyboard testing | Focus order, traps, hidden or invisible focus, unreachable controls | A keyboard, no mouse |\n| Screen-reader testing | Missing or wrong names, confusing announcements, incorrect states, navigation problems | NVDA, JAWS, VoiceOver, TalkBack |\n| Visual review | Contrast, focus indicators, 200% text resize, reflow at 320px, text spacing, zoom | Browser dev tools, contrast checkers |\n| User testing | Usability barriers that rules cannot detect | Sessions with disabled participants |\n\n## Where each fits in the pipeline\n\n1. **Developer**: linting (`jsx-a11y`), Storybook a11y checks, accessibility tree inspection.\n2. **CI**: component and page-level axe tests, failing the build on new violations.\n3. **Pre-release**: scripted manual keyboard and screen-reader tests of key journeys.\n4. **Periodic**: expert audits and user research.\n\n## Example automated test\n\n```ts\nimport { test, expect } from \"@playwright/test\";\nimport AxeBuilder from \"@axe-core/playwright\";\n\ntest(\"dealer search page has no detectable WCAG A/AA violations\", async ({ page }) => {\n  await page.goto(\"/dealers\");\n  const results = await new AxeBuilder({ page })\n    .withTags([\"wcag2a\", \"wcag2aa\", \"wcag22aa\"])\n    .analyze();\n  expect(results.violations).toEqual([]);\n});\n```\n\n## Manual keyboard script\n\nTab through the page and check that the order is logical and the focus indicator is always visible. Operate every control with Enter, Space and arrow keys as appropriate, open and close every dialog and menu with the keyboard, and confirm focus returns correctly. Then check zoom at 200% and a 320px viewport.\n\n## Common mistakes\n\nRelying only on a Lighthouse score, testing only one screen reader, and testing only the happy path while skipping error states and dynamic content.",
+      "followUps": [
+        "Which tests would you automate in CI and which stay manual?",
+        "Which screen reader and browser pairs would you test?",
+        "How do you handle false positives from scanners?"
+      ],
+      "related": [
+        "limits-of-automated-testing",
+        "screen-readers-and-assistive-tech"
+      ]
+    },
+    {
+      "slug": "limits-of-automated-testing",
+      "title": "What are the limitations of automated accessibility tools?",
+      "topic": "Testing",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "automated-testing",
+        "axe",
+        "lighthouse",
+        "limits"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-wcag-web-accessibility",
+          "pages": [
+            7,
+            8
+          ]
+        }
+      ],
+      "quick": "Automated tools can only evaluate rules that a machine can decide, which is commonly cited as a minority of WCAG issues. They can detect a missing label but not whether a label is meaningful. They can see alt text exists but not whether it is accurate, cannot judge logical focus order, cannot hear what a screen reader announces, and miss many interaction and cognitive problems. A clean scan is a baseline, not proof of conformance, so it has to be combined with manual and assistive-technology testing.",
+      "revision": "Tools check what machines can decide, not meaning or experience. They miss alt text quality, focus logic, announcements and usability, so a pass is never proof of WCAG conformance.",
+      "detailed": "Automated scanners such as axe-core, Lighthouse and WAVE are valuable because they are fast, repeatable and good at catching regressions. But they test the DOM and computed styles against rules, not the user experience.\n\n## What they do well\n\n- Missing `alt`, form labels, button names, document language, page titles.\n- Invalid or misused ARIA attributes and roles.\n- Duplicate ids and some structural problems.\n- Many (not all) color contrast failures.\n\n## What they cannot determine\n\n| Area | Why |\n|---|---|\n| Quality of text | An `alt=\"image\"` or `aria-label=\"button\"` passes the rule but is useless |\n| Logical reading and focus order | Requires understanding content meaning |\n| Keyboard traps and custom widget behavior | Needs real interaction sequences |\n| Dynamic announcements | The tool cannot hear speech output |\n| Contrast over images, gradients, or in states not rendered | Not measurable from static analysis |\n| Cognitive aspects | Clear language, consistent help, predictable behavior |\n| Whether a pattern is usable | Only people can judge |\n\nThe share of issues detectable automatically is often quoted as a minority of the total, and the exact number varies by study and tool, so avoid quoting a precise figure.\n\n## Other cautions\n\n- A **100 score** in Lighthouse means the automated subset passed, not that the page is accessible.\n- Tools test one page state at a time. Dialogs, error states and logged-in flows need scripted scenarios.\n- Overlay products that claim to fix accessibility automatically do not replace remediation of the underlying code, and are often criticized by accessibility practitioners.\n\n## How to use them well\n\nRun them in CI to block regressions and in the editor for quick feedback. Pair them with manual scripts for key journeys, with periodic expert audits, and with testing by people who use assistive technology.",
+      "followUps": [
+        "Why can a page with a 100 Lighthouse score still be inaccessible?",
+        "What would you do about accessibility overlay products?",
+        "How do you test dynamic states like dialogs with automated tools?"
+      ],
+      "related": [
+        "testing-accessibility-methods",
+        "automated-pass-screen-reader-fail"
+      ]
+    },
+    {
+      "slug": "automated-pass-screen-reader-fail",
+      "title": "Automated tests pass, but users report screen-reader problems. What do you do?",
+      "topic": "Testing",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "screen-reader",
+        "debugging",
+        "regression",
+        "scenario"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-wcag-web-accessibility",
+          "pages": [
+            8
+          ]
+        }
+      ],
+      "quick": "I would reproduce the exact journey with the same browser and screen reader that the users reported, and listen. Then I inspect the accessibility tree for accessible names, roles and states, check focus order and focus management, dynamic announcements, heading and landmark structure, and the interaction pattern against the ARIA Authoring Practices. Once the root cause is fixed, I add a regression test, such as an assertion on the role and name or a keyboard scenario, and share the lesson in the component's contract.",
+      "revision": "Reproduce with the reported browser and screen reader, inspect names, roles, states, focus and announcements, fix the root cause, then add a regression test and update the component contract.",
+      "detailed": "Automated checks cover only a subset of issues, so a green pipeline and a failing user experience can both be true.\n\n## A structured approach\n\n1. **Collect specifics**: page, flow, screen reader and version, browser, operating system, and the expected versus actual announcement.\n2. **Reproduce** with the same pairing. Listen rather than reading speech viewer text only, since timing and verbosity matter.\n3. **Inspect the accessibility tree** in browser dev tools to see computed name, role, states and focus.\n4. **Check typical culprits**:\n   - Missing or misleading accessible names, duplicate \"Read more\".\n   - Stale or missing states, such as `aria-expanded` not updated.\n   - Focus lost after a dialog closes or after content updates.\n   - Updates not announced, or announced twice, due to live-region misuse.\n   - Heading and landmark structure that makes navigation confusing.\n   - A custom widget that deviates from the expected pattern.\n   - `aria-hidden` on or around focusable content.\n5. **Fix at the right level**: usually the shared component, not the single page.\n6. **Add regression coverage**:\n\n```ts\n// Component test: the toggle exposes the right role, name and state\nconst toggle = screen.getByRole(\"button\", { name: /filters/i });\nexpect(toggle).toHaveAttribute(\"aria-expanded\", \"false\");\nawait user.click(toggle);\nexpect(toggle).toHaveAttribute(\"aria-expanded\", \"true\");\n```\n\n   and a scripted manual check for behavior that cannot be automated, such as the announcement.\n7. **Close the loop** with the reporter, and record the pattern in the design system docs.\n\n## Why automation missed it\n\nThe DOM may be valid and every rule satisfied while the meaning is wrong, for example a button named \"Click here\". The tool cannot hear announcements or judge usability.\n\n## Process lesson\n\nAdd screen-reader scripts to the release checklist for critical journeys, and keep a channel for user-reported accessibility issues with defined severity.",
+      "followUps": [
+        "Which pairings would you check first?",
+        "How would you prevent the same class of bug in other teams?",
+        "How do you test that a live region announces correctly?"
+      ],
+      "related": [
+        "limits-of-automated-testing",
+        "testing-accessibility-methods"
+      ]
+    },
+    {
+      "slug": "brand-colors-fail-contrast",
+      "title": "The brand colors must stay unchanged but text fails contrast. What do you do?",
+      "topic": "Scenarios",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "contrast",
+        "brand",
+        "design-tokens",
+        "stakeholders"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-wcag-web-accessibility",
+          "pages": [
+            8
+          ]
+        }
+      ],
+      "quick": "I would explain that contrast is a requirement, then partner with design to keep the brand recognizable while fixing the failing pairings. Options include using a darker or lighter shade of the brand color for text, putting brand-colored text on a neutral background, placing white or dark text on the brand color where that passes, thickening or enlarging text so the large-text 3:1 threshold applies, or using brand color decoratively while meaning is carried elsewhere. I verify ratios with a tool and encode approved pairings as design tokens.",
+      "revision": "Don't drop the requirement. Work with design on accessible shades, backgrounds or pairings that keep brand identity, verify ratios with a tool, and codify approved combinations as tokens.",
+      "detailed": "This is a stakeholder question as much as a technical one. The aim is to preserve brand identity and meet WCAG 1.4.3 and 1.4.11.\n\n## Approach\n\n1. **Quantify**: list the failing pairings with measured ratios and where they appear, rather than arguing from opinion.\n2. **Explain impact**: low-contrast text affects low vision, aging eyes, glare on mobile screens, and everyone in poor lighting, and it carries compliance risk.\n3. **Offer options that keep the brand present**:\n   - Introduce an **accessible companion shade** of the brand color for text and small UI, and keep the original for large blocks, imagery and logos (logos are exempt).\n   - Use the brand color as a **background** with text of a passing color.\n   - Place brand-colored text on a **neutral surface** where the pair passes.\n   - Increase size or weight so that the **large-text threshold** (3:1) applies, only if the text really qualifies as large.\n   - Use brand color for **decoration**, while the meaning comes from text and icons.\n4. **Validate** every pairing with a contrast tool, in all states and themes.\n5. **Codify** approved pairings in design tokens and CI checks, so designers and developers use them by default.\n\n## Token example\n\n```css\n:root {\n  --brand-500: #1f6fd1;       /* example brand blue: used for large areas */\n  --brand-700: #124a99;       /* darker companion: used for text on white */\n  --text-on-brand: #ffffff;\n}\n.link { color: var(--brand-700); }\n```\n\nThe values above are illustrative. Measure the actual ratios of your palette.\n\n## Things to avoid\n\n- Waiving the requirement for brand reasons without a documented risk acceptance.\n- Using a contrast-fix overlay or filter that changes the brand at runtime.\n- Checking only the default state: hover, focus and disabled-looking states also matter.\n\nPresent it as design constraints that make the brand system more robust, not as an obstacle.",
+      "followUps": [
+        "What if the brand blue only reaches 3.5:1 on white?",
+        "How do you handle contrast for text over photography?",
+        "Where do approved color pairings live in your process?"
+      ],
+      "related": [
+        "color-contrast-requirements",
+        "enforcing-accessibility-across-teams"
+      ]
+    },
+    {
+      "slug": "enforcing-accessibility-across-teams",
+      "title": "How would you enforce accessibility across multiple frontend teams and releases?",
+      "topic": "Architecture & Governance",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "governance",
+        "ci",
+        "process",
+        "ownership"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-wcag-web-accessibility",
+          "pages": [
+            7,
+            8,
+            9
+          ]
+        }
+      ],
+      "quick": "I would define a documented accessibility standard, usually WCAG 2.2 AA, and provide an accessible design system so teams start compliant. CI runs automated checks and blocks regressions, while manual test criteria cover complex interactions. Each team has clear ownership, defects have severity levels and fix expectations, and periodic audits monitor compliance. Accessibility is built into design reviews, definition of done, and release gates, with training and champions so it is a shared engineering responsibility, not a final compliance exercise.",
+      "revision": "Set a documented AA standard, ship an accessible design system, gate CI on automated checks, add manual criteria, define ownership and defect SLAs, audit regularly, and embed it in reviews and release.",
+      "detailed": "Governance succeeds when the easy path is the accessible path and when feedback arrives early.\n\n## Layers of an enforcement model\n\n| Layer | Practice |\n|---|---|\n| Standard | A written policy: target (WCAG 2.2 AA), supported browsers and assistive technologies, exceptions process |\n| Enablement | Accessible design system, tokens, code snippets, training, champions in each team |\n| Design | Accessibility annotations in specs (focus order, headings, alt text), contrast-checked palettes |\n| Development | Linting, component tests, Storybook checks, code review checklist |\n| CI/CD | Automated axe checks on key pages and components, fail on new violations, track baseline for legacy debt |\n| Manual | Keyboard and screen-reader scripts for critical journeys before release |\n| Operations | Defect severity model, SLAs, owner per team, a public accessibility statement and feedback channel |\n| Assurance | Periodic expert audits and user testing, dashboards and trends |\n\n## Defect handling\n\n- **Blocker**: prevents a task, such as a keyboard trap in checkout. Fix before release.\n- **Major**: significant barrier with a workaround. Fix within a defined window.\n- **Minor**: inconvenience, scheduled.\n\nRelease gates can say that no blockers ship, and that new major issues need a time-boxed, approved exception.\n\n## Handling legacy debt\n\nSet a baseline so that CI blocks only **new** violations, then burn down existing issues by priority, starting with high-traffic journeys and shared components.\n\n## Example CI step\n\n```yaml\n- name: Accessibility checks\n  run: npx playwright test --project=a11y\n  # fails the build on new WCAG A/AA violations in key journeys\n```\n\n## Cultural levers\n\nMake accessibility part of the **definition of done**, include it in design review, report metrics to leadership, and celebrate fixes. Avoid a model where a central team audits at the end and throws issues over the wall.\n\n## Common mistakes\n\nPolicy without tooling, tooling without ownership, and a gate so noisy that teams bypass it.",
+      "followUps": [
+        "How do you handle legacy defects without blocking all releases?",
+        "What metrics would you report to leadership?",
+        "How do you onboard a new team to the standard?"
+      ],
+      "related": [
+        "accessibility-in-micro-frontends",
+        "defects-found-before-release"
+      ]
+    },
+    {
+      "slug": "defects-found-before-release",
+      "title": "How do you handle accessibility defects found shortly before release?",
+      "topic": "Architecture & Governance",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "release",
+        "triage",
+        "severity",
+        "scenario"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-wcag-web-accessibility",
+          "pages": [
+            9
+          ]
+        }
+      ],
+      "quick": "I triage by user impact. Blockers, such as a keyboard trap or an unlabeled critical control that stops a journey, are fixed before release or the release is held. Lesser issues get a documented, time-boxed remediation plan with an owner and target date, approved through the exception process. I fix at the root, often a shared component, add regression tests, and record the defect in the tracker. I also check whether the same pattern exists elsewhere and update the checklists to catch it earlier.",
+      "revision": "Triage by user impact: block release for task-blocking defects, schedule others with owner and date through a documented exception, fix at the root, add regression tests, and look for the pattern elsewhere.",
+      "detailed": "Late defects are a process signal as well as a code problem. A sound response has two tracks: handle this release, and improve the pipeline.\n\n## Triage by impact\n\n| Severity | Example | Typical action |\n|---|---|---|\n| Blocker | Keyboard trap in a dialog, unlabeled submit button, unreadable error state | Fix before release, or hold the affected feature |\n| Major | Missing focus indicator on a secondary control, confusing but usable announcement | Fix within an agreed window, with a documented exception |\n| Minor | Redundant text, a decorative image with verbose alt | Backlog with priority |\n\nImpact depends on who is blocked, whether there is a workaround, how many users and how critical the journey is (checkout and enquiry forms rank higher than a blog widget).\n\n## Release decision\n\n- Hold, or feature-flag off, anything that blocks a core task.\n- For accepted risks, record the issue, affected WCAG criterion, workaround, owner, and fix date, and get sign-off from the accessibility owner and product.\n- Inform support so that they can assist affected users, and consider updating the accessibility statement.\n\n## Fix properly\n\nFind the root cause. If a shared component is the source, fix it there, release a version, and update consumers. Add a regression test so the defect cannot return, as in the example below.\n\n```ts\nawait page.keyboard.press(\"Tab\");\nawait expect(page.getByRole(\"dialog\")).toBeVisible();\nawait page.keyboard.press(\"Escape\");\nawait expect(page.getByRole(\"dialog\")).toBeHidden();\nawait expect(page.getByRole(\"button\", { name: \"Open filters\" })).toBeFocused();\n```\n\n## Prevent recurrence\n\nAsk why it was found late: no design annotation, no component guidance, no automated check, or no manual script. Shift the check left, and share the lesson across teams.\n\n## Common mistakes\n\nTreating every issue as equal, shipping with a vague promise to fix later, and patching the page while the shared component stays broken.",
+      "followUps": [
+        "Who has authority to approve an accessibility exception?",
+        "How do you decide between holding the release and feature-flagging?",
+        "How do you communicate known issues to users?"
+      ],
+      "related": [
+        "enforcing-accessibility-across-teams",
+        "testing-accessibility-methods"
+      ]
+    },
+    {
+      "slug": "accessibility-vs-performance",
+      "title": "How do accessibility and performance (Core Web Vitals) relate?",
+      "topic": "Architecture & Governance",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "performance",
+        "core-web-vitals",
+        "cls",
+        "inp"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-wcag-web-accessibility",
+          "pages": [
+            8
+          ]
+        }
+      ],
+      "quick": "They are separate quality dimensions that overlap and sometimes conflict, so I measure and gate on both. Semantic HTML helps assistive technology and is lightweight. Stable layouts, which means low layout shift, help everyone, including people with cognitive or motor difficulty. Excessive JavaScript slows interaction for all users, including those on assistive technology. A fast page can still be inaccessible, for example a modal that hides focus, and an accessible page can be slow. Both belong in release criteria.",
+      "revision": "Distinct but overlapping: semantic HTML and stable layout help both, heavy scripts hurt both. A fast page can be inaccessible and vice versa, so measure and gate on each independently.",
+      "detailed": "Accessibility and Core Web Vitals (LCP, INP, CLS) are measured differently, and good scores in one do not imply the other.\n\n## Where they reinforce each other\n\n- **Semantic HTML** is cheap, needs no JavaScript, and gives assistive technology structure.\n- **Stable layout** (low CLS) avoids content jumping under a user's pointer or focus, which is particularly difficult for people with motor or cognitive disabilities and for magnifier users.\n- **Responsive, readable text** and reflow support small screens and zoom.\n- **Lean JavaScript** improves responsiveness (INP) for everyone, including keyboard and switch users who rely on immediate feedback.\n- **Server-rendered content** is available to assistive technology sooner than content waiting on hydration.\n\n## Where they can conflict\n\n| Situation | Tension |\n|---|---|\n| Lazy loading everything | Content or controls that appear late, or without announcement, confuse screen-reader users |\n| Heavy client rendering of components | Slow interactivity and focus problems during hydration |\n| Animated loading skeletons or autoplay media | Motion issues, need `prefers-reduced-motion` and pause controls |\n| Aggressive image optimization | Dropped or generic alt text, or low-contrast compressed text images |\n| Custom scrolling or virtualized lists | Items not in DOM can hinder find-in-page and screen-reader navigation |\n\n## Architectural stance\n\nTreat them as independent release criteria.\n\n- Performance budgets and Core Web Vitals in field monitoring.\n- Accessibility checks in CI, with manual testing of critical journeys.\n- Review interactions that change layout, such as banners and dialogs, for both layout shift and focus.\n\n```css\n@media (prefers-reduced-motion: reduce) {\n  * { animation: none !important; transition: none !important; }\n}\n```\n\n## Common mistakes\n\nAssuming that a Lighthouse performance score says anything about accessibility, and deferring components in ways that break focus order or hide controls from assistive technology until late.",
+      "followUps": [
+        "How can a layout shift harm accessibility?",
+        "How does virtualization affect screen-reader users?",
+        "What would you put in a release checklist for both?"
+      ],
+      "related": [
+        "testing-accessibility-methods",
+        "accessible-react-components"
+      ]
+    }
+  ]
+}

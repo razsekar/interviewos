@@ -1,0 +1,704 @@
+{
+  "category": "apigee-api-management",
+  "questions": [
+    {
+      "slug": "secure-a-public-api",
+      "title": "How would you secure a public-facing API?",
+      "topic": "API Security",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "security",
+        "api-gateway",
+        "oauth2",
+        "defense-in-depth"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-apigee",
+          "pages": [
+            5
+          ]
+        }
+      ],
+      "quick": "I would start by identifying consumers, data sensitivity and trust boundaries. Then I layer controls: TLS everywhere, appropriate authentication such as OAuth tokens or keys, least-privilege scopes, rate limits and quotas, payload validation and threat protection, and restricted backend access. Backends still enforce domain authorization and validation. I would protect secrets, keep tokens and personal data out of logs, and monitor authorization failures and abnormal traffic. Browser clients must never rely on an embedded secret.",
+      "revision": "Layered: know consumers and data, TLS, proper authn/authz, least privilege, traffic limits, payload validation, locked-down origins, safe logging, monitoring. Gateway is not the only layer.",
+      "detailed": "Securing a public API is about **layers**, not a single product feature.\n\n{{diagram:layers}}\n\n## 1. Understand the context\nWho are the consumers (anonymous site visitors, signed-in users, partners)? How sensitive is the data? Which operations mutate state? The answers decide how much authentication and how tight the limits must be.\n\n## 2. Controls at the edge\n- **Transport**: TLS only; consider mutual TLS for high-trust partner links.\n- **Identity**: OAuth 2.0 tokens for user-delegated access, client credentials for server partners, keys for app identification and metering.\n- **Traffic**: spike arrest for bursts, quotas for entitlements, request-size limits.\n- **Payload protection**: schema or threat-protection checks for oversized or malformed JSON/XML.\n- **Bot and abuse defense**: usually combined with a CDN or WAF in front.\n\n## 3. Controls in the backend\n- Fine-grained authorization (object-level checks, tenancy).\n- Input validation and safe output handling.\n- Rejecting traffic that did not come through the gateway (network restrictions, mutual TLS or a verified gateway credential).\n\n## 4. Operations\n- Secrets in a managed store, rotated; no secrets in proxies or source.\n- Logs that exclude tokens, keys and personal data.\n- Alerts on rising 401/403/429 rates, unusual consumers and geographic or volume anomalies.\n\n## Common mistakes\n- Assuming gateway authentication covers object-level authorization (a classic source of broken access control).\n- Using a shared client secret in a single-page app. Public clients use flows designed for them, such as authorization code with PKCE.\n- Leaving origins reachable directly.\n- Verbose error messages exposing internals.\n\nTreat this as defense in depth: each layer assumes another might fail.",
+      "diagrams": [
+        {
+          "id": "layers",
+          "title": "Defense in depth for a public API",
+          "alt": "Client traffic passes through a CDN or WAF, then the API gateway which applies TLS, token validation and traffic limits, then the backend service which performs business authorization and validation.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "cl",
+              "label": "Client"
+            },
+            {
+              "id": "cdn",
+              "label": "CDN / WAF"
+            },
+            {
+              "id": "gw",
+              "label": "API gateway"
+            },
+            {
+              "id": "be",
+              "label": "Backend service"
+            },
+            {
+              "id": "dat",
+              "label": "Data store"
+            }
+          ],
+          "edges": [
+            {
+              "from": "cl",
+              "to": "cdn",
+              "label": "TLS"
+            },
+            {
+              "from": "cdn",
+              "to": "gw",
+              "label": "bot and abuse filtering"
+            },
+            {
+              "from": "gw",
+              "to": "be",
+              "label": "tokens, limits, payload checks"
+            },
+            {
+              "from": "be",
+              "to": "dat",
+              "label": "domain authorization"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you prevent clients from bypassing the gateway?",
+        "How do you protect against object-level authorization flaws?",
+        "What would you alert on?"
+      ],
+      "related": [
+        "verify-oauth-token-and-jwt-in-apigee",
+        "rate-limiting-traffic-spikes-and-cdn",
+        "gateway-vs-backend-responsibilities"
+      ]
+    },
+    {
+      "slug": "rate-limiting-traffic-spikes-and-cdn",
+      "title": "An API suddenly gets ten times its normal traffic. How do you protect it, and where does a CDN help?",
+      "topic": "Traffic Management",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "rate-limiting",
+        "cdn",
+        "traffic-spike",
+        "resilience"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-apigee",
+          "pages": [
+            5
+          ]
+        }
+      ],
+      "quick": "First I would determine whether the spike is legitimate, abusive, or a client bug such as a retry loop, using traffic, error and latency metrics. Then I protect the origin: tighten spike arrest and quotas for the offending consumers, scale the backend where it is safe, and shed load gracefully. For cacheable public data I would let a CDN absorb requests at the edge so fewer reach the gateway and services. I would also fix root cause, not only raise limits.",
+      "revision": "Diagnose cause first (legit, abuse, client loop); protect with rate controls and scaling; cache cacheable data at the CDN; fix the root cause rather than just raising limits.",
+      "detailed": "Treat this as an incident: **diagnose, contain, absorb, fix**.\n\n{{diagram:edge}}\n\n## 1. Diagnose\n- Is volume rising for one consumer, one endpoint, or everywhere?\n- Do user-agents, IPs or app IDs suggest scraping or abuse?\n- Did a recent client release introduce a retry loop or duplicate calls (a common cause, for example a component that refetches on every render)?\n- Is it a legitimate event, such as a campaign or launch?\n\n## 2. Contain\n- Apply or tighten **spike arrest** to protect backend capacity, and **quotas** for specific apps.\n- Throttle or block clearly abusive sources, usually at the CDN or WAF first.\n- Return proper **429** responses with a retry hint so well-behaved clients back off.\n- Protect dependencies with timeouts, circuit breakers and bulkheads; avoid unbounded retries.\n\n## 3. Absorb\nA **CDN** can serve cacheable, public responses (vehicle catalogue, dealer lists, static reference data) from the edge, so those requests never reach the gateway or origin. Cache keys, TTLs and `Cache-Control` headers must be designed carefully; personalised or authenticated responses usually must not be cached publicly. Gateway-level response caching can add a second layer for eligible responses.\n\n## 4. Scale and fix\n- Scale the backend, or pre-scale ahead of known events, within the limits of its dependencies (databases often cap first).\n- Fix the root cause: client bug, missing caching, expensive queries.\n\n## Common mistakes\n- Raising limits to \"make the errors go away\" and pushing the failure downstream.\n- Caching personalised data at a shared cache.\n- Applying limits only at one layer, so a bypass or cache miss storm still reaches the origin.\n\nThe CDN and gateway complement each other: the CDN absorbs cacheable volume, the gateway governs what remains.",
+      "diagrams": [
+        {
+          "id": "edge",
+          "title": "Absorbing a traffic spike in layers",
+          "alt": "Requests reach a CDN which serves cache hits directly; cache misses go to the API gateway, which applies spike arrest and quota, and only permitted requests reach the backend and its data store.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "u",
+              "label": "Clients"
+            },
+            {
+              "id": "cdn",
+              "label": "CDN edge cache"
+            },
+            {
+              "id": "gw",
+              "label": "API gateway limits"
+            },
+            {
+              "id": "be",
+              "label": "Backend service"
+            },
+            {
+              "id": "db",
+              "label": "Database"
+            }
+          ],
+          "edges": [
+            {
+              "from": "u",
+              "to": "cdn"
+            },
+            {
+              "from": "cdn",
+              "to": "gw",
+              "label": "cache miss"
+            },
+            {
+              "from": "gw",
+              "to": "be",
+              "label": "within limits"
+            },
+            {
+              "from": "be",
+              "to": "db"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you tell a retry storm from real demand?",
+        "What responses are safe to cache at a CDN?",
+        "How do you stop a cache stampede on expiry?"
+      ],
+      "related": [
+        "spike-arrest-vs-quota",
+        "troubleshoot-429-from-apigee",
+        "secure-a-public-api"
+      ]
+    },
+    {
+      "slug": "apigee-vs-mulesoft",
+      "title": "How does Apigee compare with MuleSoft?",
+      "topic": "Platform Comparison",
+      "difficulty": "advanced",
+      "type": "comparison",
+      "tags": [
+        "apigee",
+        "mulesoft",
+        "integration",
+        "comparison"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-apigee",
+          "pages": [
+            5,
+            6
+          ]
+        }
+      ],
+      "quick": "They overlap, but their emphasis differs. Apigee is primarily associated with API management: security policies, traffic control, analytics and lifecycle governance. MuleSoft's Anypoint Platform is commonly associated with enterprise integration, connectors, data transformation and API-led connectivity, and it also has API management capabilities. If an organisation uses both, I would define clear ownership, for example access governance in one and orchestration in the other, and avoid duplicate policies and extra hops.",
+      "revision": "Overlapping platforms: Apigee leans API management and governance; MuleSoft leans integration, connectors and API-led connectivity. Choose by enterprise standards; define ownership if both coexist.",
+      "detailed": "Treat this as a **fit-for-purpose** question, not a winner-takes-all contest. Both vendors have grown toward each other, and capabilities vary by edition and offering.\n\n| Area | Apigee (commonly) | MuleSoft Anypoint (commonly) |\n|---|---|---|\n| Typical emphasis | API management, security, traffic governance, analytics | Integration, connectors, orchestration, API-led connectivity |\n| Strengths often cited | Policy-driven gateway, consumer onboarding via products and apps | Rich connector catalogue, data mapping, reusable integration flows |\n| Integration logic | Light mediation and callouts; not meant for heavy orchestration | Core use case |\n| API management | Core use case | Provided through its API management capabilities |\n| Runtime and ecosystem | Google Cloud ecosystem, with hybrid options | MuleSoft runtimes in its cloud or customer-managed models |\n\n## API-led connectivity\nMuleSoft popularised layering APIs into **system**, **process** and **experience** tiers so that reusable building blocks sit between back-end systems and consumer-facing APIs. The idea is vendor-neutral and can be applied on any platform.\n\n## If both exist\nA pragmatic split (an example, not a rule):\n- **Gateway tier**: consumer-facing authentication, throttling, analytics and product packaging.\n- **Integration tier**: connectivity to systems of record, protocol mediation, data mapping, multi-step orchestration.\n\nDefine who owns each policy so rate limits, authentication and logging are not repeated at each hop, and measure the extra latency of stacked proxies.\n\n## How to decide\n- Is the biggest problem governing and securing APIs, or connecting and transforming data across systems?\n- What does the organisation already run, and what skills exist?\n- Do you need multicloud or hybrid deployment?\n- What are licensing, operations and cost implications?\n\n## Common mistakes\n- Rebuilding orchestration in gateway proxies because the gateway is \"already there\".\n- Layering both products with identical security policies at each hop.\n- Quoting feature gaps from memory; confirm against current vendor documentation.",
+      "followUps": [
+        "How would you avoid double-throttling when both platforms are in the path?",
+        "What is API-led connectivity?",
+        "What would make you choose one over the other for a new platform?"
+      ],
+      "related": [
+        "apigee-vs-aws-api-gateway",
+        "gateway-vs-backend-responsibilities",
+        "what-is-api-management"
+      ]
+    },
+    {
+      "slug": "apigee-vs-aws-api-gateway",
+      "title": "How does Apigee compare with AWS API Gateway?",
+      "topic": "Platform Comparison",
+      "difficulty": "advanced",
+      "type": "comparison",
+      "tags": [
+        "apigee",
+        "aws-api-gateway",
+        "comparison",
+        "api-management"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-apigee",
+          "pages": [
+            6,
+            7
+          ]
+        }
+      ],
+      "quick": "Apigee is a dedicated API management platform with strong lifecycle, product packaging, consumer management and analytics features. AWS API Gateway is a managed service that integrates naturally with AWS backends such as Lambda and other AWS services. I would compare consumer management needs, policy requirements, analytics, hybrid or multicloud needs, operational overhead and cost. Both overlap on throttling and authentication, so the decision should follow architecture and enterprise standards.",
+      "revision": "Apigee: broader API-management and governance focus, multicloud-friendly; AWS API Gateway: managed AWS-native entry point. Decide by consumer management, policies, ecosystem, operations and cost.",
+      "detailed": "Both can front HTTP APIs with authentication and throttling, so the difference is mostly **scope and ecosystem**. Details vary by product tier and change over time, so verify current documentation.\n\n| Dimension | Apigee (commonly) | AWS API Gateway (commonly) |\n|---|---|---|\n| Positioning | Full API management and governance platform | Managed API entry point within AWS |\n| Consumer model | API products, developer apps, portal, monetisation options | Usage plans and API keys, plus authorizers and IAM integration |\n| Policy model | Rich policy library and shared flows | Integration with authorizers, request validation, stage settings, and other AWS services |\n| Backend affinity | Backend-agnostic, including on-premises and multicloud | Strongest with AWS services such as Lambda, load balancers and private integrations |\n| Analytics | Built-in API analytics | Metrics and logs through AWS monitoring services |\n| Operations | Platform to design, size and govern | Serverless-style, less platform to run |\n\n## Choosing\n- **AWS-centred workloads** with modest governance needs often fit AWS API Gateway well: simple to adopt, close to IAM, Lambda and CloudWatch.\n- **Enterprises with many consumers, partners, tiered access, multiple clouds or on-premises backends** often lean toward a dedicated API management platform.\n- **Coexistence** is common: teams may use a cloud-native gateway for internal or workload-specific APIs and a central platform for external APIs.\n\n## Questions to ask\n1. Who are the consumers, and do they need a portal, product tiers or monetisation?\n2. Which policies and security models are mandatory?\n3. Where do the backends run?\n4. What analytics, audit and governance does the organisation need?\n5. What does it cost at expected traffic, and who operates it?\n\n## Common mistakes\n- Picking based on a feature checklist without reading current docs.\n- Ignoring lock-in and operational skill sets.\n- Assuming one gateway must cover every API in the company.",
+      "followUps": [
+        "When would you use both in one organisation?",
+        "How do usage plans differ conceptually from API products?",
+        "What cost factors would you model?"
+      ],
+      "related": [
+        "apigee-vs-mulesoft",
+        "what-is-api-management",
+        "internal-service-calls-through-gateway"
+      ]
+    },
+    {
+      "slug": "gateway-vs-backend-responsibilities",
+      "title": "Does an API gateway replace good REST API design? What belongs in the gateway versus the backend?",
+      "topic": "API Design Boundaries",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "rest",
+        "api-design",
+        "gateway",
+        "responsibilities"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-apigee",
+          "pages": [
+            7,
+            9
+          ]
+        }
+      ],
+      "quick": "No. A gateway enforces cross-cutting controls, but it cannot fix a poorly designed API. Backends still need resource-oriented URLs, correct methods and status codes, consistent errors, validation, pagination, idempotency for retried operations, timeouts and observability. I put authentication checks, rate limits, coarse validation and routing in the gateway, and keep domain rules, data access and fine-grained authorization in the service, so ownership stays clear and logic stays testable.",
+      "revision": "Gateway: cross-cutting policy (auth, limits, routing, light mediation). Backend: domain logic, validation, authorization, REST design, resilience. Never use the gateway to hide a bad API.",
+      "detailed": "A gateway standardises **how** APIs are exposed; it does not decide **what** a good API is.\n\n## What the backend must still do\n- Resource-oriented URLs and correct HTTP methods and status codes.\n- Consistent error format and meaningful messages.\n- Input validation against a contract.\n- Pagination, filtering and sorting for collections.\n- Idempotency (for example idempotency keys on retried payments or bookings).\n- Timeouts, bounded retries and circuit breaking toward its own dependencies.\n- Correlation IDs, structured logs, metrics and traces.\n- Object-level authorization and business rules.\n\n## What the gateway is good for\n- Authentication and coarse authorization checks.\n- Rate limiting, quotas, request-size limits.\n- Routing and version mapping.\n- Light message mediation (headers, minor field changes).\n- Caching eligible responses and collecting analytics.\n\n## Example\n```http\nGET /api/v1/vehicles?model=suv&page=2\nGET /api/v1/vehicles/{vehicleId}\nGET /api/v1/dealers?region=south\n```\nThe proxy can map these paths to internal services and apply the same security policy. The vehicle service owns what \"available\" means, which dealer sees which stock, and how paging is implemented.\n\n## Rule of thumb\nIf a rule needs domain knowledge or a database, it belongs in a service. If it applies equally to many APIs and needs only request metadata, it is a gateway candidate.\n\n## Common mistakes\n- Encoding business workflows in proxy callouts and scripts, which are hard to test and version.\n- Using transformations to paper over inconsistent backend contracts rather than fixing them.\n- Splitting validation between layers with no clear owner, causing gaps or contradictory errors.\n- Letting gateway availability concerns drive domain design.",
+      "followUps": [
+        "Give an example of logic you would refuse to put in a proxy.",
+        "How would you keep error formats consistent across many backends?",
+        "Where should input validation live?"
+      ],
+      "related": [
+        "what-is-api-management",
+        "api-versioning-and-lifecycle-governance",
+        "api-proxy-request-flow"
+      ]
+    },
+    {
+      "slug": "api-versioning-and-lifecycle-governance",
+      "title": "How do you design API versioning and lifecycle governance for many consumers?",
+      "topic": "Lifecycle",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "versioning",
+        "lifecycle",
+        "governance",
+        "backward-compatibility"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-apigee",
+          "pages": [
+            7,
+            9
+          ]
+        }
+      ],
+      "quick": "I would favour backward-compatible changes first, such as adding optional fields, and introduce a new version only for breaking changes. APIs get reviewed contracts, a published deprecation policy with notice periods, and analytics to see which consumers still use old versions. Proxy revisions move through environments with controlled deployment and rollback. The gateway can route versions and report usage, but governance, communication and discipline around contracts are organisational work.",
+      "revision": "Prefer additive, backward-compatible change; version only for breaks; publish deprecation timelines; use usage analytics to find laggards; promote and roll back deliberately.",
+      "detailed": "Consumers such as websites, mobile apps and partners ship on different schedules, so a breaking change can silently break someone you do not control.\n\n## Backward compatibility first\nUsually safe: adding optional request fields, adding response fields (if clients tolerate unknown fields), adding new endpoints. Usually breaking: removing or renaming fields, changing types or meanings, tightening validation, changing error semantics.\n\n## Versioning approaches\n| Approach | Example | Notes |\n|---|---|---|\n| URL path | `/v1/vehicles` | Simple, visible, cache and routing friendly; common in gateways |\n| Header or media type | `Accept: application/vnd.example.v2+json` | Cleaner URLs, harder to test and cache |\n| Query parameter | `?version=2` | Easy but easily misused |\n\nPick one convention enterprise-wide and apply it consistently.\n\n## Lifecycle governance\n1. **Contract first**: maintain an API specification and review changes (including automated breaking-change checks in CI).\n2. **Classify change**: additive, deprecating or breaking.\n3. **Deprecation policy**: announce, mark responses (for example with deprecation and sunset signals), give a defined notice period, then retire.\n4. **Impact assessment**: use analytics to list consumers of the old version.\n5. **Controlled release**: deploy proxy revisions through environments, canary or phased where supported, and keep rollback ready.\n6. **Documentation and onboarding**: keep portal docs and changelogs current.\n\n## Where the gateway helps\n- Routes `/v1` and `/v2` to different backends or revisions.\n- Provides per-consumer usage to drive migration conversations.\n- Can apply adapters temporarily, but long-lived adapters become technical debt.\n\n## Common mistakes\n- Creating a new version for every change, leaving many versions to maintain.\n- Retiring a version without evidence that consumers moved.\n- Treating the gateway as a substitute for contract discipline.",
+      "followUps": [
+        "How would you detect breaking changes automatically?",
+        "How long should a deprecation notice be?",
+        "How do you run two versions without doubling the maintenance cost?"
+      ],
+      "related": [
+        "apigee-environments-and-deployments",
+        "gateway-vs-backend-responsibilities",
+        "api-observability-and-troubleshooting"
+      ]
+    },
+    {
+      "slug": "api-observability-and-troubleshooting",
+      "title": "How do you monitor API latency and errors across the gateway and backends?",
+      "topic": "Observability",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "observability",
+        "monitoring",
+        "latency",
+        "tracing"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-apigee",
+          "pages": [
+            8
+          ]
+        }
+      ],
+      "quick": "I would track request volume, error rate by status class, P95 and P99 latency, policy failures, backend response time and traffic by consumer. The key is separating gateway time from backend time, so I can say whether a regression is in policies, the network hop or the service. I correlate gateway analytics with backend logs and distributed traces using a correlation ID, set alerts on SLO-relevant signals, and never log tokens or secrets.",
+      "revision": "Watch volume, errors, P95/P99, policy failures, backend time and per-consumer traffic; split gateway versus backend latency; correlate with IDs and traces; never log secrets.",
+      "detailed": "Observability should let you answer **where** a problem is, not just **that** it exists.\n\n## Questions the data should answer\n- Which APIs are slowest, and at which percentile?\n- Are errors concentrated in one backend, one consumer or one release?\n- Are traffic policies rejecting requests (spike arrest, quota)?\n- Are token validation failures rising?\n- Did a deployment cause a regression?\n- Is the gateway or the backend responsible?\n\n## Useful signals\n| Signal | Why |\n|---|---|\n| Request rate | Capacity and anomaly detection |\n| Error rate by 4xx and 5xx | Client problems versus server problems |\n| P95 / P99 latency | Averages hide tail pain |\n| Policy-failure counts | Shows limits and auth rejections |\n| Target (backend) response time | Isolates origin latency |\n| Total minus target time | Approximates gateway overhead |\n| Traffic by app, product, developer | Quota and abuse analysis |\n\n## Correlation\nGenerate or propagate a **correlation ID** (or trace context headers) at the edge and pass it to every backend. Then a single ID leads from a gateway analytics record to backend logs and a distributed trace.\n\n```http\nGET /api/v1/dealers?region=south\nX-Correlation-Id: 7f3c2a10-5d1e-4a53-9b7a-2c9e0d6b1f44\ntraceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01\n```\n\n## Alerting and practice\n- Alert on user-facing symptoms (error ratio, latency SLO burn), not only on host metrics.\n- Dashboards per API and per consumer tier.\n- Compare before and after each release.\n- Sample and redact logs; exclude Authorization headers, API keys and personal data.\n\n## Common mistakes\n- Looking only at averages.\n- Having gateway logs that cannot be joined to backend logs.\n- Logging full request bodies containing sensitive data.\n- No baseline, so \"high\" latency has no reference.\n\nAnalytics features and export options differ by Apigee offering; many teams also send data to a central monitoring stack.",
+      "followUps": [
+        "How would you tell whether latency comes from the gateway or backend?",
+        "What SLOs would you set for a public API?",
+        "How do you propagate trace context through the gateway?"
+      ],
+      "related": [
+        "troubleshoot-502-and-504-from-apigee",
+        "troubleshoot-429-from-apigee",
+        "apigee-environments-and-deployments"
+      ]
+    },
+    {
+      "slug": "troubleshoot-429-from-apigee",
+      "title": "The gateway is returning 429 errors. What do you investigate?",
+      "topic": "Troubleshooting",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "429",
+        "rate-limiting",
+        "troubleshooting",
+        "quota"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-apigee",
+          "pages": [
+            8
+          ]
+        }
+      ],
+      "quick": "A 429 means a rate or usage limit rejected the request. I would find which policy fired, spike arrest or quota, by checking the fault name or analytics, then identify which consumer or key was throttled and look at their traffic pattern. I would confirm the limit matches the intended entitlement and backend capacity. I would not just raise the limit; I would check for client retry loops or abuse, and make sure clients honour retry hints and back off.",
+      "revision": "429 = a limit fired. Identify the policy, consumer and pattern; judge whether the limit or the client is wrong; fix retry loops or abuse; do not simply raise limits.",
+      "detailed": "**HTTP 429 Too Many Requests** is produced when a rate or usage policy decides the caller has exceeded a limit. In Apigee-style platforms this is typically a spike-arrest or quota violation, though a CDN, WAF, backend or upstream identity provider can also emit 429s.\n\n## Investigation steps\n1. **Who produced it?** Check the response body, fault name or headers and gateway analytics. Confirm the 429 did not originate at the backend or another layer.\n2. **Which limit?** Spike arrest (short-term burst) or quota (period entitlement) point to different causes.\n3. **Which consumer?** Break down by app, product or IP. One noisy client, or everyone?\n4. **What pattern?** A steady climb suggests growth or a plan that is too small. Sudden bursts suggest client retry loops, polling or a batch job. Repeated identical requests suggest a bug or scraping.\n5. **Is the limit right?** Compare with the agreed entitlement and measured backend capacity.\n6. **Is distribution the cause?** With several gateway nodes or regions, effective limits can behave differently than expected near the boundary.\n\n## Typical resolutions\n| Cause | Action |\n|---|---|\n| Client bug or retry storm | Fix the client, add exponential backoff with jitter |\n| Limit too low for legitimate use | Adjust the entitlement through the product, after checking capacity |\n| Abuse or scraping | Block or tighten, involve security |\n| Burst behaviour of a valid client | Spread requests, use batching or caching |\n| Many users behind one IP | Key limits by app or token rather than IP |\n\n## What good clients do\nHonour `Retry-After` when present, back off, and avoid synchronized retries.\n\n## Common mistakes\n- Raising limits blindly and moving the failure to the backend.\n- Rate limiting by IP only, penalising users behind shared NAT.\n- Returning 429 with no guidance, so clients retry aggressively.",
+      "followUps": [
+        "How would you key rate limits for users behind shared IPs?",
+        "What should the client do upon receiving 429?",
+        "How do you tell spike arrest rejections from quota rejections?"
+      ],
+      "related": [
+        "spike-arrest-vs-quota",
+        "rate-limiting-traffic-spikes-and-cdn",
+        "troubleshoot-502-and-504-from-apigee"
+      ]
+    },
+    {
+      "slug": "troubleshoot-502-and-504-from-apigee",
+      "title": "The gateway returns 502 or 504 errors. How do you troubleshoot?",
+      "topic": "Troubleshooting",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "502",
+        "504",
+        "timeouts",
+        "troubleshooting"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-apigee",
+          "pages": [
+            8
+          ]
+        }
+      ],
+      "quick": "These are upstream failures. A 502 generally means the gateway got an invalid response or could not complete the connection to the backend, and a 504 means the backend did not answer in time. I would check backend health, connectivity, DNS, TLS handshakes and firewall rules, and compare gateway and backend latency using correlation IDs. I would fix the root cause, such as a slow query or saturated service, rather than just increasing timeouts or retries.",
+      "revision": "502 = bad or failed upstream response/connection; 504 = upstream timed out. Check backend health, network, DNS, TLS, timeouts; locate fault with correlation IDs; fix cause, not timeouts.",
+      "detailed": "Both codes mean the **gateway could not obtain a good response from upstream**, so the question is whether the fault is the backend, the network between, or gateway configuration.\n\n## Typical meanings\n- **502 Bad Gateway**: the upstream reset the connection, sent an invalid response, or the TLS or connection setup failed. Some platforms report certain connection errors as 503 instead, so check the platform's fault codes.\n- **504 Gateway Timeout**: the upstream did not respond within the configured timeout, or an intermediate timeout (a load balancer, for example) fired first.\n\n## Troubleshooting path\n{{diagram:triage}}\n\n1. **Reproduce and scope**: all routes or one? All consumers or one? Since when? Correlate with deployments.\n2. **Check the backend directly** (from a network position equivalent to the gateway): is it up, are health checks passing, is the CPU, thread pool or connection pool saturated?\n3. **Connectivity**: DNS resolution, routing, firewall or security-group rules, NAT limits, private connectivity status.\n4. **TLS**: certificate expiry, hostname mismatch, protocol or cipher mismatch, mutual TLS configuration.\n5. **Timeouts across layers**: the gateway's target timeout, load balancer idle timeout and backend timeout should be aligned so the inner layer times out first.\n6. **Latency source**: use target-versus-total time and traces to see whether time is spent in the backend, in a downstream dependency, or in gateway policies such as a slow callout.\n7. **Keep-alive and connection reuse**: stale pooled connections can cause intermittent resets.\n\n## Mitigation\nRollback a bad release, scale or restore the backend, add a circuit breaker, return a clear fault, or fail over where designed.\n\n## Common mistakes\n- Raising timeouts, which only holds more connections open and amplifies overload.\n- Adding retries that multiply load during an outage; retry only idempotent operations with limits.\n- Blaming the gateway before checking the origin.",
+      "diagrams": [
+        {
+          "id": "triage",
+          "title": "Triage path for gateway 502 and 504",
+          "alt": "Starting from a 502 or 504 at the gateway, check whether the backend is healthy, then network, DNS and TLS connectivity, then timeout alignment, and finally the latency source using correlation IDs.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "s",
+              "label": "502 or 504 observed"
+            },
+            {
+              "id": "h",
+              "label": "Backend health and saturation"
+            },
+            {
+              "id": "n",
+              "label": "Network, DNS, TLS"
+            },
+            {
+              "id": "t",
+              "label": "Timeout alignment"
+            },
+            {
+              "id": "l",
+              "label": "Latency source via correlation ID"
+            },
+            {
+              "id": "f",
+              "label": "Fix root cause"
+            }
+          ],
+          "edges": [
+            {
+              "from": "s",
+              "to": "h"
+            },
+            {
+              "from": "h",
+              "to": "n"
+            },
+            {
+              "from": "n",
+              "to": "t"
+            },
+            {
+              "from": "t",
+              "to": "l"
+            },
+            {
+              "from": "l",
+              "to": "f"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Which layer should time out first and why?",
+        "When are retries safe, and when do they make it worse?",
+        "How would a circuit breaker help here?"
+      ],
+      "related": [
+        "api-observability-and-troubleshooting",
+        "troubleshoot-429-from-apigee",
+        "gateway-single-point-of-failure"
+      ]
+    },
+    {
+      "slug": "gateway-single-point-of-failure",
+      "title": "How do you prevent the API gateway from becoming a single point of failure?",
+      "topic": "Resilience",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "availability",
+        "resilience",
+        "gateway",
+        "failover"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-apigee",
+          "pages": [
+            8
+          ]
+        }
+      ],
+      "quick": "I would start from the availability objective, then review the deployment topology: redundant runtime instances, multi-zone and where needed multi-region, with health checks and automated failover in front. I would size for peak plus headroom, monitor saturation, deploy changes gradually with rollback, and test failure scenarios. Backends need their own protection, such as limits and restricted origin access, so a gateway incident or bypass cannot overwhelm or expose them. Details depend on the Apigee offering.",
+      "revision": "Remove the single point by design: redundancy across zones and regions, health-checked failover, capacity headroom, safe releases, failure testing, and protected backends.",
+      "detailed": "A gateway sits on every request's critical path, so it must be designed like critical infrastructure.\n\n## Design levers\n{{diagram:ha}}\n\n- **Redundancy**: multiple runtime instances across availability zones, and across regions if the objectives require it. How this is provisioned depends on the offering (managed service, hybrid runtime, self-hosted), so read the vendor's availability guidance and SLAs.\n- **Traffic steering**: a global or regional load balancer or DNS with health checks, directing traffic away from an unhealthy region.\n- **Capacity**: size for peak with headroom, autoscale where supported, and watch saturation, not only error rate.\n- **Safe change**: staged rollouts and fast rollback for proxy revisions; a bad policy change is a common cause of outages.\n- **Dependency discipline**: keep slow callouts and external lookups out of the hot path, or cache them; every dependency is another failure source.\n- **Failure testing**: game days, regional failover drills, and tests of what happens if the identity provider or a backend is down.\n\n## Protecting the backend\n- Rate and concurrency controls at the backend and its load balancer.\n- Restrict origin access to the gateway to prevent accidental bypass, but plan an emergency path (documented and access-controlled) in case the gateway is unavailable.\n- Graceful degradation: cached responses or reduced features when dependencies fail.\n\n## Define the objective first\nRedundancy has a cost. State the availability target (for example, a percentage of successful requests) and design to that, rather than defaulting to maximum redundancy everywhere.\n\n## Common mistakes\n- Redundant gateways but a single shared identity provider or database in the path.\n- Never exercising failover.\n- Centralising everything, including low-value internal traffic, on the gateway, which concentrates risk.",
+      "diagrams": [
+        {
+          "id": "ha",
+          "title": "Highly available gateway layer",
+          "alt": "A global load balancer with health checks distributes traffic to gateway runtimes in two regions, each spread across zones, both calling shared backend services that are protected by their own limits.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "lb",
+              "label": "Global load balancer"
+            },
+            {
+              "id": "r1",
+              "label": "Gateway region A"
+            },
+            {
+              "id": "r2",
+              "label": "Gateway region B"
+            },
+            {
+              "id": "be",
+              "label": "Backend services"
+            }
+          ],
+          "edges": [
+            {
+              "from": "lb",
+              "to": "r1",
+              "label": "health-checked"
+            },
+            {
+              "from": "lb",
+              "to": "r2",
+              "label": "health-checked"
+            },
+            {
+              "from": "r1",
+              "to": "be"
+            },
+            {
+              "from": "r2",
+              "to": "be"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "What would you test in a failover drill?",
+        "How do you avoid a bad policy deployment taking everything down?",
+        "Should backends be reachable without the gateway in an emergency?"
+      ],
+      "related": [
+        "why-not-expose-backends-directly",
+        "troubleshoot-502-and-504-from-apigee",
+        "internal-service-calls-through-gateway"
+      ]
+    },
+    {
+      "slug": "internal-service-calls-through-gateway",
+      "title": "Should every internal service-to-service call go through the API gateway?",
+      "topic": "Architecture Decisions",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "microservices",
+        "service-mesh",
+        "gateway",
+        "east-west"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-apigee",
+          "pages": [
+            8,
+            9
+          ]
+        }
+      ],
+      "quick": "Not necessarily. Public and partner-facing APIs benefit from centralised management. Internal east-west traffic is often better handled by service networking, a service mesh or an internal gateway, depending on security and governance needs. Routing every internal call through a central gateway adds latency, concentrates failure risk and creates a bottleneck. I want consistent identity, encryption and observability everywhere, without forcing one hop for everything.",
+      "revision": "No by default: gateway for external and partner (north-south) APIs; mesh or internal mechanisms for service-to-service (east-west). Aim for consistent control without a central bottleneck.",
+      "detailed": "The distinction is **north-south** (clients into the platform) versus **east-west** (services talking to each other).\n\n| | North-south (external) | East-west (internal) |\n|---|---|---|\n| Consumers | Websites, apps, partners | Other services |\n| Needs | Consumer onboarding, quotas, portal, strong edge security | Low latency, service identity, resilience |\n| Typical tool | API management gateway | Service mesh, internal load balancing, internal gateway, or direct calls with libraries |\n\n## Why not everything through the gateway\n- **Latency**: each call gains a hop, which compounds across call chains.\n- **Blast radius**: one outage affects all internal traffic.\n- **Cost and capacity**: internal volume is usually far larger than external volume.\n- **Wrong tool**: consumer products, keys and portals rarely apply to internal calls.\n\n## What internal traffic still needs\n- Service identity and encryption (for instance mutual TLS and workload identity).\n- Authorization between services, often with propagated or exchanged user context.\n- Timeouts, bounded retries and circuit breaking.\n- Tracing and metrics.\n\nA mesh or platform standard can give those without a central proxy.\n\n## When internal traffic via the gateway is reasonable\n- Cross-domain or cross-business-unit APIs that behave like products, with owners, versions and SLAs.\n- Regulatory or audit needs requiring centralised policy and logging.\n- Integrating legacy or third-party systems across trust boundaries.\n\n## Common mistakes\n- Dogmatic \"all traffic through the gateway\" rules, usually driven by tooling rather than requirements.\n- Leaving internal calls with no identity or authorization because \"it is internal\".\n\nDecide per boundary based on trust, ownership and requirements.",
+      "followUps": [
+        "What would a service mesh provide that the gateway does not?",
+        "How do you secure internal calls without a gateway?",
+        "How would you treat a cross-team internal API that many services depend on?"
+      ],
+      "related": [
+        "why-not-expose-backends-directly",
+        "gateway-single-point-of-failure",
+        "apigee-vs-aws-api-gateway"
+      ]
+    },
+    {
+      "slug": "apigee-micro-frontend-integration",
+      "title": "How would you integrate an API gateway into a micro-frontend based web platform?",
+      "topic": "Architecture Decisions",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "micro-frontends",
+        "react",
+        "api-gateway",
+        "cdn"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-apigee",
+          "pages": [
+            8,
+            9
+          ]
+        }
+      ],
+      "quick": "I would expose stable, secured API contracts through the gateway and let each frontend domain consume the APIs it owns, with clear backend ownership per domain. Authentication and traffic policies would be shared and governed consistently, rather than each micro-frontend inventing its own. I would avoid duplicate requests through shared data-fetching and caching, use the CDN for cacheable data, and monitor performance across CDN, gateway and services. A backend-for-frontend can help when views need aggregation.",
+      "revision": "Stable secured contracts via the gateway, one shared auth model, clear domain ownership, no duplicate fetches, CDN for cacheable data, end-to-end monitoring; BFF for aggregation.",
+      "detailed": "A micro-frontend (MFE) platform has several independently deployed UI modules, often owned by different teams, all calling APIs. The gateway should make that **safer and more consistent**, not create coupling.\n\n{{diagram:mfe}}\n\n## Principles\n- **Contract per domain**: each MFE consumes APIs owned by its domain's backend team, exposed through gateway products with versioned contracts.\n- **One authentication model**: the shell or a shared module handles sign-in and token acquisition (for example authorization code with PKCE for a browser client); individual MFEs reuse it instead of managing credentials separately. No client secret in browser code.\n- **Consistent traffic policy**: shared rate and burst limits keyed sensibly (per app or user rather than only per IP), with clear 401, 403 and 429 handling in a common client library.\n- **CORS and origins**: configure allowed origins centrally and deliberately.\n\n## Reducing chatter\n- Share a data-fetching layer or cache so two MFEs on one page do not request the same resource twice.\n- Prefer one aggregated call from a **backend-for-frontend** when a view needs data from several services, rather than many browser-to-gateway round trips.\n- Use CDN caching for public, cacheable data such as catalogue or dealer reference data.\n\n## Observability\nPropagate a correlation ID from the browser through the CDN, gateway and services, and tag requests with the originating MFE so latency and errors can be attributed to a team.\n\n## Common mistakes\n- Each MFE with its own API key and ad hoc auth logic.\n- Embedding orchestration in gateway proxies to serve one screen.\n- Version drift: an MFE pinned to an old API with no deprecation visibility.\n- Treating the gateway key as a browser secret.\n\nExample only: a \"vehicle browse\" MFE and a \"dealer locator\" MFE share the shell's token and call separate API products owned by separate backend teams.",
+      "diagrams": [
+        {
+          "id": "mfe",
+          "title": "Micro-frontends calling APIs through a gateway",
+          "alt": "A browser shell hosts vehicle and dealer micro-frontends that share one authentication and data layer; requests go through a CDN and the API gateway to separate backend services for vehicles and dealers.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "sh",
+              "label": "Shell + shared auth"
+            },
+            {
+              "id": "m1",
+              "label": "Vehicle MFE"
+            },
+            {
+              "id": "m2",
+              "label": "Dealer MFE"
+            },
+            {
+              "id": "cdn",
+              "label": "CDN"
+            },
+            {
+              "id": "gw",
+              "label": "API gateway"
+            },
+            {
+              "id": "b1",
+              "label": "Vehicle service"
+            },
+            {
+              "id": "b2",
+              "label": "Dealer service"
+            }
+          ],
+          "edges": [
+            {
+              "from": "sh",
+              "to": "m1"
+            },
+            {
+              "from": "sh",
+              "to": "m2"
+            },
+            {
+              "from": "m1",
+              "to": "cdn"
+            },
+            {
+              "from": "m2",
+              "to": "cdn"
+            },
+            {
+              "from": "cdn",
+              "to": "gw",
+              "label": "cache miss"
+            },
+            {
+              "from": "gw",
+              "to": "b1"
+            },
+            {
+              "from": "gw",
+              "to": "b2"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "When would you introduce a backend-for-frontend?",
+        "How do you handle token refresh across micro-frontends?",
+        "How would you attribute errors to a specific micro-frontend?"
+      ],
+      "related": [
+        "rate-limiting-traffic-spikes-and-cdn",
+        "secure-a-public-api",
+        "gateway-vs-backend-responsibilities"
+      ]
+    }
+  ]
+}

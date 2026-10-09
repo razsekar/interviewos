@@ -1,0 +1,900 @@
+{
+  "category": "mach-architecture",
+  "questions": [
+    {
+      "slug": "bff-pattern-in-mach",
+      "title": "What is a Backend-for-Frontend (BFF) and why is it common in MACH?",
+      "topic": "MACH Integration",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "bff",
+        "api-gateway",
+        "aggregation"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-mach-architecture",
+          "pages": [
+            5,
+            15,
+            16
+          ]
+        }
+      ],
+      "quick": "A Backend-for-Frontend is a thin server layer owned by the frontend team that exposes APIs shaped for one experience. It aggregates several domain APIs and content sources, adapts payloads, and handles session and token concerns, so the browser makes fewer calls and doesn't need to know every service. It reduces latency and coupling in MACH, but it must stay thin: business rules belong in domain services, and one BFF per channel avoids a catch-all gateway.",
+      "revision": "BFF: thin, experience-specific API layer that aggregates and shapes domain APIs for one frontend. Keep it free of business rules; one per channel.",
+      "detailed": "A **Backend-for-Frontend (BFF)** is a server-side component dedicated to one client experience (web, mobile, partner). It sits between the frontend and the domain APIs and exposes exactly what that experience needs.\n\n{{diagram:bff}}\n\n## Why it helps in MACH\n- **Fewer round trips**: the browser makes one call instead of many; the BFF fans out over fast internal networks.\n- **Decoupling**: UI evolves without forcing changes in domain services, and domain APIs stay general-purpose.\n- **Payload shaping**: trims fields, merges content and data, and maps vendor responses into a stable shape.\n- **Security**: keeps tokens and secrets server-side, and can manage sessions or token exchange.\n- **Resilience**: can apply timeouts, fallbacks and caching per dependency.\n\n## BFF vs API gateway\n| Aspect | API gateway | BFF |\n|---|---|---|\n| Purpose | Cross-cutting edge concerns: auth, rate limits, routing | Experience-specific aggregation and shaping |\n| Owner | Platform team | Frontend or experience team |\n| Scope | Shared by all | One per experience/channel |\n\nThey are often used together: gateway in front, BFF behind.\n\n## Risks\n- Becoming a **mini-monolith** that holds business logic.\n- A single shared BFF turning into a bottleneck for all teams.\n- Added hop of latency; mitigate with caching and efficient aggregation.\n- Duplicated logic across BFFs; keep shared behaviour in domain services.\n\n## Alternatives\nGraphQL federation or a GraphQL gateway can serve a similar role, with trade-offs around schema governance, caching and query cost control.\n\n**Note:** the source mentions BFF only in passing; this answer expands it.",
+      "diagrams": [
+        {
+          "id": "bff",
+          "title": "BFF aggregating domain APIs",
+          "alt": "The web frontend calls a gateway and a web BFF, which fans out to Vehicle, Finance and Content APIs and returns one shaped response.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "fe",
+              "label": "Web frontend"
+            },
+            {
+              "id": "gw",
+              "label": "API gateway"
+            },
+            {
+              "id": "bff",
+              "label": "Web BFF"
+            },
+            {
+              "id": "v",
+              "label": "Vehicle API"
+            },
+            {
+              "id": "f",
+              "label": "Finance API"
+            },
+            {
+              "id": "c",
+              "label": "Content API"
+            }
+          ],
+          "edges": [
+            {
+              "from": "fe",
+              "to": "gw"
+            },
+            {
+              "from": "gw",
+              "to": "bff"
+            },
+            {
+              "from": "bff",
+              "to": "v"
+            },
+            {
+              "from": "bff",
+              "to": "f"
+            },
+            {
+              "from": "bff",
+              "to": "c"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "BFF or GraphQL: how would you choose?",
+        "How do you stop a BFF accumulating business logic?",
+        "Should mobile and web share a BFF?"
+      ],
+      "related": [
+        "react-in-mach-experience-layer",
+        "mach-performance",
+        "mach-api-first-letter"
+      ]
+    },
+    {
+      "slug": "migrate-monolith-to-mach-strangler",
+      "title": "How would you migrate a traditional platform to MACH?",
+      "topic": "MACH Migration",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "migration",
+        "strangler-fig",
+        "modernization"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-mach-architecture",
+          "pages": [
+            12,
+            13
+          ]
+        }
+      ],
+      "quick": "I would avoid a big-bang rewrite and use incremental, strangler-style modernization. First identify domains and boundaries. Then expose APIs over the existing system, extract selected capabilities one at a time into services, introduce headless content, and add a modern frontend or micro frontends where justified. A routing layer sends traffic to old or new implementations, so each step is releasable and reversible. Legacy components are retired gradually once traffic has moved.",
+      "revision": "Strangler migration: identify domains, put a routing facade in front, expose APIs, extract capabilities incrementally, add headless content and new UI, then retire legacy. Avoid big-bang.",
+      "detailed": "A big-bang rewrite is slow, risky and delivers no value until the end. The **strangler fig** approach places a facade in front of the legacy system and gradually redirects functionality to new components until the old system can be retired.\n\n{{diagram:strangler}}\n\n## Phased approach\n1. **Discover and map domains**: identify bounded contexts (for example vehicle, finance, customer, content), dependencies, traffic, change frequency and pain points. Choose the first slice by value and low coupling.\n2. **Establish foundations**: CI/CD, observability, API gateway, identity, environments and governance, *before* extracting widely.\n3. **Expose APIs** around the legacy system (an anti-corruption layer) so new consumers stop depending on its internals.\n4. **Extract capabilities** one at a time into services; migrate data deliberately (replicate, dual-write or event sync, then cut over).\n5. **Introduce headless content** and decouple content delivery from legacy templates.\n6. **Modernise the frontend**: a new React experience, with micro frontends only where team boundaries justify it; route page by page.\n7. **Retire legacy** pieces once traffic and data are fully moved.\n\n## Safety techniques\n- Route by path, header, market or percentage; feature flags and canary releases.\n- Run old and new side by side and compare results (shadow traffic).\n- Keep rollback simple at every step.\n\n## Risks\nData synchronisation and ownership during the transition, prolonged dual running that never ends, duplicated functionality, and team fatigue. Define exit criteria and decommission dates for each slice.\n\n## Common mistakes\nStarting with the hardest, most entangled domain; extracting before observability exists; letting new services keep calling legacy databases directly.",
+      "diagrams": [
+        {
+          "id": "strangler",
+          "title": "Strangler migration with routing facade",
+          "alt": "Clients reach a routing facade that sends traffic either to the legacy platform or to newly extracted services; the legacy share shrinks over time.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "client",
+              "label": "Clients"
+            },
+            {
+              "id": "facade",
+              "label": "Routing facade / gateway"
+            },
+            {
+              "id": "legacy",
+              "label": "Legacy platform"
+            },
+            {
+              "id": "new1",
+              "label": "Vehicle service"
+            },
+            {
+              "id": "new2",
+              "label": "Finance service"
+            },
+            {
+              "id": "cms",
+              "label": "Headless content"
+            }
+          ],
+          "edges": [
+            {
+              "from": "client",
+              "to": "facade"
+            },
+            {
+              "from": "facade",
+              "to": "legacy",
+              "label": "shrinking share"
+            },
+            {
+              "from": "facade",
+              "to": "new1"
+            },
+            {
+              "from": "facade",
+              "to": "new2"
+            },
+            {
+              "from": "facade",
+              "to": "cms"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Which domain would you extract first and why?",
+        "How do you migrate data while both systems are live?",
+        "How do you know the legacy system is safe to retire?"
+      ],
+      "related": [
+        "mach-vs-traditional-monolith",
+        "mach-biggest-implementation-concern",
+        "modular-monolith-vs-mach"
+      ]
+    },
+    {
+      "slug": "mach-biggest-implementation-concern",
+      "title": "What would be your biggest concern when implementing MACH?",
+      "topic": "MACH Migration",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "distributed-systems",
+        "risk",
+        "platform-engineering"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-mach-architecture",
+          "pages": [
+            13
+          ]
+        }
+      ],
+      "quick": "Distributed-system complexity. Once capabilities are split, network failures, API versioning, observability, security, data consistency and deployment coordination all matter much more. So before decomposing aggressively I would put the foundations in place: API governance and standards, observability, security standards, a platform engineering capability with paved paths, and clear domain ownership. Without these, you get many services but not the promised independence.",
+      "revision": "Biggest concern: distributed-system complexity. Establish API governance, observability, security, platform engineering and clear domain ownership before decomposing aggressively.",
+      "detailed": "The most defensible answer is **distributed-system complexity**, because it touches every other risk. The mature response is not just naming it but describing what must exist first.\n\n{{diagram:foundations}}\n\n## What gets harder after splitting\n- **Failure modes**: partial failures, timeouts, retry storms, cascading outages.\n- **Contracts**: every API is a promise to unknown consumers; versioning must be deliberate.\n- **Data**: no shared transaction; eventual consistency and reconciliation.\n- **Debugging**: a request spans many components and teams.\n- **Security**: more endpoints, service-to-service trust, secrets.\n- **Delivery**: coordinating dependent changes without a monolithic release.\n\n## Foundations before decomposition\n| Foundation | Purpose |\n|---|---|\n| Domain ownership | Every service and dataset has an accountable team |\n| API governance | Standards, review, versioning, contract tests |\n| Observability | Tracing, logs, metrics, SLOs |\n| Security baseline | Identity, authorisation, secrets, scanning |\n| Platform engineering | Paved-path templates, CI/CD, IaC, runtime, so teams do not each reinvent it |\n\n## Related concerns worth mentioning\nCost growth, skills and on-call load, and organisational alignment: Conway's law implies that architecture and team structure should be aligned, otherwise services will not stay independent.\n\n## Interview framing\nState the concern, state the mitigation, and state the sequencing: build the platform and governance first, then decompose in small, measurable steps.\n\n## Common mistake\nAnswering with a single technical concern (for example latency) without the organisational and operational context.",
+      "diagrams": [
+        {
+          "id": "foundations",
+          "title": "Foundations before decomposition",
+          "alt": "Domain ownership, API governance, observability, security and platform engineering all feed into safe decomposition of services.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "own",
+              "label": "Domain ownership"
+            },
+            {
+              "id": "gov",
+              "label": "API governance"
+            },
+            {
+              "id": "obs",
+              "label": "Observability"
+            },
+            {
+              "id": "sec",
+              "label": "Security baseline"
+            },
+            {
+              "id": "plat",
+              "label": "Platform engineering"
+            },
+            {
+              "id": "dec",
+              "label": "Safe service decomposition"
+            }
+          ],
+          "edges": [
+            {
+              "from": "own",
+              "to": "dec"
+            },
+            {
+              "from": "gov",
+              "to": "dec"
+            },
+            {
+              "from": "obs",
+              "to": "dec"
+            },
+            {
+              "from": "sec",
+              "to": "dec"
+            },
+            {
+              "from": "plat",
+              "to": "dec"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How does Conway's law apply here?",
+        "What does a paved-path platform include?",
+        "How do you prevent retry storms?"
+      ],
+      "related": [
+        "mach-disadvantages",
+        "migrate-monolith-to-mach-strangler",
+        "mach-governance-guardrails"
+      ]
+    },
+    {
+      "slug": "mach-governance-guardrails",
+      "title": "How do you maintain governance in a MACH platform without blocking teams?",
+      "topic": "MACH Governance",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "governance",
+        "standards",
+        "adr",
+        "platform"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-mach-architecture",
+          "pages": [
+            13,
+            14
+          ]
+        }
+      ],
+      "quick": "I would establish platform guardrails rather than central approval of everything. Otherwise twenty teams produce twenty architectures, coding styles and security models. Guardrails cover API standards and versioning, security standards like OAuth and OWASP practice, observability conventions, ADRs, performance budgets, accessibility standards, a shared design system, CI/CD templates and dependency policies. Enforce them automatically in pipelines wherever possible, and keep a lightweight review for genuinely cross-cutting decisions.",
+      "revision": "Federated governance: shared guardrails (API, security, observability standards, ADRs, design system, CI/CD templates) enforced automatically, so teams stay autonomous without fragmenting.",
+      "detailed": "MACH gives teams autonomy, so governance must shift from **gatekeeping** to **guardrails**: standards and tooling that make the right thing the easy thing.\n\n{{diagram:gov}}\n\n## Areas and typical artefacts\n| Area | Examples |\n|---|---|\n| APIs | Naming, error format, pagination, versioning and deprecation policy, OpenAPI linting, breaking-change checks |\n| Security | OAuth 2.0/OIDC usage, authorisation model, OWASP guidance, secrets management, dependency scanning |\n| Observability | Logging format, correlation IDs, standard metrics, tracing, SLO templates |\n| Delivery | CI/CD templates, IaC modules, environment strategy, release and rollback rules |\n| Frontend | Design system, accessibility standard (WCAG), performance budgets, browser support |\n| Decisions | **ADRs** (architecture decision records) stored with code |\n| Dependencies | Approved libraries, licence and upgrade policy |\n\n## Operating model\n- A small **architecture / platform group** owns the guardrails, and is staffed to support teams, not to review everything.\n- **Automation first**: lint rules, policy-as-code, pipeline gates, and scaffolding templates.\n- **Tiered review**: lightweight for local decisions, formal for cross-domain or irreversible ones.\n- **Inner-source**: teams contribute to shared standards.\n- An **API catalog** for discovery and ownership.\n\n## Common mistakes\n- Governance by committee: slow approvals push teams to work around it.\n- No governance: inconsistent security and duplicated capabilities.\n- Standards documented but not enforced by tooling.\n\n## Measure it\nTrack adoption of paved paths, policy violations caught in CI, and time to first deployment for a new service.",
+      "diagrams": [
+        {
+          "id": "gov",
+          "title": "Architecture governance guardrails",
+          "alt": "Architecture governance branches into API standards, security and observability guardrails, each with specific artefacts such as versioning rules, IAM and OAuth, and logs, metrics and traces.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "g",
+              "label": "Architecture governance"
+            },
+            {
+              "id": "api",
+              "label": "API standards"
+            },
+            {
+              "id": "sec",
+              "label": "Security standards"
+            },
+            {
+              "id": "obs",
+              "label": "Observability standards"
+            },
+            {
+              "id": "v",
+              "label": "Versioning and contracts"
+            },
+            {
+              "id": "iam",
+              "label": "IAM, OAuth, OWASP"
+            },
+            {
+              "id": "tel",
+              "label": "Logs, metrics, traces"
+            }
+          ],
+          "edges": [
+            {
+              "from": "g",
+              "to": "api"
+            },
+            {
+              "from": "g",
+              "to": "sec"
+            },
+            {
+              "from": "g",
+              "to": "obs"
+            },
+            {
+              "from": "api",
+              "to": "v"
+            },
+            {
+              "from": "sec",
+              "to": "iam"
+            },
+            {
+              "from": "obs",
+              "to": "tel"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "What is an ADR and when would you write one?",
+        "How do you enforce standards automatically?",
+        "How do you balance autonomy and consistency?"
+      ],
+      "related": [
+        "mach-security",
+        "mach-observability",
+        "mach-biggest-implementation-concern"
+      ]
+    },
+    {
+      "slug": "mach-security",
+      "title": "How do you approach security in a MACH architecture?",
+      "topic": "MACH Operations",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "security",
+        "oauth",
+        "oidc",
+        "zero-trust",
+        "api-gateway"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-mach-architecture",
+          "pages": [
+            14,
+            15
+          ]
+        }
+      ],
+      "quick": "Security must be designed into every layer, not added at the edge. Traffic passes a CDN and WAF, then the frontend and an API gateway that authenticates, then authorization and the services and data. I would use OAuth 2.0 and OIDC for identity, RBAC or attribute-based rules, least privilege, TLS everywhere, secrets management, encryption at rest, audit logging and zero-trust principles such as verifying service-to-service calls. Each service still enforces authorization itself.",
+      "revision": "Defence in depth: CDN/WAF, gateway authentication, per-service authorization, OAuth/OIDC, least privilege, TLS, secrets management, encryption and audit logging. Never trust the client.",
+      "detailed": "A distributed platform has **more entry points and trust boundaries**, so security is layered (\"defence in depth\").\n\n{{diagram:sec}}\n\n## Layers and controls\n| Layer | Controls |\n|---|---|\n| Edge | CDN, WAF, DDoS protection, bot management, TLS |\n| Frontend | CSP, secure cookies, XSS and CSRF defences, no secrets in the bundle |\n| API gateway / BFF | Token validation, rate limiting, input validation, schema enforcement |\n| Identity | OAuth 2.0 and OpenID Connect; short-lived tokens, PKCE for public clients |\n| Authorisation | RBAC or ABAC, checked in each service (not only at the gateway) |\n| Service-to-service | mTLS or workload identity, scoped service credentials |\n| Data | Encryption in transit and at rest, minimisation, key management, retention |\n| Operations | Secrets manager, dependency and image scanning, audit logging, patching |\n\n## Key principles\n- **Least privilege** for users, services and pipelines.\n- **Zero trust** where applicable: do not trust a call because it comes from inside the network.\n- **Do not rely on the browser**: UI hiding is not authorisation.\n- **Validate at each boundary** and follow OWASP API Security guidance.\n- **Third-party and SaaS risk**: review vendors, scope their credentials, and monitor integrations.\n- **Privacy and compliance**: consent, regional data handling and audit trails, depending on market requirements.\n\n## Common mistakes\n- Gateway-only authorisation, so a leaked internal route bypasses everything.\n- Long-lived shared credentials or tokens stored in local storage.\n- Overly broad CORS and wildcard permissions.\n- Treating each team's security model as local, leading to inconsistency (see governance).",
+      "diagrams": [
+        {
+          "id": "sec",
+          "title": "Layered security path",
+          "alt": "A request passes from the user through a CDN and WAF, the frontend, an API gateway, authentication, authorization, the microservices and finally the data layer.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "u",
+              "label": "User"
+            },
+            {
+              "id": "cdn",
+              "label": "CDN / WAF"
+            },
+            {
+              "id": "fe",
+              "label": "Frontend"
+            },
+            {
+              "id": "gw",
+              "label": "API gateway"
+            },
+            {
+              "id": "authn",
+              "label": "Authentication"
+            },
+            {
+              "id": "authz",
+              "label": "Authorization"
+            },
+            {
+              "id": "svc",
+              "label": "Microservices"
+            },
+            {
+              "id": "data",
+              "label": "Data"
+            }
+          ],
+          "edges": [
+            {
+              "from": "u",
+              "to": "cdn"
+            },
+            {
+              "from": "cdn",
+              "to": "fe"
+            },
+            {
+              "from": "fe",
+              "to": "gw"
+            },
+            {
+              "from": "gw",
+              "to": "authn"
+            },
+            {
+              "from": "authn",
+              "to": "authz"
+            },
+            {
+              "from": "authz",
+              "to": "svc"
+            },
+            {
+              "from": "svc",
+              "to": "data"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Why should authorisation not be only at the gateway?",
+        "Which OAuth flow for a public SPA?",
+        "How do you secure service-to-service calls?"
+      ],
+      "related": [
+        "mach-governance-guardrails",
+        "mach-observability",
+        "bff-pattern-in-mach"
+      ]
+    },
+    {
+      "slug": "mach-observability",
+      "title": "How do you handle observability in a MACH architecture?",
+      "topic": "MACH Operations",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "observability",
+        "tracing",
+        "opentelemetry",
+        "slo"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-mach-architecture",
+          "pages": [
+            15
+          ]
+        }
+      ],
+      "quick": "A single user request may cross the React app, a micro frontend, a BFF, the gateway, several services and a database, so troubleshooting is hard without good telemetry. I would implement correlation IDs propagated end to end, distributed tracing, centralized structured logs, metrics, alerts and SLOs, ideally with a vendor-neutral standard like OpenTelemetry. Add real-user monitoring on the frontend, and alert on user-impacting symptoms rather than every internal error.",
+      "revision": "Propagate correlation IDs, use distributed tracing, structured central logs, metrics, alerts and SLOs (OpenTelemetry), plus frontend RUM. Alert on user impact, not noise.",
+      "detailed": "In a distributed platform, **you cannot debug by reading one server's log**. Observability means being able to ask new questions about system behaviour from its telemetry.\n\n{{diagram:obs}}\n\n## Pillars\n- **Logs**: structured (JSON), centralised, with correlation/trace IDs and no sensitive data.\n- **Metrics**: RED (rate, errors, duration) for services and USE (utilisation, saturation, errors) for resources.\n- **Traces**: distributed tracing across frontend, BFF, gateway and services, following the W3C Trace Context standard.\n- **Events and profiles** where useful.\n\n## Practices\n- **Correlation IDs** generated at the edge and propagated through headers and message metadata.\n- **OpenTelemetry** instrumentation for vendor-neutral collection.\n- **Real-user monitoring** (Core Web Vitals, JS errors) and **synthetic checks** for key journeys.\n- **SLIs and SLOs** per journey, such as vehicle search availability and latency, with error budgets guiding release decisions.\n- **Alerting** tied to symptoms and SLO burn, with runbooks and clear ownership.\n- **Dependency health** dashboards, including third-party SaaS calls.\n- Sampling strategy so tracing cost stays bounded.\n\n## Common mistakes\n- Logs without correlation IDs, so requests cannot be joined.\n- Alerting on every error; alert fatigue hides real incidents.\n- Each team using a different format or tool, which makes cross-service analysis difficult.\n- Missing the frontend: users experience slowness the backend never sees.\n\n## Link to governance\nObservability conventions belong in the platform's paved path so new services emit useful telemetry by default.",
+      "diagrams": [
+        {
+          "id": "obs",
+          "title": "Request path with telemetry",
+          "alt": "A request flows from React through MFE, BFF, API gateway, Service A, Service B to the database; every hop emits telemetry to an observability backend.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "r",
+              "label": "React / MFE"
+            },
+            {
+              "id": "bff",
+              "label": "BFF"
+            },
+            {
+              "id": "gw",
+              "label": "API gateway"
+            },
+            {
+              "id": "a",
+              "label": "Service A"
+            },
+            {
+              "id": "b",
+              "label": "Service B"
+            },
+            {
+              "id": "db",
+              "label": "Database"
+            },
+            {
+              "id": "tel",
+              "label": "Observability backend"
+            }
+          ],
+          "edges": [
+            {
+              "from": "r",
+              "to": "bff"
+            },
+            {
+              "from": "bff",
+              "to": "gw"
+            },
+            {
+              "from": "gw",
+              "to": "a"
+            },
+            {
+              "from": "a",
+              "to": "b"
+            },
+            {
+              "from": "b",
+              "to": "db"
+            },
+            {
+              "from": "r",
+              "to": "tel"
+            },
+            {
+              "from": "bff",
+              "to": "tel"
+            },
+            {
+              "from": "gw",
+              "to": "tel"
+            },
+            {
+              "from": "a",
+              "to": "tel"
+            },
+            {
+              "from": "b",
+              "to": "tel"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "What is the difference between monitoring and observability?",
+        "How do you propagate trace context across async messages?",
+        "How would you define an SLO for vehicle search?"
+      ],
+      "related": [
+        "mach-governance-guardrails",
+        "mach-disadvantages",
+        "mach-performance"
+      ]
+    },
+    {
+      "slug": "mach-performance",
+      "title": "How does MACH affect web performance and how do you manage it?",
+      "topic": "MACH Operations",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "performance",
+        "cdn",
+        "caching",
+        "core-web-vitals"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-mach-architecture",
+          "pages": [
+            15,
+            16
+          ]
+        }
+      ],
+      "quick": "MACH can improve back-end scalability but hurt frontend performance if designed poorly, because many APIs, network requests, JavaScript bundles and third-party systems add latency. I would use a CDN and edge caching, API aggregation through a BFF, lazy loading and code splitting, HTTP caching, connection reuse and efficient API contracts, and enforce performance budgets. I would measure LCP, INP, CLS, TTFB, API latency and bundle size, with real-user data, not just lab tests.",
+      "revision": "Distribution can slow the frontend: control request counts, bundles and third parties with CDN/caching, BFF aggregation, code splitting and budgets; measure LCP, INP, CLS, TTFB, API latency.",
+      "detailed": "MACH scales the back end well but can **tax the user's experience**: more requests, more scripts, more vendors. Performance must be an explicit architectural concern.\n\n{{diagram:perf}}\n\n## Typical problems\n- **Request waterfalls**: the UI calls API A, then B, then C sequentially.\n- **Chatty frontends** calling many services directly.\n- **Bundle bloat** from several micro frontends or duplicated dependencies.\n- **Third-party scripts** (tags, chat, analytics) blocking rendering.\n- **Cold origin calls** to the CMS or services for every request.\n\n## Techniques\n| Technique | Effect |\n|---|---|\n| CDN and edge caching, SSG/ISR for stable pages | Fast TTFB, reduced origin load |\n| BFF / API aggregation | Fewer round trips, tailored payloads |\n| HTTP caching (Cache-Control, ETag, stale-while-revalidate) | Fewer repeated fetches |\n| Code splitting and lazy loading | Smaller initial JS |\n| Shared dependencies across micro frontends | Avoid duplicate bundles |\n| Image optimisation and responsive formats | Better LCP |\n| Efficient contracts (field selection, pagination, compression) | Smaller payloads |\n| Connection reuse (HTTP/2 or HTTP/3), preconnect | Lower connection cost |\n| Script governance for third parties | Lower main-thread blocking |\n\n## What to measure\nCore Web Vitals: **LCP**, **INP**, **CLS**; plus **TTFB**, API latency percentiles and bundle size. Use real-user monitoring and **performance budgets** enforced in CI, per route.\n\n## Common mistakes\nOptimising only the backend, ignoring percentile (p95/p99) latency, and adding micro frontends without a shared-dependency plan.",
+      "diagrams": [
+        {
+          "id": "perf",
+          "title": "Performance levers across the stack",
+          "alt": "Users hit a CDN with caching; the frontend uses code splitting and lazy loading; a BFF aggregates calls to APIs; measurement feeds performance budgets.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "u",
+              "label": "User"
+            },
+            {
+              "id": "cdn",
+              "label": "CDN and edge cache"
+            },
+            {
+              "id": "fe",
+              "label": "Frontend (code splitting, lazy load)"
+            },
+            {
+              "id": "bff",
+              "label": "BFF aggregation"
+            },
+            {
+              "id": "api",
+              "label": "Domain APIs"
+            },
+            {
+              "id": "meas",
+              "label": "Measurement and budgets"
+            }
+          ],
+          "edges": [
+            {
+              "from": "u",
+              "to": "cdn"
+            },
+            {
+              "from": "cdn",
+              "to": "fe"
+            },
+            {
+              "from": "fe",
+              "to": "bff"
+            },
+            {
+              "from": "bff",
+              "to": "api"
+            },
+            {
+              "from": "fe",
+              "to": "meas"
+            },
+            {
+              "from": "bff",
+              "to": "meas"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you diagnose a slow vehicle detail page?",
+        "Why use percentiles rather than averages?",
+        "How do micro frontends affect Core Web Vitals?"
+      ],
+      "related": [
+        "bff-pattern-in-mach",
+        "micro-frontends-in-mach",
+        "mach-observability"
+      ]
+    },
+    {
+      "slug": "design-mach-reference-platform",
+      "title": "Design a MACH-based platform for a global automotive-style website.",
+      "topic": "MACH Design",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "system-design",
+        "reference-architecture",
+        "mach"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-mach-architecture",
+          "pages": [
+            17,
+            18
+          ]
+        }
+      ],
+      "quick": "I would apply MACH as principles, not a product list. Users hit a CDN and WAF in front of a React web shell, optionally with domain micro frontends for vehicle, finance and customer. These call an API gateway and BFFs, which reach API-first, cloud-native domain services with their own data stores, plus headless content delivered by a CMS through content APIs. Events connect services. Identity, security, observability and governance are platform capabilities, and caching provides global performance.",
+      "revision": "CDN/WAF, React shell with optional domain MFEs, gateway and BFF, API-first domain services with owned data, headless CMS, events, and shared platform security/observability/governance.",
+      "detailed": "Frame the answer as **principles first, technologies second**. The diagram below is an illustrative reference architecture, not a prescription.\n\n{{diagram:ref}}\n\n## Layers\n1. **Edge**: CDN and WAF for caching, TLS, DDoS and bot protection, regional routing.\n2. **Experience**: React web experience with a shell. Domain micro frontends (vehicle, finance, customer) only where team autonomy justifies them; otherwise a modular single app. SSR/SSG for SEO-critical pages.\n3. **API layer**: gateway for authentication, rate limiting and routing; BFFs that aggregate and shape data per channel.\n4. **Domain services**: Vehicle, Finance, Customer, Dealer, Offers, each API-first, independently deployable and owning its data (relational store, cache, search as appropriate).\n5. **Content**: a headless CMS (for example AEM in headless mode) publishing structured content through content APIs and a CDN, with preview.\n6. **Integration**: an event bus for asynchronous propagation (for example price or inventory updates and cache invalidation); SaaS capabilities such as search or payments behind adapters.\n7. **Platform capabilities**: identity (OIDC), secrets, CI/CD and IaC templates, observability (traces, logs, metrics, SLOs), governance and a design system.\n\n## Key design decisions to call out\n- Where to **cache** (edge, BFF, service) and how to invalidate.\n- **Multi-region** deployment, data residency and localisation per market.\n- **Failure handling**: timeouts, fallbacks and graceful degradation (for example hide finance widget if the service is down).\n- **Consistency**: eventual consistency through events; strong consistency inside a service.\n- **Security and privacy** across layers.\n- **Migration path**: strangler approach if a legacy platform exists.\n\n## Closing statement\nMACH increases distributed complexity, so adopt it selectively, with API governance, security, observability and platform engineering in place first.",
+      "diagrams": [
+        {
+          "id": "ref",
+          "title": "Illustrative MACH reference platform",
+          "alt": "Global users reach a CDN and WAF, then a React shell with domain micro frontends, then an API gateway and BFF, then domain services backed by data stores and an event bus; a headless CMS feeds content APIs to the experience layer.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "u",
+              "label": "Global users"
+            },
+            {
+              "id": "edge",
+              "label": "CDN and WAF"
+            },
+            {
+              "id": "fe",
+              "label": "React shell and domain MFEs"
+            },
+            {
+              "id": "gw",
+              "label": "API gateway and BFF"
+            },
+            {
+              "id": "svc",
+              "label": "Domain services (vehicle, finance, customer)"
+            },
+            {
+              "id": "data",
+              "label": "Data stores and cache"
+            },
+            {
+              "id": "bus",
+              "label": "Event bus"
+            },
+            {
+              "id": "cms",
+              "label": "Headless CMS and content APIs"
+            },
+            {
+              "id": "plat",
+              "label": "Platform: identity, observability, governance"
+            }
+          ],
+          "edges": [
+            {
+              "from": "u",
+              "to": "edge"
+            },
+            {
+              "from": "edge",
+              "to": "fe"
+            },
+            {
+              "from": "fe",
+              "to": "gw"
+            },
+            {
+              "from": "gw",
+              "to": "svc"
+            },
+            {
+              "from": "svc",
+              "to": "data"
+            },
+            {
+              "from": "svc",
+              "to": "bus"
+            },
+            {
+              "from": "cms",
+              "to": "fe",
+              "label": "content API"
+            },
+            {
+              "from": "plat",
+              "to": "svc"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you handle multi-region data residency?",
+        "Where would you place caching and how would it be invalidated?",
+        "What would you build first in the first three months?"
+      ],
+      "related": [
+        "mach-governance-guardrails",
+        "mach-security",
+        "mach-observability",
+        "migrate-monolith-to-mach-strangler"
+      ]
+    },
+    {
+      "slug": "when-not-to-adopt-mach",
+      "title": "When would you advise against adopting MACH?",
+      "topic": "MACH Trade-offs",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "mach",
+        "decision",
+        "trade-offs",
+        "architecture-judgement"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would advise against it when the problem is not independence. A single small team, one channel, one domain, a slow change rate, or no platform engineering maturity usually gets more benefit from a simpler design, such as a well-structured monolith or modular monolith with a headless CMS. MACH also won't fix organizational issues like unclear ownership. I would choose the smallest architecture that meets present needs, keep boundaries clean, and revisit when measured pain justifies the extra operational cost.",
+      "revision": "Avoid MACH for small teams, a single channel or domain, low change rates or missing platform maturity; pick the simplest architecture meeting needs and revisit on measured pain.",
+      "detailed": "Architectural judgement includes knowing when **not** to use a pattern. MACH solves problems of scale, autonomy and channel diversity; if those problems are absent, it adds cost without return.\n\n{{diagram:decide}}\n\n## Signals that MACH is premature\n- **One or two teams** share a codebase comfortably.\n- **A single channel** (one website) with no near-term need for others.\n- **A stable, small domain** whose boundaries are not yet understood; early splits will be wrong.\n- **Low change rate**: nobody is blocked by shared releases.\n- **Limited platform maturity**: no CI/CD automation, observability or API management to carry many services.\n- **Tight budget or timeline** where operating many components is unaffordable.\n- **Strong transactional coupling** between capabilities that will fight eventual consistency.\n- The motivation is **fashion or vendor pressure**, not a measured problem.\n\n## Better starting points\n| Situation | Option |\n|---|---|\n| Small team, one site | Well-structured monolith or modular monolith |\n| Content-heavy site needing frontend freedom | Headless CMS plus a single frontend app |\n| Parts with hot spots | Extract only those capabilities (selective adoption) |\n| Legacy pain | Incremental strangler for the most painful domain |\n\n## Selective adoption\nMACH is not all-or-nothing. A team can be API-first and headless without splitting every domain into microservices, and can be cloud-native without micro frontends.\n\n## Common mistakes\n- Adopting every letter simultaneously.\n- Treating MACH as a goal instead of a means to business outcomes.\n- Ignoring the people side: autonomy requires skills, ownership and on-call readiness.\n\n## A useful test\nAsk: what specific, measurable problem will this solve, and what will we stop being able to do easily as a result?",
+      "diagrams": [
+        {
+          "id": "decide",
+          "title": "Decision path for adopting MACH",
+          "alt": "Starting from a measurable problem, check whether many teams, many channels and platform maturity exist; if yes adopt MACH selectively, otherwise prefer a modular monolith with a headless CMS.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "q",
+              "label": "Measured pain?"
+            },
+            {
+              "id": "t",
+              "label": "Many teams or channels?"
+            },
+            {
+              "id": "p",
+              "label": "Platform maturity?"
+            },
+            {
+              "id": "yes",
+              "label": "Adopt MACH selectively"
+            },
+            {
+              "id": "no",
+              "label": "Modular monolith plus headless CMS"
+            }
+          ],
+          "edges": [
+            {
+              "from": "q",
+              "to": "t"
+            },
+            {
+              "from": "t",
+              "to": "p",
+              "label": "yes"
+            },
+            {
+              "from": "t",
+              "to": "no",
+              "label": "no"
+            },
+            {
+              "from": "p",
+              "to": "yes",
+              "label": "yes"
+            },
+            {
+              "from": "p",
+              "to": "no",
+              "label": "no"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Which letters of MACH could you adopt alone?",
+        "How would you revisit the decision later?",
+        "How do you explain this recommendation to a sponsor who wants MACH?"
+      ],
+      "related": [
+        "modular-monolith-vs-mach",
+        "mach-disadvantages",
+        "why-enterprises-adopt-mach"
+      ]
+    }
+  ]
+}

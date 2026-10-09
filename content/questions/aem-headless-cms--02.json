@@ -1,0 +1,824 @@
+{
+  "category": "aem-headless-cms",
+  "questions": [
+    {
+      "slug": "react-integration-with-headless-cms",
+      "title": "How does a React frontend integrate with a headless CMS?",
+      "topic": "Headless Integration",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "react",
+        "headless",
+        "cms",
+        "api",
+        "view-model"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aem-headless-cms",
+          "pages": [
+            3
+          ]
+        }
+      ],
+      "quick": "Authors manage structured content in the CMS, which exposes it through content APIs. The React app fetches that content, ideally on the server for public pages, maps the raw API response into a view model that matches its components, and renders. I would keep the mapping layer separate so components do not depend on the CMS payload shape. Caching, preview and error handling are part of the integration, not an afterthought.",
+      "revision": "CMS exposes content via API; React fetches it, maps it to view models, and renders through components, with caching, preview and fallbacks designed in.",
+      "detailed": "The integration is an **API consumption pipeline** with a clear boundary between content and presentation.\n\n{{diagram:flow}}\n\n## Steps\n\n1. **Author** structured content in the CMS.\n2. **Expose** it through a content API (REST or GraphQL; many CMS products offer delivery endpoints or a query API).\n3. **Fetch** in the frontend. For public pages prefer server-side data fetching (SSR or SSG) so HTML is ready on arrival; use client-side fetching for personalized or interactive parts.\n4. **Map** the API payload to a **view model** that matches component props.\n5. **Render** with components from the design system.\n\n## Keep an anti-corruption layer\n\nA small mapping function insulates components from CMS-specific shapes:\n\n```ts\ntype VehicleCardProps = { title: string; imageUrl: string; features: string[] };\n\nfunction toVehicleCard(entry: CmsVehicle): VehicleCardProps {\n  return {\n    title: entry.name,\n    imageUrl: entry.heroImage?.url ?? '/img/placeholder.png',\n    features: entry.features ?? [],\n  };\n}\n```\n\nIf the CMS renames a field, only the mapper changes. `CmsVehicle` here is an assumed type for illustration.\n\n## Other concerns\n\n- **Routing**: how a URL maps to a content entry (slug, locale, path).\n- **Caching** at the CDN and fetch layers.\n- **Preview** of draft content for authors.\n- **Error handling**: missing fields, API timeouts, stale fallbacks.\n- **Rich text and media**: render safely, sanitize any HTML, and use responsive image URLs.\n\n## Common mistakes\n\n- Passing raw CMS responses deep into components.\n- Fetching everything client-side, which hurts SEO and first paint.\n- Ignoring partial content, so one missing field crashes the page.",
+      "diagrams": [
+        {
+          "id": "flow",
+          "title": "React consuming CMS content",
+          "alt": "Authors create content in the CMS. The content API serves it to a React frontend, which maps it into view models and renders pages for users.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "authors",
+              "label": "Content authors"
+            },
+            {
+              "id": "cms",
+              "label": "CMS"
+            },
+            {
+              "id": "api",
+              "label": "Content API"
+            },
+            {
+              "id": "map",
+              "label": "Mapper (view models)"
+            },
+            {
+              "id": "react",
+              "label": "React components"
+            },
+            {
+              "id": "users",
+              "label": "Users"
+            }
+          ],
+          "edges": [
+            {
+              "from": "authors",
+              "to": "cms"
+            },
+            {
+              "from": "cms",
+              "to": "api"
+            },
+            {
+              "from": "api",
+              "to": "map"
+            },
+            {
+              "from": "map",
+              "to": "react"
+            },
+            {
+              "from": "react",
+              "to": "users"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Should React fetch content on the server or the client?",
+        "How do you keep components independent of the CMS payload?",
+        "How do you handle missing or malformed content fields?"
+      ],
+      "related": [
+        "ssr-vs-ssg-for-headless-content",
+        "content-preview-headless",
+        "structured-content-vs-page-content"
+      ]
+    },
+    {
+      "slug": "headless-cms-in-mach",
+      "title": "How does a headless CMS fit into a MACH architecture?",
+      "topic": "Headless Architecture",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "mach",
+        "headless",
+        "composable",
+        "api-first",
+        "architecture"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-aem-headless-cms",
+          "pages": [
+            6,
+            7
+          ]
+        }
+      ],
+      "quick": "MACH stands for Microservices, API-first, Cloud-native and Headless. A headless CMS supplies the H: content managed independently of presentation and delivered by API. The React frontend then composes that content with business data from separate API-first services, for example vehicles, offers or customers. I would stress that MACH is a composition principle, so the CMS is one replaceable capability behind a contract, not the centre of the system.",
+      "revision": "MACH = Microservices, API-first, Cloud-native, Headless. The headless CMS is the content capability; the frontend composes it with business APIs.",
+      "detailed": "**MACH** is a set of principles for composable digital platforms:\n\n- **M**icroservices: business capabilities as independently deployable services.\n- **A**PI-first: every capability exposed through documented APIs.\n- **C**loud-native: built for elastic, managed cloud infrastructure (commonly SaaS).\n- **H**eadless: presentation decoupled from back-end capabilities.\n\n## Where the CMS fits\n\nThe CMS delivers the **headless content** capability. Other capabilities, such as product catalog, pricing, search, identity and commerce, are separate services. The frontend composes them.\n\n{{diagram:mach}}\n\n## Benefits\n\n- Replace one component (for example swap the search provider) without rebuilding everything.\n- Teams own capabilities end to end.\n- Each capability scales independently.\n\n## Trade-offs and cautions\n\n- **Integration cost.** Composition shifts effort into integration, contracts, observability and security.\n- **Distributed failure modes.** More network calls mean more partial failures; design timeouts, fallbacks and caching.\n- **Governance.** Without shared standards for APIs, identity and design systems, a composable platform can fragment.\n- **Not every vendor claiming MACH is equal.** Evaluate real API coverage and deployment model rather than the label.\n\n## Common mistakes\n\n- Treating MACH as a goal. It is an option that pays off when you need flexibility and independent change.\n- Putting business rules in the CMS so the \"headless\" part is nominal.\n\n## Example\n\nA vehicle page combines editorial copy from the CMS, live availability from an inventory API and finance estimates from a finance API, assembled in the frontend or a backend-for-frontend.",
+      "diagrams": [
+        {
+          "id": "mach",
+          "title": "Composing capabilities in MACH",
+          "alt": "A React frontend calls a content API backed by the headless CMS and a set of domain APIs for vehicles, offers and customers.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "react",
+              "label": "React frontend"
+            },
+            {
+              "id": "content",
+              "label": "Content API (headless CMS)"
+            },
+            {
+              "id": "vehicle",
+              "label": "Vehicle API"
+            },
+            {
+              "id": "offers",
+              "label": "Offers API"
+            },
+            {
+              "id": "customer",
+              "label": "Customer API"
+            }
+          ],
+          "edges": [
+            {
+              "from": "react",
+              "to": "content"
+            },
+            {
+              "from": "react",
+              "to": "vehicle"
+            },
+            {
+              "from": "react",
+              "to": "offers"
+            },
+            {
+              "from": "react",
+              "to": "customer"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "What risks come with a composable platform?",
+        "Where would you not use MACH?",
+        "How do you govern many APIs consistently?"
+      ],
+      "related": [
+        "enterprise-cms-microservice-or-frontend",
+        "content-api-vs-business-api",
+        "bff-for-content-and-business-apis"
+      ]
+    },
+    {
+      "slug": "headless-cms-advantages",
+      "title": "What are the advantages of a headless CMS architecture?",
+      "topic": "Headless Architecture",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "headless",
+        "advantages",
+        "multi-channel",
+        "composability"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-aem-headless-cms",
+          "pages": [
+            8
+          ]
+        }
+      ],
+      "quick": "The main advantages are multi-channel delivery from one content source, freedom to choose frontend technology such as React or Next.js, content reuse, more independence between content and frontend teams, and a better fit with composable architectures. I would add that these benefits are conditional: they materialize when content is modeled well and APIs are governed, and they come with extra responsibility for rendering, preview and caching.",
+      "revision": "Headless advantages: multi-channel delivery, frontend freedom, content reuse, team independence, composability. All conditional on good modeling and API governance.",
+      "detailed": "The advantages of going headless are real but conditional. A balanced answer names each benefit and the condition behind it.\n\n## 1. Multi-channel delivery\n\nWeb, mobile apps, partner portals, kiosks and other channels consume the same content. *Condition:* content is modeled around business concepts, not one page layout.\n\n## 2. Frontend flexibility\n\nTeams use React, Next.js or native frameworks, adopt modern tooling and deliver rich interactivity. *Condition:* the team can own the rendering layer.\n\n## 3. Content reuse\n\nA product description, legal notice or offer is authored once and referenced in many places, reducing duplication and drift. *Condition:* references are used instead of copy-paste.\n\n## 4. Team independence\n\nContent teams publish without waiting for a frontend deployment, and frontend teams release without a CMS change window. *Condition:* a stable content contract and versioning.\n\n## 5. Composability\n\nThe CMS is one capability among others and can be replaced or complemented (search, personalization, commerce) with less ripple. *Condition:* clear API boundaries.\n\n## 6. Scaling and performance options\n\nPublic traffic can be served from CDN and frontend infrastructure, shielding the authoring system. *Condition:* a caching and rendering strategy is actually implemented.\n\n## How to present it\n\nPair each advantage with its cost, which shows judgment. See the companion question on disadvantages.\n\n## Common mistake\n\nListing benefits as if automatic. Interviewers look for whether you know what has to be true for them to appear.",
+      "followUps": [
+        "Which of these benefits matter most for a single-website company?",
+        "How do you prove multi-channel reuse is actually happening?",
+        "What conditions must hold for team independence?"
+      ],
+      "related": [
+        "headless-cms-disadvantages",
+        "what-is-a-headless-cms",
+        "traditional-vs-headless-cms"
+      ]
+    },
+    {
+      "slug": "headless-cms-disadvantages",
+      "title": "What are the disadvantages and risks of a headless CMS?",
+      "topic": "Headless Architecture",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "headless",
+        "trade-offs",
+        "preview",
+        "caching",
+        "governance"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aem-headless-cms",
+          "pages": [
+            8,
+            9
+          ]
+        }
+      ],
+      "quick": "Headless does not remove complexity, it relocates it. Content modeling becomes harder, API latency and caching must be designed, preview for authors needs engineering, SEO needs SSR or SSG, and localization, versioning and deployment must be coordinated across CMS and frontend. There is also API governance and contract management. I would say headless pays off when multi-channel or frontend flexibility is a real requirement, otherwise a coupled CMS can be simpler.",
+      "revision": "Headless relocates complexity into content modeling, API contracts, caching, preview, SEO, localization and coordination. Choose it only when channels or flexibility justify that cost.",
+      "detailed": "Headless shifts complexity rather than eliminating it. A senior answer lists the costs and how to mitigate them.\n\n| Challenge | Why it appears | Typical mitigation |\n|---|---|---|\n| Content modeling complexity | Models act as public API | Model reviews, shared standards, domain ownership |\n| API latency | Extra network hop to the CMS | CDN, caching, SSR/SSG, avoiding per-request live calls |\n| Cache invalidation | Many cached layers | TTLs plus event-driven purge or revalidation |\n| Preview | No built-in WYSIWYG | Authenticated preview environment using production components |\n| Authoring experience | Editors cannot see layout as they type | Visual or in-context editing where available, component libraries |\n| Versioning | Content and code change independently | Schema versioning, backward-compatible changes |\n| Localization | Locale logic in frontend and CMS | Consistent locale model, fallback rules |\n| Deployment coordination | New fields need frontend support | Additive changes first, feature flags |\n| SEO | Client-only rendering hides content from crawlers | SSR/SSG, metadata from CMS |\n| API governance | Many consumers | Contracts, schema validation, deprecation policy |\n\n## Strong framing\n\nHeadless moves some complexity out of the CMS and into API contracts, frontend composition, caching, preview and content modeling. You gain flexibility; you pay in engineering.\n\n## Organizational costs\n\n- Frontend teams must learn the content domain.\n- Authors lose immediate visual feedback, so training and tooling matter.\n- Ownership of the content contract must be explicit, or changes cause outages.\n\n## When headless is the wrong call\n\nA single marketing site, a small team and few engineers: a coupled CMS with templates may deliver faster and cheaper.\n\n## Common mistake\n\nIgnoring editors. Technical success with poor authoring experience still fails the business.",
+      "followUps": [
+        "How would you reduce the preview problem for authors?",
+        "How do you roll out a new content field without breaking the frontend?",
+        "When would you advise against going headless?"
+      ],
+      "related": [
+        "headless-cms-advantages",
+        "content-preview-headless",
+        "content-api-contract-versioning"
+      ]
+    },
+    {
+      "slug": "content-api-vs-business-api",
+      "title": "Content APIs vs business APIs: why keep them separate?",
+      "topic": "API Design",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "content-api",
+        "business-api",
+        "rest",
+        "architecture"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-aem-headless-cms",
+          "pages": [
+            15
+          ]
+        }
+      ],
+      "quick": "Content APIs serve editorial content such as copy, images and navigation, authored by marketers and changing on an editorial schedule. Business APIs serve transactional or domain data such as pricing, availability, orders and customer profiles, owned by backend teams and often real-time. I would keep them separate because their owners, change rates, caching rules, security and failure tolerance differ. The frontend or a BFF combines them when a page needs both.",
+      "revision": "Content APIs deliver editorial content cached by freshness rules; business APIs deliver real-time domain data. Separate owners, security and caching; compose in frontend or BFF.",
+      "detailed": "A web page often needs two kinds of data: *what we say* and *what is true right now*.\n\n{{diagram:split}}\n\n## Differences\n\n| Aspect | Content API | Business API |\n|---|---|---|\n| Data | Copy, images, navigation, metadata | Prices, stock, orders, customers |\n| Owner | Content platform, marketing | Domain/backend teams |\n| Change driver | Editorial publishing | Business transactions |\n| Freshness | Minutes to hours typically acceptable | Often seconds or real time |\n| Caching | Aggressive CDN caching with invalidation | Selective; some responses uncacheable |\n| Security | Mostly public read; protected authoring | Authentication, authorization, personal data |\n| Failure impact | Fall back to cached copy | May block a transaction |\n\n## Why separation matters\n\n- **Independent evolution.** A price-rule change should not require content republishing.\n- **Right caching per data type.** You can cache marketing copy for a long time and keep availability short-lived.\n- **Clear ownership and security.** Customer data never needs to pass through the content platform.\n- **Resilience.** If the content platform is slow, cached copy can still render alongside live business data.\n\n## Common mistakes\n\n- Storing prices or stock in CMS fields and updating them by hand, which leads to stale or inconsistent values.\n- Letting the CMS call business systems to \"enrich\" content, creating hidden coupling.\n\n## Example\n\nA vehicle page shows the model description and gallery from the content API, and a live starting price and local inventory count from separate business APIs. The page composes both.",
+      "diagrams": [
+        {
+          "id": "split",
+          "title": "Content and business APIs",
+          "alt": "A React frontend sends content requests to a content API backed by the CMS, and business requests to domain services.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "react",
+              "label": "React frontend"
+            },
+            {
+              "id": "capi",
+              "label": "Content API"
+            },
+            {
+              "id": "cms",
+              "label": "CMS"
+            },
+            {
+              "id": "bapi",
+              "label": "Business APIs"
+            },
+            {
+              "id": "dom",
+              "label": "Domain services"
+            }
+          ],
+          "edges": [
+            {
+              "from": "react",
+              "to": "capi"
+            },
+            {
+              "from": "capi",
+              "to": "cms"
+            },
+            {
+              "from": "react",
+              "to": "bapi"
+            },
+            {
+              "from": "bapi",
+              "to": "dom"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Where would you reference a live price inside authored copy?",
+        "How does caching differ between the two?",
+        "When does a BFF help combine them?"
+      ],
+      "related": [
+        "bff-for-content-and-business-apis",
+        "cms-vs-api-distinction",
+        "caching-headless-content"
+      ]
+    },
+    {
+      "slug": "bff-for-content-and-business-apis",
+      "title": "When would you add a Backend-for-Frontend (BFF) between a React app, the CMS and business APIs?",
+      "topic": "API Design",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "bff",
+        "aggregation",
+        "api-gateway",
+        "headless",
+        "architecture"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aem-headless-cms",
+          "pages": [
+            15,
+            16
+          ]
+        }
+      ],
+      "quick": "I would add a BFF when a page needs data from several sources, such as CMS content, vehicle, offers and customer APIs, and the frontend would otherwise make many calls and know too much about each backend. The BFF aggregates, shapes responses for the frontend and handles auth and caching. The risk is turning it into a new monolith, so I would keep it thin, owned by the frontend team, and free of domain business logic.",
+      "revision": "Use a BFF to aggregate and shape multiple upstream calls for one frontend; keep it thin, frontend-owned and free of domain logic so it does not become a monolith.",
+      "detailed": "A **Backend-for-Frontend (BFF)** is a server-side layer built for one frontend experience. It calls several upstream services, combines and reshapes the results, and returns exactly what the UI needs.\n\n{{diagram:bff}}\n\n## When it earns its place\n\n- A page needs content *and* several business APIs, and client-side orchestration would mean many round trips.\n- Backends return shapes unsuited to the UI, and mapping them in the browser is wasteful or leaks internals.\n- You must keep secrets, tokens or internal endpoints off the client.\n- You need to apply cross-cutting concerns such as authentication, rate limiting, response caching and tracing in one place.\n- Different clients (web, mobile) need different shapes.\n\n## When it does not\n\n- A simple page that needs one content call. A BFF adds a hop and another service to run.\n- When it would merely proxy requests without adding value.\n\n## Design rules\n\n- **Own it with the frontend team** so UI needs change it quickly.\n- **Orchestrate, do not decide.** Domain rules (pricing, eligibility) belong in domain services.\n- **Parallelize upstream calls** and set per-call timeouts.\n- **Degrade gracefully.** If the offers API fails, return the page with that section omitted and a flag, instead of failing everything.\n- **Cache** what is cacheable, especially content.\n\n```ts\nconst [content, vehicle, offers] = await Promise.allSettled([\n  getContent(slug, locale),\n  getVehicle(id),\n  getOffers(id, market),\n]);\n```\n\n`Promise.allSettled` lets the response include whatever succeeded.\n\n## Common mistake\n\nLetting the BFF grow shared business logic used by many frontends. It then becomes a coupled monolith that every team must change.",
+      "diagrams": [
+        {
+          "id": "bff",
+          "title": "BFF aggregating upstream sources",
+          "alt": "A React app calls a BFF, which fans out to the CMS content API and to vehicle, offers and customer APIs.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "react",
+              "label": "React app"
+            },
+            {
+              "id": "bff",
+              "label": "BFF"
+            },
+            {
+              "id": "cms",
+              "label": "CMS content API"
+            },
+            {
+              "id": "veh",
+              "label": "Vehicle API"
+            },
+            {
+              "id": "off",
+              "label": "Offers API"
+            },
+            {
+              "id": "cus",
+              "label": "Customer API"
+            }
+          ],
+          "edges": [
+            {
+              "from": "react",
+              "to": "bff"
+            },
+            {
+              "from": "bff",
+              "to": "cms"
+            },
+            {
+              "from": "bff",
+              "to": "veh"
+            },
+            {
+              "from": "bff",
+              "to": "off"
+            },
+            {
+              "from": "bff",
+              "to": "cus"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you stop a BFF from becoming a monolith?",
+        "BFF versus API gateway: what is the difference?",
+        "How would the BFF behave if the offers API times out?"
+      ],
+      "related": [
+        "content-api-vs-business-api",
+        "cms-outage-resilience",
+        "global-cms-react-reference-architecture"
+      ]
+    },
+    {
+      "slug": "caching-headless-content",
+      "title": "How do you design caching for a headless CMS delivering to a public website?",
+      "topic": "Caching & Performance",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "caching",
+        "cdn",
+        "cache-control",
+        "etag",
+        "headless"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aem-headless-cms",
+          "pages": [
+            9,
+            10
+          ]
+        }
+      ],
+      "quick": "The goal is for most requests to be answered by the CDN rather than by the CMS. I would put a CDN in front, send explicit Cache-Control headers with TTLs matched to how fresh each content type must be, use ETags for cheap revalidation, serve fingerprinted static assets with long lifetimes, and plan invalidation for content that changes on publish. I would also cache within the rendering tier so SSR does not hit the CMS on every request.",
+      "revision": "Serve from CDN, not the CMS: explicit Cache-Control TTLs by content type, ETag revalidation, immutable versioned assets, plus an invalidation plan for published changes.",
+      "detailed": "Without caching, every page view could trigger a CMS API call. Caching puts layers in front so the authoring and content platform sees only a small fraction of traffic.\n\n{{diagram:layers}}\n\n## Layers\n\n1. **Browser cache** driven by `Cache-Control`.\n2. **CDN or edge cache** shared by many users; the biggest win for public content.\n3. **Frontend or BFF cache** (in-memory, Redis or framework data cache) for SSR and aggregation.\n4. **CMS-side cache** (a platform-specific delivery tier, if the product offers one).\n\n## Headers\n\n```http\nCache-Control: public, max-age=60, s-maxage=600, stale-while-revalidate=300\nETag: \"v42-abc123\"\n```\n\n- `max-age` applies to browsers, `s-maxage` to shared caches such as CDNs.\n- `stale-while-revalidate` lets a cache serve a stale copy while refreshing in the background (support varies by CDN).\n- An **ETag** lets a client revalidate with `If-None-Match` and receive `304 Not Modified` instead of the body.\n\n## Choosing TTLs\n\n| Content | Strategy |\n|---|---|\n| Fingerprinted JS/CSS/images (`app.3f9c.js`) | Very long, `immutable` |\n| Stable pages and navigation | Longer TTL with purge on publish |\n| Offers or campaign content | Short TTL and/or event-driven purge |\n| Personalized or private data | Not in shared cache (`private`/`no-store`) |\n\n## Cache keys\n\nInclude what changes the response: locale, device-specific variants if any, and preview vs published. Do not vary on unnecessary headers or cookies, which fragments the cache.\n\n## Common mistakes\n\n- Caching personalized responses in a shared cache.\n- Using one TTL for everything.\n- Having no invalidation plan, so authors cannot tell when changes go live.",
+      "diagrams": [
+        {
+          "id": "layers",
+          "title": "Cache layers in front of the CMS",
+          "alt": "A user request passes through the browser cache, then the CDN, then the frontend or BFF cache, and only on a miss reaches the CMS content API.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "user",
+              "label": "User"
+            },
+            {
+              "id": "browser",
+              "label": "Browser cache"
+            },
+            {
+              "id": "cdn",
+              "label": "CDN / edge"
+            },
+            {
+              "id": "app",
+              "label": "Frontend / BFF cache"
+            },
+            {
+              "id": "cms",
+              "label": "CMS content API"
+            }
+          ],
+          "edges": [
+            {
+              "from": "user",
+              "to": "browser"
+            },
+            {
+              "from": "browser",
+              "to": "cdn",
+              "label": "miss"
+            },
+            {
+              "from": "cdn",
+              "to": "app",
+              "label": "miss"
+            },
+            {
+              "from": "app",
+              "to": "cms",
+              "label": "miss"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "What is the difference between max-age and s-maxage?",
+        "How would you cache localized content correctly?",
+        "How do you cache content for logged-in users?"
+      ],
+      "related": [
+        "cache-invalidation-for-content",
+        "cms-outage-resilience",
+        "optimizing-headless-react-site"
+      ]
+    },
+    {
+      "slug": "cache-invalidation-for-content",
+      "title": "How do you handle cache invalidation when authors publish changes?",
+      "topic": "Caching & Performance",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "cache-invalidation",
+        "revalidation",
+        "ttl",
+        "webhooks",
+        "cdn"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aem-headless-cms",
+          "pages": [
+            10
+          ]
+        }
+      ],
+      "quick": "I would start from freshness requirements per content type. Stable content can use long TTLs with purge on publish; business-critical content such as an offer price needs short TTLs or event-driven invalidation. Typically the CMS publish event triggers a webhook that purges CDN entries by URL or tag, or triggers on-demand revalidation in the frontend. I would also add a TTL as a safety net and monitor that publish-to-live delay stays within what the business accepts.",
+      "revision": "Match freshness to content type: long TTLs with publish-triggered purge or revalidation for stable content, short TTLs for critical content, TTL as a safety net.",
+      "detailed": "Caching makes the site fast; **invalidation** makes it correct. The scenario: marketing changes an offer price, but the CDN still serves the old page.\n\n## Strategies\n\n1. **TTL expiry (time-based).** Simple; content becomes fresh after the TTL. Good for low-risk content, but delays are unavoidable.\n2. **Purge on publish (event-driven).** The CMS publish event calls a webhook, which asks the CDN to purge specific URLs or **surrogate keys/tags** (for example all pages tagged with a vehicle id). Fast and precise when tags are modeled well.\n3. **Stale-while-revalidate.** Serve the cached copy immediately and refresh it in the background, trading brief staleness for latency.\n4. **On-demand revalidation / incremental regeneration.** Static pages are regenerated when content changes, rather than on every build. Some frameworks, such as Next.js, support this pattern.\n5. **Versioned URLs.** Fingerprinted assets never need purging; a new version has a new URL.\n\n{{diagram:flow}}\n\n## Hard parts\n\n- **Dependency tracking.** One shared content fragment may appear on many pages. Tag pages with the content ids they use so a change purges all affected pages.\n- **Multiple cache layers.** Purging the CDN is useless if the BFF or framework data cache still holds the old payload.\n- **Ordering.** Purge after the publish is committed, or caches may refill with old content.\n- **Rate and cost.** Mass purges can overload origin; throttle and prefer targeted invalidation.\n\n## Practical policy\n\nSet a TTL as a safety net, purge by tag on publish, and track the *publish-to-visible* latency as an SLO.\n\n## Common mistake\n\nRelying on a very short TTL everywhere, which removes most caching benefit and loads the origin.",
+      "diagrams": [
+        {
+          "id": "flow",
+          "title": "Publish-triggered invalidation",
+          "alt": "An author publishes in the CMS. A publish webhook calls an invalidation service, which purges the CDN by tag and triggers frontend revalidation. The next user request fetches fresh content.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "author",
+              "label": "Author publishes"
+            },
+            {
+              "id": "cms",
+              "label": "CMS"
+            },
+            {
+              "id": "hook",
+              "label": "Publish webhook"
+            },
+            {
+              "id": "inv",
+              "label": "Invalidation service"
+            },
+            {
+              "id": "cdn",
+              "label": "CDN purge by tag"
+            },
+            {
+              "id": "fe",
+              "label": "Frontend revalidation"
+            }
+          ],
+          "edges": [
+            {
+              "from": "author",
+              "to": "cms"
+            },
+            {
+              "from": "cms",
+              "to": "hook"
+            },
+            {
+              "from": "hook",
+              "to": "inv"
+            },
+            {
+              "from": "inv",
+              "to": "cdn"
+            },
+            {
+              "from": "inv",
+              "to": "fe"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you invalidate pages that embed a shared content fragment?",
+        "What is the risk of purging all caches on every publish?",
+        "How would you measure publish-to-live latency?"
+      ],
+      "related": [
+        "caching-headless-content",
+        "ssr-vs-ssg-for-headless-content",
+        "cms-outage-resilience"
+      ]
+    },
+    {
+      "slug": "seo-with-headless-cms",
+      "title": "How does a headless architecture affect SEO, and how do you make it search-friendly?",
+      "topic": "SEO & Rendering",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "seo",
+        "ssr",
+        "ssg",
+        "metadata",
+        "structured-data"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aem-headless-cms",
+          "pages": [
+            10,
+            11
+          ]
+        }
+      ],
+      "quick": "Headless does not solve SEO automatically. Important content must be present in crawlable HTML, so for public pages I would use SSR or SSG fed by the content API rather than client-only rendering. The CMS should also supply SEO fields such as title, description, canonical URL and structured data, and the frontend must output them along with a sitemap, robots directives, semantic HTML, hreflang for locales and good page performance.",
+      "revision": "Headless needs deliberate SEO: render content as crawlable HTML via SSR/SSG, drive metadata, canonicals, structured data, sitemaps and hreflang from the CMS, and keep pages fast.",
+      "detailed": "In a coupled CMS the server returns complete HTML by default. In a headless setup a pure client-side React app returns an empty shell and builds content in the browser. Modern search engines can execute JavaScript, but rendering is deferred and less reliable, and other crawlers and social previews often do not run it. So SEO has to be designed.\n\n{{diagram:flow}}\n\n## What to do\n\n- **Render on the server or at build time** (SSR/SSG) for public, indexable pages.\n- **Model SEO fields in the CMS**: title, meta description, canonical URL, robots/noindex flag, Open Graph image, and optionally structured-data inputs.\n- **Emit metadata server-side** in the document head.\n- **Canonical URLs** to avoid duplicate content across locales, parameters and preview URLs.\n- **Structured data** (JSON-LD schema.org markup) for products, organizations or FAQs where appropriate.\n- **Sitemaps** generated from CMS content, including locale alternates with `hreflang`.\n- **Robots directives** and correct HTTP status codes (a missing entry should return 404, not a blank 200 page).\n- **Semantic HTML and accessibility**, headings, link text and image alt text from content fields.\n- **Performance**, since Core Web Vitals influence user experience and search signals.\n\n## Redirects and URLs\n\nIf the CMS controls slugs, plan for redirects when slugs change; otherwise inbound links and ranking are lost.\n\n## Common mistakes\n\n- Shipping an SPA that fetches content after load and hoping crawlers cope.\n- Forgetting to prevent indexing of preview or staging environments.\n- Authors changing slugs without an automatic redirect.",
+      "diagrams": [
+        {
+          "id": "flow",
+          "title": "SEO-friendly content path",
+          "alt": "Content is authored in the CMS and served through the content API to an SSR or SSG renderer that produces HTML with metadata, which search engines and users receive.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "cms",
+              "label": "CMS"
+            },
+            {
+              "id": "api",
+              "label": "Content API"
+            },
+            {
+              "id": "render",
+              "label": "SSR / SSG renderer"
+            },
+            {
+              "id": "html",
+              "label": "HTML + metadata"
+            },
+            {
+              "id": "se",
+              "label": "Search engine"
+            }
+          ],
+          "edges": [
+            {
+              "from": "cms",
+              "to": "api"
+            },
+            {
+              "from": "api",
+              "to": "render"
+            },
+            {
+              "from": "render",
+              "to": "html"
+            },
+            {
+              "from": "html",
+              "to": "se"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Can Google index a client-rendered React app? What are the risks?",
+        "How would you handle hreflang for a multi-locale site?",
+        "How do you handle redirects when authors change slugs?"
+      ],
+      "related": [
+        "ssr-vs-ssg-for-headless-content",
+        "localization-architecture-headless",
+        "optimizing-headless-react-site"
+      ]
+    },
+    {
+      "slug": "ssr-vs-ssg-for-headless-content",
+      "title": "SSR vs SSG with headless content: how do you choose?",
+      "topic": "SEO & Rendering",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "ssr",
+        "ssg",
+        "isr",
+        "next.js",
+        "rendering"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aem-headless-cms",
+          "pages": [
+            11
+          ]
+        }
+      ],
+      "quick": "With SSG, pages are built ahead of time from CMS content and served as static files from a CDN: fastest and cheapest, but changes need a rebuild or revalidation. With SSR, the server fetches content and renders on each request, so it is fresher and supports personalization, but costs more latency and compute unless cached. I would use SSG, or incremental regeneration, for stable pages and SSR for dynamic or personalized ones, with a CDN in front of both.",
+      "revision": "SSG prebuilds pages for speed and cacheability; SSR renders per request for freshness and personalization. Mix per route, and put a CDN in front of both.",
+      "detailed": "Both strategies deliver content-rich HTML before client-side JavaScript runs, which helps SEO and first paint. They differ in *when* HTML is produced.\n\n| Aspect | SSG (build time) | SSR (request time) | ISR / on-demand regeneration |\n|---|---|---|---|\n| HTML generated | At build | On each request | At build, refreshed later |\n| Freshness | Stale until rebuild | Fresh | Fresh after revalidation |\n| Latency | Lowest (CDN file) | Higher (render cost) | Low |\n| Server load | Minimal at runtime | Highest | Low to moderate |\n| Personalization | Hard | Easier | Hard |\n| Build time at scale | Can grow large | None | Moderate |\n\n## Decision guidance\n\n- **SSG or ISR:** stable marketing pages, vehicle or product detail pages, articles. Combine with publish-triggered revalidation.\n- **SSR:** pages depending on request context, such as location, session or rapidly changing data, and pages too numerous to prebuild.\n- **Client-side fetching:** below-the-fold or personalized widgets that need not be indexed.\n\nMany frameworks (for example Next.js) allow choosing the strategy per route.\n\n## Flow with SSR\n\n```text\nBrowser -> CDN (miss) -> Render server -> Content API -> React renders HTML -> CDN stores -> Browser\n```\n\n## Pitfalls\n\n- **Build explosion.** Thousands of pages times many locales can make full rebuilds slow. Use on-demand revalidation or partial builds.\n- **Uncached SSR.** Rendering on every request without CDN caching makes the CMS and render tier the bottleneck.\n- **Hydration mismatches** from client-only data differing from server HTML.\n- **Leaking personalization** into cached HTML; separate personalized parts.\n\n## Common mistake\n\nPicking one mode for the whole site instead of choosing per route by freshness and personalization needs.",
+      "followUps": [
+        "How would you handle 100,000 pages across 30 locales with SSG?",
+        "How do you combine SSG pages with personalized components?",
+        "What is stale-while-revalidate and how does it relate to ISR?"
+      ],
+      "related": [
+        "seo-with-headless-cms",
+        "cache-invalidation-for-content",
+        "personalization-architecture-headless"
+      ]
+    },
+    {
+      "slug": "optimizing-headless-react-site",
+      "title": "How would you optimize the performance of a headless React website?",
+      "topic": "Caching & Performance",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "performance",
+        "core-web-vitals",
+        "cdn",
+        "images",
+        "code-splitting"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aem-headless-cms",
+          "pages": [
+            11,
+            12
+          ]
+        }
+      ],
+      "quick": "I would measure first with real-user and lab data on LCP, INP and CLS, then work down the delivery chain. Reduce API latency and cache content at the CDN, use SSR or SSG so HTML arrives complete, optimize images with responsive sizes and modern formats, cut and split JavaScript, lazy-load below-the-fold content, preload critical assets, and avoid layout shifts. Then I would keep monitoring so regressions are caught.",
+      "revision": "Measure LCP/INP/CLS, then optimize the chain: API latency and caching, CDN, SSR/SSG, images, JavaScript size and splitting, lazy loading, preloading.",
+      "detailed": "Start with measurement, not guesses. Collect field data (real users) and lab data (Lighthouse, WebPageTest) for **Core Web Vitals**: LCP (loading), INP (responsiveness) and CLS (visual stability). Then trace where time goes along the delivery chain.\n\n{{diagram:chain}}\n\n## 1. Content and API layer\n\n- Cache content at the CDN; avoid live CMS calls per request.\n- Request only needed fields (GraphQL field selection or trimmed REST responses).\n- Parallelize upstream calls and set timeouts.\n\n## 2. Rendering strategy\n\n- SSG or ISR for stable pages, SSR with caching for dynamic ones, so HTML arrives complete and LCP is early.\n\n## 3. Images\n\nHero images are frequently the LCP element.\n\n- Serve responsive sizes (`srcset`, `sizes`) and modern formats such as WebP or AVIF where supported.\n- Set explicit width and height to prevent layout shift.\n- Preload the hero image; lazy-load images below the fold.\n\n## 4. JavaScript\n\n- Code-split by route and heavy components.\n- Remove unused dependencies; audit the bundle.\n- Defer third-party scripts such as analytics and tag managers.\n- Reduce main-thread work to improve INP, for example avoid long tasks and unnecessary re-renders.\n\n## 5. CSS, fonts and layout stability\n\n- Inline critical CSS where useful; use `font-display` and preload key fonts.\n- Reserve space for dynamic or CMS-driven blocks (banners, embeds).\n\n## 6. Network\n\n- HTTP compression (Brotli/gzip), HTTP/2 or HTTP/3, long-lived caching for fingerprinted assets.\n\n## Monitoring\n\nTrack the vitals per template and locale; set performance budgets in CI to catch regressions.\n\n## Common mistake\n\nOptimizing bundle size while the real bottleneck is an uncached CMS call or an oversized hero image.",
+      "diagrams": [
+        {
+          "id": "chain",
+          "title": "Where to look for latency",
+          "alt": "A request flows from the CMS content API through caching and CDN to the SSR or SSG renderer, then through JavaScript and images to the browser, where Core Web Vitals are measured.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "api",
+              "label": "CMS API latency"
+            },
+            {
+              "id": "cache",
+              "label": "API caching"
+            },
+            {
+              "id": "cdn",
+              "label": "CDN"
+            },
+            {
+              "id": "render",
+              "label": "SSR / SSG"
+            },
+            {
+              "id": "assets",
+              "label": "JS bundle and images"
+            },
+            {
+              "id": "cwv",
+              "label": "Core Web Vitals (LCP, INP, CLS)"
+            }
+          ],
+          "edges": [
+            {
+              "from": "api",
+              "to": "cache"
+            },
+            {
+              "from": "cache",
+              "to": "cdn"
+            },
+            {
+              "from": "cdn",
+              "to": "render"
+            },
+            {
+              "from": "render",
+              "to": "assets"
+            },
+            {
+              "from": "assets",
+              "to": "cwv"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "LCP is poor on vehicle pages; where do you look first?",
+        "How do you improve INP in a React app?",
+        "How do you prevent regressions after the optimization effort?"
+      ],
+      "related": [
+        "caching-headless-content",
+        "ssr-vs-ssg-for-headless-content",
+        "seo-with-headless-cms"
+      ]
+    }
+  ]
+}

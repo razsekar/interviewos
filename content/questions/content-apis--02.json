@@ -1,0 +1,408 @@
+{
+  "category": "content-apis",
+  "questions": [
+    {
+      "slug": "securing-content-and-preview-apis",
+      "title": "How do you secure Content APIs and make sure drafts never leak?",
+      "topic": "Security",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "security",
+        "preview",
+        "drafts",
+        "authorization",
+        "caching"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-content-apis",
+          "pages": [
+            6,
+            7
+          ]
+        }
+      ],
+      "quick": "Published content may be public, but management and preview operations must be protected. I would authenticate and authorise protected calls with least-privilege roles, use TLS everywhere, validate input, rate limit, and keep secrets on the server. For drafts, I enforce state filtering in the API itself, serve preview from a separate authenticated surface, and mark it non-cacheable so no shared cache can store it. The frontend is never the security boundary.",
+      "revision": "Separate surfaces, enforce published-only in the API, authenticate preview, no-store on drafts, least-privilege tokens, server-side secrets. UI hiding is not security.",
+      "detailed": "Public marketing content is usually anonymous. The risk is in everything around it: **writes, previews, and accidental exposure of unpublished content**.\n\n## Controls\n\n- **Authentication and authorisation** for management and preview, with role-based, least-privilege permissions for people and services (an import job should not hold publish rights).\n- **TLS** for all traffic, including origin-to-CDN and service-to-service hops.\n- **Server-side secrets.** Management tokens and preview secrets live in server environments or a secret manager, never in browser bundles or `NEXT_PUBLIC_`-style variables.\n- **Input validation** on slugs, locales, filters and pagination, plus safe error messages that do not reveal internals.\n- **Rate limiting and abuse protection** on public endpoints; stricter limits on authenticated ones.\n- **Logging and alerting** for unusual access, such as bursts of 401/403 or enumeration of slugs.\n\n## Preventing draft leakage\n\nDrafts leak in a few repeatable ways, so design against each:\n\n| Leak path | Mitigation |\n|---|---|\n| Delivery API can return non-published versions via a query flag | Delivery endpoints only ever read the published state; no `status=draft` parameter on the public surface |\n| Preview responses cached at the CDN and then served to anonymous users | Separate host, `Cache-Control: private, no-store`, bypass shared cache for preview |\n| Preview URL or token shared widely | Short-lived, signed tokens; authenticate against the identity provider |\n| Search indexing of preview pages | `X-Robots-Tag: noindex` and authentication |\n| GraphQL fields exposing unpublished relations | Enforce state filtering per resolver, not only per top-level query |\n| Unguessable-slug \"security\" | Treat obscurity as no protection |\n\n## Frontend is not the boundary\n\nHiding an \"Edit\" button or route guard in React does nothing against a direct API call. Authorisation must be enforced server-side on every request.\n\n## Verify\n\nAdd automated tests that request a known draft ID through every public path (API, CDN, BFF, SSR) and assert it is absent.",
+      "followUps": [
+        "Where would you enforce draft filtering: CMS, gateway or BFF?",
+        "How would you design short-lived preview links?",
+        "How do you test for draft leakage in CI?"
+      ],
+      "related": [
+        "delivery-management-preview-apis",
+        "caching-layers-content-api"
+      ]
+    },
+    {
+      "slug": "content-api-performance-monitoring",
+      "title": "What would you measure to monitor Content API performance and freshness?",
+      "topic": "Performance & Reliability",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "observability",
+        "latency",
+        "slo",
+        "cache-hit-ratio"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-content-apis",
+          "pages": [
+            7
+          ]
+        }
+      ],
+      "quick": "I would track latency at P50, P95 and P99 rather than averages, error and timeout rates, cache hit ratio at each layer, payload size and requests per page, origin load, rate-limit events, and content freshness, meaning the time from publish to visible. I would define SLOs on a few of these, add tracing across CDN, BFF and CMS, and alert on user-impacting symptoms. Improvements follow measurements: caching, smaller payloads, pagination, fewer calls.",
+      "revision": "Measure P95/P99 latency, error and timeout rates, cache hit ratio, payload size, origin load and publish-to-visible freshness; set SLOs, trace across layers.",
+      "detailed": "A Content API is a dependency of nearly every page, so both **speed** and **correctness over time** matter.\n\n## What to measure\n\n| Signal | Why it matters |\n|---|---|\n| Latency P50 / P95 / P99 (per layer) | Tail latency drives perceived slowness; averages hide it |\n| Error rate and timeout rate | Direct availability signal; split 4xx from 5xx |\n| Cache hit ratio (CDN, origin, app) | Explains latency and origin load; a dropping ratio often precedes incidents |\n| Payload size and requests per page | Over-fetching and waterfalls hurt Core Web Vitals |\n| Origin / CMS load and rate-limit events | Shows capacity risk and abusive clients |\n| **Publish-to-visible latency** | The content-specific signal: time from publish to the new version being served at the edge |\n| Validation failures at consumers | Early warning of contract drift |\n| Per-consumer usage and version | Needed to retire old versions safely |\n\n## How\n\n- Set **SLOs** (for example availability and P95 latency of cached reads) and alert on burn rate rather than single spikes.\n- Use **distributed tracing** with a correlation ID passed from CDN or frontend through the BFF to the CMS, so one slow request can be followed.\n- Separate **real user monitoring** (what visitors experience) from **synthetic checks** (known URLs from multiple regions, including freshness probes after publish).\n\n## Typical improvements\n\nCDN caching, smaller or field-selected payloads, pagination, removing duplicate requests, query optimisation in the CMS, and server-side aggregation when it replaces several client calls.\n\n## Mistake\n\nOptimising on intuition. Measure each layer first so you fix the real bottleneck.",
+      "followUps": [
+        "What would a freshness SLO look like and how would you test it?",
+        "Which metric would you alert on first and why?",
+        "How do you trace a slow page back to a specific content call?"
+      ],
+      "related": [
+        "content-api-slow-investigation",
+        "caching-layers-content-api",
+        "content-invalidation-stale-content"
+      ]
+    },
+    {
+      "slug": "content-api-slow-investigation",
+      "title": "The CMS content API is slow. How would you investigate?",
+      "topic": "Performance & Reliability",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "performance",
+        "troubleshooting",
+        "latency",
+        "scenario"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-content-apis",
+          "pages": [
+            8
+          ]
+        }
+      ],
+      "quick": "I would measure before changing anything. First, locate where time is spent: browser, CDN, BFF, API gateway, CMS origin. Then check cache hit ratio, payload size, number of requests per page, and slow queries or heavy references in the CMS. Compare cached and uncached latency, and look at recent deployments or content changes. I would fix the measured bottleneck, for example adding caching, trimming payloads or reducing round trips, rather than assuming the CMS itself is at fault.",
+      "revision": "Measure per layer first: CDN hit ratio, origin latency, payload size, query patterns, request count. Fix the evidenced bottleneck, not the assumed one.",
+      "detailed": "The trap in this question is jumping to \"scale the CMS\". The slowness can sit in any hop, so the first job is **attribution**.\n\n## Step 1: narrow the scope\n\n- Is it all content or specific endpoints? All locales or one? All regions or one? Since when? (Check recent releases, content changes, traffic spikes.)\n- Compare **cached vs uncached** timings: a request that hits the CDN should be fast; if it is slow only on misses, the origin is involved.\n\n## Step 2: locate time per layer\n\nUse timing headers (such as `Server-Timing`), CDN logs and traces to split time into: DNS/TLS/connect, CDN, gateway, BFF, CMS processing, and client rendering.\n\n## Step 3: check usual causes\n\n| Symptom | Likely cause | Action |\n|---|---|---|\n| Low hit ratio | Over-varying keys, short TTL, frequent purges | Fix keys, TTL, targeted invalidation |\n| Large payloads | Returning full objects, unoptimised assets | Field selection, pagination, compression, image renditions |\n| Many calls per page | Waterfalls, N+1 reference resolution | Aggregate or batch, expansion params, GraphQL, BFF |\n| Slow only on misses | Expensive CMS queries or deep reference resolution | Query optimisation, precomputed or denormalised views |\n| Spikes after publish | Purge-all, stampede | Targeted purge, request coalescing, stale-while-revalidate |\n| Latency from far regions | No edge presence or cache miss | Regional caching, origin shielding |\n\n## Step 4: fix and verify\n\nApply the smallest change that addresses the measured cause, then re-measure P95/P99 and the hit ratio. Add a monitor so the regression is caught next time.\n\n## Caution\n\nRaising timeouts or adding retries can make a slow dependency worse; treat them as resilience tools, not performance fixes.",
+      "followUps": [
+        "What would you do if the CDN hit ratio is high but pages are still slow?",
+        "How would you find an N+1 pattern in reference resolution?",
+        "What is origin shielding?"
+      ],
+      "related": [
+        "content-api-performance-monitoring",
+        "caching-layers-content-api"
+      ]
+    },
+    {
+      "slug": "resilience-timeouts-retries-circuit-breakers",
+      "title": "How do timeouts, retries and circuit breakers apply to Content API calls?",
+      "topic": "Performance & Reliability",
+      "difficulty": "advanced",
+      "type": "conceptual",
+      "tags": [
+        "resilience",
+        "retries",
+        "circuit-breaker",
+        "backoff",
+        "timeouts"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-content-apis",
+          "pages": [
+            7
+          ]
+        }
+      ],
+      "quick": "Every content call needs a timeout shorter than the user's patience, so a slow dependency cannot hold resources forever. Retries should be bounded, use exponential backoff with jitter, and apply only to idempotent GETs and transient failures, because careless retries amplify load during an outage. A circuit breaker stops calling a failing dependency for a while and returns a fallback. Together with cached content and graceful degradation, they contain failures.",
+      "revision": "Timeouts bound waiting; retries are few, jittered and idempotent-only; circuit breakers stop hammering a failing service; all paired with a fallback.",
+      "detailed": "Resilience patterns protect the **caller** and the **dependency**. Misused, they make outages worse.\n\n## Timeouts\n\nSet explicit timeouts on every outbound call (connect and total). Choose them from the dependency's observed P99 and the page's latency budget; remember that timeouts add up across layers (browser, BFF, CMS). With no timeout, slow responses pile up and exhaust connections or threads.\n\n## Retries\n\n- Retry only **idempotent** requests (GET) and **transient** errors (network failure, 502/503/504, sometimes 429 honouring `Retry-After`). Do not retry 4xx client errors.\n- Use **exponential backoff with jitter** so clients do not retry in sync.\n- Keep a **small cap** (for example two or three attempts) and consider a retry budget (a limit on the share of traffic that may be retries).\n- Retrying at several layers multiplies attempts: three layers with three tries each can make nine calls per request.\n\n```ts\nasync function fetchWithRetry(url: string, attempts = 3, timeoutMs = 2000): Promise<Response> {\n  for (let i = 0; i < attempts; i++) {\n    try {\n      const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });\n      if (res.status < 500) return res;       // success or non-retryable client error\n    } catch { /* network error or timeout: fall through to retry */ }\n    const backoff = Math.min(1000 * 2 ** i, 4000) * (0.5 + Math.random() / 2);\n    await new Promise(r => setTimeout(r, backoff));\n  }\n  throw new Error(\"Content API unavailable\");\n}\n```\n\n## Circuit breakers\n\nAfter a failure threshold, the breaker **opens** and calls fail fast (or return a fallback) instead of waiting. After a cool-down it lets a few probe requests through (**half-open**) and closes again on success. This gives the dependency room to recover.\n\n## Pair with fallbacks\n\nServe stale cached content, a static default, or hide a non-critical module. Decide per content type what a safe fallback is.",
+      "followUps": [
+        "Why add jitter to backoff?",
+        "How do retries at multiple layers interact?",
+        "Where would you place the circuit breaker: browser, BFF or gateway?"
+      ],
+      "related": [
+        "content-api-outage-fallback",
+        "content-api-slow-investigation"
+      ]
+    },
+    {
+      "slug": "content-api-outage-fallback",
+      "title": "The Content API is down. What should the website do?",
+      "topic": "Performance & Reliability",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "outage",
+        "fallback",
+        "stale-if-error",
+        "failure-isolation"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-content-apis",
+          "pages": [
+            8
+          ]
+        }
+      ],
+      "quick": "I would keep serving safe cached content wherever possible, using stale-if-error at the CDN, and apply bounded timeouts and retries so requests fail fast. Pages should degrade gracefully: show a default or hide non-critical modules rather than a blank page. I would isolate the failure so unrelated journeys such as booking or login keep working. And fallbacks must not show expired or misleading information, such as ended offers, where freshness is critical.",
+      "revision": "Serve safe stale cache, fail fast with bounded retries, degrade per module, isolate failure from other journeys, never show expired critical info.",
+      "detailed": "Design for this before it happens; during an outage the options are whatever you built beforehand.\n\n## Layers of defence\n\n1. **Edge serves stale.** Configure the CDN with `stale-if-error` (or its equivalent) so cached copies keep being served when the origin fails. Prefer a long-lived stale window for evergreen content.\n2. **Static or snapshot fallback.** For critical pages (home, model pages), keep a statically generated or last-known-good copy that does not need the API at request time. SSG/ISR helps: if revalidation fails, frameworks typically keep serving the previous page.\n3. **Bounded timeouts, retries and breakers** so the failure is detected quickly and does not exhaust frontend resources.\n4. **Per-module degradation.** Treat content as a set of independent blocks. A failed \"promotional banner\" should render nothing; a failed \"navigation\" should use a baked-in default.\n5. **Failure isolation.** The content call must not sit on the critical path of unrelated business journeys. Use separate timeouts and error boundaries so a CMS problem does not break checkout or dealer booking.\n6. **Communication.** Show a clear, accessible message for unavailable content; avoid infinite spinners.\n\n## Be careful with staleness\n\nStale is acceptable for a model description; it is not acceptable for an expired promotion, a withdrawn legal notice or a safety message. Classify content by **freshness criticality** and define a maximum stale age, after which it is hidden rather than served.\n\n## Operate it\n\n- Alert on error rate and on \"serving stale\" ratio.\n- Rehearse with failure-injection or game days.\n- After recovery, watch for a stampede of revalidations and use request coalescing.",
+      "followUps": [
+        "How would you classify content by freshness criticality?",
+        "What happens to ISR pages if the API is down during revalidation?",
+        "How do you stop a content failure from affecting checkout?"
+      ],
+      "related": [
+        "resilience-timeouts-retries-circuit-breakers",
+        "caching-layers-content-api",
+        "content-api-vs-business-api"
+      ]
+    },
+    {
+      "slug": "seo-rendering-strategy-csr-ssr-ssg-isr",
+      "title": "CSR, SSR, SSG or ISR: how do you choose a rendering strategy for content pages?",
+      "topic": "Rendering & SEO",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "ssr",
+        "ssg",
+        "isr",
+        "csr",
+        "seo",
+        "nextjs"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-content-apis",
+          "pages": [
+            7,
+            8
+          ]
+        }
+      ],
+      "quick": "A Content API does not by itself make a site SEO-friendly; the rendering strategy does. CSR fetches in the browser and delays visible content. SSR renders HTML per request on the server. SSG pre-generates pages and serves them from a CDN, and ISR regenerates them on a schedule or on demand. For public marketing pages I would favour SSG or ISR, or SSR where content must be per-request, and keep personalised or volatile pieces client-side.",
+      "revision": "CSR: fast to build, weak first paint and SEO risk. SSR: fresh HTML per request. SSG: fastest, build-time. ISR: static with revalidation. Match to freshness and personalisation.",
+      "detailed": "The Content API only supplies data. **Where and when the HTML is produced** decides crawlability, first paint and freshness.\n\n| Strategy | When HTML is produced | Strengths | Weaknesses |\n|---|---|---|---|\n| **CSR** | In the browser after JS loads and fetches | Simple hosting, rich interactivity | Slower visible content; relies on crawlers executing JS; extra API round trip on the client |\n| **SSR** | On the server per request | Fresh content, good SEO, can use request context | Server cost and latency; needs caching to scale |\n| **SSG** | At build time | Fastest, CDN-served, resilient to API outages | Build time grows with page count; content updates need rebuilds |\n| **ISR** (supporting frameworks) | Static, regenerated on a timer or on demand | Static performance with bounded staleness; on-demand revalidation from publish webhooks | Framework-specific; staleness window to design; cache behaviour varies by host |\n\n## How to choose\n\n- **Public marketing and catalogue pages:** SSG or ISR with on-demand revalidation driven by CMS publish events. Excellent speed and resilience.\n- **Pages that depend on request context** (geolocation, A/B tests, auth): SSR, or static shell plus client-side personalised islands.\n- **Highly volatile or private data** (stock, user data): fetch on the client or via SSR from a Business API; keep it out of the static page.\n- **Many locales and thousands of pages:** prefer ISR or on-demand generation over building everything upfront.\n\n## SEO details that matter regardless of strategy\n\nCorrect status codes (404 not soft-404), canonical and `hreflang` tags, metadata from the content model, structured data, and image optimisation. Verify with the rendered HTML a crawler receives.\n\n## Mistake\n\nChoosing CSR for a content-heavy public site because \"it already calls an API\", then fighting poor Core Web Vitals and indexing delays.",
+      "followUps": [
+        "How would a publish webhook trigger ISR revalidation?",
+        "How would you handle personalisation on a statically generated page?",
+        "What is the SEO risk of CSR today?"
+      ],
+      "related": [
+        "react-content-fetching-example",
+        "content-invalidation-stale-content",
+        "localization-content-apis"
+      ]
+    },
+    {
+      "slug": "localization-content-apis",
+      "title": "How do you handle localization in a Content API and the frontend?",
+      "topic": "Localization",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "localization",
+        "i18n",
+        "locale",
+        "hreflang",
+        "cache-keys"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-content-apis",
+          "pages": [
+            8
+          ]
+        }
+      ],
+      "quick": "I would use explicit locale identifiers such as BCP 47 tags, and decide up front whether missing translations fall back to a default locale. Locale must be handled consistently in API parameters, cache keys, routes, metadata such as hreflang and lang, and publishing workflows, since each locale may be approved and published on its own schedule. Locale is not inferred silently from headers that caches cannot see.",
+      "revision": "Explicit locale IDs, defined fallback rules, and locale consistently in API, cache keys, routes, SEO metadata and publish workflow.",
+      "detailed": "Localization is more than translated strings; it touches the **contract, caching, routing, SEO and workflow**.\n\n## Decisions to make up front\n\n- **Locale identifiers.** Use a standard such as BCP 47 (`en-US`, `fr-CA`) and keep them consistent between CMS, API and routes. Distinguish language from region intentionally.\n- **Fallback.** If `fr-CA` content is missing, do you fall back to `fr`, then `en`? Make it explicit and surface it (a `locale` and optionally `requestedLocale` in the response) so the frontend can tell.\n- **What is localised.** Text, images with text, legal copy, units and currency formats, even entire page structures. Some content is *market-specific* rather than a translation.\n- **Workflow.** Translation, approval and publishing may happen per locale, so one locale going live must not require the others.\n\n## Putting locale in the API\n\n```http\nGET /content/v1/pages/home?locale=fr-CA\n```\n\nA path segment (`/fr-ca/...`) is also common for site routes. Whatever you choose, be consistent.\n\n## Cache and routing implications\n\n- Include locale in the **cache key**. Relying on `Accept-Language` needs a `Vary` header and can fragment or misroute caches; explicit URLs are safer.\n- Purge or revalidate **per locale** on publish.\n- Emit `<html lang>`, `hreflang` alternates and locale-specific canonical URLs for SEO.\n\n## Common mistakes\n\n- Serving the wrong language because the cache key omitted locale.\n- Silent fallback that shows English with no indicator, confusing users and analytics.\n- Hard-coding locale logic in components instead of the API client or routing layer.",
+      "followUps": [
+        "Would you put locale in the path, a query parameter, or a header, and why?",
+        "How do you handle a locale whose content is partially translated?",
+        "How do hreflang tags relate to your API response?"
+      ],
+      "related": [
+        "caching-layers-content-api",
+        "seo-rendering-strategy-csr-ssr-ssg-isr",
+        "content-api-contract-design"
+      ]
+    },
+    {
+      "slug": "bff-for-content-apis",
+      "title": "When should you put a Backend for Frontend in front of a Content API?",
+      "topic": "Integration Architecture",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "bff",
+        "aggregation",
+        "architecture",
+        "trade-offs"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-content-apis",
+          "pages": [
+            1,
+            2
+          ]
+        }
+      ],
+      "quick": "A BFF is a server layer tailored to one frontend. I add one when the page must aggregate content with business APIs, reshape or trim payloads, validate responses, hide credentials, or enforce server-side policies and caching. I avoid it when the CMS API already serves the frontend well, because it adds a hop, a service to operate and another place for contract drift. It is a deliberate choice, not a default.",
+      "revision": "Use a BFF to aggregate, reshape, validate, cache and protect secrets for one frontend. Skip it when it just proxies.",
+      "detailed": "A **Backend for Frontend** is a server-side component owned by (or aligned to) a specific frontend experience. It sits between that frontend and upstream services such as the CMS and business APIs.\n\n{{diagram:bff}}\n\n## Good reasons to add one\n\n- **Aggregation.** A vehicle page needs editorial content plus dealer availability; the BFF fetches both in parallel and returns one response, saving client round trips.\n- **Shape translation.** Map CMS-internal models to the UI's view model, shielding the frontend from CMS refactors.\n- **Payload control.** Return only needed fields, optimise images, strip internal metadata.\n- **Security.** Keep management or partner credentials server-side; enforce draft filtering and rate limits.\n- **Resilience and caching.** Central place for timeouts, circuit breakers, stale fallbacks and shared caches.\n- **Validation.** Validate upstream responses once, on the server.\n\n## Reasons not to\n\n- It becomes a **pass-through** that only adds latency.\n- It turns into a **new monolith** that every team must change, slowing delivery. Prefer one BFF per experience or channel rather than one giant shared one.\n- Another service to deploy, monitor and secure, and another place for cache invalidation to go wrong.\n- In frameworks like Next.js, server components and route handlers can fill the BFF role without a separate service.\n\n## Rule of thumb\n\nIntroduce a BFF when it removes real complexity from the frontend or protects something. If the CMS delivery API plus CDN already meets the need, keep the architecture simpler.",
+      "diagrams": [
+        {
+          "id": "bff",
+          "title": "BFF aggregating content and business APIs",
+          "alt": "A React or Next.js frontend calls a backend for frontend. The BFF calls the CMS Content API for editorial content and a dealer or inventory Business API for operational data, then returns one combined response to the frontend.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "fe",
+              "label": "React / Next.js frontend"
+            },
+            {
+              "id": "bff",
+              "label": "BFF"
+            },
+            {
+              "id": "cms",
+              "label": "CMS Content API"
+            },
+            {
+              "id": "biz",
+              "label": "Business API (dealers, inventory)"
+            }
+          ],
+          "edges": [
+            {
+              "from": "fe",
+              "to": "bff",
+              "label": "one request"
+            },
+            {
+              "from": "bff",
+              "to": "cms",
+              "label": "content"
+            },
+            {
+              "from": "bff",
+              "to": "biz",
+              "label": "live data"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you stop a BFF from becoming a shared monolith?",
+        "Could Next.js route handlers replace a standalone BFF?",
+        "Where would caching live: BFF or CDN?"
+      ],
+      "related": [
+        "content-api-vs-business-api",
+        "how-content-api-request-flow-works",
+        "micro-frontends-content-apis"
+      ]
+    },
+    {
+      "slug": "micro-frontends-content-apis",
+      "title": "How do Content APIs fit into a React micro-frontend architecture?",
+      "topic": "Integration Architecture",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "micro-frontends",
+        "content-api",
+        "shared-content",
+        "contracts"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-content-apis",
+          "pages": [
+            8,
+            9
+          ]
+        }
+      ],
+      "quick": "Each micro frontend should consume the content it owns or needs through stable, versioned contracts. Shared content such as navigation, footer and global banners is better delivered once by a platform capability, for example a shell or shared package, than fetched separately by every team. I would avoid duplicate requests with shared caching, keep shared contracts backward-compatible because many teams depend on them, and make each module degrade independently if its content fails.",
+      "revision": "Domains consume content they own via stable contracts; shared content (nav, footer) comes from one platform capability; avoid duplicate fetches; degrade per module.",
+      "detailed": "In a micro-frontend (MFE) setup, several independently deployed UI modules compose one page. Content delivery needs coordination or the result is duplicated requests, inconsistent content and fragile coupling.\n\n## Principles\n\n- **Ownership.** Each MFE fetches and renders the content of its domain (for example a configurator owns its option copy). It depends on a **stable contract**, not on another team's internals.\n- **Shared content once.** Navigation, footer, cookie banners and global alerts are cross-cutting. Provide them via the shell (container) app, a shared library or a platform service that fetches once and distributes, rather than letting every MFE request them.\n- **Compatible shared contracts.** Shared content models have many consumers on different release schedules, so apply strict additive-change rules and deprecation windows.\n- **Avoid request waterfalls and duplicates.** Use HTTP caching, a shared client with request de-duplication, or server-side composition (SSR or edge includes) so a page does not make the same call from five modules.\n- **Independent failure.** Each MFE wraps content in its own error boundary and fallback; one failing module should not blank the whole page.\n- **Consistent cross-cutting concerns.** Locale, preview mode, and auth context are provided by the shell and passed down, so all modules agree.\n\n## Integration options\n\n| Option | Notes |\n|---|---|\n| Each MFE calls the Content API directly | Simple, but duplicates and needs a shared client library and discipline |\n| Shell fetches shared content and passes it via props or events | Fewer requests; the shell becomes a dependency |\n| BFF or server-side composition per page | Centralises aggregation and caching; needs clear ownership |\n\n## Common mistakes\n\n- Each team writing its own fetch and cache logic with different locale handling.\n- A shared \"content\" package that becomes a coordination bottleneck for releases.\n- Preview mode working in one MFE but not in others, because it was not provided by the shell.",
+      "followUps": [
+        "Who owns the navigation content contract?",
+        "How do you share a content client across independently deployed MFEs?",
+        "How do you make preview work across all micro frontends?"
+      ],
+      "related": [
+        "bff-for-content-apis",
+        "content-api-versioning-compatibility",
+        "localization-content-apis"
+      ]
+    },
+    {
+      "slug": "react-content-fetching-example",
+      "title": "Write a production-minded React component that loads content from a Content API",
+      "topic": "Frontend Integration",
+      "difficulty": "intermediate",
+      "type": "coding",
+      "tags": [
+        "react",
+        "fetch",
+        "abortcontroller",
+        "validation",
+        "ssr",
+        "typescript"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-content-apis",
+          "pages": [
+            2,
+            3
+          ]
+        }
+      ],
+      "quick": "I would put fetching in a reusable client function that takes an AbortSignal, checks response.ok, and validates the JSON against a runtime schema. The component effect creates an AbortController, ignores AbortError on cleanup, and models loading, error and success states explicitly. For SEO-critical pages I would fetch on the server with SSR or static generation instead, and consider a data library for caching and de-duplication rather than hand-rolled effects.",
+      "revision": "Client with signal + ok check + schema validation; effect with AbortController and explicit states. Prefer server fetching for SEO pages; consider a caching data library.",
+      "detailed": "A naive version fetches in `useEffect`, casts the JSON to a type and shows \"Loading...\". A more production-minded version addresses **cancellation, validation, state modelling, accessibility and rendering location**.\n\n## 1. A reusable, validated client\n\n```ts\nimport { z } from \"zod\";\n\nconst VehicleSchema = z.object({\n  id: z.string(),\n  title: z.string(),\n  description: z.string(),\n  heroImage: z.object({ url: z.string(), altText: z.string() }),\n});\nexport type Vehicle = z.infer<typeof VehicleSchema>;\n\nexport async function fetchVehicle(slug: string, locale: string, signal?: AbortSignal): Promise<Vehicle> {\n  const url = `/api/content/vehicles/${encodeURIComponent(slug)}?locale=${encodeURIComponent(locale)}`;\n  const res = await fetch(url, { signal });\n  if (!res.ok) throw new Error(`Content request failed with status ${res.status}`);\n  return VehicleSchema.parse(await res.json()); // runtime check, not a cast\n}\n```\n\n## 2. A component with explicit states and abort handling\n\n```tsx\nimport { useEffect, useState } from \"react\";\n\ntype State =\n  | { status: \"loading\" }\n  | { status: \"error\" }\n  | { status: \"success\"; data: Vehicle };\n\nexport function VehiclePage({ slug, locale }: { slug: string; locale: string }) {\n  const [state, setState] = useState<State>({ status: \"loading\" });\n\n  useEffect(() => {\n    const controller = new AbortController();\n    setState({ status: \"loading\" });\n\n    fetchVehicle(slug, locale, controller.signal)\n      .then(data => setState({ status: \"success\", data }))\n      .catch(err => {\n        if (err instanceof DOMException && err.name === \"AbortError\") return; // unmounted or params changed\n        console.error(err); // send to monitoring in a real app\n        setState({ status: \"error\" });\n      });\n\n    return () => controller.abort();\n  }, [slug, locale]);\n\n  if (state.status === \"loading\") return <p role=\"status\">Loading content...</p>;\n  if (state.status === \"error\") return <p role=\"alert\">Content is temporarily unavailable.</p>;\n\n  const { title, heroImage, description } = state.data;\n  return (\n    <main>\n      <h1>{title}</h1>\n      <img src={heroImage.url} alt={heroImage.altText} />\n      <p>{description}</p>\n    </main>\n  );\n}\n```\n\n## What improved and why\n\n- **Abort and race safety.** Changing `slug` or `locale` aborts the previous request, so a slow earlier response cannot overwrite newer state. Abort errors are expected, not failures.\n- **Validation.** Bad data becomes a handled error, not a crash in render.\n- **Discriminated state** prevents impossible combinations such as both data and error.\n- **Dependencies** include `slug` and `locale`, so the effect re-runs when they change.\n- **Accessibility.** `role=\"status\"` and `role=\"alert\"`, and real `alt` text from the content.\n\n## SSR and SEO note\n\nAn effect only runs in the browser, so crawlers and the first paint receive an empty shell. For public content pages, fetch on the server instead (for example Next.js server components, or SSG/ISR) and render the HTML with data included. Client-side fetching remains suitable for interactive or personalised parts.\n\n## Beyond hand-rolled effects\n\nA library such as TanStack Query or SWR provides caching, de-duplication, retries and revalidation. Whichever you use, keep the API client in one module instead of scattering `fetch` calls through components.",
+      "followUps": [
+        "Why is the AbortError ignored instead of shown as an error?",
+        "How would this change in a Next.js server component?",
+        "How would you add caching and request de-duplication?",
+        "What would you do to show previous data while a new locale loads?"
+      ],
+      "related": [
+        "runtime-schema-validation-typescript",
+        "seo-rendering-strategy-csr-ssr-ssg-isr",
+        "resilience-timeouts-retries-circuit-breakers"
+      ]
+    }
+  ]
+}

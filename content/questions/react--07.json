@@ -1,0 +1,462 @@
+{
+  "category": "react",
+  "questions": [
+    {
+      "slug": "react-scenario-slow-page-8-seconds",
+      "title": "A React page takes 8 seconds to load. How do you investigate?",
+      "topic": "Performance Scenarios",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "react",
+        "performance",
+        "core-web-vitals",
+        "debugging",
+        "scenario"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-react-js",
+          "pages": [
+            19
+          ]
+        }
+      ],
+      "quick": "I measure before changing anything. I reproduce on realistic network and device settings, look at the network waterfall and Core Web Vitals, and split the 8 seconds into server response, transfer, JavaScript download and execution, data fetching, rendering and images or third-party scripts. Then I fix the dominant bottleneck, such as caching or SSR for a slow backend, code splitting for a big bundle, or image optimization, and re-measure. I also check real-user data, since lab results can differ.",
+      "revision": "Measure first, break the 8 seconds into stages, find the dominant bottleneck, fix that one, then re-measure with lab and real-user data.",
+      "detailed": "**Short answer:** do not start by memoizing components. Turn \"8 seconds\" into a breakdown, find the largest slice, and fix that. The skill being tested is method, not a memorized list of tricks.\n\n{{diagram:triage}}\n\n## Step 1: Define and reproduce\n\nWhich metric is \"slow\": time to first byte, first/largest contentful paint, interactivity, or something after load? For whom: which devices, networks, regions? Use throttled CPU and network in DevTools, plus real-user monitoring if available.\n\n## Step 2: Break it into stages\n\n| Stage | Where to look | Typical fixes |\n|---|---|---|\n| Server response (TTFB) | Network tab, server timing, APM | Cache, CDN, faster API or database, SSR/SSG for public pages |\n| Transfer | Waterfall, compression, protocol | Brotli/gzip, HTTP/2 or 3, CDN, caching headers |\n| JavaScript size | Bundle analyzer | Code splitting, lazy routes, remove heavy libraries |\n| JavaScript execution | Performance panel, long tasks | Reduce work at startup, defer non-critical code |\n| Data fetching | Waterfall of API calls | Parallelize, remove request chains, prefetch, cache |\n| Rendering | React Profiler, DOM size | Fix needless renders, virtualization |\n| Images, fonts | Largest contentful paint element | Responsive formats, sizing, priority hints, font loading strategy |\n| Third parties | Request list by domain | Defer, remove, load after interaction |\n\n## Step 3: Fix the dominant bottleneck\n\nPick the change with the biggest effect, make one change at a time, and compare against a baseline. Typical ordering: eliminate blocking requests and waterfalls, shrink critical-path JavaScript, then tune rendering.\n\n## Step 4: Validate and guard\n\nRe-measure in the same conditions, then add regression protection: performance budgets in CI, Lighthouse CI, and real-user Core Web Vitals dashboards.\n\n## Common mistakes\n\n- Optimizing React code when the time is mostly backend latency or an oversized hero image.\n- Testing only on a fast laptop and a local network.\n- Changing many things at once so nothing can be attributed.",
+      "diagrams": [
+        {
+          "id": "triage",
+          "title": "Investigation flow",
+          "alt": "Flow from measuring and reproducing, to breaking the load time into stages, to identifying the dominant bottleneck among server, bundle, rendering or assets, to fixing it, then re-measuring and adding budgets.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "m",
+              "label": "Measure and reproduce"
+            },
+            {
+              "id": "s",
+              "label": "Split into stages"
+            },
+            {
+              "id": "d",
+              "label": "Find dominant bottleneck"
+            },
+            {
+              "id": "f",
+              "label": "Fix one thing"
+            },
+            {
+              "id": "v",
+              "label": "Re-measure"
+            },
+            {
+              "id": "g",
+              "label": "Add budgets and monitoring"
+            }
+          ],
+          "edges": [
+            {
+              "from": "m",
+              "to": "s"
+            },
+            {
+              "from": "s",
+              "to": "d"
+            },
+            {
+              "from": "d",
+              "to": "f"
+            },
+            {
+              "from": "f",
+              "to": "v"
+            },
+            {
+              "from": "v",
+              "to": "g"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "What would you check first if the delay is before any HTML arrives?",
+        "How do you interpret a long task in the performance panel?",
+        "How do you prevent the problem returning?"
+      ],
+      "related": [
+        "react-scenario-5mb-bundle",
+        "react-scenario-fast-api-slow-ui",
+        "react-scenario-fast-locally-slow-production"
+      ]
+    },
+    {
+      "slug": "react-scenario-5mb-bundle",
+      "title": "Your React app has a 5 MB JavaScript bundle. What would you do?",
+      "topic": "Performance Scenarios",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "react",
+        "bundle",
+        "code-splitting",
+        "performance",
+        "scenario"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-react-js",
+          "pages": [
+            19
+          ]
+        }
+      ],
+      "quick": "First I find out what is in it with a bundle analyzer and check whether 5 MB is raw or compressed. Then I split by route with React.lazy and dynamic import, lazy-load heavy components like charts and editors, make sure tree shaking works with ES modules, replace or trim heavy libraries, remove duplicates, defer third-party scripts, and consider moving work to the server. I set a bundle budget in CI so it does not regress, and verify with real-load metrics.",
+      "revision": "Analyze the bundle, split by route and heavy feature, tree-shake, trim or replace big dependencies, defer third parties, then enforce a size budget in CI.",
+      "detailed": "**Short answer:** analyze before cutting, then reduce what the first screen needs. The goal is less JavaScript on the critical path, not only a smaller total.\n\n## 1. Understand the 5 MB\n\n- Is it minified size, gzip or Brotli size, or parsed size? Parse and execute cost is driven by uncompressed size on slower devices.\n- Use a visualizer (`webpack-bundle-analyzer`, `source-map-explorer`, `rollup-plugin-visualizer`) to see which packages and modules dominate.\n\n## 2. Typical findings and fixes\n\n| Finding | Action |\n|---|---|\n| One giant entry chunk | Route-level code splitting with `React.lazy` + `Suspense` |\n| Heavy, rarely used widgets (charts, rich-text editors, maps, 3D) | Lazy load on demand or on interaction |\n| Whole library imported for one function | Import specific modules or use lighter alternatives |\n| Duplicate package versions | Dedupe in the lockfile; check for multiple copies of the same library |\n| Moment-style locale or icon bundles | Import only what is used |\n| CommonJS packages that block tree shaking | Prefer ES module builds |\n| Polyfills for modern browsers | Align the browserslist target with real users |\n| Third-party tags and SDKs | Load async, defer or after interaction; remove unused ones |\n| Dev-only code leaking | Confirm production mode and dead-code elimination |\n\n```jsx\nconst Reports = lazy(() => import('./pages/Reports'));\n\n<Suspense fallback={<PageSkeleton />}>\n  <Routes>\n    <Route path=\"/reports\" element={<Reports />} />\n  </Routes>\n</Suspense>\n```\n\n## 3. Beyond bundling\n\n- **Move work to the server:** SSR, static generation or server components can keep large dependencies off the client entirely.\n- **Prefetch** likely next routes on hover or idle so splitting does not hurt navigation.\n- **Cache well:** content-hashed filenames and long cache lifetimes so repeat visitors skip downloads; vendor chunks change less often.\n\n## 4. Guard it\n\nSet a budget (for example in CI with a size-check tool) and track real-user load metrics, since bundle size is a means rather than the goal.\n\n## Common mistakes\n\nSplitting into too many tiny chunks that create waterfalls, lazy-loading above-the-fold content, and shaving kilobytes while ignoring a slow API.",
+      "followUps": [
+        "How does React.lazy work and what happens while the chunk loads?",
+        "What prevents tree shaking from working?",
+        "How do you avoid a request waterfall from nested lazy components?"
+      ],
+      "related": [
+        "react-scenario-slow-page-8-seconds",
+        "react-scenario-fast-locally-slow-production"
+      ]
+    },
+    {
+      "slug": "react-scenario-unnecessary-renders",
+      "title": "A component renders 100 times unnecessarily. What do you check?",
+      "topic": "Performance Scenarios",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "react",
+        "rerenders",
+        "profiler",
+        "memo",
+        "context",
+        "scenario"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-react-js",
+          "pages": [
+            19
+          ]
+        }
+      ],
+      "quick": "I confirm with the React DevTools Profiler, using Highlight updates and the Why did this render option, instead of guessing. Then I trace the cause: a parent re-rendering, state held too high, a Context value changing identity, new object or function props defeating memo, effects that set state in loops, or unstable keys. I fix the cause, for instance moving state down, splitting context, or stabilizing props, and use memo, useMemo or useCallback only where the Profiler shows a benefit.",
+      "revision": "Use the Profiler to see why it renders, then check parent renders, state placement, context changes, prop identity, effect loops and keys. Fix the cause before memoizing.",
+      "detailed": "**Short answer:** measure why it renders, then remove the cause. Rendering itself is normally cheap; the question is whether the repeated renders cost visible time and what triggers them.\n\n## Diagnose\n\n- **React DevTools Profiler:** record the interaction and see which components render, how long they take, and (with \"Record why each component rendered\" enabled) what changed.\n- **Highlight updates** shows renders live.\n- Look for a render *loop* (effect sets state that retriggers the effect) versus simply too-wide propagation.\n\n## Common causes\n\n| Cause | Why it re-renders | Fix |\n|---|---|---|\n| Parent re-renders | Children re-render by default | Move state down, lift content up (`children`), or `React.memo` the child |\n| State placed too high | One keystroke re-renders a large subtree | Colocate state near where it is used |\n| Context value changes | Every consumer re-renders when the value reference changes | Memoize the provider value, split contexts, or use a selector-capable store |\n| New object, array or function props | Breaks `memo` shallow equality | Hoist constants, `useMemo` / `useCallback` where it enables a memoized child |\n| Effect updates state each time | Render, effect, setState, render loop | Fix dependencies; derive values during render instead of syncing state |\n| Unstable keys | Remounts rather than updates | Use stable IDs, not array indexes or random values |\n| Store subscription too broad | Component subscribes to the whole store | Select only the needed slice |\n| Strict Mode | Doubles renders in development only | Not a production problem |\n\n```jsx\n// Context value is a new object every render, so all consumers re-render\n<ThemeContext.Provider value={{ theme, toggle }}> ...\n\n// Stable value\nconst value = useMemo(() => ({ theme, toggle }), [theme, toggle]);\n<ThemeContext.Provider value={value}> ...\n```\n\n## After finding the cause\n\nFix structurally first (state placement, composition). Use memoization where the Profiler shows an expensive subtree re-rendering with unchanged props. For very large lists, virtualization is a better answer than memoizing each row. The React Compiler, where adopted, can automate much memoization, but correct state structure still matters.\n\n## Common mistakes\n\nWrapping everything in `memo` and `useCallback`, memoizing with dependencies that change anyway, and optimizing without a measurement.",
+      "followUps": [
+        "Why does a Context value change cause all consumers to re-render?",
+        "When does React.memo not help?",
+        "How does lifting content up with children avoid renders?"
+      ],
+      "related": [
+        "react-scenario-fast-api-slow-ui",
+        "react-usetransition"
+      ]
+    },
+    {
+      "slug": "react-scenario-fast-api-slow-ui",
+      "title": "The API response is fast but the UI is slow. Why?",
+      "topic": "Performance Scenarios",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "react",
+        "performance",
+        "rendering",
+        "dom",
+        "scenario"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-react-js",
+          "pages": [
+            19
+          ]
+        }
+      ],
+      "quick": "If the network is fast, the time is going into the browser's main thread. I record a performance trace and look for long tasks: expensive rendering of big component trees, too many DOM nodes, heavy client-side transformation or sorting of large responses, repeated state updates, costly effects, layout thrashing, and large images or fonts. Fixes include virtualization, pagination, moving transformation to the server or a worker, memoizing real hot spots, and using transitions to keep input responsive.",
+      "revision": "With fast network, the bottleneck is main-thread work: heavy renders, huge DOM, big client-side data processing, update storms or layout cost. Profile, then virtualize, paginate or offload.",
+      "detailed": "**Short answer:** the response arrived quickly, so the delay is client-side work between \"data received\" and \"pixels updated\". A Performance panel trace and the React Profiler show where.\n\n## Where the time goes\n\n| Suspect | Signal | Remedy |\n|---|---|---|\n| Too many DOM nodes (large tables, long lists) | Large layout and style recalculation, memory growth | Virtualize (windowing), paginate, collapse hidden content |\n| Expensive component renders | Long commit in Profiler | Reduce work per render, memoize hot subtrees, split components |\n| Heavy transformation of the payload | Long scripting task after fetch | Shape data server-side, paginate, use a Web Worker, memoize derived data |\n| Cascading state updates | Many sequential renders per interaction | Batch, consolidate state, avoid effect chains |\n| Costly effects | Long tasks after commit | Defer non-critical work, clean up observers and listeners |\n| Layout thrashing | Alternating DOM reads and writes | Batch reads then writes |\n| Large JSON parse | Long task on parse | Smaller payloads, streaming or pagination |\n| Unoptimized images or heavy CSS | Paint and decode time | Resize, lazy load, simplify expensive effects |\n| Slow hydration (SSR) | Visible but unresponsive page | Reduce client JS, selective hydration, server components |\n\n## Example\n\n```jsx\n// Client sorts and filters 50,000 rows on every render\nconst rows = data.filter(matches).sort(byDate);\n\n// Compute only when inputs change, and render only visible rows\nconst rows = useMemo(() => data.filter(matches).sort(byDate), [data, matches]);\nreturn <VirtualList items={rows} rowHeight={40} renderRow={Row} />;\n```\n\nBetter still, ask the API to filter, sort and paginate when the dataset is large.\n\n## Keeping the UI responsive\n\n`useTransition` or `useDeferredValue` can keep typing and clicks smooth while a heavy view updates, but they prioritize work rather than removing it.\n\n## Common mistake\n\nBlaming the network or adding more caching when the trace clearly shows scripting and rendering on the main thread. Test on throttled CPU, since developer machines hide the cost.",
+      "followUps": [
+        "How would you decide between pagination and virtualization?",
+        "When is a Web Worker appropriate?",
+        "How can you measure interaction latency?"
+      ],
+      "related": [
+        "react-scenario-unnecessary-renders",
+        "react-scenario-slow-page-8-seconds",
+        "react-usetransition"
+      ]
+    },
+    {
+      "slug": "react-scenario-fast-locally-slow-production",
+      "title": "The UI is fast locally but slow in production. What do you investigate?",
+      "topic": "Performance Scenarios",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "react",
+        "performance",
+        "production",
+        "cdn",
+        "scenario"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-react-js",
+          "pages": [
+            20
+          ]
+        }
+      ],
+      "quick": "Local runs hide network distance, device limits and real traffic. I compare production with local in terms of bundle size and chunking, compression, caching headers, CDN hit rates and region, server and API latency under load, third-party scripts, and the effect of slower CPUs and mobile networks. I also check production-only differences like data volume, source maps and feature flags. I use real-user monitoring and Core Web Vitals, and reproduce with throttling on real devices.",
+      "revision": "Local hides latency, slow devices, big data and third parties. Compare bundles, compression, caching, CDN, API latency, data volume and real-user metrics, with throttled reproduction.",
+      "detailed": "**Short answer:** a local machine has near-zero latency, a powerful CPU, small test data and no third-party tags. Production has none of those advantages, so compare environments systematically and use real-user data to see what visitors experience.\n\n## What differs and what to check\n\n| Area | Check |\n|---|---|\n| Bundle | Production build size, chunking, whether the dev server hid cost with HMR and no minification |\n| Delivery | Compression (Brotli/gzip), HTTP/2 or 3, cache headers, content-hashed assets |\n| CDN / edge | Cache hit ratio, origin shielding, distance of users to the nearest point of presence |\n| Server and APIs | Latency under real load, cold starts, database queries, cross-region calls, rate limits |\n| SSR | Server render time, cache configuration, memory pressure |\n| Data | Production datasets are bigger than seed data; lists, search and payloads may behave very differently |\n| Third parties | Analytics, tag managers, chat widgets and A/B tools usually exist only in production |\n| Client environment | Mid-range phones, throttled CPU, poor networks, extensions |\n| Config | Feature flags, redirects chains, cookie size, auth round-trips, CORS preflights |\n| Observability | Differences in logging and error volume, and source map handling |\n\n## Method\n\n1. Gather **real-user monitoring** and Core Web Vitals segmented by device, network, region and page, to find where the problem is concentrated.\n2. Reproduce with DevTools throttling, then on a real mid-range device and with a remote lab tool from the affected region.\n3. Compare production traces with a local trace for the same journey.\n4. Fix the largest difference and validate with a gradual rollout and a before-and-after comparison.\n\n## Common mistakes\n\n- Concluding \"works on my machine\" and closing the investigation.\n- Profiling the development build, whose React is slower and noisier than production.\n- Looking only at averages; the slow experience often lives in the 75th percentile and worse.\n- Staging environments that differ from production in data size, caching and CDN configuration.",
+      "followUps": [
+        "Why are percentiles more useful than averages here?",
+        "How can you reproduce a slow mobile experience?",
+        "What production-only factors can cause slow API calls?"
+      ],
+      "related": [
+        "react-scenario-slow-page-8-seconds",
+        "react-scenario-5mb-bundle",
+        "react-architecture-global-website-performance"
+      ]
+    },
+    {
+      "slug": "react-architecture-global-website",
+      "title": "Design a React architecture for a large global public website.",
+      "topic": "Architecture",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "react",
+        "architecture",
+        "nextjs",
+        "cms",
+        "design-system",
+        "scenario"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-react-js",
+          "pages": [
+            20
+          ]
+        }
+      ],
+      "quick": "I would start with business domain boundaries, not technology. A meta-framework such as Next.js gives per-route rendering: SSG or ISR for SEO-critical content from a headless CMS, SSR where data is request-specific, and CSR for interactive tools. Backend capabilities sit behind API-first services, with CDN and edge caching in front. A shared design system, authentication, analytics, accessibility and security standards keep experiences consistent. I add contracts, observability, performance budgets, and ownership boundaries, using micro frontends only where team autonomy justifies them.",
+      "revision": "Domain-aligned modules on a meta-framework, headless CMS and API-first services, CDN/edge caching, per-route rendering, shared design system and standards, with contracts, budgets and observability.",
+      "detailed": "**Short answer:** design around domains and failure isolation, use the rendering strategy that matches each route, put content and APIs behind clear contracts, and cache aggressively at the edge. Micro frontends are an organizational tool, not a default.\n\n*Example context:* a worldwide automotive-style site with marketing pages, model and trim pages, dealer search, an owner portal and a vehicle configurator, run by several teams in many regions and languages.\n\n{{diagram:arch}}\n\n## Key decisions\n\n| Concern | Approach |\n|---|---|\n| Domain boundaries | Split by business domain (discovery, configurator, ownership, dealers), each with an owning team |\n| App structure | Meta-framework monorepo or a shell with independently deployable domain modules where team autonomy truly requires it |\n| Rendering | SSG/ISR for content, SSR or edge for localized and request-specific pages, CSR for authenticated or heavy tools |\n| Content | Headless CMS (for example an enterprise CMS) with preview, workflow and localization, delivering via API |\n| Data and APIs | API gateway or backend-for-frontend, versioned contracts (OpenAPI or GraphQL schema), typed clients |\n| Delivery | CDN and edge caching, image optimization, regional deployments |\n| Shared platform | Design system and component library, auth/session module, analytics and consent, error and performance monitoring |\n| Quality | Accessibility, security and performance budgets as CI gates, contract and E2E tests on critical journeys |\n| Resilience | Failure isolation: if recommendations or dealer lookup fails, the rest of the page still renders (error boundaries, timeouts, fallbacks) |\n| Governance | ADRs, ownership maps, dependency policy |\n\n## Trade-offs to articulate\n\n- **Monolith versus micro frontends:** a single codebase is simpler to keep consistent and fast; micro frontends add runtime overhead, duplicated dependencies and integration complexity, and pay off mainly with many independent teams.\n- **Edge versus origin rendering:** edge reduces latency but constrains runtimes and data access.\n- **Consistency versus autonomy:** a strong design system and platform guardrails give both.\n\n## Common mistakes\n\nChoosing micro frontends first, one rendering mode everywhere, no performance budget, and treating content, API and UI as one deployment unit.",
+      "diagrams": [
+        {
+          "id": "arch",
+          "title": "High-level web architecture",
+          "alt": "Users reach a CDN and edge layer, which serves static and cached pages or forwards to a React meta-framework app. The app gets content from a headless CMS and data from an API gateway that fronts backend services. A shared design system, auth and observability support the app.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "u",
+              "label": "Users"
+            },
+            {
+              "id": "cdn",
+              "label": "CDN and edge cache"
+            },
+            {
+              "id": "app",
+              "label": "React meta-framework app"
+            },
+            {
+              "id": "cms",
+              "label": "Headless CMS"
+            },
+            {
+              "id": "gw",
+              "label": "API gateway / BFF"
+            },
+            {
+              "id": "svc",
+              "label": "Backend services"
+            },
+            {
+              "id": "ds",
+              "label": "Design system and shared platform"
+            },
+            {
+              "id": "obs",
+              "label": "Observability and analytics"
+            }
+          ],
+          "edges": [
+            {
+              "from": "u",
+              "to": "cdn"
+            },
+            {
+              "from": "cdn",
+              "to": "app",
+              "label": "cache miss"
+            },
+            {
+              "from": "app",
+              "to": "cms",
+              "label": "content"
+            },
+            {
+              "from": "app",
+              "to": "gw",
+              "label": "data"
+            },
+            {
+              "from": "gw",
+              "to": "svc"
+            },
+            {
+              "from": "ds",
+              "to": "app"
+            },
+            {
+              "from": "app",
+              "to": "obs"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "When would micro frontends be justified here?",
+        "How would localization and regional content work?",
+        "How would you handle partial failures in a page assembled from many services?",
+        "What would you put in the first phase versus later?"
+      ],
+      "related": [
+        "react-architecture-scalability",
+        "react-architecture-global-website-performance",
+        "react-architecture-multi-team-governance",
+        "ssr-choose-rendering-strategy-per-route"
+      ]
+    },
+    {
+      "slug": "react-architecture-scalability",
+      "title": "How would you make a React web architecture scalable?",
+      "topic": "Architecture",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "react",
+        "architecture",
+        "scalability",
+        "caching",
+        "cdn"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-react-js",
+          "pages": [
+            20
+          ]
+        }
+      ],
+      "quick": "I treat scaling as separate concerns. Static and cacheable content is pushed to the CDN so most traffic never reaches origin. Rendering servers and APIs are stateless so they scale horizontally. Databases are scaled and tuned independently with caching, read replicas or partitioning as needed. Non-blocking work moves to queues and asynchronous processing. In the browser, code splitting and lazy loading limit client workload. I validate with load tests and monitor capacity, latency and error budgets.",
+      "revision": "Scale each layer separately: CDN for cacheable content, stateless horizontally scaled servers and APIs, independently tuned data stores, async queues, and code splitting in the client.",
+      "detailed": "**Short answer:** scalability is about removing work from the hot path and letting each layer grow independently. Cache first, keep servers stateless, isolate data scaling, and make slow work asynchronous.\n\n## By layer\n\n| Layer | Scaling techniques |\n|---|---|\n| Browser | Code splitting, lazy loading, virtualization, image optimization; less JS means less per-user client cost |\n| CDN / edge | Cache static assets and cacheable HTML (SSG, ISR, `s-maxage` with stale-while-revalidate); most requests never reach origin |\n| Rendering tier (SSR) | Stateless instances behind a load balancer, autoscaling, render caching, timeouts and circuit breakers |\n| API tier | Stateless services, horizontal scaling, rate limiting, response caching, pagination |\n| Data tier | Indexing and query tuning, read replicas, caching layers, partitioning when needed; scale independently of the web tier |\n| Async workloads | Queues and workers for emails, exports, image processing and integrations |\n| Content | Headless CMS publishing triggers targeted revalidation rather than full rebuilds |\n\n## Principles\n\n- **Reduce origin load before adding capacity.** The cheapest request is a cache hit at the edge.\n- **Statelessness:** keep session state in a shared store or signed cookies so any instance can serve any request.\n- **Backpressure and isolation:** timeouts, retries with jitter, circuit breakers and bulkheads stop one failing dependency from taking down the page.\n- **Graceful degradation:** non-critical sections fail independently.\n- **Organizational scale:** clear ownership, contracts and CI quality gates let more teams contribute without coordination bottlenecks.\n\n## Validation\n\nLoad-test realistic journeys, watch p95 and p99 latency, error rates, cache hit ratio and saturation metrics, and plan capacity for known peaks such as campaign launches.\n\n## Common mistakes\n\nScaling the web tier while the database is the bottleneck, caching personalized responses publicly, and relying on cold-start-prone infrastructure for latency-critical routes without testing.",
+      "followUps": [
+        "How do you cache SSR output without leaking personalized data?",
+        "What would you load test and how?",
+        "How do you avoid a cache stampede when content expires?"
+      ],
+      "related": [
+        "react-architecture-global-website",
+        "react-architecture-global-website-performance"
+      ]
+    },
+    {
+      "slug": "react-architecture-global-website-performance",
+      "title": "How would you ensure global performance for a React website?",
+      "topic": "Architecture",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "react",
+        "performance",
+        "cdn",
+        "core-web-vitals",
+        "edge",
+        "architecture"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-react-js",
+          "pages": [
+            20
+          ]
+        }
+      ],
+      "quick": "I combine delivery, rendering and measurement. Serve through a CDN with edge caching near users, compress assets, use hashed immutable filenames, optimize images, and choose rendering per route so public pages ship HTML quickly. Minimize and split JavaScript, handle third-party scripts carefully, and use regional infrastructure for APIs where latency or data rules require it. Then I track real-user Core Web Vitals by region and device, with performance budgets and alerts, so regressions are caught.",
+      "revision": "CDN and edge caching, compression and image optimization, per-route rendering, minimal JavaScript, regional backends when needed, and real-user Core Web Vitals monitoring with budgets.",
+      "detailed": "**Short answer:** make the first byte close to the user, send less to the browser, make the first render come from HTML where it matters, and measure real users by region instead of trusting lab scores.\n\n## Layers of the answer\n\n| Area | Practices |\n|---|---|\n| Network and delivery | CDN with global points of presence, HTTP/2 or 3, Brotli, TLS optimizations, preconnect to critical origins |\n| Caching | Immutable hashed assets, `Cache-Control` strategy, stale-while-revalidate for HTML, cache purge or revalidation on content publish |\n| Rendering | SSG/ISR for public content, edge or regional SSR where personalization is needed, streaming to show content earlier |\n| Assets | Modern image formats, responsive sizes, lazy loading below the fold, sized media to avoid layout shift, font subsetting and sensible loading strategy |\n| JavaScript | Route-level splitting, tree shaking, minimal hydration, server components where adopted, deferred third parties |\n| Backend proximity | Regional API deployments or replicas for latency-sensitive data; consider data residency rules |\n| Third parties | Consent-aware loading, performance review for tags, async loading |\n| Localization | Separate locale bundles loaded on demand; locale-aware caching keys |\n| Monitoring | Real-user monitoring segmented by country, device and connection; Core Web Vitals (LCP, INP, CLS) with budgets and alerts; synthetic checks from multiple regions |\n\n## Why measurement is the core\n\nA fast site in one region can be slow in another because of origin distance, a cache miss, or a regional third-party endpoint. Field data shows the experience of users on mid-range phones and variable networks. Lab tests are useful for diagnosing and for CI gates, but they are not the same as field results.\n\n## Governance\n\nDefine budgets (for example on bundle size and LCP per page type), fail builds that exceed them, and review regressions in release checks.\n\n## Common mistakes\n\nOptimizing only for the home page, ignoring p75 and worse users, using one global origin with no edge caching, and letting marketing tags grow unchecked.",
+      "followUps": [
+        "What is INP and how would you improve it?",
+        "How do you cache HTML safely at the edge when there is a cookie?",
+        "How do you handle data residency requirements with a global CDN?"
+      ],
+      "related": [
+        "react-architecture-global-website",
+        "react-architecture-scalability",
+        "react-scenario-fast-locally-slow-production"
+      ]
+    },
+    {
+      "slug": "react-architecture-multi-team-governance",
+      "title": "How would you handle multiple teams working on a React platform?",
+      "topic": "Architecture",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "react",
+        "architecture",
+        "governance",
+        "monorepo",
+        "design-system",
+        "teams"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-react-js",
+          "pages": [
+            21
+          ]
+        }
+      ],
+      "quick": "I set guardrails instead of centralizing every decision. That means clear domain ownership, a shared design system, coding and dependency standards, API contracts, security and accessibility requirements, performance budgets, and architecture decision records. These are enforced in CI/CD with linting, type checks, tests, bundle-size and accessibility gates, not only documents. Teams stay free to choose within the boundaries, and a small platform group maintains shared tooling and handles cross-team changes through an open RFC process.",
+      "revision": "Provide guardrails, not control: ownership, design system, standards, contracts, budgets and ADRs, enforced by CI gates, with a platform team and RFC process for shared change.",
+      "detailed": "**Short answer:** scale through paved roads and automated checks rather than approval meetings. Teams get autonomy inside well-defined boundaries, and the boundaries are enforced by tooling.\n\n## Building blocks\n\n| Mechanism | Purpose |\n|---|---|\n| Domain ownership (CODEOWNERS, ownership map) | Every area has an accountable team |\n| Shared design system | Consistent, accessible UI built once; versioned and documented |\n| Standards | Coding conventions, TypeScript config, folder structure, naming |\n| Dependency policy | Approved libraries, version alignment, who may add a heavy dependency |\n| API contracts | OpenAPI or schema-first contracts, contract tests, versioning and deprecation rules |\n| Non-functional requirements | Security, accessibility, performance budgets, and observability as shared definitions of done |\n| ADRs and RFCs | Record decisions and make cross-team changes discussable and discoverable |\n| CI/CD gates | Lint, type check, unit and integration tests, accessibility checks, bundle-size limits, visual regression, dependency scanning |\n| Platform team | Maintains tooling, templates, upgrade paths; works like an internal product team |\n\n## Repository and delivery models\n\n- **Monorepo** (with tools such as Nx or Turborepo) simplifies shared code, atomic changes and consistent tooling; use path-based ownership and affected-only CI to keep it fast.\n- **Multiple repos or micro frontends** increase autonomy but raise versioning, duplicated dependencies and consistency costs; choose them for real organizational independence needs.\n- Independent deployment with feature flags and progressive rollout reduces coordination.\n\n## Keeping it healthy\n\n- Measure platform adoption and developer experience (build time, time to first deploy).\n- Treat the design system as a product with a roadmap and contribution model.\n- Schedule dependency and framework upgrades centrally to avoid version drift.\n- Review architecture periodically, and retire rules that no longer help.\n\n## Common mistakes\n\nA central architecture board that becomes a bottleneck, standards that exist only in documents, a design system without contribution paths, and mandatory micro frontends before organizational need is proven.",
+      "followUps": [
+        "How do you handle a team that needs to deviate from the standard?",
+        "How do you version and roll out design system changes?",
+        "Monorepo or polyrepo, and why?"
+      ],
+      "related": [
+        "react-architecture-global-website",
+        "react-architecture-scalability"
+      ]
+    }
+  ]
+}

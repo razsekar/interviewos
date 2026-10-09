@@ -1,0 +1,366 @@
+{
+  "category": "technical-seo",
+  "questions": [
+    {
+      "slug": "core-web-vitals-and-seo",
+      "title": "How do Core Web Vitals relate to SEO?",
+      "topic": "Performance and SEO",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "core-web-vitals",
+        "lcp",
+        "inp",
+        "cls",
+        "performance"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-seo",
+          "pages": [
+            7,
+            8
+          ]
+        }
+      ],
+      "quick": "Core Web Vitals measure loading (LCP), responsiveness (INP) and visual stability (CLS). Good targets are LCP at or under 2.5 seconds, INP at or under 200 milliseconds and CLS at or under 0.1, assessed on real-user data at the 75th percentile. They are part of page experience signals, but content relevance still dominates, so they are goals, not ranking guarantees. I combine lab tests with field data and fix images, JavaScript and layout shifts first.",
+      "revision": "LCP 2.5s, INP 200ms, CLS 0.1 at the 75th percentile of field data. They are modest page-experience signals, not ranking guarantees; user experience is the real payoff.",
+      "detailed": "**Core Web Vitals are Google's field-measured metrics for loading, interactivity and visual stability. They feed into page experience, a ranking signal among many, but great relevance still beats fast but irrelevant pages.** Treat them as user-experience and conversion goals that also carry a modest search benefit.\n\n| Metric | Measures | \"Good\" threshold |\n|---|---|---|\n| LCP, Largest Contentful Paint | How quickly the main content renders | 2.5 s or less |\n| INP, Interaction to Next Paint | Responsiveness to user input across the visit (replaced FID in March 2024) | 200 ms or less |\n| CLS, Cumulative Layout Shift | Unexpected layout movement | 0.1 or less |\n\nA page is generally assessed as passing when the 75th percentile of real-user visits meets each threshold.\n\n## Field vs lab data\n\n- **Field data** (Chrome UX Report, Search Console's Core Web Vitals report, your own real-user monitoring) shows what actual users on actual devices and networks experience, by geography.\n- **Lab data** (Lighthouse, local traces) is reproducible and good for debugging and CI budgets, but does not replicate real conditions, and INP needs real interactions.\n\n## Typical fixes on image-heavy pages\n\n- **LCP**: optimize and correctly size the hero image, modern formats (AVIF, WebP), responsive `srcset`, `fetchpriority=\"high\"` on the LCP image (not lazy-loaded), preload critical assets, CDN edge delivery, fast server response (caching, ISR/SSG), avoiding client-render-before-content.\n- **INP**: reduce JavaScript, split bundles, defer third-party scripts, break up long tasks, reduce hydration cost.\n- **CLS**: set width and height or aspect-ratio for media and embeds, reserve space for ads and banners, use font-display and size-adjusted fallback fonts.\n\n## Connection to rendering choices\n\nServer-delivered HTML typically improves LCP; heavy client frameworks hurt INP. So rendering strategy, SEO and performance decisions are linked.\n\n## Common mistakes\n\n- Optimizing only the lab Lighthouse score.\n- Lazy-loading the hero image.\n- Expecting a ranking jump from passing the thresholds.\n- Ignoring the long tail of slow devices and regions.",
+      "followUps": [
+        "Why was FID replaced by INP?",
+        "Lab data and field data disagree; which do you trust?",
+        "How would you add performance budgets to CI?"
+      ],
+      "related": [
+        "csr-vs-ssr-vs-ssg-vs-isr",
+        "seo-governance-in-ci-cd"
+      ]
+    },
+    {
+      "slug": "headless-cms-and-technical-seo",
+      "title": "How does a headless CMS (such as AEM with React/Next.js) affect technical SEO?",
+      "topic": "CMS and Platform Architecture",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "headless-cms",
+        "aem",
+        "nextjs",
+        "content-model",
+        "sitemap",
+        "revalidation"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-seo",
+          "pages": [
+            8
+          ]
+        }
+      ],
+      "quick": "Decoupling content from presentation does not remove SEO duties; the frontend must implement them. I model SEO fields in governed content types, expose them via API, and map them to title, description, canonical, robots and structured data. Public content is rendered into crawlable HTML, sitemaps are generated from published pages, redirects and indexation rules are updated when content moves, and caches are revalidated on publish. I also test preview and production separately.",
+      "revision": "Headless separates content from presentation, but SEO fields, routing, sitemaps, redirects and cache invalidation must be explicitly modeled and wired in the frontend.",
+      "detailed": "**A headless CMS stores and serves content through APIs while a separate frontend renders it. In a traditional CMS, templates handle many SEO details implicitly; in a headless setup, every SEO behavior must be modeled in content and implemented in the frontend.**\n\n{{diagram:publish}}\n\n## Responsibilities to design explicitly\n\n1. **Content model**: fields for SEO title, description, canonical override, robots/index flag, social image, locale relationships, and structured-data inputs, with validation (length, uniqueness) and defaults.\n2. **API contract**: deliver those fields along with slugs, locale, publish state and last-modified dates.\n3. **Frontend mapping**: generate title, meta, canonical, hreflang, robots and JSON-LD from the fields on the server.\n4. **Rendering**: put public content in crawlable HTML (SSG, ISR or SSR) rather than client-side fetches.\n5. **Routing ownership**: a single rule maps content path to URL; slugs changes create redirects automatically.\n6. **Sitemaps**: generate from published, indexable, canonical pages.\n7. **Redirects and removal**: unpublish returns 404/410 or redirects; renames create 301s.\n8. **Cache invalidation**: publish and unpublish events trigger revalidation of pages, listing pages, navigation and sitemaps, and a CDN purge.\n9. **Preview vs production**: preview environments need authentication or noindex; test both paths, since preview often renders client-side draft data while production is static.\n\n## Typical failure modes\n\n- Page published but missing from the sitemap, or still listed after unpublish.\n- Editors change a slug, no redirect is created.\n- Staging or preview content indexed.\n- SEO fields empty and the template falls back to duplicate titles.\n- Translation relationships not exposed, so hreflang cannot be generated.\n- Stale cached page after a content change.\n\n## Governance angle\n\nMake SEO fields mandatory where it matters, give editors guidance and previews of snippets, and enforce publish-time validations (workflow rules) so content defects are caught before release.",
+      "diagrams": [
+        {
+          "id": "publish",
+          "title": "Headless CMS publish flow for SEO",
+          "direction": "LR",
+          "alt": "An editor publishes in the CMS, which exposes content with SEO fields through an API. A publish event triggers revalidation of the frontend pages and sitemap, and the CDN serves the updated crawlable HTML to search engines.",
+          "nodes": [
+            {
+              "id": "e",
+              "label": "Editor publishes"
+            },
+            {
+              "id": "c",
+              "label": "Headless CMS (SEO fields)"
+            },
+            {
+              "id": "a",
+              "label": "Content API"
+            },
+            {
+              "id": "w",
+              "label": "Publish webhook"
+            },
+            {
+              "id": "f",
+              "label": "Next.js frontend (revalidate)"
+            },
+            {
+              "id": "sm",
+              "label": "Sitemap and redirects"
+            },
+            {
+              "id": "cdn",
+              "label": "CDN"
+            },
+            {
+              "id": "b",
+              "label": "Search engine crawler"
+            }
+          ],
+          "edges": [
+            {
+              "from": "e",
+              "to": "c"
+            },
+            {
+              "from": "c",
+              "to": "a"
+            },
+            {
+              "from": "c",
+              "to": "w"
+            },
+            {
+              "from": "w",
+              "to": "f"
+            },
+            {
+              "from": "a",
+              "to": "f"
+            },
+            {
+              "from": "f",
+              "to": "sm"
+            },
+            {
+              "from": "f",
+              "to": "cdn"
+            },
+            {
+              "from": "cdn",
+              "to": "b"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you trigger on-demand revalidation after a publish?",
+        "How do you stop editors from breaking SEO with a slug change?",
+        "How do you secure preview environments?"
+      ],
+      "related": [
+        "xml-sitemaps",
+        "choosing-rendering-by-page-type",
+        "micro-frontends-and-seo-ownership"
+      ]
+    },
+    {
+      "slug": "micro-frontends-and-seo-ownership",
+      "title": "How do you enforce SEO standards across micro frontends and multiple teams?",
+      "topic": "Governance",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "micro-frontends",
+        "governance",
+        "metadata",
+        "ownership",
+        "platform"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-seo",
+          "pages": [
+            9
+          ]
+        }
+      ],
+      "quick": "I give the platform shell explicit ownership of document-level concerns: title, meta description, canonical, robots directives, hreflang, structured-data policy, sitemap inclusion and shared navigation. Feature modules contribute data through a defined contract rather than writing to the head directly. Everything is composed on the server so crawlers get final HTML, and shared tests plus crawls catch conflicts such as duplicate titles or an accidental noindex.",
+      "revision": "Centralize head, canonical, robots, sitemap and navigation ownership in the shell; modules supply data via a contract, composed server-side and verified by shared tests.",
+      "detailed": "**In a micro-frontend architecture, several teams can modify the same document. Without clear ownership you get duplicate or conflicting titles, canonicals and robots tags, and the crawler sees whichever won last.** The answer is to centralize document-level decisions in the platform layer.\n\n## Ownership model\n\n| Concern | Owner | Module role |\n|---|---|---|\n| Document title, meta description | Shell or route-level composition | Provide data fields |\n| Canonical URL, robots, hreflang | Platform routing layer | None (read-only) |\n| Sitemap inclusion | Platform, from routing and CMS data | Declare route metadata |\n| Global navigation and footer links | Shell | Supply entries |\n| Structured data for page body | Owning module, validated by shared schema | Emit via shared helper |\n| Status codes | Platform / edge | Signal not-found via contract |\n\n## Design techniques\n\n- **Metadata contract**: each route declares its SEO data in a typed manifest or function; the shell renders the head from it.\n- **Server-side composition**: assemble fragments on the server or at the edge so the initial HTML is complete. Client-side composition leaves crawlers with an empty shell and delays content.\n- **Single head writer**: forbid modules from calling `document.title` or injecting canonical or robots tags; lint or test for it.\n- **Shared libraries**: common link component, JSON-LD helper, image component and error handling.\n- **Contract tests in CI**: crawl composed pages to assert exactly one title, one canonical, correct robots, valid hreflang, valid JSON-LD.\n- **Independent deploys need guardrails**: a module release can change SEO output, so run the checks per module deploy and in the integrated environment.\n- **Documentation and an SEO owner or guild** to review new route types.\n\n## Common mistakes\n\n- Two modules each setting a canonical.\n- A module shipping a noindex meant for a staging flow.\n- Client-only composition of main content.\n- Navigation spread across modules with inconsistent URLs.",
+      "followUps": [
+        "How would you detect two modules writing conflicting metadata?",
+        "Where do you compose fragments: server, edge or client?",
+        "How do independent releases affect SEO risk?"
+      ],
+      "related": [
+        "seo-governance-in-ci-cd",
+        "headless-cms-and-technical-seo"
+      ]
+    },
+    {
+      "slug": "seo-governance-in-ci-cd",
+      "title": "How would you build SEO governance into an enterprise delivery pipeline?",
+      "topic": "Governance",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "governance",
+        "ci-cd",
+        "testing",
+        "monitoring",
+        "search-console"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-seo",
+          "pages": [
+            8,
+            9
+          ]
+        }
+      ],
+      "quick": "I replace manual reviews with measurable controls at each phase. At design time I define URL conventions, rendering strategies, canonical and localization rules. In development I add metadata, sitemap, redirect, structured-data and noindex checks. Before release I crawl representative routes, verify status codes and rendered HTML, and review Core Web Vitals. After release I monitor Search Console, logs, redirects and organic landing pages, with alerts for sudden changes.",
+      "revision": "Governance by phase: design rules, automated tests in CI, pre-release crawl, post-release monitoring with alerts. Block releases that add noindex, break canonicals or status codes.",
+      "detailed": "**Enterprise SEO governance means turning SEO requirements into automated, owned and monitored controls across the delivery lifecycle, so releases cannot silently break indexing.**\n\n## By phase\n\n| Phase | Controls |\n|---|---|\n| Design | URL and slug conventions, content model with SEO fields, rendering strategy per page type, canonical and hreflang rules, redirect policy, locale standards |\n| Development | Unit tests for metadata builders; sitemap validation (only canonical 200 indexable URLs); structured-data schema validation; lint for non-anchor navigation; tests that fail on unexpected noindex |\n| Pre-release | Crawl staging with a representative URL set; assert status codes, titles, canonicals, robots, hreflang reciprocity; compare rendered vs raw HTML; Lighthouse or lab performance budgets; mobile checks; redirect map tests |\n| Release | Guard staging config (noindex and robots rules must not reach production, and production rules must not be disallow-all); canary or phased rollout |\n| Post-release | Search Console indexing, sitemap and Core Web Vitals reports; server and CDN log analysis for bot errors; real-user performance; organic landing-page and rankings dashboards; alerts on spikes in 4xx/5xx, noindex counts or sitemap drops |\n\n## A small CI assertion example\n\n```ts\n// Pseudo-test: every key template must be indexable and self-canonical\nfor (const url of SAMPLE_URLS) {\n  const res = await fetch(url, { redirect: 'manual' });\n  expect(res.status).toBe(200);\n  const html = await res.text();\n  expect(html).not.toMatch(/<meta[^>]+name=\"robots\"[^>]+noindex/i);\n  expect(html).toContain('<link rel=\"canonical\" href=\"' + url + '\"');\n}\n```\n\n## Organizational pieces\n\n- A named **owner** for SEO standards and a lightweight review for new page types.\n- **Release checklists and rollback criteria** tied to SEO metrics.\n- **Dashboards shared** between engineering, content and marketing.\n- **Ownership of robots.txt and sitemap config** as code, with peer review.\n\n## Common mistakes\n\n- Relying on a manual audit once a quarter.\n- Production robots.txt overwritten by a staging file.\n- Testing only the home page.\n- No baseline, so a traffic drop cannot be attributed.",
+      "followUps": [
+        "Which three SEO checks would you make blocking in CI?",
+        "How do you prevent a staging noindex reaching production?",
+        "Which alerts would you create after release?"
+      ],
+      "related": [
+        "micro-frontends-and-seo-ownership",
+        "scenario-traffic-drop-after-deployment"
+      ]
+    },
+    {
+      "slug": "scenario-new-page-not-indexed",
+      "title": "A new React page works in the browser but is not indexed. What do you check?",
+      "topic": "SEO Scenarios",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "troubleshooting",
+        "indexing",
+        "url-inspection",
+        "react"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-technical-seo",
+          "pages": [
+            9
+          ]
+        }
+      ],
+      "quick": "I start with a URL inspection tool to see how the engine crawled and rendered the page. Then I verify the HTTP status, robots.txt and meta or header directives, canonical tag, rendered HTML content, internal links to the page and sitemap inclusion. I check whether content depends on failed JavaScript or blocked resources, and whether the page is thin or duplicate. After fixing the root cause I request recrawl, remembering indexing is never guaranteed.",
+      "revision": "Inspect URL, then check status, robots.txt, noindex, canonical, rendered content, internal links, sitemap, blocked resources, and duplication or quality. Fix root cause, then request recrawl.",
+      "detailed": "**Work from the engine's view of the URL, not the browser's. A page that looks fine to you can be blocked, canonicalized elsewhere, or empty when rendered by a crawler.**\n\n## Step-by-step triage\n\n1. **Is it really not indexed?** Use a URL inspection tool and a `site:` style check; distinguish \"unknown to the engine\", \"crawled, currently not indexed\" and \"discovered, currently not indexed\", which have different causes.\n2. **HTTP status and redirects**: must be 200, no redirect chain, no soft 404. Check with curl, including as a bot user agent, to catch WAF or geo blocking.\n3. **robots.txt**: not disallowed (live test in the tool).\n4. **Directives**: no `noindex` in meta or `X-Robots-Tag` (staging leftovers are common).\n5. **Canonical**: self-referencing or pointing at the intended URL, not at another page.\n6. **Rendered HTML**: compare raw and rendered output. Is the main content present? Did JS or API calls fail, time out, or get blocked by robots.txt or auth?\n7. **Discovery**: are there internal anchor links to it? Is it in the sitemap, and is the sitemap itself accepted?\n8. **Duplication and quality**: is it near-identical to another page, thin, or auto-generated at scale? \"Crawled, not indexed\" is often a quality or duplication judgement.\n9. **Site-level factors**: server errors or slow responses, crawl capacity on very large sites, a new site with little authority.\n\n## Then\n\n- Fix the root cause: not the symptom.\n- Use the \"request indexing\" feature for priority URLs (it is a nudge with limited quota, not a guarantee), and improve internal linking from already-crawled pages.\n- Monitor indexing status over days.\n\n## Common mistakes\n\n- Resubmitting repeatedly without finding the cause.\n- Testing only in a normal browser.\n- Assuming a sitemap submission means indexing.\n- Overlooking a CDN or WAF that blocks crawler IPs.",
+      "followUps": [
+        "What does \"Discovered, currently not indexed\" usually imply?",
+        "How would you test as Googlebot without being Googlebot?",
+        "When is a page legitimately left out of the index?"
+      ],
+      "related": [
+        "crawl-render-index-pipeline",
+        "noindex-blocked-by-robots-txt",
+        "soft-404-in-react-apps"
+      ]
+    },
+    {
+      "slug": "scenario-traffic-drop-after-deployment",
+      "title": "Organic traffic drops sharply after a deployment. How do you investigate?",
+      "topic": "SEO Scenarios",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "troubleshooting",
+        "traffic-drop",
+        "release",
+        "logs",
+        "monitoring"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-technical-seo",
+          "pages": [
+            9
+          ]
+        }
+      ],
+      "quick": "I first align the timing of the drop with the release and rule out seasonality, tracking issues and search algorithm updates. Then I inspect what changed: robots.txt, noindex directives, canonicals, redirects, status codes, sitemaps, rendering, internal links and templates. I use Search Console, server logs and a crawl to find affected page groups, prioritize templates with the most valuable landing pages, roll back or hotfix, and confirm recovery.",
+      "revision": "Correlate the drop with the release, rule out tracking and seasonality, diff robots, noindex, canonicals, redirects, status, rendering and links, fix the biggest template first.",
+      "detailed": "**Treat it as a production incident: establish scope and timing, find the changed signal, fix or roll back, then verify recovery.**\n\n## 1. Confirm it is real and attributable\n\n- Check analytics tagging was not broken by the deploy (a lost tracking script looks exactly like a traffic drop).\n- Compare with the same period last year and with other channels.\n- Segment by country, device, page type, and branded vs non-branded queries to see whether the drop is sitewide or local.\n- Note any algorithm update dates, but do not use them as the first explanation when a release lines up.\n\n## 2. Diff what changed in the release\n\n| Area | What to look for |\n|---|---|\n| robots.txt | Staging \"Disallow: /\" shipped to production |\n| Directives | New noindex meta or X-Robots-Tag, sometimes from a CDN rule |\n| Canonicals | Pointing to wrong or one common URL; relative or staging hosts |\n| Status codes and redirects | New 404s, 5xx, chains, 302 instead of 301, slug changes without redirects |\n| Rendering | Content now client-side only, API failures, blocked JS |\n| Metadata | Titles or descriptions emptied or duplicated |\n| Internal links | Navigation changed to non-anchors, breadcrumbs removed, links lost |\n| Sitemaps and hreflang | Empty, stale, wrong host, broken reciprocity |\n| Performance | Large regression in LCP, INP, CLS or server response times |\n\n## 3. Gather evidence\n\n- Search Console: coverage/indexing changes, crawl stats (response codes, response time), sitemaps, manual actions or security issues.\n- Server and CDN logs: bot request volume, status code distribution, URLs failing.\n- A crawl of representative templates, compared with a pre-release baseline.\n- URL inspection of top landing pages.\n\n## 4. Act\n\nPrioritize by the number and value of landing pages affected. Roll back or hotfix the cause, request reprocessing for key URLs, and monitor recovery, which can take days to weeks. Afterwards add a regression test and an alert so the same failure is caught in CI.\n\n## Common mistakes\n\nChasing algorithm theories before diffing the release, and fixing individual URLs instead of the template.",
+      "followUps": [
+        "How would logs help you separate crawl problems from ranking problems?",
+        "The drop is only in one country. Where would you look?",
+        "What would you add to prevent this class of incident?"
+      ],
+      "related": [
+        "seo-governance-in-ci-cd",
+        "scenario-new-page-not-indexed"
+      ]
+    },
+    {
+      "slug": "scenario-one-page-five-urls",
+      "title": "A vehicle page is reachable at five different URLs. How do you resolve the duplication?",
+      "topic": "SEO Scenarios",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "duplicate-content",
+        "canonical",
+        "redirects",
+        "url-parameters"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-technical-seo",
+          "pages": [
+            9
+          ]
+        }
+      ],
+      "quick": "First I classify the five URLs: which are true duplicates (tracking parameters, trailing slash, http versus https, case, alternate paths) and which are legitimately different, such as regional or language versions. For duplicates I choose one preferred URL, redirect the ones that need not exist, canonicalize the ones that must remain accessible, align internal links and sitemap with the preferred URL, and preserve valid hreflang alternates.",
+      "revision": "Classify duplicates vs legitimate variants, pick one preferred URL, 301 what need not exist, canonicalize what must, align links and sitemap, keep hreflang alternates.",
+      "detailed": "**Not every extra URL is a problem, and not every fix is the same. Classify first, then pick the cheapest signal that resolves each duplicate.** Consider these illustrative URLs for one model page:\n\n```text\nhttps://www.example.com/vehicles/explorer\nhttp://www.example.com/vehicles/explorer\nhttps://example.com/vehicles/explorer/\nhttps://www.example.com/Vehicles/Explorer\nhttps://www.example.com/vehicles/explorer?utm_campaign=spring\n```\n\n## Step 1: classify\n\n| URL type | Example | Treatment |\n|---|---|---|\n| Protocol or host variants | http, non-www | 301 to the canonical host and scheme (plus HSTS) |\n| Trailing slash or case | `/explorer/`, `/Explorer` | One normalized form; 301 the rest |\n| Tracking parameters | `?utm_*` | Must stay functional; self-referencing canonical to the clean URL; internal links never carry them |\n| Same content on alternative paths | `/models/explorer` | 301 if the path is obsolete |\n| Genuine regional or language variants | `/en-gb/...` | Keep; each is self-canonical and linked with hreflang |\n\n## Step 2: choose and propagate the preferred URL\n\n- Implement redirects at the edge for deterministic cases.\n- Add a canonical tag on every variant that must remain accessible.\n- Update **internal links, sitemap entries and hreflang** to the preferred URL; mixed signals weaken the result.\n- Generate URLs from one routing function so variants cannot proliferate in templates.\n- Avoid using robots.txt to hide duplicates, because the canonical hint then cannot be read.\n\n## Step 3: verify\n\nCrawl the site, check that duplicates resolve in one hop, check the chosen canonical in Search Console's inspection of both URLs, and monitor the duplicate-canonical indexing statuses.\n\n## Common mistakes\n\nCanonicalizing different regional pages to one, relying on canonicals when a redirect is cleaner, leaving parameter variants in the sitemap, and chaining multiple redirects.",
+      "followUps": [
+        "When is a canonical better than a redirect?",
+        "How do you handle faceted filter URLs?",
+        "How do you handle pages that differ only by currency?"
+      ],
+      "related": [
+        "canonical-urls",
+        "redirects-301-vs-302",
+        "hreflang-and-regional-alternates"
+      ]
+    },
+    {
+      "slug": "scenario-website-migration",
+      "title": "How do you protect SEO during a website migration or replatforming?",
+      "topic": "SEO Scenarios",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "migration",
+        "redirects",
+        "replatforming",
+        "monitoring",
+        "url-mapping"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-seo",
+          "pages": [
+            9
+          ]
+        }
+      ],
+      "quick": "I inventory existing URLs and their traffic, links and rankings, then map each old URL to its closest equivalent. I implement one-hop 301 redirects, keep important content, metadata and structured data, update internal links, canonicals, hreflang and sitemaps, and validate everything on staging with a crawl. After launch I monitor crawl errors, indexing, redirects and organic traffic against a baseline, and avoid sending every removed page to the homepage.",
+      "revision": "Inventory URLs, map old to closest new, one-hop 301s, preserve content and metadata, update links and sitemaps, test on staging, monitor against a baseline after launch.",
+      "detailed": "**A migration is a controlled change of URLs, templates or infrastructure. Risk comes from lost URLs, lost content, broken signals and blocked crawling; the plan is to preserve or faithfully redirect each of them and to measure.**\n\n## Before\n\n1. **Inventory**: crawl the old site and merge with analytics, Search Console, backlinks and sitemap data to list every URL that has traffic, links or rankings.\n2. **Baseline**: record organic traffic, indexed counts, rankings, Core Web Vitals and crawl stats.\n3. **URL mapping**: map each old URL to the closest equivalent new URL. Where no equivalent exists, return 404 or 410 deliberately; do not mass-redirect to the homepage.\n4. **Keep what matters**: titles, descriptions, headings, body content, structured data, hreflang and internal link structure, unless a change is intended and tested.\n5. **Build redirect rules** as data with automated tests (status, destination, one hop, no loops).\n\n## Before launch (staging)\n\n- Block staging from indexing with authentication, not only noindex.\n- Crawl staging: status codes, canonicals, robots directives, metadata, rendered HTML, links, structured data and hreflang.\n- Test redirects against the full mapped list.\n- Prepare new sitemaps and confirm robots.txt is production-correct (not the staging version).\n\n## Launch\n\n- Ship redirects, new sitemaps and updated internal links together.\n- Submit sitemaps; keep the old sitemap temporarily to help discovery of redirects.\n- For a domain change, use the engine's site-move tooling where available and keep the old domain redirecting for a long period (at least a year is a common guideline).\n\n## After\n\n- Daily monitoring at first: crawl errors, 404 and 5xx, indexing, sitemap coverage, logs, redirects hit, organic landing pages versus baseline.\n- Fix gaps found; check backlinks to old URLs now resolve.\n- Expect some temporary fluctuation; investigate big or persistent drops quickly.\n\n## Common mistakes\n\nChanging URLs, design and content all at once, forgetting to remove staging disallow rules, losing parameters or locale redirects, and no baseline for comparison.",
+      "followUps": [
+        "How would you phase a migration to reduce risk?",
+        "What do you do with old URLs that have no equivalent?",
+        "How do you migrate a multi-region site?"
+      ],
+      "related": [
+        "redirects-301-vs-302",
+        "http-status-codes-and-seo",
+        "seo-governance-in-ci-cd"
+      ]
+    }
+  ]
+}
