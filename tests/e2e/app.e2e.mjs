@@ -38,14 +38,15 @@ async function newPage({ width = 1280, height = 900, scheme = 'light' } = {}) {
   await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: scheme }]);
   page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
   page.on('console', (m) => m.type() === 'error' && !/Failed to load resource/.test(m.text()) && errors.push(`console: ${m.text()}`));
+  // Deterministic fake speech engine: CI browsers have no voices, and the tests only need to observe calls.
   await page.evaluateOnNewDocument(() => {
     window.__speech = { speak: [], pause: 0, cancel: 0 };
-    const p = window.SpeechSynthesis?.prototype;
-    if (p) {
-      const s = p.speak;
-      p.speak = function (u) { window.__speech.speak.push(u.text); return s.call(this, u); };
-      const pa = p.pause; p.pause = function () { window.__speech.pause++; return pa.call(this); };
-    }
+    class U { constructor(t) { this.text = t; } }
+    window.SpeechSynthesisUtterance = U;
+    const fake = { speaking: false, paused: false, getVoices: () => [], addEventListener() {}, removeEventListener() {},
+      speak(u) { window.__speech.speak.push(u.text); this.speaking = true; }, pause() { window.__speech.pause++; this.paused = true; },
+      resume() { this.paused = false; }, cancel() { window.__speech.cancel++; this.speaking = false; } };
+    Object.defineProperty(window, 'speechSynthesis', { value: fake, configurable: true });
   });
   return page;
 }
