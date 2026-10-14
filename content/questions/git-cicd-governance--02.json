@@ -1,0 +1,564 @@
+{
+  "category": "git-cicd-governance",
+  "questions": [
+    {
+      "slug": "secure-cicd-pipeline",
+      "title": "How do you secure a CI/CD pipeline?",
+      "topic": "Pipelines and security",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "ci-cd",
+        "security",
+        "supply-chain",
+        "devsecops"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I secure it at three points: the code entering, the pipeline itself, and what leaves it. Entering: protected branches, peer review, tests, static analysis, dependency and secret scanning. The pipeline: least-privilege credentials, short-lived identity federation instead of long-lived secrets, and separate deployment permissions. Leaving: container image scanning, immutable traceable artifacts, production approvals and deployment verification. I would add audit trails, a tested rollback and backward-compatible database migrations.",
+      "revision": "Secure the inputs (protected branches, review, scanning), the pipeline (least privilege, short-lived identity) and outputs (immutable signed artifacts, approvals, verification, rollback, audit trail).",
+      "detailed": "A pipeline can push code to production, so it is itself a high-value target. Securing it means controlling what goes in, what the pipeline can do, and what it produces.\n\n{{diagram:pipe}}\n\n## 1. Code entering the pipeline\n- Protected branches, required peer review and status checks.\n- Automated tests, static analysis (SAST), dependency vulnerability scanning and secret scanning.\n- Pinned, reviewed dependencies and lock files.\n\n## 2. The pipeline itself\n- **Least privilege**: build jobs get read access to source; only deployment jobs hold deployment rights.\n- **Short-lived credentials** via OpenID Connect or workload identity federation instead of stored long-lived keys.\n- **Separate permissions** for build, publish and deploy; separate production from non-production.\n- **Hardened runners**: ephemeral where possible, restricted network access, and no untrusted pull-request code with access to secrets.\n- **Pinned third-party actions or plugins** and controlled changes to pipeline definitions (CODEOWNERS on the workflow files).\n\n## 3. What the pipeline produces\n- Container image scanning and, where mature, signing and provenance records.\n- **Immutable, traceable artifacts**: each tagged by version and commit, stored in a registry.\n- **Production approvals** by accountable people, with promotion rules.\n- **Deployment verification** (smoke tests, health checks) and a documented, tested rollback.\n- **Audit trails** for who approved and deployed what and when.\n- **Backward-compatible database migrations**, so rollback does not corrupt data.\n\n## Common mistakes\n- Long-lived cloud keys stored as repository secrets and shared across environments.\n- Letting any contributor edit pipeline files without review.\n- Scanning that only reports and never blocks, or that blocks so often people bypass it.\n- Treating the CI system as trusted infrastructure while leaving it unpatched.\n\n## Example (hypothetical)\nA pull request builds with read-only permissions. After merge, an image is built, scanned and pushed with a commit-tagged version. A separate deployment job uses federated identity restricted to the production environment, requiring a named approver, then runs smoke tests.",
+      "diagrams": [
+        {
+          "id": "pipe",
+          "title": "Controls along the pipeline",
+          "alt": "Code passes review and scans, then is built and tested, packaged as an immutable image that is scanned, approved for production using short-lived credentials, deployed, and verified with a rollback available.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "a",
+              "label": "Protected branch and review"
+            },
+            {
+              "id": "b",
+              "label": "Tests, SAST, dependency and secret scans"
+            },
+            {
+              "id": "c",
+              "label": "Build immutable image"
+            },
+            {
+              "id": "d",
+              "label": "Image scan and publish"
+            },
+            {
+              "id": "e",
+              "label": "Approval and short-lived identity"
+            },
+            {
+              "id": "f",
+              "label": "Deploy"
+            },
+            {
+              "id": "g",
+              "label": "Verify or roll back"
+            }
+          ],
+          "edges": [
+            {
+              "from": "a",
+              "to": "b"
+            },
+            {
+              "from": "b",
+              "to": "c"
+            },
+            {
+              "from": "c",
+              "to": "d"
+            },
+            {
+              "from": "d",
+              "to": "e"
+            },
+            {
+              "from": "e",
+              "to": "f"
+            },
+            {
+              "from": "f",
+              "to": "g"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you stop untrusted pull requests from reaching secrets?",
+        "What is software provenance and why does it matter?",
+        "Which of these controls would you introduce first on a legacy pipeline?"
+      ],
+      "related": [
+        "secure-github-actions",
+        "jenkins-credentials",
+        "artifact-immutability"
+      ]
+    },
+    {
+      "slug": "secure-github-actions",
+      "title": "How do you secure GitHub Actions workflows?",
+      "topic": "Pipelines and security",
+      "difficulty": "advanced",
+      "type": "conceptual",
+      "tags": [
+        "github-actions",
+        "security",
+        "oidc",
+        "ci-cd"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I restrict the default token to read-only and grant extra permissions per job. I pin third-party actions to full commit SHAs or to approved internal copies, protect deployment environments with required reviewers, and use OpenID Connect to get short-lived cloud credentials instead of storing keys. I also avoid running untrusted pull request code with secrets, never interpolate user input into shell commands, and put CODEOWNERS on the workflow files.",
+      "revision": "Read-only token by default, per-job permissions, pinned actions, protected environments with approvers, OIDC short-lived credentials, and no secrets exposed to untrusted pull request code.",
+      "detailed": "GitHub Actions workflows run code with access to your repository, tokens and sometimes cloud credentials, so they need the same care as production code.\n\n## Key controls\n| Control | How |\n|---|---|\n| Minimal token rights | Set `permissions: contents: read` at workflow level; raise per job only when needed |\n| Pinned dependencies | Reference third-party actions by full commit SHA, or mirror approved actions internally; a movable tag can change under you |\n| Short-lived cloud access | Use OIDC federation; the cloud trusts the repository, branch or environment claim, so no stored keys |\n| Protected environments | Required reviewers, branch restrictions and environment-scoped secrets for production |\n| Workflow change control | CODEOWNERS on `.github/workflows/`, so pipeline edits are reviewed |\n| Untrusted input | Do not pass issue titles, branch names or PR text into `run:` scripts directly; pass them through environment variables |\n| Fork pull requests | Avoid `pull_request_target` combined with checking out fork code; keep secrets away from untrusted code |\n| Runners | Prefer ephemeral runners; isolate self-hosted ones from sensitive networks |\n\n## Example snippet\n```yaml\npermissions:\n  contents: read\n\njobs:\n  deploy:\n    runs-on: ubuntu-latest\n    environment: production        # needs approval\n    permissions:\n      contents: read\n      id-token: write              # allows OIDC token request\n    steps:\n      - uses: actions/checkout@<full-commit-sha>\n      - name: Echo safely\n        env:\n          TITLE: ${{ github.event.pull_request.title }}\n        run: echo \"$TITLE\"\n```\n\n## Common mistakes\n- Leaving default token permissions broad.\n- Using `@main` or a floating tag for a third-party action.\n- Storing long-lived cloud keys as repository secrets reused across environments.\n- Script injection through untrusted fields interpolated into shell commands.\n- Letting every contributor modify deployment workflows.\n\n## Hypothetical scenario\nA new action from an unknown maintainer is proposed. The team reviews its source, pins a specific commit, and runs it in a job with read-only permissions and no secrets.",
+      "diagrams": [],
+      "followUps": [
+        "Why is pinning to a commit SHA safer than a version tag?",
+        "What is OIDC federation and what does the cloud provider check?",
+        "What risks come with self-hosted runners?"
+      ],
+      "related": [
+        "secure-cicd-pipeline",
+        "github-actions-nestjs-pipeline",
+        "jenkins-credentials"
+      ]
+    },
+    {
+      "slug": "jenkins-credentials",
+      "title": "How do you manage credentials safely in Jenkins?",
+      "topic": "Pipelines and security",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "jenkins",
+        "credentials",
+        "secrets",
+        "ci-cd"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I keep credentials in Jenkins' credentials store or, better, an external secret manager, and never in job configuration or the repository. Access is scoped tightly by folder or job, credentials are bound only for the steps that need them so output is masked, and sensitive builds run on restricted, ideally ephemeral agents. I prefer short-lived or federated credentials, rotate the rest regularly, and review who can edit pipelines, because that is effectively access to the secrets.",
+      "revision": "Use the credentials store or external vault, scope narrowly, bind only where needed with masking, restrict and isolate agents, rotate regularly, and control who can edit pipelines.",
+      "detailed": "In Jenkins, anyone who can change a pipeline can often use the credentials that pipeline can reach. Credential management is therefore about storage, scope, exposure and who may edit jobs.\n\n## Practices\n- **Central storage**: use the Jenkins credentials store, and where available integrate an external manager such as a cloud secret service or vault so values are fetched on demand.\n- **Scope**: define credentials at folder level rather than globally, so only relevant teams' jobs can use them. Use credential types suited to the secret (secret text, SSH key, username and password).\n- **Controlled binding**: expose a credential only inside the `withCredentials` block that needs it.\n- **Masking**: Jenkins masks bound secret values in console output, but this is not a guarantee; transformed values, such as base64-encoded ones, may leak.\n- **Agents**: run sensitive jobs on dedicated or ephemeral agents, keep the controller from running builds, and avoid reusing workspaces between trust levels.\n- **Rotation and lifetime**: rotate regularly and prefer short-lived tokens or federated identity for cloud access.\n- **Access control**: role-based permissions, review of who can edit Jenkinsfiles, and Jenkinsfile changes subject to code review.\n- **Auditing and patching**: keep Jenkins and plugins updated, and monitor credential usage.\n\n```groovy\npipeline {\n  agent { label 'secure-build' }\n  stages {\n    stage('Publish') {\n      steps {\n        withCredentials([string(credentialsId: 'registry-token', variable: 'TOKEN')]) {\n          sh 'echo \"$TOKEN\" | docker login registry.example.com -u ci --password-stdin'\n        }\n      }\n    }\n  }\n}\n```\n\n## Common mistakes\n- Using single-quoted versus double-quoted Groovy interpolation incorrectly, which can leak secrets into process listings or logs. Single quotes for `sh` leave the shell to expand the variable.\n- Global credentials available to every job.\n- Printing environment variables for debugging.\n- Unreviewed plugins with broad access.\n\n## Example (hypothetical)\nProduction deployment credentials live in a folder only the release team can use, are fetched from an external vault for each run, and are available only to jobs on a locked-down agent.",
+      "diagrams": [],
+      "followUps": [
+        "Why is single-quote versus double-quote interpolation relevant for secrets in a Jenkinsfile?",
+        "How would you migrate from long-lived credentials to short-lived ones?",
+        "What are the risks of a shared Jenkins controller across teams?"
+      ],
+      "related": [
+        "secure-cicd-pipeline",
+        "secure-github-actions",
+        "prevent-secrets-entering-git"
+      ]
+    },
+    {
+      "slug": "github-actions-nestjs-pipeline",
+      "title": "How would you design a GitHub Actions pipeline for a NestJS application?",
+      "topic": "Pipelines and security",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "github-actions",
+        "nestjs",
+        "ci-cd",
+        "docker",
+        "nodejs"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would validate every pull request with a reproducible install, lint, type check, unit and integration tests, and security checks. After an approved merge I would build a container image, scan it and publish an immutable, commit-tagged artifact. Deployment uses restricted workload identity, protected environments and explicit promotion rules, followed by a smoke test and a documented rollback. The starting point is a small CI workflow, which I would then extend with scanning, publishing and gated deployment.",
+      "revision": "PR: reproducible install, lint, type check, tests, security checks. After merge: build, scan, publish an immutable image. Deploy via restricted identity and protected environments, smoke test, rollback documented.",
+      "detailed": "The pipeline has two halves: validation of proposed changes, and delivery of approved ones. Keeping them separate lets pull requests run with minimal privileges.\n\n{{diagram:flow}}\n\n## Stage 1: pull request validation\nA reproducible install (`npm ci`), lint, type check or build, unit tests, integration tests where appropriate (for example against a database service container), and dependency or code scanning.\n\n## Stage 2: after merge to main\nBuild the container image, scan it, and push it to a registry tagged with the commit SHA. Do not rebuild for later environments.\n\n## Stage 3: deployment\nDeploy to staging automatically; promote to production through a protected environment with approvers. Use federated workload identity (OIDC) rather than stored keys. Run a smoke test and keep a documented rollback to the previous image.\n\n## Starting-point CI workflow\n```yaml\nname: NestJS CI\n\non:\n  pull_request:\n  push:\n    branches: [main]\n\npermissions:\n  contents: read\n\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions/setup-node@v4\n        with:\n          node-version: 22\n          cache: npm\n      - run: npm ci\n      - run: npm run lint\n      - run: npm run build\n      - run: npm test -- --runInBand\n```\n\nThis is a CI example, not a full production deployment pipeline. For production use, pin actions to approved immutable references (a full commit SHA rather than `@v4`), and add:\n- integration tests and dependency, code and image scanning;\n- an image build and publish job after merge;\n- a protected deployment job with environment approval and OIDC credentials;\n- a post-deploy smoke test and rollback step.\n\n## Common mistakes\n- Rebuilding artifacts per environment, so what was tested is not what ships.\n- Giving pull-request jobs deployment credentials.\n- Skipping caching and running everything serially, which lengthens feedback.\n- No health check after deploy.\n\n## Hypothetical note\nUsing `--runInBand` runs Jest tests serially, which is more predictable on small runners and with shared databases, at the cost of speed.",
+      "diagrams": [
+        {
+          "id": "flow",
+          "title": "NestJS delivery pipeline",
+          "alt": "A pull request runs install, lint, build and tests. After merge the pipeline builds an image, scans it and publishes it. A protected deployment job deploys to staging then production, runs a smoke test and can roll back.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "pr",
+              "label": "Pull request checks"
+            },
+            {
+              "id": "m",
+              "label": "Merge to main"
+            },
+            {
+              "id": "b",
+              "label": "Build image"
+            },
+            {
+              "id": "s",
+              "label": "Scan and publish"
+            },
+            {
+              "id": "st",
+              "label": "Deploy staging"
+            },
+            {
+              "id": "ap",
+              "label": "Production approval"
+            },
+            {
+              "id": "pd",
+              "label": "Deploy production"
+            },
+            {
+              "id": "sm",
+              "label": "Smoke test or rollback"
+            }
+          ],
+          "edges": [
+            {
+              "from": "pr",
+              "to": "m"
+            },
+            {
+              "from": "m",
+              "to": "b"
+            },
+            {
+              "from": "b",
+              "to": "s"
+            },
+            {
+              "from": "s",
+              "to": "st"
+            },
+            {
+              "from": "st",
+              "to": "ap"
+            },
+            {
+              "from": "ap",
+              "to": "pd"
+            },
+            {
+              "from": "pd",
+              "to": "sm"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you add a database service container for integration tests?",
+        "How do you promote the same image from staging to production?",
+        "How would you speed this workflow up?"
+      ],
+      "related": [
+        "secure-github-actions",
+        "shorten-pipeline-duration",
+        "artifact-immutability"
+      ]
+    },
+    {
+      "slug": "shorten-pipeline-duration",
+      "title": "How do you shorten a slow CI/CD pipeline?",
+      "topic": "Pipelines and security",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "ci-cd",
+        "performance",
+        "caching",
+        "docker"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would first measure which stages dominate, then attack them. Run independent jobs in parallel, cache dependencies, use incremental builds, and run only the tests affected by a change where that is safe, keeping the full suite on merge or nightly. Optimise Docker builds with layer ordering and a build cache, and fail fast with cheap checks like lint first. I would not remove important gates just to be faster, and I would watch for flaky tests.",
+      "revision": "Measure first. Parallelise jobs, cache dependencies, build incrementally, run selective tests where safe, optimise Docker layers, fail fast, and fix flaky tests, without dropping essential gates.",
+      "detailed": "A slow pipeline lengthens feedback, encourages large batches and tempts people to bypass checks. Optimise with data, not guesses.\n\n## Steps\n1. **Measure** per-stage and per-job times, queue time and failure or retry rates.\n2. **Parallelise** independent work: lint, unit tests, type check and security scans can run side by side. Shard large test suites across runners.\n3. **Cache** dependency downloads (for example the npm cache keyed on the lock file) and build outputs.\n4. **Build incrementally**: build only what changed, with remote caching in monorepos.\n5. **Select tests** based on changes where it is safe; keep a full run before release or on a schedule.\n6. **Optimise Docker builds**: order layers from least to most frequently changing, copy dependency manifests before source, use multi-stage builds and a registry or build cache.\n7. **Fail fast**: run cheap checks first so obvious failures end the run early.\n8. **Right-size runners** and remove unnecessary steps.\n9. **Fix flaky tests**, since retries hide cost and erode trust.\n\n```dockerfile\nFROM node:22-slim AS build\nWORKDIR /app\nCOPY package*.json ./\nRUN npm ci\nCOPY . .\nRUN npm run build\n```\nCopying `package*.json` first lets the dependency layer be cached until the lock file changes.\n\n## Trade-offs\n| Technique | Risk |\n|---|---|\n| Selective testing | Missed dependants if the graph is wrong |\n| Aggressive caching | Stale results if cache keys are poor |\n| More parallelism | Higher cost and resource contention |\n\n## Common mistakes\n- Optimising a stage that is not the bottleneck.\n- Cutting security or integration checks to save minutes.\n- Cache keys that never change, or change every run.\n- Ignoring queue time, which can exceed run time.\n\n## Example (hypothetical)\nA twenty-minute run drops substantially after splitting unit tests into shards, caching dependencies and moving image scanning to run in parallel with integration tests.",
+      "diagrams": [],
+      "followUps": [
+        "How do you identify and handle flaky tests?",
+        "When is selective test execution unsafe?",
+        "How do you balance pipeline speed with security scanning?"
+      ],
+      "related": [
+        "monorepo-cicd",
+        "github-actions-nestjs-pipeline",
+        "secure-cicd-pipeline"
+      ]
+    },
+    {
+      "slug": "release-approvals-and-separation-of-duties",
+      "title": "How do you design release approvals with accountability?",
+      "topic": "Releases and rollback",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "release-management",
+        "approvals",
+        "governance",
+        "compliance"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I make approvals meaningful but light. Required automated checks must pass first, then a named, accountable approver signs off on promotion to production. Where regulation or risk requires it, I separate duties so the person who wrote a change does not approve its release. Every promotion is recorded in an audit trail linking the approver, artifact version, commit and time. For low-risk changes I would automate approval through checks, and keep humans for high-risk ones.",
+      "revision": "Automated checks first, then accountable named approvers where risk requires; separate author from approver when mandated; audit every promotion. Automate low-risk approvals.",
+      "detailed": "Approvals exist to ensure someone accountable has judged that a release is acceptable. Poorly designed approvals add delay without adding safety.\n\n## Layers\n1. **Automated gates**: required tests, scans and policy checks block promotion without human effort.\n2. **Human approval** at meaningful points, usually before production: a product or release owner for business readiness, sometimes a technical or security approver for risky changes.\n3. **Separation of duties** where required: the author of a change cannot be its sole approver, and deployment rights are separate from code-write rights.\n4. **Auditable promotion**: records capture who approved, which artifact digest and commit, which environment and when.\n\n## Implementing it\n- Use platform features such as protected environments with required reviewers, and branch rules requiring someone other than the last pusher to approve.\n- Link each release to a change record or ticket where the organisation needs one.\n- Tier approvals by risk: standard, low-risk changes pass on automated evidence alone; high-risk changes (schema changes, security-sensitive areas) require extra sign-off.\n- Define a documented emergency path with after-the-fact review.\n\n## Trade-offs\n| Approach | Benefit | Cost |\n|---|---|---|\n| Manual approval for everything | Strong control on paper | Delay, rubber-stamping |\n| Automated checks only | Speed | Weaker accountability for business risk |\n| Tiered approvals | Balance | Needs clear risk criteria |\n\n## Common mistakes\n- Approvers who cannot see what changed or what was tested.\n- Approving a version, then deploying a different build.\n- Shared approver accounts, destroying accountability.\n- Treating a change advisory meeting as the only control, rather than building evidence into the pipeline.\n\n## Example (hypothetical)\nA payment service release needs a passing pipeline and approval from a release manager other than the author. A copy change on a marketing page passes automatically once checks are green.",
+      "diagrams": [],
+      "followUps": [
+        "How do you keep approvals from becoming a rubber stamp?",
+        "How would you handle approvals for an emergency fix?",
+        "How do you prove to an auditor who approved a release?"
+      ],
+      "related": [
+        "artifact-immutability",
+        "protected-branches-and-codeowners",
+        "secure-cicd-pipeline"
+      ]
+    },
+    {
+      "slug": "artifact-immutability",
+      "title": "What is artifact immutability and why build once, promote everywhere?",
+      "topic": "Releases and rollback",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "artifacts",
+        "ci-cd",
+        "containers",
+        "release-management"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I build the artifact once, such as a container image, store it in a registry tagged by version and commit, and promote that same artifact through test, staging and production. Only configuration changes between environments. That way what was tested is what ships, builds are traceable to a commit, and rollback is simply redeploying a previous version. Rebuilding per environment risks different dependencies or toolchains producing different results.",
+      "revision": "Build once, promote the same artifact through environments with only config changing. It guarantees tested equals deployed, enables traceability, and makes rollback a redeploy.",
+      "detailed": "An immutable artifact is a build output that never changes after creation. A new change means a new artifact with a new version.\n\n{{diagram:promote}}\n\n## Why it matters\n- **Tested equals deployed**: if you rebuild for production, a different dependency resolution, base image or compiler could produce different behaviour from what you tested.\n- **Traceability**: each artifact links to a commit, build and scan results.\n- **Fast, reliable rollback**: previous versions already exist and have been proven.\n- **Security**: scanning and signing apply to a fixed object. Referencing images by digest rather than a mutable tag removes ambiguity.\n\n## How to apply it\n- Tag images with the commit SHA or version and refer to them by digest in deployments. Avoid relying on `latest`.\n- Make the registry tags immutable where supported, and restrict who can delete or overwrite them.\n- Keep environment differences out of the artifact: externalise configuration and secrets, injected at deploy time.\n- Retain recent versions for rollback and apply retention rules deliberately.\n- Record provenance: source commit, build pipeline and scan outcome.\n\n## Trade-offs and mistakes\n- Baking environment-specific values (URLs, keys) into the image, forcing rebuilds.\n- Mutable tags such as `v1` re-pushed over old content.\n- Building in each environment's pipeline \"for convenience\".\n- Deleting old artifacts too aggressively, which breaks rollback.\n- Forgetting non-container artifacts: libraries, bundles and infrastructure modules benefit from the same discipline.\n\n## Example (hypothetical)\nCommit `a1b2c3d` produces image `orders-api@sha256:...`. Staging runs it for a day, then production deploys the same digest with different environment variables. A problem later is resolved by redeploying the previous digest.",
+      "diagrams": [
+        {
+          "id": "promote",
+          "title": "Build once, promote the same artifact",
+          "alt": "A single build produces an image stored in a registry. The same image is deployed to test, then staging, then production, with different configuration injected in each environment.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "b",
+              "label": "Build once"
+            },
+            {
+              "id": "r",
+              "label": "Registry (versioned by digest)"
+            },
+            {
+              "id": "t",
+              "label": "Test + config"
+            },
+            {
+              "id": "s",
+              "label": "Staging + config"
+            },
+            {
+              "id": "p",
+              "label": "Production + config"
+            }
+          ],
+          "edges": [
+            {
+              "from": "b",
+              "to": "r"
+            },
+            {
+              "from": "r",
+              "to": "t"
+            },
+            {
+              "from": "t",
+              "to": "s",
+              "label": "promote"
+            },
+            {
+              "from": "s",
+              "to": "p",
+              "label": "promote"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Why is the latest tag problematic?",
+        "How do you handle environment-specific configuration with immutable artifacts?",
+        "How long should artifacts be retained?"
+      ],
+      "related": [
+        "release-rollback-strategy",
+        "secure-cicd-pipeline",
+        "release-approvals-and-separation-of-duties"
+      ]
+    },
+    {
+      "slug": "release-rollback-strategy",
+      "title": "How do you design a rollback strategy for releases?",
+      "topic": "Releases and rollback",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "rollback",
+        "release-management",
+        "deployment",
+        "reliability"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I retain previous deployable artifacts and compatible configuration, define clear rollback criteria such as error-rate or latency thresholds, and rehearse the recovery path so it works under pressure. Application rollback is easy if artifacts are immutable; data is the hard part, so schema changes must be backward compatible, using expand-and-contract. For some failures, turning off a feature flag or rolling forward is faster, so I decide those options in advance.",
+      "revision": "Keep prior artifacts and compatible config, set explicit rollback triggers, rehearse the path, make database changes backward compatible, and know when flag-off or roll-forward is better.",
+      "detailed": "Rollback is a designed capability, not an improvisation. A release is only as safe as its way back.\n\n## Ingredients\n1. **Previous artifact available**: immutable, versioned builds retained in a registry.\n2. **Compatible configuration**: config and secrets for the older version still exist and match its expectations.\n3. **Clear criteria**: for example, error rate or latency above a threshold for a set period, or failed smoke tests, trigger rollback. Deciding in advance avoids debate during an incident.\n4. **Fast mechanism**: redeploy the previous version, shift traffic back (blue-green), or reduce a canary to zero.\n5. **Data compatibility**: schema changes follow expand-and-contract, so both old and new application versions work on the current schema. Destructive changes happen only after the old version is retired.\n6. **Rehearsal**: practise rollback in staging, so steps and permissions are known.\n\n## Options compared\n| Option | Best when | Caveat |\n|---|---|---|\n| Redeploy previous artifact | Stateless services | Needs compatible data |\n| Switch traffic (blue-green) | Instant recovery needed | Double capacity |\n| Turn off feature flag | Problem isolated to a feature | Needs flag discipline |\n| Roll forward with a fix | Rollback is unsafe (data changes) | Slower, riskier under pressure |\n\n## Common mistakes\n- Assuming rollback is possible after an irreversible migration.\n- Deleting old artifacts or images.\n- Not testing the rollback path.\n- Rolling back in one service while a dependent service has already changed an API or event contract.\n- Ignoring messages or events already produced by the new version.\n\n## Example (hypothetical)\nA new version adds a nullable column and writes to it. Errors rise after deployment, so the team redeploys the previous version, which ignores the column; data stays valid. A later release drops unused columns, only after the new design has proven stable.",
+      "diagrams": [],
+      "followUps": [
+        "When is rolling forward better than rolling back?",
+        "How do database migrations affect rollback?",
+        "How do you decide automatically that a canary should roll back?"
+      ],
+      "related": [
+        "artifact-immutability",
+        "hotfix-process",
+        "prevent-breaking-api-changes"
+      ]
+    },
+    {
+      "slug": "prevent-breaking-api-changes",
+      "title": "How do you prevent breaking API changes from reaching consumers?",
+      "topic": "Releases and rollback",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "api",
+        "contract-testing",
+        "compatibility",
+        "versioning"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I agree compatibility rules up front, such as additive changes only within a version, and enforce them with automation: schema diff checks in CI and consumer-driven contract tests. When a break is unavoidable, I introduce a new version or parallel field, announce a deprecation window with usage tracking, and coordinate consumer migration before removal. For events, schemas follow the same rules. Releases then become safe to deploy independently.",
+      "revision": "Define compatibility rules, enforce with schema-diff and contract tests in CI, deprecate with a window and usage tracking, and version only when a break is unavoidable.",
+      "detailed": "In a system with many consumers, the producer cannot see every client. Prevention relies on rules, automation and communication.\n\n## Compatibility rules\nUsually safe: adding optional fields, new endpoints, new enum values (if clients tolerate unknowns). Usually breaking: removing or renaming fields, changing types, making optional inputs required, changing status codes, or altering semantics. Document that consumers must ignore unknown fields.\n\n## Automated enforcement\n- **Specification diffing**: compare the OpenAPI or schema against the released version in CI and fail on breaking changes.\n- **Consumer-driven contract tests** (for example Pact): consumers publish expectations, and the provider verifies them before release.\n- **Schema registry rules** for event payloads, with compatibility modes.\n- **Integration tests** that run previous client versions against the new provider where feasible.\n\n## When a break is needed\n1. Add the new behaviour alongside the old (new field, endpoint or version).\n2. Mark the old one deprecated and communicate through documentation and response headers.\n3. Track which consumers still use it, using logs or metrics.\n4. Support a defined deprecation window, then remove once usage is gone or consumers are contacted.\n5. Use explicit versioning (URI or header) when changes cannot be additive.\n\n## Trade-offs and mistakes\n| Practice | Cost |\n|---|---|\n| Strict additive-only policy | Accumulated legacy fields |\n| Many parallel versions | Operational burden |\n| Contract tests | Maintenance effort and coordination |\n\n- Assuming only the documented clients exist.\n- Changing behaviour silently without changing the contract.\n- Removing a field after a single announcement with no usage data.\n- Versioning too early, multiplying maintenance.\n\n## Example (hypothetical)\nA team wants to rename `customerName` to `fullName`. It adds `fullName`, keeps `customerName` marked deprecated, watches usage fall over a quarter, then removes it in the next major version.",
+      "diagrams": [],
+      "followUps": [
+        "What is consumer-driven contract testing?",
+        "How would you evolve an event schema safely?",
+        "How do you find out who still uses a deprecated endpoint?"
+      ],
+      "related": [
+        "semantic-versioning",
+        "release-rollback-strategy",
+        "ten-microservices-release-strategy"
+      ]
+    },
+    {
+      "slug": "ten-microservices-release-strategy",
+      "title": "How would you design a release strategy for ten microservices?",
+      "topic": "Releases and rollback",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "microservices",
+        "release-management",
+        "contract-testing",
+        "deployment"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would give each service a clear owner and an independent release pipeline, so teams can deploy without synchronising. That works only if API and event compatibility is enforced with contract tests, and shared security and quality standards are applied through common templates. Every service ships immutable artifacts, promoted through environments, with health checks and an explicit rollback. I would avoid synchronised deployments unless a business contract genuinely requires one, and then coordinate it through feature flags.",
+      "revision": "Independent releases per service with clear ownership, enforced API and event compatibility, shared standards, immutable promoted artifacts, health checks and rollback. Synchronised releases only when required.",
+      "detailed": "The aim with ten services is independent, frequent, low-risk releases. Coupling them into a single release train removes most of the benefit of the architecture.\n\n{{diagram:ms}}\n\n## Principles\n- **Ownership**: each service has an owning team, CODEOWNERS and an on-call rota.\n- **Independent release policy**: each pipeline builds, tests and deploys its service alone; risk tier (for example payments versus an internal tool) decides approval strictness.\n- **Compatibility first**: APIs and events change additively; consumer-driven contract tests run in CI; deprecation windows protect consumers. Deploy order should not matter.\n- **Shared standards**: common pipeline templates, security scanning, quality gates, logging and health-endpoint conventions, versioned by a platform team.\n- **Immutable artifacts** built once and promoted through environments by promotion rules.\n- **Safe rollout**: health checks, canary or blue-green where valuable, and automated verification against error rate and latency.\n- **Explicit rollback** per service, with backward-compatible data changes.\n\n## Cross-service features\nA feature spanning services is released by making each change backward compatible, deploying services in any order, and then enabling the behaviour with a feature flag. This avoids lockstep deployments.\n\n## When to synchronise\nOnly when a business contract demands it (for example a regulatory switch-over on a fixed date). Even then, coordinate with flags, not simultaneous deployment.\n\n## Common mistakes\n- A shared \"release night\" that couples every service.\n- Relying on a full end-to-end environment as the only safety net: it is slow and flaky.\n- Distributed monolith: services that cannot deploy without others.\n- Unmanaged shared libraries that force simultaneous upgrades.\n- No release dashboard showing which version of each service runs where.\n\n## Example (hypothetical)\nOrders, Billing and Notifications must support a new discount field. Billing deploys first, accepting the optional field; Orders then starts sending it behind a flag; Notifications adopts it later. Any service can roll back alone.",
+      "diagrams": [
+        {
+          "id": "ms",
+          "title": "Independent service pipelines with shared standards",
+          "alt": "A platform provides shared templates and quality standards to ten service pipelines. Each pipeline builds an immutable artifact, runs contract tests, and promotes through environments with health checks and rollback independently.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "p",
+              "label": "Shared templates and standards"
+            },
+            {
+              "id": "a",
+              "label": "Service pipeline (each of ten)"
+            },
+            {
+              "id": "c",
+              "label": "Contract tests"
+            },
+            {
+              "id": "i",
+              "label": "Immutable artifact"
+            },
+            {
+              "id": "e",
+              "label": "Promote through environments"
+            },
+            {
+              "id": "h",
+              "label": "Health checks and rollback"
+            }
+          ],
+          "edges": [
+            {
+              "from": "p",
+              "to": "a"
+            },
+            {
+              "from": "a",
+              "to": "c"
+            },
+            {
+              "from": "c",
+              "to": "i"
+            },
+            {
+              "from": "i",
+              "to": "e"
+            },
+            {
+              "from": "e",
+              "to": "h"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you test compatibility between services without a full end-to-end environment?",
+        "How would you track which version of each service is deployed where?",
+        "When is a monorepo better for ten services?"
+      ],
+      "related": [
+        "prevent-breaking-api-changes",
+        "artifact-immutability",
+        "release-rollback-strategy"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,142 @@
+{
+  "category": "microservices-distributed",
+  "questions": [
+    {
+      "slug": "payment-service-unavailable-scenario",
+      "title": "Scenario: the payment service your order service depends on becomes unavailable. What do you do?",
+      "topic": "Failure scenarios",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "scenario",
+        "resilience",
+        "payments",
+        "circuit-breaker",
+        "reconciliation"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "First I would protect the order service: strict timeouts and a circuit breaker so threads and connections are not exhausted, with bounded concurrency. Then I would decide, with the business, whether the order can safely wait. If so, I would persist it as pending and queue the payment request through reliable messaging, with an idempotent payment call and tracked attempts. A timeout does not prove payment failed, so I reconcile uncertain outcomes before retrying. I would monitor failure rate, backlog and pending-order age.",
+      "revision": "Protect the caller, preserve business state, retry safely, reconcile uncertain outcomes. A timeout does not prove a payment failed; monitor backlog and age of pending orders.",
+      "detailed": "**Short answer:** contain the failure, keep the order state truthful, retry only in an idempotent way, and reconcile anything uncertain. The details depend on whether the business can let an order wait.\n\n## 1. Clarify the business rule\n\nCan an order be accepted as \"pending payment\" and completed later, or must payment succeed before the customer leaves the page? That decides between failing fast with a clear message and accepting asynchronously.\n\n## 2. Protect the order service\n\n- **Deadlines:** a short timeout on every payment call.\n- **Circuit breaker:** after repeated failures, stop calling and fail fast, probing occasionally for recovery.\n- **Bulkhead and bounded concurrency:** payment calls cannot consume all workers.\n- **Bounded retries with backoff and jitter**, so retries do not become a storm.\n\n## 3. Preserve state if waiting is acceptable\n\nPersist the order as **pending** and write a payment-request message through a transactional outbox so the state and the message commit together. A consumer sends the request to the payment service when it recovers. Show the customer an honest status.\n\n{{diagram:flow}}\n\n## 4. Make payment retries safe\n\nEach payment attempt carries a stable operation (idempotency) key, and the payment side records attempts. If a call times out, the outcome is **unknown**: the charge may have happened. Query the payment status by operation ID, or reconcile, before issuing another attempt.\n\n## 5. Operate and recover\n\n| Signal | Why |\n|---|---|\n| Payment error and timeout rate | Early detection |\n| Breaker state | Shows isolation is active |\n| Queue backlog | Work waiting for recovery |\n| Age of oldest pending order | Customer impact |\n| Reconciliation mismatches | Uncertain outcomes |\n\nWhen the dependency returns, drain the backlog gradually to avoid overloading it, and expire or notify orders that wait too long.\n\n## Common mistakes\n\n- Retrying a non-idempotent charge after a timeout and double charging.\n- Letting requests hang with no deadline, taking the order service down too.\n- Marking orders failed on a timeout when payment actually succeeded.\n- No visibility into pending orders until customers complain.\n- Releasing inventory or cancelling before the payment outcome is known.\n\nHypothetical example: during a payment outage, the breaker opens, new orders are stored as pending, and a worker processes them at a controlled rate when the provider recovers, checking each one's payment status first.",
+      "diagrams": [
+        {
+          "id": "flow",
+          "title": "Order flow while payment is unavailable",
+          "alt": "The order service uses a timeout and circuit breaker when calling payment. When payment is unavailable the order is stored as pending and a payment request goes through an outbox to a queue. A worker retries the idempotent payment call and a reconciliation step checks uncertain outcomes.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "ord",
+              "label": "Order service"
+            },
+            {
+              "id": "cb",
+              "label": "Timeout and circuit breaker"
+            },
+            {
+              "id": "pay",
+              "label": "Payment service"
+            },
+            {
+              "id": "db",
+              "label": "Orders DB: pending + outbox"
+            },
+            {
+              "id": "q",
+              "label": "Durable queue"
+            },
+            {
+              "id": "w",
+              "label": "Payment worker (idempotent)"
+            },
+            {
+              "id": "rec",
+              "label": "Reconciliation"
+            }
+          ],
+          "edges": [
+            {
+              "from": "ord",
+              "to": "cb"
+            },
+            {
+              "from": "cb",
+              "to": "pay",
+              "label": "healthy"
+            },
+            {
+              "from": "cb",
+              "to": "db",
+              "label": "unavailable: save pending"
+            },
+            {
+              "from": "db",
+              "to": "q",
+              "label": "outbox publish"
+            },
+            {
+              "from": "q",
+              "to": "w"
+            },
+            {
+              "from": "w",
+              "to": "pay",
+              "label": "retry with same key"
+            },
+            {
+              "from": "w",
+              "to": "rec",
+              "label": "unknown outcome"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you tell the customer what is happening?",
+        "What if the payment actually succeeded but the response was lost?",
+        "How do you drain the backlog without overloading payment on recovery?"
+      ],
+      "related": [
+        "handling-partial-failure",
+        "preventing-cascading-failures",
+        "claim-event-delivered-twice-scenario"
+      ]
+    },
+    {
+      "slug": "claim-event-delivered-twice-scenario",
+      "title": "Scenario: a claim event is delivered twice. How do you stop a duplicate payment?",
+      "topic": "Failure scenarios",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "scenario",
+        "idempotency",
+        "payments",
+        "duplicates",
+        "unique-constraint"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would not rely on the broker to deduplicate. I would give the business operation a stable ID, such as the claim ID plus the payment purpose, and enforce it with a unique constraint in the database. The payment record, its state transition and the idempotency record go in the same transaction where possible, so the second consumer either gets a conflict and returns the existing result or sees the payment already created. For an external payment system I would use its idempotency key and reconcile.",
+      "revision": "Broker deduplication alone is not enough. Enforce business-level idempotency: stable operation ID, unique constraint and state transition in one transaction, and the provider's idempotency key for external calls.",
+      "detailed": "**Short answer:** enforce idempotency at the business level, in the database that owns the payment, not only in the messaging layer. Message brokers commonly deliver at least once, and two consumers (or one consumer retrying) can see the same event.\n\n## Where duplicates come from\n\n- Producer retries or the outbox publisher re-sending after a crash.\n- Broker redelivery when an acknowledgement is slow or lost.\n- A consumer restarting after processing but before acknowledging.\n- Two consumer instances handling the same event at nearly the same moment.\n\n## Design\n\n1. **Stable operation ID.** Derive it from the business fact, such as claim ID plus \"settlement\", not from a random per-attempt value.\n2. **Unique constraint** on that ID in the payments table. The database arbitrates the race.\n3. **Atomic transaction.** Insert the payment (or idempotency record) and move the claim state in one transaction. The loser of the race gets a unique violation and returns the existing result instead of an error.\n4. **State machine.** Only allow valid transitions, for example APPROVED to PAYMENT_REQUESTED, so a repeated event finds the state already advanced.\n5. **External payment systems.** Pass the operation ID as the provider's idempotency key if supported, and reconcile with the provider's records for uncertain results.\n6. **Acknowledge after durable success**, and treat a duplicate as success, not a failure to retry.\n\n```sql\nINSERT INTO payments (operation_id, claim_id, amount, status)\nVALUES ($1, $2, $3, 'requested')\nON CONFLICT (operation_id) DO NOTHING\nRETURNING id;   -- no row returned means a duplicate; read the existing payment\n```\n\n## Why not other approaches?\n\n| Approach | Weakness |\n|---|---|\n| Broker-level deduplication only | Limited window and scope; does not cover producer-side or replay duplicates |\n| In-memory \"seen\" set | Lost on restart, not shared across instances |\n| Check-then-insert without constraint | Race between two consumers |\n| Distributed lock only | Leases can expire; still needs a constraint as the final guard |\n\n## Common mistakes\n\n- A random UUID generated inside the consumer for each attempt.\n- Recording the idempotency key in a separate transaction from the payment, leaving a gap.\n- Returning an error on duplicate, causing infinite redelivery.\n- Forgetting to alert and reconcile when the external call result was unknown.\n\nHypothetical example: ClaimApproved arrives twice. The first handler inserts the payment; the second hits the unique operation ID, finds the existing record and exits quietly. Only one payment request reaches the external provider.",
+      "followUps": [
+        "Why is a distributed lock not enough on its own?",
+        "How long do you retain idempotency records?",
+        "What if the external payment call succeeds but your commit fails?"
+      ],
+      "related": [
+        "payment-service-unavailable-scenario",
+        "duplicate-webhook-handling",
+        "handling-partial-failure"
+      ]
+    }
+  ]
+}

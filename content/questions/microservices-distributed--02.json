@@ -1,0 +1,368 @@
+{
+  "category": "microservices-distributed",
+  "questions": [
+    {
+      "slug": "bulkhead-pattern",
+      "title": "What is the bulkhead pattern and how do you apply it?",
+      "topic": "Resilience patterns",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "bulkhead",
+        "isolation",
+        "resilience",
+        "thread-pools"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would explain that a bulkhead isolates resources, like thread pools, connection pools or concurrency limits, per dependency or workload, the way ship compartments stop one leak sinking the vessel. If a slow recommendation service uses up its own pool, checkout still has capacity. I would apply it with separate pools, per-dependency concurrency caps, separate queues or even separate deployments for critical flows, and combine it with timeouts and circuit breakers so the isolated pool does not simply fill up and stay full.",
+      "revision": "Bulkhead isolates resource pools per dependency or workload so one failing or slow component cannot exhaust shared capacity. Pair it with timeouts and circuit breakers.",
+      "detailed": "The **bulkhead pattern** partitions resources so that a failure or overload in one area cannot consume everything. Without it, one slow dependency can occupy all threads, connections or memory, and unrelated features fail with it.\n\n## Where to apply it\n\n| Level | Example |\n|---|---|\n| Thread or worker pools | Separate pool for calls to each downstream service |\n| Concurrency limits | Semaphore capping in-flight calls to a dependency |\n| Connection pools | Separate database pool for reporting vs transactional traffic |\n| Queues | Separate queues and consumers for critical vs bulk work |\n| Deployments | Separate instances or services for premium tenants or critical APIs |\n| Platform | Resource requests and limits per container; per-service quotas |\n\n## How it behaves\n\nSuppose a service calls a payment API and a recommendations API. With a shared pool of 50 workers, a hanging recommendations call can hold all 50. With bulkheads, recommendations might get 10 and payments 30; when recommendations stalls, only its 10 are blocked, and the rest can be rejected quickly (fail fast) or served a fallback.\n\n```ts\n// Simple concurrency bulkhead (illustrative)\nclass Bulkhead {\n  private active = 0;\n  constructor(private max: number) {}\n  async run<T>(fn: () => Promise<T>): Promise<T> {\n    if (this.active >= this.max) throw new Error('bulkhead full');\n    this.active++;\n    try { return await fn(); } finally { this.active--; }\n  }\n}\n```\n\n## Trade-offs\n\n- Isolation wastes some capacity, because idle reserved capacity cannot be borrowed.\n- Sizing needs measurement; a pool that is too small rejects healthy traffic.\n- It limits blast radius but does not stop failures; timeouts, circuit breakers and fallbacks are still needed.\n\n## Common mistakes\n\n- Creating bulkheads but no timeouts, so the isolated pool stays full indefinitely.\n- One shared database pool for interactive and batch workloads.\n- No visibility: emit metrics for rejections and queue depth so saturation is noticed.\n- In Node.js, assuming async code needs no limit; unbounded concurrent outbound calls still exhaust sockets and memory.\n\nHypothetical example: a claims API gives document-OCR calls their own concurrency cap and queue. When the OCR service slows down, claim submission continues to work and OCR requests queue or fail fast.",
+      "followUps": [
+        "How do you size a bulkhead?",
+        "How is a bulkhead different from a circuit breaker?",
+        "How would you implement isolation on a container platform?"
+      ],
+      "related": [
+        "preventing-cascading-failures",
+        "handling-service-dependencies"
+      ]
+    },
+    {
+      "slug": "preventing-cascading-failures",
+      "title": "How do you prevent cascading failures in a distributed system?",
+      "topic": "Resilience patterns",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "cascading-failure",
+        "timeouts",
+        "load-shedding",
+        "resilience"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would stop failure spreading by limiting how long and how much any service waits on another. That means timeouts and deadlines on every call, bounded retries with backoff and jitter, circuit breakers, bulkheads so one dependency cannot take all resources, and load shedding or backpressure when I am saturated. I would also set concurrency to what capacity can handle, add fallbacks where the business allows, and test these behaviours with fault injection rather than assuming they work.",
+      "revision": "Contain failures with timeouts, bounded retries and jitter, circuit breakers, bulkheads, load shedding and capacity-aware concurrency. Test with fault injection.",
+      "detailed": "A **cascading failure** happens when one component's problem spreads: a slow service holds callers' threads, callers time out and retry, load rises, more services slow down, and the whole system collapses. The aim is to make each service protect itself and its callers.\n\n## Defences, in layers\n\n| Defence | What it does |\n|---|---|\n| Timeouts and deadlines | Cap waiting; propagate a remaining deadline so downstream stops useless work |\n| Bounded retries with backoff and jitter | Limit extra load; retry only transient, idempotent failures |\n| Circuit breaker | Stop calling a failing dependency and fail fast until it recovers |\n| Bulkheads | Isolate pools per dependency so one cannot exhaust shared resources |\n| Load shedding | Reject excess or low-priority requests early when saturated |\n| Backpressure and queues | Slow or buffer producers instead of overloading consumers |\n| Fallbacks and caching | Serve a degraded but useful response where acceptable |\n| Autoscaling with limits | Add capacity, but cap it so you do not overwhelm a shared database |\n\n## Why retries are dangerous\n\nIf each of three layers retries three times, one user request can become 27 calls to the bottom service. Retry at one layer, prefer not retrying when the caller already will, and use a retry budget.\n\n## Common mistakes\n\n- No timeout, or timeouts longer than the caller's own timeout, so work continues after the user has gone.\n- Autoscaling a stateless tier against a database that is the true bottleneck.\n- Health checks that depend on every downstream, so a minor dependency outage takes all instances out of rotation.\n- Graceful degradation never designed or tested.\n- Ignoring recovery: a restarted service hit by a thundering herd of queued retries falls over again. Ramp traffic and cache warm-up deliberately.\n\n## Verifying it works\n\nUse load tests, game days and fault injection (added latency, dependency errors) to confirm that breakers open, limits reject, and the system recovers when the fault clears. Watch saturation metrics, queue age and error budgets.\n\nHypothetical example: a recommendations service becomes slow. The product page has a 300 ms deadline for it, a breaker opens after repeated timeouts, and the page renders without recommendations while the dependency recovers.",
+      "followUps": [
+        "How do retries across several layers amplify load?",
+        "What is load shedding and how do you choose what to drop?",
+        "How do you test that your resilience settings actually work?"
+      ],
+      "related": [
+        "bulkhead-pattern",
+        "retry-storms",
+        "handling-service-dependencies"
+      ]
+    },
+    {
+      "slug": "retry-storms",
+      "title": "What is a retry storm and how do you prevent it?",
+      "topic": "Resilience patterns",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "retries",
+        "backoff",
+        "jitter",
+        "thundering-herd"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "A retry storm is when many clients retry failed calls at the same moment, multiplying load on a service that is already struggling and stopping it from recovering. I would prevent it with a small, bounded number of retries, exponential backoff with jitter, honouring the overall deadline, never retrying permanent errors such as validation failures, and limiting concurrency. A circuit breaker or retry budget stops retries when most calls are failing. I would also retry at one layer only.",
+      "revision": "Retry storms amplify load when clients retry in sync. Prevent with bounded retries, backoff plus jitter, deadlines, retry budgets, circuit breakers and no retries on permanent failures.",
+      "detailed": "A **retry storm** (or retry amplification) occurs when failures trigger many simultaneous retries, increasing load on a dependency that is already degraded. Recovery then becomes impossible because the retries themselves keep it overloaded.\n\n## How storms form\n\n- A dependency slows down; clients time out together.\n- Every client retries immediately or at the same fixed interval.\n- Layered retries multiply: three layers with three attempts each can send up to 27 requests per original request.\n- When the service restarts, queued clients all reconnect at once (a thundering herd).\n\n## Prevention checklist\n\n| Control | Detail |\n|---|---|\n| Bounded attempts | A small maximum, such as two or three |\n| Exponential backoff | Delay grows each attempt |\n| Jitter | Randomise delays so clients do not synchronise |\n| Deadline awareness | Stop when the overall budget is spent |\n| Retry only when sensible | Transient errors (timeouts, 503, 429) on idempotent operations; never validation errors or 4xx logic failures |\n| Respect server hints | Honour Retry-After headers |\n| Retry budget | Cap retries to a fraction of normal traffic |\n| Circuit breaker | Stop retrying when failure rate is high |\n| Single-layer retries | Decide which layer owns retrying |\n\n## Backoff with full jitter\n\n```ts\nfunction delayMs(attempt: number, base = 100, cap = 10_000): number {\n  const exp = Math.min(cap, base * 2 ** attempt);\n  return Math.random() * exp; // full jitter\n}\n```\n\n## Common mistakes\n\n- Fixed-interval retries from many clients, which stay synchronised.\n- Retrying non-idempotent writes without an idempotency key, causing duplicates.\n- Infinite retries for queue consumers with no dead-letter path.\n- Ignoring that a retry also consumes the callee's capacity, which is exactly what is scarce.\n- Retrying on 429 without slowing down.\n\n## Related controls on the server side\n\nRate limiting, load shedding and returning a clear overloaded status with Retry-After give clients a signal to slow down.\n\nHypothetical example: after a brief database failover, hundreds of workers retry at the same instant. With jittered backoff and a retry budget, the load spreads out and the database recovers instead of being knocked over again.",
+      "followUps": [
+        "Why is jitter important and which jitter strategies exist?",
+        "How do you stop retries stacking across layers?",
+        "Which HTTP statuses are safe to retry?"
+      ],
+      "related": [
+        "preventing-cascading-failures",
+        "handling-service-dependencies"
+      ]
+    },
+    {
+      "slug": "handling-service-dependencies",
+      "title": "How do you manage dependencies between services so one outage does not take everything down?",
+      "topic": "Resilience patterns",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "dependencies",
+        "contracts",
+        "timeouts",
+        "observability"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would first minimise synchronous dependency chains, because availability multiplies down a chain. For every call that remains I would define the contract, a deadline, and the explicit failure behaviour: fail, fall back, or queue. I would instrument each dependency with latency, error rate and saturation metrics, trace across services, and map which user journeys depend on which services. Non-critical dependencies should degrade gracefully, and critical ones need redundancy and clear ownership.",
+      "revision": "Minimise synchronous chains, define contracts and deadlines, decide failure behaviour per call, and instrument every dependency. Degrade non-critical ones gracefully.",
+      "detailed": "Services inevitably depend on each other. The goal is to make each dependency **explicit, bounded and observable**, so failure of one has a known, limited effect.\n\n## Principles\n\n1. **Minimise synchronous chains.** If A needs B, C and D in series, availability is roughly the product of each one's availability, and latency is the sum. Replace runtime calls with locally held data fed by events where staleness is acceptable.\n2. **Define contracts.** Use versioned, documented APIs and consumer-driven contract tests so changes do not break callers silently.\n3. **Set a deadline for every call**, and propagate the remaining budget downstream.\n4. **Decide failure behaviour per dependency:**\n\n| Dependency type | Failure behaviour |\n|---|---|\n| Critical, needed now | Fail fast with a clear error; maybe a redundant provider |\n| Important, can wait | Persist intent, queue, process later |\n| Nice to have | Fallback or omit (cached data, default content) |\n\n5. **Instrument.** Track request rate, errors, latency percentiles and saturation per dependency; use distributed tracing with correlation IDs; alert on symptoms users feel.\n6. **Map the graph.** Know which user journeys depend on which services, and classify tier-one dependencies.\n\n## Avoiding hidden coupling\n\n- Shared databases between services create invisible dependencies and break ownership.\n- Deployment-order dependencies (\"deploy B before A\") signal tight coupling; prefer backwards-compatible changes.\n- Circular calls create deadlocks and cascading load.\n\n## Common mistakes\n\n- Wrapping calls in retries but never defining what the user sees when they finally fail.\n- Using health endpoints that call every dependency, creating cascades.\n- Unowned dependencies: nobody knows who to contact or what the expected reliability is.\n- Testing only the happy path; add dependency failure to integration tests.\n\n## Organisational side\n\nAgree on service-level objectives with owners of critical dependencies, and review dependency maps during design reviews.\n\nHypothetical example: a quote service needs rating (critical), address lookup (important) and marketing banners (optional). Rating failures return an error quickly, address lookups fall back to manual entry, and banners are simply omitted.",
+      "followUps": [
+        "How do you decide whether to call a service or hold a local copy of its data?",
+        "What are consumer-driven contract tests?",
+        "How would you map and review your dependency graph?"
+      ],
+      "related": [
+        "sync-vs-async-communication",
+        "preventing-cascading-failures",
+        "bulkhead-pattern"
+      ]
+    },
+    {
+      "slug": "dead-letter-queue-retry-flow",
+      "title": "What is a dead-letter queue and how does it fit into retry handling?",
+      "topic": "Messaging",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "dlq",
+        "retries",
+        "messaging",
+        "pubsub"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "A dead-letter queue is where a broker parks messages that could not be processed after a configured number of attempts, so they stop blocking or looping. I would use retries with backoff for transient errors, and send what still fails to a DLQ with the error context, alert on its depth, and give operators a safe way to inspect and replay messages after the cause is fixed. The consumers must be idempotent because replay and retries mean duplicates.",
+      "revision": "A DLQ holds messages that exhausted retries. Retry transient errors with backoff, dead-letter the rest with context, alert on depth, and replay safely to idempotent consumers.",
+      "detailed": "A **dead-letter queue (DLQ)**, also called a dead-letter topic, is a destination for messages that a consumer repeatedly fails to process or that expire. It prevents a bad message from blocking a queue or being retried forever, while keeping it available for diagnosis.\n\n{{diagram:flow}}\n\n## Typical flow\n\n1. The consumer receives a message and tries to process it.\n2. On a transient failure it does not acknowledge (or negatively acknowledges), and the broker redelivers, ideally with backoff.\n3. After a maximum number of attempts, the broker or the consumer moves the message to the DLQ.\n4. Operators are alerted, inspect the message and metadata, fix the cause, and replay or discard.\n\nBrokers commonly support this natively, such as a dead-letter policy with a maximum delivery attempts setting on Google Pub/Sub or a redrive policy on Amazon SQS; check current documentation for exact options and defaults.\n\n## What to put on the DLQ\n\n- The original payload and message ID.\n- The failure reason, attempt count and timestamps.\n- Correlation or trace IDs.\n\n## Design choices\n\n| Question | Guidance |\n|---|---|\n| How many attempts? | A small bounded number; transient faults rarely need many |\n| Backoff? | Yes, with jitter; retry delays prevent hammering a failing dependency |\n| Permanent errors (invalid data)? | Dead-letter quickly, do not retry |\n| Replay | Provide a tool; replay to the main topic or a replay topic, after the fix |\n| Retention | Long enough to investigate; DLQs also expire messages |\n\n## Common mistakes\n\n- No alert on DLQ depth, so messages rot unnoticed.\n- Retrying permanent failures many times before dead-lettering.\n- Replaying without idempotency, creating duplicate side effects.\n- Treating the DLQ as a trash bin with nobody owning it.\n- Losing ordering: replayed messages arrive out of sequence, which may matter for per-entity ordering.\n- Storing sensitive data in a DLQ without the same access controls as the source.\n\nHypothetical example: a claim-submitted event fails because a downstream schema changed. After three attempts it lands in the DLQ with the error text; after the consumer is fixed, an operator replays the messages and idempotent handling prevents duplicates.",
+      "diagrams": [
+        {
+          "id": "flow",
+          "title": "Retry and dead-letter flow",
+          "alt": "A producer publishes to a main queue. The consumer processes messages; on transient failure the message returns to the queue for retry with backoff, and after the maximum attempts it is moved to a dead-letter queue, where an alert triggers an operator to inspect and replay it.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "prod",
+              "label": "Producer"
+            },
+            {
+              "id": "q",
+              "label": "Main queue"
+            },
+            {
+              "id": "con",
+              "label": "Consumer"
+            },
+            {
+              "id": "dlq",
+              "label": "Dead-letter queue"
+            },
+            {
+              "id": "op",
+              "label": "Alert and operator replay"
+            }
+          ],
+          "edges": [
+            {
+              "from": "prod",
+              "to": "q"
+            },
+            {
+              "from": "q",
+              "to": "con",
+              "label": "deliver"
+            },
+            {
+              "from": "con",
+              "to": "q",
+              "label": "retry with backoff"
+            },
+            {
+              "from": "con",
+              "to": "dlq",
+              "label": "max attempts"
+            },
+            {
+              "from": "dlq",
+              "to": "op"
+            },
+            {
+              "from": "op",
+              "to": "q",
+              "label": "replay after fix"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you replay dead-lettered messages safely?",
+        "What metrics and alerts would you set on a DLQ?",
+        "How does a DLQ differ from a retry queue?"
+      ],
+      "related": [
+        "poison-messages",
+        "message-ordering"
+      ]
+    },
+    {
+      "slug": "poison-messages",
+      "title": "What is a poison message and how do you handle it?",
+      "topic": "Messaging",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "poison-message",
+        "dlq",
+        "retries",
+        "consumers"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "A poison message is one that a consumer can never process successfully, for example malformed data or a bug it triggers, so it fails again on every redelivery and can block a partition or burn resources. I would detect repeated failures, classify errors as transient or permanent, cap retries, send the message to a dead-letter destination with context, and keep the consumer moving. After fixing the cause I would replay safely through idempotent handling.",
+      "revision": "A poison message always fails. Cap retries, classify transient vs permanent errors, route it to a DLQ with context, keep consumers moving, and replay after the fix.",
+      "detailed": "A **poison message** is a message that consistently causes processing to fail: invalid structure, an unexpected value, a missing reference or a code bug triggered by specific data. Because brokers redeliver unacknowledged messages, it can loop indefinitely.\n\n## Why it hurts\n\n- In a **queue**, it burns retries and CPU and delays other messages.\n- In an **ordered partition or stream**, a consumer that refuses to move past it **blocks all later messages** in that partition (head-of-line blocking).\n- It can hide behind logs full of noise, or take down consumers repeatedly if the failure is a crash.\n\n## Handling strategy\n\n1. **Validate early.** Check schema and required fields at the start; invalid messages are permanent failures, not retry candidates.\n2. **Classify errors.** Transient (timeouts, dependency down) get retried with backoff. Permanent (bad payload, business rule violation) go straight to a dead-letter destination.\n3. **Bound retries.** Track delivery attempts using broker metadata or an attempt counter.\n4. **Dead-letter with context.** Keep payload, error, attempt count and trace ID.\n5. **Keep consumers moving.** In streaming systems, publish the offending message to a dead-letter topic and commit the offset past it, rather than stalling the partition. Where strict ordering matters, decide explicitly whether to block or skip, because skipping breaks the sequence for that entity.\n6. **Replay after fixing.** Fix the code or data, then replay through idempotent handlers.\n\n```ts\nasync function handle(msg: Message) {\n  const parsed = schema.safeParse(JSON.parse(msg.body));\n  if (!parsed.success) return deadLetter(msg, 'invalid-schema');\n  try { await process(parsed.data); }\n  catch (e) {\n    if (isTransient(e) && msg.attempts < MAX) throw e; // let broker redeliver\n    return deadLetter(msg, String(e));\n  }\n}\n```\n\n## Common mistakes\n\n- Treating every exception as retryable.\n- Infinite retries without a DLQ.\n- Acknowledging before processing, losing messages instead of isolating them.\n- Dead-lettering silently with no alert.\n- Replaying poison messages after a fix without checking they now succeed.\n\nHypothetical example: a producer deploys a new field type that an older consumer cannot parse. Each affected message is rejected after validation, dead-lettered with its error, and replayed once the consumer is updated.",
+      "followUps": [
+        "How do you avoid head-of-line blocking in an ordered stream?",
+        "How do you tell a transient error from a permanent one?",
+        "How can schema checks prevent poison messages?"
+      ],
+      "related": [
+        "dead-letter-queue-retry-flow",
+        "event-schema-evolution",
+        "message-ordering"
+      ]
+    },
+    {
+      "slug": "message-ordering",
+      "title": "How do you preserve message ordering in a distributed system?",
+      "topic": "Messaging",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "ordering",
+        "partitioning",
+        "kafka",
+        "pubsub"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would first ask which ordering is really needed. Usually it is per entity, such as all events for one claim, not global. Then I would use an ordering key or partition key so those messages land in one partition and are processed in sequence by one consumer at a time. I would still make handlers tolerant, using version numbers or timestamps to ignore stale events, because retries, redelivery and rebalances can disturb order. Global ordering limits throughput, so I avoid it.",
+      "revision": "Ordering is usually needed per entity. Use partition or ordering keys, one consumer per key, version checks to ignore stale events, and know the broker's guarantees. Global ordering limits scale.",
+      "detailed": "Most business flows need **per-entity ordering** (events for one order, claim or account in sequence), not a global order across all messages. Per-entity ordering is achievable at scale; global ordering is expensive.\n\n## How brokers provide ordering\n\n- **Partitioned logs** (Kafka-style): order is guaranteed only within a partition. Using the entity ID as the message key sends all its events to the same partition.\n- **Ordering keys** (Google Pub/Sub): messages published with the same ordering key in the same region are delivered in order to subscribers that enable message ordering; check current documentation for constraints and how redelivery affects the stream.\n- **FIFO queues** (such as SQS FIFO): ordering within a message group ID.\n- Standard queues or topics generally make no ordering guarantee.\n\n## What can still break order\n\n| Cause | Mitigation |\n|---|---|\n| Parallel consumers on one key | One consumer per partition or group at a time |\n| Retries of a failed message | Block that key until it succeeds or is dead-lettered, accepting a delay |\n| Producer retries or multiple producers | Idempotent producer, a single writer per entity |\n| Consumer rebalances | Idempotent handlers and offset discipline |\n| Multiple topics | Order is not guaranteed across topics |\n| Replay from a DLQ | Version checks |\n\n## Making handlers order-tolerant\n\nInclude a **version or sequence number** per entity in each event. The consumer applies an event only if it is newer than what it has stored, and ignores or defers stale ones.\n\n```sql\nUPDATE claim_view\nSET status = $1, version = $2\nWHERE claim_id = $3 AND version < $2;\n```\n\n## Trade-offs\n\n- Strict ordering reduces parallelism: throughput for one key is bounded by one consumer.\n- Hot keys (one very busy entity) overload a single partition.\n- A failed message at the head of a key blocks later ones.\n\n## Common mistakes\n\n- Assuming a broker is globally ordered.\n- Choosing a poor key (random or time-based) that scatters related events.\n- Increasing partitions later and silently changing which partition a key maps to.\n- Relying on timestamps from different clocks to order events.\n\nHypothetical example: ClaimCreated, ClaimApproved and ClaimPaid share the claim ID as the key. If ClaimApproved is redelivered after ClaimPaid, the version check rejects the stale update.",
+      "followUps": [
+        "What happens to ordering when you add partitions?",
+        "How do you deal with a hot key?",
+        "Is exactly-once the same as ordered delivery?"
+      ],
+      "related": [
+        "kafka-vs-pubsub",
+        "poison-messages"
+      ]
+    },
+    {
+      "slug": "event-schema-evolution",
+      "title": "How do you evolve event schemas without breaking consumers?",
+      "topic": "Messaging",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "schema-evolution",
+        "compatibility",
+        "events",
+        "versioning"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would treat events as a public contract and make only compatible changes: add optional fields, never remove or repurpose existing ones, and keep meaning stable. I would define a versioning policy, validate with a schema registry or contract tests, and roll out in the right order, usually consumers first for new fields they must tolerate, then producers. For breaking changes I would publish a new event version in parallel and retire the old one once consumers have migrated.",
+      "revision": "Treat events as contracts: add optional fields, never remove or repurpose, version breaking changes, test compatibility, and roll out consumers and producers in a safe order.",
+      "detailed": "Events outlive the code that wrote them, and producers and consumers deploy independently. **Schema evolution** is the discipline of changing event shapes while old and new versions coexist.\n\n## Compatibility types\n\n| Type | Meaning | Safe change examples |\n|---|---|---|\n| Backward compatible | New consumers can read old events | Add field with a default; remove optional field |\n| Forward compatible | Old consumers can read new events | Add optional field the old consumer ignores |\n| Full | Both | Add optional fields with defaults only |\n\n## Safe vs breaking changes\n\n- **Usually safe:** adding optional fields, adding new event types, adding enum values only if consumers handle unknown values.\n- **Breaking:** removing or renaming fields, changing a type or unit, changing meaning (status \"closed\" now means something else), making an optional field required, reusing a field number or name.\n\n## Practices\n\n1. **Consumers are tolerant readers:** ignore unknown fields; handle unknown enum values safely.\n2. **Explicit versioning:** a version field or versioned event types such as ClaimApproved.v2.\n3. **Schema registry or contract tests:** enforce compatibility rules in CI (Avro, Protobuf or JSON Schema, depending on the stack) before a producer can deploy.\n4. **Rollout order:** for adding a field, deploy tolerant consumers first, then producers. For breaking changes, run both versions in parallel (dual publish), migrate consumers, then retire the old one.\n5. **Document and own the contract**, including deprecation timelines.\n\n```json\n{ \"type\": \"ClaimApproved\", \"version\": 2,\n  \"claimId\": \"c-123\", \"approvedAmount\": 1200,\n  \"currency\": \"USD\" }\n```\n\n## Storage and replay\n\nIf events are retained or replayed (event sourcing, long retention), old versions persist. Use upcasters that translate old events to the current shape on read.\n\n## Common mistakes\n\n- Changing meaning without changing the structure, which tooling cannot detect.\n- Shipping the producer before consumers tolerate the change.\n- Generating consumers directly from the latest producer schema and tightly coupling them.\n- No test that actually deserialises old payloads with new code.\n- Skipping a deprecation process, so old versions never retire.\n\nHypothetical example: adding a currency field with a default value is backward compatible. Replacing amount in dollars with amount in cents is breaking and should be a new field or new event version.",
+      "followUps": [
+        "What is the difference between backward and forward compatibility?",
+        "What is dual publishing and when do you use it?",
+        "How would you test compatibility in CI?"
+      ],
+      "related": [
+        "event-sourcing",
+        "poison-messages"
+      ]
+    },
+    {
+      "slug": "kafka-vs-pubsub",
+      "title": "Kafka vs Google Pub/Sub: how do they differ and how do you choose?",
+      "topic": "Messaging",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "kafka",
+        "pubsub",
+        "event-streaming",
+        "messaging"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Kafka is a distributed event-streaming platform built around partitioned, retained logs with consumer offsets, so consumers can replay and ordering is per partition. Pub/Sub is a managed messaging service with topics and subscriptions, minimal operations and elastic scaling, with ordering keys and dead-letter topics as options. I would pick Pub/Sub when I want managed, decoupled fan-out on Google Cloud, and Kafka when I need long retention, replay, stream processing or an existing Kafka ecosystem, weighing operational ownership and cost.",
+      "revision": "Kafka: partitioned retained log, offsets, replay, you or a vendor operate it. Pub/Sub: managed topics and subscriptions, low ops. Compare ordering, replay, retention, ownership and cost.",
+      "detailed": "Both move events between services, but their models differ. **Kafka** is a distributed log: producers append to partitions, data is retained for a configured time or size, and consumer groups track offsets they can rewind. **Pub/Sub** is a managed publish-subscribe service: publishers send to topics, each subscription receives its own copy, and messages are acknowledged individually.\n\n## Comparison\n\n| Aspect | Kafka | Google Pub/Sub |\n|---|---|---|\n| Model | Partitioned, retained log; consumers read by offset | Topic with subscriptions; per-message acknowledgement |\n| Ordering | Within a partition (key-based) | Optional ordering keys, with constraints; verify current documentation |\n| Replay | Native: rewind offsets within retention | Via seek or snapshots and retention settings; different from log rewind |\n| Retention | Configurable, can be long | Configurable subscription and topic retention, with limits to verify |\n| Scaling | You size partitions and brokers (or use a managed offering) | Largely automatic |\n| Operations | Significant unless managed | Fully managed |\n| Delivery | At-least-once typical; transactional features exist | At-least-once by default; exactly-once options in some configurations |\n| Stream processing | Rich ecosystem (stream-processing libraries, connectors) | Typically paired with Dataflow or other processors |\n| Failure handling | Application-built DLQ patterns | Dead-letter topics built in |\n\n## How to choose\n\n- **Pub/Sub:** you are on Google Cloud, want low operational burden, fan-out to independent subscribers, and do not need log-style replay as a core feature.\n- **Kafka:** you need long retention, replay as a first-class capability, high-throughput stream processing, event sourcing, or you already run the ecosystem.\n- **Managed Kafka offerings** reduce operations, but you still design partitions, keys and consumer groups.\n\n## Common mistakes\n\n- Choosing Kafka for simple task queues, taking on partition and capacity management without need.\n- Assuming exactly-once end to end; consumers still need idempotent processing.\n- Treating Pub/Sub as strictly ordered without ordering keys.\n- Ignoring cost models: data volume, retention, egress and operations differ.\n- Not planning schema governance for either.\n\nHypothetical example: a claims platform on Google Cloud uses Pub/Sub for notifications fan-out, while an analytics team that needs to reprocess a year of events would evaluate a log-based platform.",
+      "followUps": [
+        "How does consumer parallelism differ between the two?",
+        "How would you replay messages in each system?",
+        "What does exactly-once really guarantee?"
+      ],
+      "related": [
+        "message-ordering",
+        "dead-letter-queue-retry-flow"
+      ]
+    },
+    {
+      "slug": "duplicate-webhook-handling",
+      "title": "How do you handle duplicate or replayed webhooks safely?",
+      "topic": "Messaging",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "webhooks",
+        "idempotency",
+        "signatures",
+        "security"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would verify the signature over the raw body first, plus a timestamp to limit replay, and reject anything unverified. Then I would record the provider's event ID in a table with a unique constraint, in the same transaction as the business update, so repeats become no-ops. I would acknowledge quickly with a 2xx and process heavy work asynchronously, tolerate out-of-order delivery, and keep a reconciliation path, since providers retry and can send the same event more than once.",
+      "revision": "Verify signature and timestamp on the raw body, store event IDs under a unique constraint with the business update, acknowledge fast, process idempotently and tolerate out-of-order events.",
+      "detailed": "Webhook providers typically retry on timeouts or non-2xx responses, so the same event can arrive several times, and events can arrive out of order. Treat every delivery as **untrusted** and **possibly repeated**.\n\n## Handling steps\n\n1. **Verify authenticity.** Compute the signature over the **raw request body** with the shared secret and compare using a constant-time comparison. Check the timestamp window to limit replays. Follow the provider's documentation for the exact scheme.\n2. **Deduplicate by event ID.** Insert the event ID into a processed-events table with a unique constraint. If the insert conflicts, the event was already handled; return success.\n3. **Make the business update and the dedup insert atomic**, in one transaction, so a crash cannot record the event without applying it or vice versa.\n4. **Respond quickly.** Return 2xx after durable acceptance; push slow work to a queue. Long handlers cause provider timeouts and more retries.\n5. **Handle ordering.** Do not assume delivery order; use the event's timestamp or object version, or fetch current state from the provider's API before acting.\n6. **Reconcile.** Periodically compare your records with the provider's, because webhooks can also be lost.\n\n```sql\nBEGIN;\nINSERT INTO processed_events (event_id) VALUES ($1);   -- unique; conflict means duplicate\nUPDATE invoices SET status = 'paid' WHERE id = $2 AND status <> 'paid';\nCOMMIT;\n```\n\n## Common mistakes\n\n- Parsing and re-serialising JSON before verifying the signature, which changes the bytes.\n- Deduplicating in memory only, which fails across instances and restarts.\n- Marking the event processed before the business effect is durable.\n- Returning an error for duplicates, which provokes more retries.\n- No replay protection beyond the signature.\n- Trusting the payload blindly instead of confirming critical state with the provider.\n\n## Operational notes\n\nLog the event ID and outcome, expose metrics for rejected signatures and duplicates, and keep processed IDs long enough to cover the provider's retry window.\n\nHypothetical example: a payment provider sends the same \"payment succeeded\" event twice. The second insert hits the unique constraint, the handler returns 200 without touching the invoice, and no duplicate fulfilment is triggered.",
+      "followUps": [
+        "Why must the signature be checked against the raw body?",
+        "How long should you keep processed event IDs?",
+        "What if events arrive out of order?"
+      ],
+      "related": [
+        "claim-event-delivered-twice-scenario",
+        "poison-messages"
+      ]
+    }
+  ]
+}

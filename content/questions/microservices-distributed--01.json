@@ -1,0 +1,424 @@
+{
+  "category": "microservices-distributed",
+  "questions": [
+    {
+      "slug": "sync-vs-async-communication",
+      "title": "Synchronous vs asynchronous communication between services: how do you choose?",
+      "topic": "Communication styles",
+      "difficulty": "beginner",
+      "type": "comparison",
+      "tags": [
+        "microservices",
+        "sync",
+        "async",
+        "messaging"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would use synchronous calls when the caller genuinely needs the answer to continue, such as validating a price before showing a quote. I would use asynchronous messaging when the work can finish later, when I want to buffer spikes, or when several services react independently. Sync is simpler to reason about but couples availability and latency. Async decouples services but adds eventual consistency, duplicates and harder debugging. I try to avoid long synchronous chains and give every call a deadline and a defined failure behaviour.",
+      "revision": "Sync when the caller needs an immediate answer; async for decoupling, buffering and independent processing. Sync couples availability; async adds duplicates, ordering and eventual-consistency concerns.",
+      "detailed": "Use **synchronous** communication (HTTP or gRPC request/response) when the caller cannot proceed without the result. Use **asynchronous** communication (queues, topics, event streams) when the work can complete later, when load needs buffering, or when several consumers should react to one fact.\n\n## Comparison\n\n| Aspect | Synchronous | Asynchronous |\n|---|---|---|\n| Coupling | Caller and callee must both be up | Producer only needs the broker |\n| Latency | Adds directly to the user's wait | Hidden from the caller, results arrive later |\n| Failure handling | Timeouts, retries, circuit breakers | Retries, dead-letter queues, replay |\n| Consistency | Easier to reason about | Eventual, needs idempotent consumers |\n| Debugging | A single trace | Needs correlation IDs across hops |\n| Load spikes | Passed straight through | Absorbed by the queue |\n\n## How to decide\n\n- Does the user need the result in this request? Prefer sync.\n- Is the operation a notification or side effect (send email, update search index, emit analytics)? Prefer async.\n- Can the downstream be slow or unavailable without breaking the user journey? Prefer async.\n- Is the data needed for a read path? Consider a local read model fed by events rather than a runtime call.\n\n## Common mistakes\n\n- Long synchronous chains (A calls B calls C calls D): availability multiplies down and latency adds up.\n- Calls without deadlines, so slow dependencies hold threads and connections.\n- Using async everywhere, then discovering that users need immediate confirmation and the system has no pending-state design.\n- Treating a message broker as reliable without idempotent consumers; delivery is commonly at-least-once.\n- Hiding a synchronous need behind a queue and polling for the reply.\n\n## Hybrid pattern\n\nAccept the request synchronously, persist the intent, return an \"accepted\" status, and process the rest asynchronously. The caller can poll or receive a callback.\n\nHypothetical example: a claims portal validates a policy number synchronously because the form needs immediate feedback, but the document-indexing and notification steps are published as events and handled later.",
+      "followUps": [
+        "How would you return a result to the user after asynchronous processing?",
+        "What happens to availability when you chain four synchronous services?",
+        "When is a local read model better than a runtime call?"
+      ],
+      "related": [
+        "rest-vs-grpc",
+        "handling-service-dependencies"
+      ]
+    },
+    {
+      "slug": "rest-vs-grpc",
+      "title": "REST vs gRPC: when would you choose each for service-to-service communication?",
+      "topic": "Communication styles",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "rest",
+        "grpc",
+        "protobuf",
+        "api-design"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would choose REST for public or partner APIs and anywhere broad tooling and easy debugging matter, because it runs on plain HTTP with JSON and every client understands it. I would consider gRPC for internal service-to-service calls where a typed contract, compact binary encoding and streaming help, and where I control both ends. gRPC needs generated clients and HTTP/2 support, and browsers need a proxy. I decide based on consumers, performance needs and the team's tooling, not fashion.",
+      "revision": "REST: interoperable HTTP/JSON, ideal for public and partner APIs. gRPC: typed Protobuf contracts, binary and streaming, usually internal. Choose by consumers, tooling and need.",
+      "detailed": "**REST** exposes resources over HTTP, usually with JSON. **gRPC** is a remote-procedure framework that defines services and messages in Protocol Buffers and typically runs over HTTP/2. Neither is universally better; they fit different consumers.\n\n## Comparison\n\n| Aspect | REST (JSON over HTTP) | gRPC |\n|---|---|---|\n| Contract | OpenAPI (optional, by convention) | .proto file, mandatory |\n| Encoding | Text JSON | Binary Protobuf, commonly smaller and faster to parse |\n| Streaming | Awkward (SSE, WebSockets) | Built in: server, client, bidirectional |\n| Browser clients | Native | Needs gRPC-Web and a proxy |\n| Debugging | curl, browser, any proxy | Needs specific tooling |\n| Caching | HTTP caching and CDNs work naturally | Not designed for HTTP caching |\n| Code generation | Optional | First-class, many languages |\n\n## A minimal contract\n\n```proto\nservice ClaimService {\n  rpc GetClaim (GetClaimRequest) returns (Claim);\n}\nmessage GetClaimRequest { string claim_id = 1; }\nmessage Claim { string claim_id = 1; string status = 2; }\n```\n\n## Decision guide\n\n- **Public, partner or browser-facing API:** REST, for reach, caching and tooling.\n- **Internal, chatty, latency-sensitive calls between services you own:** consider gRPC.\n- **Streaming or long-lived connections:** gRPC is a natural fit.\n- **Mixed estate:** expose REST at the edge and use gRPC internally, translating at a gateway.\n\n## Trade-offs and mistakes\n\n- Choosing gRPC for performance without measuring; JSON over HTTP is often fast enough, and network or database time usually dominates.\n- Ignoring schema evolution: in Protobuf, never reuse or renumber fields; add new optional fields instead.\n- Forgetting deadlines: gRPC supports per-call deadlines, and they should be set and propagated.\n- Load balancing long-lived HTTP/2 connections needs care, because connection-level balancing can leave traffic unevenly spread; verify how your platform handles it.\n\nHypothetical example: a policy service exposes REST for the partner portal, while internal quote and rating services call each other through gRPC with generated clients.",
+      "followUps": [
+        "How do you evolve a Protobuf contract without breaking consumers?",
+        "How would you expose a gRPC service to a browser?",
+        "Does gRPC remove the need for timeouts and retries?"
+      ],
+      "related": [
+        "sync-vs-async-communication",
+        "service-discovery"
+      ]
+    },
+    {
+      "slug": "service-discovery",
+      "title": "What is service discovery and how does it work?",
+      "topic": "Communication styles",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "service-discovery",
+        "kubernetes",
+        "dns",
+        "load-balancing"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would explain that in dynamic environments instance addresses change constantly as services scale or restart, so clients cannot hard-code them. Service discovery maps a stable service name to healthy instances. It can be client-side, where the caller queries a registry and picks an instance, or server-side, where a load balancer or platform does it. On Kubernetes or Cloud Run I usually rely on the platform's DNS and load balancing rather than building a registry myself.",
+      "revision": "Service discovery maps a stable service name to current healthy instances, via a registry, DNS or platform load balancer. Prefer platform-provided discovery over custom registries.",
+      "detailed": "**Service discovery** lets one service find healthy instances of another without hard-coded addresses. Instances start, stop, scale and move, so IPs and ports are unstable; a stable name is resolved at call time.\n\n## Main models\n\n| Model | How it works | Example |\n|---|---|---|\n| Client-side | Client asks a registry for instances and picks one itself | Registry plus client library |\n| Server-side | Client calls a stable endpoint, a load balancer chooses an instance | Cloud load balancer, API gateway |\n| Platform DNS | Orchestrator registers services and resolves names | Kubernetes Services and cluster DNS |\n| Service mesh | Sidecars or proxies route by name and apply policies | Mesh control plane |\n\n## How it works\n\n1. An instance starts and is registered, either explicitly or by the platform.\n2. A **health check** decides whether it should receive traffic; unhealthy instances are removed.\n3. A caller resolves a name to an address or goes through a proxy.\n4. Load balancing spreads requests across the healthy set.\n\n## Trade-offs\n\n- **Client-side** gives control and fewer hops, but needs a library in every language and handles staleness itself.\n- **Server-side or platform** is simpler for clients but adds a hop and a component to keep available.\n- **DNS caching** can serve stale addresses; check TTLs and client resolver behaviour.\n- A registry is itself critical infrastructure and must be highly available.\n\n## Common mistakes\n\n- Building a custom registry when the platform already provides discovery.\n- Health checks that only test \"process is alive\" and not readiness to serve; use separate liveness and readiness checks.\n- No graceful shutdown, so instances receive traffic after they begin terminating.\n- Treating discovery as resilience: it finds instances, but timeouts, retries and circuit breakers are still needed.\n\nHypothetical example: on Kubernetes, a billing service calls a stable internal service name; the platform routes to ready pods only, and a pod failing its readiness probe is taken out of rotation automatically.",
+      "followUps": [
+        "What is the difference between liveness and readiness checks?",
+        "When would you use a service mesh?",
+        "How do stale DNS entries affect failover?"
+      ],
+      "related": [
+        "rest-vs-grpc",
+        "handling-service-dependencies"
+      ]
+    },
+    {
+      "slug": "distributed-transactions-microservices",
+      "title": "How do you handle distributed transactions across microservices?",
+      "topic": "Consistency and transactions",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "distributed-transactions",
+        "saga",
+        "outbox",
+        "consistency"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would not assume ACID across services, because each service owns its database. I would model the business process as a Saga: a series of local transactions, each publishing a command or event, with compensating actions where the business allows undoing a step. I would publish events through a transactional outbox, make consumers idempotent, and choose orchestration or choreography by complexity and need for visibility. Retries and dead-letter queues handle failures, and the design depends on what partial completion costs the business.",
+      "revision": "No ACID across services: use Saga local transactions with compensations, outbox for reliable publishing, idempotent consumers, retries and DLQ. Pick orchestration or choreography by complexity.",
+      "detailed": "In a microservice system each service owns its data, so a single ACID transaction across services is usually unavailable. Two-phase commit exists but is rarely used across independently deployed services because it couples availability and holds locks. The common answer is a **Saga** plus reliable messaging.\n\n## Building blocks\n\n1. **Local transactions:** each service commits its own step atomically.\n2. **Saga:** the overall process is a sequence of local steps coordinated by commands or events (see the dedicated Saga question).\n3. **Compensating actions:** where a step can be semantically undone (release inventory, void an authorisation), a compensation runs if a later step fails. Some steps cannot be undone (an email sent), so order them last or design for it.\n4. **Transactional outbox:** write the business change and the outgoing event in the same local transaction so a commit never occurs without its message.\n5. **Idempotent consumers:** delivery is commonly at-least-once, so every handler must tolerate repeats.\n6. **Retries and dead-letter queues:** transient errors are retried with backoff; poison messages are parked for inspection.\n\n## Choosing coordination\n\n| Style | Fit |\n|---|---|\n| Choreography | Few steps, simple flows, loosely coupled teams |\n| Orchestration | Many steps, branching, need for visibility and timeouts |\n\n## Design questions to ask first\n\n- What invariant must hold, and for how long may it be violated?\n- What does the business do if only half the steps complete?\n- Which steps are reversible, and which need manual or reconciliation handling?\n- Can the system show an honest intermediate state such as \"pending\"?\n\n## Common mistakes\n\n- Trying to recreate distributed ACID with hidden shared databases.\n- Compensations that are not idempotent or that can themselves fail silently.\n- Publishing events after commit without an outbox, losing events on a crash.\n- Ignoring the intermediate states users and other services can observe.\n- Retrying irreversible actions without a stable operation ID.\n\nHypothetical example: booking a trip reserves a seat, then charges a card. If the charge fails, a compensation releases the seat; if the charge result is unknown, a reconciliation job checks the payment provider before releasing anything.",
+      "followUps": [
+        "Why is two-phase commit rarely used between microservices?",
+        "What if a compensation fails?",
+        "How do you show users an in-progress state?",
+        "How would you reconcile an unknown payment result?"
+      ],
+      "related": [
+        "saga-pattern",
+        "choreography-vs-orchestration",
+        "handling-partial-failure"
+      ]
+    },
+    {
+      "slug": "saga-pattern",
+      "title": "What is the Saga pattern and how do compensating actions work?",
+      "topic": "Consistency and transactions",
+      "difficulty": "advanced",
+      "type": "conceptual",
+      "tags": [
+        "saga",
+        "compensation",
+        "distributed-transactions"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would describe a Saga as a long-running business process split into local transactions, one per service. When a step succeeds it triggers the next, through events or an orchestrator. If a step fails, earlier steps are undone by compensating actions, such as releasing a reservation or issuing a refund. Compensation is business-level undo, not a database rollback, so it must be idempotent and some steps are not reversible. I also make intermediate states visible, because other users can see them.",
+      "revision": "A Saga chains local transactions across services; failures trigger compensating business actions instead of rollback. Compensations must be idempotent, and intermediate states are visible.",
+      "detailed": "A **Saga** is a sequence of local transactions, each in one service, where completion of a step triggers the next. If a step fails, the Saga runs **compensating transactions** for the steps already completed. It replaces a distributed ACID transaction with eventual, business-level consistency.\n\n{{diagram:saga}}\n\n## How compensation works\n\nA compensation is a new action that semantically reverses an earlier one: release inventory, void an authorisation, cancel a booking. It is not a rollback, because the earlier commit is already visible. That has consequences:\n\n- Other users may have observed the intermediate state.\n- Compensations must be **idempotent** and retryable, since they can be delivered twice.\n- Some steps cannot be reversed (notifications, shipments). Place them late in the flow, or use a \"pending then confirm\" step.\n- The compensation can itself fail, so you need retries, alerts and sometimes manual handling.\n\n## Designing a Saga\n\n| Step | Action | Compensation |\n|---|---|---|\n| 1 | Create order as pending | Mark order cancelled |\n| 2 | Reserve stock | Release stock |\n| 3 | Authorise payment | Void authorisation |\n| 4 | Confirm order | None (final) |\n\nOrder steps so that likely failures come early and irreversible steps come last. A \"semantic lock\" such as a pending status stops other flows from treating half-finished data as final.\n\n## Persisting progress\n\nAn orchestrated Saga stores its state (current step, outcomes, deadlines) durably so it can resume after a crash. Each step uses an outbox so state change and message are atomic. Every command carries a stable Saga or operation ID for idempotency.\n\n## Common mistakes\n\n- Treating compensation as exact undo and ignoring side effects already seen.\n- No timeouts, leaving Sagas stuck forever in an intermediate state.\n- Non-idempotent handlers causing double charges or double releases.\n- Putting business rules in generic event handlers where nobody can see the whole flow.\n\nHypothetical example: if stock is reserved but payment authorisation is declined, the Saga sends a release-stock command and marks the order as failed, then emits an event so notifications can tell the customer.",
+      "diagrams": [
+        {
+          "id": "saga",
+          "title": "Order Saga with compensation",
+          "alt": "An order is created, then stock is reserved, then payment is authorised, then the order is confirmed. If payment fails, a compensation releases the reserved stock and cancels the order.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "o",
+              "label": "Create order (pending)"
+            },
+            {
+              "id": "s",
+              "label": "Reserve stock"
+            },
+            {
+              "id": "p",
+              "label": "Authorise payment"
+            },
+            {
+              "id": "c",
+              "label": "Confirm order"
+            },
+            {
+              "id": "rs",
+              "label": "Release stock"
+            },
+            {
+              "id": "co",
+              "label": "Cancel order"
+            }
+          ],
+          "edges": [
+            {
+              "from": "o",
+              "to": "s",
+              "label": "success"
+            },
+            {
+              "from": "s",
+              "to": "p",
+              "label": "success"
+            },
+            {
+              "from": "p",
+              "to": "c",
+              "label": "success"
+            },
+            {
+              "from": "p",
+              "to": "rs",
+              "label": "payment fails"
+            },
+            {
+              "from": "rs",
+              "to": "co",
+              "label": "compensate"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "What do you do if a compensating action fails?",
+        "How do you prevent users acting on half-finished data?",
+        "How do you recover an orchestrated Saga after a crash?"
+      ],
+      "related": [
+        "distributed-transactions-microservices",
+        "choreography-vs-orchestration"
+      ]
+    },
+    {
+      "slug": "choreography-vs-orchestration",
+      "title": "Choreography vs orchestration: how do you coordinate a multi-service workflow?",
+      "topic": "Consistency and transactions",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "choreography",
+        "orchestration",
+        "saga",
+        "workflow"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "With choreography, services publish events and others react to them, so there is no central owner of the flow. With orchestration, a coordinator tells each service what to do and tracks the state. I would choose choreography for short, simple flows with few participants, and orchestration when there are many steps, branching, timeouts or a need to see and manage each process instance. Choreography gets hard to follow as it grows, while orchestration risks a central bottleneck if it absorbs business logic.",
+      "revision": "Choreography: services react to events, no central owner, good for simple flows. Orchestration: a coordinator drives and tracks the workflow, better for complexity and visibility.",
+      "detailed": "Both are ways to run a Saga or any multi-service workflow. **Choreography** distributes the logic: each service reacts to events and emits its own. **Orchestration** centralises it: a coordinator sends commands and tracks progress.\n\n{{diagram:styles}}\n\n## Comparison\n\n| Aspect | Choreography | Orchestration |\n|---|---|---|\n| Control flow | Implicit, spread across services | Explicit in one place |\n| Coupling | Low; services know events, not each other | Orchestrator knows every participant |\n| Visibility | Hard; reconstruct from events and traces | Easy; process state is stored |\n| Adding a step | Add a subscriber | Change the orchestrator |\n| Failure and timeouts | Each service handles its own | Handled centrally |\n| Risk | Cyclic or hidden dependencies | Orchestrator becomes a god service |\n\n## When to choose which\n\n- **Choreography:** two to four steps, stable flow, teams that should stay independent, notification-style fan-out.\n- **Orchestration:** long flows, conditional branches, human steps, deadlines, compensation order that must be controlled, or a need for dashboards such as \"how many orders are stuck at payment\".\n- Many systems mix them: orchestrate the core business process and use choreography for side effects like analytics.\n\n## Common mistakes\n\n- Choreographing a ten-step flow and then being unable to explain what happens when step six fails.\n- An orchestrator that contains domain rules belonging to the services; it should coordinate, not decide business logic for them.\n- Event chains with cycles, where service A's event triggers B, which triggers A.\n- No correlation ID, so the flow cannot be traced.\n- Not persisting orchestrator state, so a restart loses in-flight work.\n\nWorkflow engines (for example a durable-workflow framework or a BPMN engine) can provide state persistence, timers and retries for orchestration; evaluate them against the team's skills rather than assuming they are needed.\n\nHypothetical example: an order flow with payment, stock, shipping and fraud checks is orchestrated, while \"order confirmed\" is also published as an event that email and analytics services consume independently.",
+      "diagrams": [
+        {
+          "id": "styles",
+          "title": "Choreography vs orchestration",
+          "alt": "In choreography, the order service emits an event that the payment service consumes, which emits an event that the shipping service consumes. In orchestration, a central orchestrator sends commands to the payment and shipping services and receives their replies.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "o1",
+              "label": "Order service"
+            },
+            {
+              "id": "p1",
+              "label": "Payment service"
+            },
+            {
+              "id": "s1",
+              "label": "Shipping service"
+            },
+            {
+              "id": "orc",
+              "label": "Orchestrator"
+            },
+            {
+              "id": "p2",
+              "label": "Payment service (orchestrated)"
+            },
+            {
+              "id": "s2",
+              "label": "Shipping service (orchestrated)"
+            }
+          ],
+          "edges": [
+            {
+              "from": "o1",
+              "to": "p1",
+              "label": "OrderPlaced event"
+            },
+            {
+              "from": "p1",
+              "to": "s1",
+              "label": "PaymentTaken event"
+            },
+            {
+              "from": "orc",
+              "to": "p2",
+              "label": "command"
+            },
+            {
+              "from": "orc",
+              "to": "s2",
+              "label": "command"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you debug a choreographed flow that stalls?",
+        "Where should timeouts live in each style?",
+        "Would you use a workflow engine, and why?"
+      ],
+      "related": [
+        "saga-pattern",
+        "distributed-transactions-microservices"
+      ]
+    },
+    {
+      "slug": "event-sourcing",
+      "title": "What is event sourcing and when is it worth using?",
+      "topic": "Consistency and transactions",
+      "difficulty": "advanced",
+      "type": "conceptual",
+      "tags": [
+        "event-sourcing",
+        "cqrs",
+        "audit",
+        "events"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would explain that event sourcing stores every change as an immutable event, and current state is rebuilt by replaying events, rather than overwriting rows. It gives a full audit trail, the ability to rebuild projections and time-based queries. The costs are real: event schema evolution, snapshots for performance, eventual consistency in read models and a learning curve. I would use it where history is the business value, such as ledgers, and not for every event-driven system.",
+      "revision": "Event sourcing persists state changes as an immutable event log and rebuilds state by replay. Great for audit and history, costly in complexity; not required for event-driven design.",
+      "detailed": "**Event sourcing** stores the sequence of domain events as the source of truth, instead of storing only the latest state. Current state is derived by folding the events for an entity in order.\n\n## How it works\n\n- Commands are validated against the current state (rebuilt from events, or from a snapshot).\n- Accepted commands produce new events appended to the entity's stream, typically with optimistic concurrency on the stream version.\n- **Projections** consume events and build read models for queries, which is why it pairs often (not always) with CQRS.\n- **Snapshots** store periodic state so long streams do not need full replay.\n\n```ts\ntype Event = { type: 'Deposited' | 'Withdrawn'; amount: number };\nconst balance = (events: Event[]) =>\n  events.reduce((b, e) => (e.type === 'Deposited' ? b + e.amount : b - e.amount), 0);\n```\n\n## Benefits\n\n- Complete audit history by construction.\n- Rebuild or add read models later by replaying history.\n- Natural fit for temporal questions (\"what was the state last Tuesday?\").\n\n## Costs and trade-offs\n\n| Concern | Impact |\n|---|---|\n| Event schema evolution | Old events live forever and must stay readable (upcasting, versioning) |\n| Querying | Needs projections; read models are eventually consistent |\n| Corrections | You append compensating events, not edit history |\n| Privacy deletion | Immutable history conflicts with erasure requirements; needs design such as encryption keys per subject |\n| Complexity | Tooling, replay, snapshots and operations |\n\n## Common mistakes\n\n- Confusing event sourcing with simply publishing events; an event-driven system can use ordinary state storage plus an outbox.\n- Using it everywhere instead of in domains where history matters.\n- Putting large, mutable or sensitive data in events.\n- Designing events as CRUD diffs (\"RowUpdated\") rather than business facts (\"ClaimApproved\").\n\nHypothetical example: an account ledger stores Deposited and Withdrawn events. A new \"monthly statement\" projection can be built later by replaying the stream, without migrating the original data.",
+      "followUps": [
+        "How do you handle changes to the shape of old events?",
+        "How is event sourcing different from an outbox with state storage?",
+        "How would you handle a data erasure request?"
+      ],
+      "related": [
+        "saga-pattern",
+        "event-schema-evolution"
+      ]
+    },
+    {
+      "slug": "cap-theorem",
+      "title": "What is the CAP theorem and how does it apply to real systems?",
+      "topic": "Consistency and transactions",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "cap",
+        "consistency",
+        "availability",
+        "partition-tolerance"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would say CAP states that when a network partition happens, a distributed data system must choose between consistency, meaning every read sees the latest write, and availability, meaning every request gets a non-error response. Partitions are a fact of life, so the real choice is what to do during one. It does not mean you permanently pick two. I would apply it per operation: payments favour consistency, a product catalogue read can favour availability.",
+      "revision": "During a network partition you must choose between consistency and availability. Partitions are unavoidable, so the choice is per operation; outside partitions you still trade latency against consistency.",
+      "detailed": "The **CAP theorem** says that a distributed data store cannot guarantee both consistency and availability while a network partition is occurring. The terms are narrow:\n\n- **Consistency (C):** linearizable behaviour, so every read returns the most recent write or an error.\n- **Availability (A):** every request to a non-failing node receives a non-error response.\n- **Partition tolerance (P):** the system continues operating despite lost or delayed messages between nodes.\n\n## What it really means\n\nSince networks do partition, P is not optional. The practical question is: **when nodes cannot talk, do you refuse some requests (CP) or serve possibly stale or divergent data (AP)?**\n\n| Choice | Behaviour during a partition | Typical fit |\n|---|---|---|\n| CP | Minority side rejects or blocks requests | Financial balances, inventory limits, leader election |\n| AP | All sides keep serving, then reconcile | Catalogues, feeds, shopping carts, caches |\n\n## Beyond CAP\n\nCAP only describes behaviour during a partition. When there is no partition, systems still trade **latency against consistency**; the PACELC model captures this. Consistency also has a spectrum: strong, read-your-writes, monotonic reads, eventual.\n\n## Common mistakes\n\n- Reading CAP as \"pick any two of three\" for the whole system.\n- Labelling a database CP or AP without checking its configuration; many stores let you choose per query (quorum reads, consistency levels). Verify against current documentation.\n- Confusing CAP consistency with ACID consistency; they are different concepts.\n- Assuming availability in CAP means high uptime in the everyday sense.\n- Forgetting that the choice belongs to the business: ask what is worse, a rejected request or a stale answer.\n\n## Applying it in design\n\nDecide per operation. In a booking system, the \"reserve last seat\" write may require a consistent, single-writer path and may fail during a partition, while \"browse available flights\" can be served from replicas that are slightly stale. Reconcile AP data with versioning, last-write-wins (with its risk of losing updates) or merge strategies.\n\nHypothetical example: a regional replica loses contact with the primary. Reads of policy documents continue from the replica (AP), but premium-payment writes are rejected there until contact returns (CP).",
+      "followUps": [
+        "Is a single-node relational database subject to CAP?",
+        "What is PACELC?",
+        "How do you reconcile divergent replicas after a partition?"
+      ],
+      "related": [
+        "distributed-lock-pitfalls",
+        "handling-partial-failure"
+      ]
+    },
+    {
+      "slug": "distributed-lock-pitfalls",
+      "title": "How do distributed locks work, and what are their risks?",
+      "topic": "Consistency and transactions",
+      "difficulty": "advanced",
+      "type": "conceptual",
+      "tags": [
+        "distributed-lock",
+        "lease",
+        "fencing",
+        "concurrency"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "A distributed lock gives one process exclusive access to a resource across machines, usually through a lease in a shared store with an expiry. The risk is that a lock holder can pause, for example during garbage collection or a network delay, its lease expires, someone else takes the lock, and then the first holder carries on. I would use leases with sensible timeouts and fencing tokens checked by the resource, and I would prefer database constraints or optimistic concurrency when they solve the problem.",
+      "revision": "Distributed locks are leases with expiry; paused holders can act after expiry. Use fencing tokens checked by the resource, and prefer unique constraints or optimistic concurrency where possible.",
+      "detailed": "A **distributed lock** coordinates exclusive access to a shared resource or job across multiple processes. A common implementation stores a key with a unique owner value and an expiry (a **lease**) in a shared store; releasing deletes the key only if the owner still matches.\n\n## Why locks are tricky\n\nUnlike in-process locks, a distributed lock cannot distinguish a crashed holder from a slow one. Leases solve the crash case (the lock eventually expires) but create another problem:\n\n1. Process A takes the lock with a 30-second lease.\n2. A stalls (long pause, slow network, overloaded host).\n3. The lease expires; process B takes the lock.\n4. A wakes up, still believes it holds the lock, and writes.\n\nBoth now act, so mutual exclusion has failed.\n\n## Fencing tokens\n\nThe lock service issues a monotonically increasing token with each grant. The protected resource records the highest token seen and rejects writes with a lower one. This makes the resource itself the final guard.\n\n```sql\n-- Resource rejects stale writers using the token\nUPDATE job_state\nSET owner_token = $1, status = 'running'\nWHERE job_id = $2 AND owner_token < $1;\n```\n\n## Alternatives to locks\n\n| Need | Often better than a lock |\n|---|---|\n| Prevent duplicates | Unique constraint or idempotency key |\n| Concurrent updates to one row | Optimistic concurrency (version column) or row-level locking |\n| One scheduler instance runs a job | Leader election from the platform, or a database advisory lock |\n| Serialise per entity | Partitioned queue keyed by entity ID |\n\n## Common mistakes\n\n- Assuming the lock is safe without fencing, for correctness-critical work.\n- Lease shorter than the work, or no lease renewal; or a very long lease that delays recovery.\n- Releasing a lock you no longer own.\n- Using locks for efficiency (avoid duplicate cheap work) and correctness alike without distinguishing the two; efficiency locks tolerate rare failures, correctness locks do not.\n- Treating a single-node cache as a guarantee when it can fail over and lose lock state.\n\nHypothetical example: a nightly settlement job takes a lease so only one instance runs. Even so, the settlement table has a unique constraint on (settlement_date, account_id), so a rare double-run cannot create duplicates.",
+      "followUps": [
+        "What is a fencing token and who checks it?",
+        "Why might a lock in a single cache node be unsafe?",
+        "What would you use instead of a lock to prevent duplicate processing?"
+      ],
+      "related": [
+        "cap-theorem",
+        "handling-partial-failure"
+      ]
+    },
+    {
+      "slug": "handling-partial-failure",
+      "title": "How do you design for partial failure in a multi-step distributed operation?",
+      "topic": "Consistency and transactions",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "partial-failure",
+        "reconciliation",
+        "idempotency",
+        "timeouts"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would assume that any step in a multi-service operation can succeed, fail or time out with an unknown result. So I would persist the state of each step, give the whole operation a stable ID, retry the safe and idempotent steps, compensate reversible ones, and run reconciliation for outcomes that stay unknown. A timeout does not prove failure, so for something like a payment I would query the provider's status before retrying. I would also alert on operations stuck in intermediate states.",
+      "revision": "Track each step's state under a stable operation ID, retry idempotent steps, compensate reversible ones, and reconcile unknown outcomes. A timeout is not proof of failure.",
+      "detailed": "In a distributed operation, a call can have three outcomes: success, failure, or **unknown** (timeout, connection reset, crash after sending). The unknown case is the hardest, because the remote side may or may not have done the work.\n\n## A design approach\n\n1. **Give the operation a stable ID** generated before the first call and reused on every retry.\n2. **Persist progress.** Store each step's state (not started, in progress, succeeded, failed, unknown) in the service's own database, in the same transaction as any related business change.\n3. **Classify each step:**\n   - *Idempotent and safe:* retry with backoff.\n   - *Reversible:* compensate if a later step fails.\n   - *Irreversible or uncertain:* reconcile before retrying.\n4. **Reconcile.** For unknown outcomes, query the other system by the operation ID, or compare periodic reports, and then decide.\n5. **Bound everything.** Deadlines, maximum attempts and a final \"needs attention\" state, so nothing waits forever.\n6. **Observe.** Monitor the age and count of operations in intermediate states.\n\n## Step classification example\n\n| Step | Nature | Failure handling |\n|---|---|---|\n| Reserve stock | Reversible | Release on failure |\n| Charge card | Irreversible, may be unknown | Check provider status by operation ID, then retry with the same key |\n| Send confirmation email | Safe but not undoable | Retry; accept a rare duplicate or deduplicate |\n| Update loyalty points | Idempotent | Retry with backoff |\n\n## Common mistakes\n\n- Treating a timeout as a failure and blindly retrying a non-idempotent call.\n- Generating a new ID on each retry, defeating idempotency.\n- Keeping progress only in memory.\n- No reconciliation job, so rare uncertain cases accumulate silently.\n- Marking an operation failed locally while the remote side actually succeeded.\n\n## Operational view\n\nProvide a way to list stuck operations, replay or resume them safely, and escalate to a person when automation cannot decide.\n\nHypothetical example: a refund request times out at the payment provider. The service marks the refund \"unknown\", queries the provider with the refund's operation ID, and only issues a new refund if the provider confirms none exists.",
+      "followUps": [
+        "How do you decide when to stop retrying and escalate?",
+        "What does a reconciliation job look like?",
+        "How do you make sure the retry reuses the same idempotency key?"
+      ],
+      "related": [
+        "distributed-transactions-microservices",
+        "saga-pattern",
+        "payment-service-unavailable-scenario"
+      ]
+    }
+  ]
+}

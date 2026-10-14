@@ -1,0 +1,202 @@
+{
+  "category": "solution-architecture",
+  "questions": [
+    {
+      "slug": "clean-architecture-vs-ddd",
+      "title": "Clean Architecture versus Domain-Driven Design: how do they compare?",
+      "topic": "Architecture styles",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "clean-architecture",
+        "ddd",
+        "bounded-context",
+        "hexagonal"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would say they solve different problems and work well together. Clean Architecture is about dependency direction: business rules sit at the centre and do not depend on frameworks, databases or delivery mechanisms. Domain-Driven Design is about modelling a complex domain with bounded contexts, aggregates, entities and value objects. DDD helps me find and model the domain; Clean Architecture gives me a code structure that keeps infrastructure from controlling that model. For simple CRUD I would use neither heavily.",
+      "revision": "DDD decides what to model (bounded contexts, aggregates); Clean Architecture decides how code depends (rules inward, infrastructure outward). Complementary, not competing.",
+      "detailed": "They are often presented as alternatives, but they answer different questions. **Domain-Driven Design (DDD)** is a way to understand and model a complicated business domain. **Clean Architecture** is a way to arrange code so that business rules do not depend on technical details.\n\n## Comparison\n| Aspect | Clean Architecture | Domain-Driven Design |\n|---|---|---|\n| Core question | Which way do source-code dependencies point? | How do we model this business domain? |\n| Main concepts | Entities, use cases, interface adapters, frameworks at the edge | Ubiquitous language, bounded contexts, aggregates, entities, value objects, domain events |\n| Scope | Structure inside one application or service | Strategic (context boundaries between teams and services) and tactical (inside a model) |\n| Typical benefit | Testable rules, replaceable frameworks and databases | Shared language, clear service boundaries, rules that match the business |\n| Typical cost | More layers and mapping code | Modelling effort; needs domain experts |\n\n## How they fit together\n{{diagram:fit}}\n\nDDD's strategic design identifies bounded contexts, which often become service or module boundaries. Inside a context, tactical DDD models aggregates and invariants. Clean Architecture (or the closely related hexagonal style) places that domain model at the centre, with use cases around it and adapters for HTTP, persistence and messaging at the outside. Repositories are defined as interfaces by the inner layers and implemented by the database adapter.\n\n## When to use which\n- **Simple CRUD or reporting service**: keep it simple; heavy layering adds little.\n- **Rich rules and many invariants**: tactical DDD pays off.\n- **Many teams and a shifting domain**: strategic DDD (contexts, language) matters most.\n- **Long-lived system with likely infrastructure change**: Clean Architecture-style boundaries help.\n\n## Common mistakes\n- Treating DDD as only a folder structure of entities and repositories.\n- Creating one layer per concept and a mapper for every field in small services.\n- Anemic models where all logic lives in services, giving the vocabulary but not the benefit.\n- Applying both everywhere regardless of domain complexity.\n\n## Example (hypothetical)\nA policy-management domain has distinct contexts for quoting and billing, each with its own language. DDD defines those contexts and the aggregates inside them. Each service is then organised with Clean Architecture so the quoting rules run in unit tests without a database or web framework.",
+      "diagrams": [
+        {
+          "id": "fit",
+          "title": "DDD and Clean Architecture together",
+          "alt": "Domain-driven design identifies bounded contexts and an aggregate model; Clean Architecture places that model at the centre, with use cases around it and HTTP and database adapters at the outer edge depending inward.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "bc",
+              "label": "Bounded context (DDD)"
+            },
+            {
+              "id": "dom",
+              "label": "Domain model: aggregates"
+            },
+            {
+              "id": "uc",
+              "label": "Use cases"
+            },
+            {
+              "id": "http",
+              "label": "HTTP adapter"
+            },
+            {
+              "id": "db",
+              "label": "Database adapter"
+            }
+          ],
+          "edges": [
+            {
+              "from": "bc",
+              "to": "dom",
+              "label": "defines"
+            },
+            {
+              "from": "uc",
+              "to": "dom",
+              "label": "uses"
+            },
+            {
+              "from": "http",
+              "to": "uc",
+              "label": "calls"
+            },
+            {
+              "from": "db",
+              "to": "uc",
+              "label": "implements ports of"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "What is an aggregate and how do you choose its boundary?",
+        "How do you map a bounded context to a NestJS module or a service?",
+        "Is Clean Architecture worth the extra layers for a small service?"
+      ],
+      "related": [
+        "design-healthcare-claims-processing-system"
+      ]
+    },
+    {
+      "slug": "design-healthcare-claims-processing-system",
+      "title": "How would you design a healthcare claims processing system?",
+      "topic": "Domain design scenarios",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "claims",
+        "workflow-engine",
+        "rules-engine",
+        "idempotency",
+        "audit",
+        "healthcare"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would start by clarifying the claim standards, regulation and volumes with the client. Core capabilities are intake, validation, eligibility, adjudication, payment and remittance, notification and audit. Each claim gets a stable ID and explicit lifecycle states. Intake is idempotent so duplicate submissions do not create duplicate claims. A business-rules engine holds configurable policy, while a workflow engine coordinates long-running steps and human approvals. Each service owns its data and publishes events, with least-privilege access, encryption, audit trails and retention rules.",
+      "revision": "Stable claim ID, explicit lifecycle, idempotent intake; rules engine for policy, workflow engine for long-running steps; service-owned data, events, audit and least privilege.",
+      "detailed": "Claims processing is a long-running, rule-heavy, audit-sensitive workflow. A good design makes the claim lifecycle explicit, keeps policy configurable, and treats every state change as something that must be traceable.\n\n## Clarify first\nConfirm the claim formats and standards, applicable regulation, volumes and peaks, turnaround targets, who handles exceptions manually, and what systems of record exist. These answers can change the design, so do not assume them.\n\n## Core capabilities\nIntake, validation, eligibility check, adjudication (apply coverage and policy rules), payment and remittance, notifications, and audit.\n\n{{diagram:claims}}\n\n## Lifecycle as a state machine\nGive every claim a stable ID and explicit states, for example *received, validated, rejected, pending-review, adjudicated, approved, denied, paid, closed*. Allowed transitions are defined in one place, and each transition records who or what caused it and when.\n\n## Key design decisions\n| Concern | Approach |\n|---|---|\n| Duplicate submissions | Idempotency key or natural key checks at intake; the same submission returns the same claim |\n| Configurable policy | A business-rules engine (or a well-structured rules module) so coverage logic changes without redeploying code |\n| Long-running steps and human approval | A BPMN-style workflow engine with durable state, timers, retries and manual tasks |\n| Data ownership | Each service owns its store; state changes are published as events, ideally through a transactional outbox |\n| Security and privacy | Least-privilege access, encryption in transit and at rest, masking of sensitive fields in logs and events |\n| Audit and retention | Append-only audit trail; retention and deletion rules from regulation |\n\n## Rules engine versus workflow engine\nThey solve different problems. A **rules engine** answers \"given this claim and policy, what is the decision?\" and is stateless and declarative. A **workflow engine** answers \"what happens next, who must act, and what if a step fails or times out?\" and holds process state over days. Many designs use both: the workflow calls the rules for decisions.\n\n## Common mistakes\n- Hard-coding policy rules in service code.\n- Modelling the lifecycle implicitly through scattered boolean flags.\n- Letting retries create duplicate payments.\n- Putting sensitive claim data into logs, events or traces.\n\n## Example (hypothetical)\nA submitted claim is stored as *received*, validated, then the workflow requests an eligibility check. The rules service returns \"approve\", \"deny\" or \"needs review\". Needs-review creates a manual task; approval triggers payment with an idempotency key, and each step emits an event for notifications and audit.",
+      "diagrams": [
+        {
+          "id": "claims",
+          "title": "Claim lifecycle and services",
+          "alt": "A claim flows from intake to validation, eligibility, and adjudication, which calls a business-rules engine and may route to manual review through a workflow engine; approved claims go to payment and remittance, and every step publishes events consumed by notification and audit services.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "in",
+              "label": "Intake"
+            },
+            {
+              "id": "val",
+              "label": "Validation"
+            },
+            {
+              "id": "elig",
+              "label": "Eligibility"
+            },
+            {
+              "id": "adj",
+              "label": "Adjudication"
+            },
+            {
+              "id": "rules",
+              "label": "Business-rules engine"
+            },
+            {
+              "id": "wf",
+              "label": "Workflow engine: manual review"
+            },
+            {
+              "id": "pay",
+              "label": "Payment and remittance"
+            },
+            {
+              "id": "ev",
+              "label": "Event bus"
+            },
+            {
+              "id": "aud",
+              "label": "Notification and audit"
+            }
+          ],
+          "edges": [
+            {
+              "from": "in",
+              "to": "val"
+            },
+            {
+              "from": "val",
+              "to": "elig"
+            },
+            {
+              "from": "elig",
+              "to": "adj"
+            },
+            {
+              "from": "adj",
+              "to": "rules",
+              "label": "decision"
+            },
+            {
+              "from": "adj",
+              "to": "wf",
+              "label": "needs review"
+            },
+            {
+              "from": "adj",
+              "to": "pay",
+              "label": "approved"
+            },
+            {
+              "from": "pay",
+              "to": "ev",
+              "label": "events"
+            },
+            {
+              "from": "ev",
+              "to": "aud"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you handle a claim that is resubmitted with corrections?",
+        "Where would you apply the outbox pattern in this design?",
+        "How do you version policy rules so past decisions can be explained?",
+        "How would you protect sensitive data in logs and events?"
+      ],
+      "related": [
+        "clean-architecture-vs-ddd"
+      ]
+    }
+  ]
+}

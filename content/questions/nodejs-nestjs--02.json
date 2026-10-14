@@ -1,0 +1,422 @@
+{
+  "category": "nodejs-nestjs",
+  "questions": [
+    {
+      "slug": "dependency-injection-in-nestjs",
+      "title": "What is dependency injection and how does NestJS implement it?",
+      "topic": "NestJS architecture",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "nestjs",
+        "dependency-injection",
+        "testing"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "companies": [
+        "valuemomentum"
+      ],
+      "quick": "I would explain that dependency injection means a class receives the collaborators it needs from outside instead of creating them itself. NestJS has an IoC container: classes marked with @Injectable are registered as providers in modules, and the container resolves constructor parameters by token and injects them. This keeps classes loosely coupled, makes it easy to swap a real repository for a fake in tests, and lets the framework control creation and lifetime.",
+      "revision": "Dependency injection: a class receives its dependencies instead of constructing them. NestJS's container resolves providers by token, giving loose coupling, easy test doubles and managed lifetimes.",
+      "detailed": "**Dependency injection (DI)** is a design approach where an object is given its dependencies rather than creating them. It separates *using* a collaborator from *constructing* it.\n\n## How NestJS does it\n- A class decorated with `@Injectable()` can be a **provider**.\n- Providers are registered in a module's `providers` array. Modules also declare `imports` and `exports` to control what is visible to others.\n- When Nest builds a class, it reads the constructor parameter types and asks the container for matching providers.\n- For interfaces (which do not exist at runtime) you use **custom tokens**: a string, symbol or class.\n\n```ts\nexport const ORDER_REPO = Symbol('ORDER_REPO');\n\n@Injectable()\nexport class OrderService {\n  constructor(@Inject(ORDER_REPO) private readonly repo: OrderRepository) {}\n}\n\n@Module({\n  providers: [\n    OrderService,\n    { provide: ORDER_REPO, useClass: PostgresOrderRepository },\n  ],\n})\nexport class OrderModule {}\n```\n\n## Benefits\n- **Testability:** supply a fake for `ORDER_REPO` in unit tests.\n- **Flexibility:** change implementations per environment (`useFactory`, `useClass`, `useValue`).\n- **Lifecycle management:** the container creates singletons once and handles initialisation and shutdown hooks.\n\n## Trade-offs and mistakes\n- Heavy decorator magic can hide the wiring; unclear module boundaries produce circular imports.\n- Forgetting to export a provider from its module, or to import the module where it is needed, is the classic \"Nest can't resolve dependencies\" error.\n- Injecting everything, including pure functions, adds ceremony. DI is for collaborators with behaviour or I/O.\n- Using `new` inside services bypasses the container and the benefits above.\n\n**Example (hypothetical):** a notification service depends on a mail-sender token. Production binds an SMTP adapter, tests bind an in-memory recorder, and the service code never changes.",
+      "followUps": [
+        "How do you inject an interface in NestJS?",
+        "What are the provider scopes?",
+        "What does 'Nest can't resolve dependencies' usually mean?"
+      ],
+      "related": [
+        "singleton-vs-request-scoped-providers",
+        "avoid-circular-dependencies-nestjs"
+      ]
+    },
+    {
+      "slug": "middleware-guards-interceptors-nestjs",
+      "title": "Middleware vs guards vs interceptors in NestJS: what is the difference?",
+      "topic": "NestJS architecture",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "nestjs",
+        "middleware",
+        "guards",
+        "interceptors"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "companies": [
+        "valuemomentum"
+      ],
+      "quick": "I would say all three hook into the request path but at different points and with different purposes. Middleware runs first, before routing context is known, for generic preprocessing like logging or correlation IDs. Guards run after middleware and decide whether the handler may execute, typically authentication and authorization. Interceptors wrap the handler execution, so they can run code before and after, transform the result, add caching, or measure timing. Pipes and exception filters complement them.",
+      "revision": "Middleware: early generic preprocessing. Guards: allow or deny execution. Interceptors: wrap the handler before and after, to transform results, cache or time it.",
+      "detailed": "NestJS builds a request pipeline from several components. The order is roughly:\n\n**Middleware -> Guards -> Interceptors (before) -> Pipes -> Handler -> Interceptors (after) -> Exception filters (on error)**\n\n| Component | Purpose | Has execution context? | Typical use |\n|---|---|---|---|\n| Middleware | Generic request/response preprocessing | No (Express/Fastify style `req, res, next`) | Request IDs, logging, body handling |\n| Guard | Authorise: return true/false or throw | Yes | Authentication, roles, permissions |\n| Interceptor | Wrap handler with RxJS | Yes | Response mapping, caching, timing, timeouts |\n| Pipe | Validate/transform arguments | Yes | DTO validation, parsing |\n| Exception filter | Convert errors to responses | Yes | Consistent error format |\n\n## Guards\nA guard implements `canActivate(context)`. Because it sees the execution context and handler metadata (for example roles set by a decorator), it can make route-aware decisions that middleware cannot.\n\n## Interceptors\n```ts\n@Injectable()\nexport class TimingInterceptor implements NestInterceptor {\n  intercept(ctx: ExecutionContext, next: CallHandler) {\n    const start = Date.now();\n    return next.handle().pipe(\n      tap(() => console.log('took', Date.now() - start, 'ms')),\n    );\n  }\n}\n```\n\n## Choosing\n- Needs to run for every request regardless of route and has no need for handler metadata: middleware.\n- Answers \"is this caller allowed to run this handler?\": guard.\n- Needs to act on both sides of the handler or reshape the result: interceptor.\n\n## Common mistakes\n- Doing authorization in middleware, losing per-route metadata.\n- Putting business rules in interceptors or guards.\n- Assuming the order of global versus controller versus route-level bindings without checking the documentation.\n\n**Example (hypothetical):** middleware attaches a correlation ID, a guard checks the caller's role from a decorator, and an interceptor wraps results in a standard response envelope and records latency.",
+      "followUps": [
+        "Where do pipes and exception filters fit in the order?",
+        "How do guards read metadata set by custom decorators?",
+        "Can an interceptor handle timeouts?"
+      ],
+      "related": [
+        "pipes-vs-exception-filters-nestjs",
+        "dependency-injection-in-nestjs"
+      ]
+    },
+    {
+      "slug": "pipes-vs-exception-filters-nestjs",
+      "title": "Pipes vs exception filters in NestJS: how do they differ?",
+      "topic": "NestJS architecture",
+      "difficulty": "beginner",
+      "type": "comparison",
+      "tags": [
+        "nestjs",
+        "pipes",
+        "exception-filters"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "companies": [
+        "valuemomentum"
+      ],
+      "quick": "I would explain that pipes work on the way in: they validate or transform handler arguments, such as parsing an ID to a number or validating a DTO, and they throw an exception if input is invalid. Exception filters work on the way out when something goes wrong: they catch exceptions and turn them into a consistent HTTP response. So a validation pipe throws, and a filter decides what the client sees.",
+      "revision": "Pipes validate or transform input before the handler runs. Exception filters catch thrown errors and translate them into the response. Pipes raise problems; filters shape how they are reported.",
+      "detailed": "They address opposite ends of the request.\n\n## Pipes: input\nA **pipe** receives an argument (body, query, param) just before the handler. It does one of two things:\n- **Transform:** convert types, for example `ParseIntPipe` turns `\"42\"` into `42`, or a class-transformer based pipe turns a plain object into a DTO instance.\n- **Validate:** check the value and throw (usually a `BadRequestException`) if it is invalid.\n\n```ts\n@Get(':id')\nfindOne(@Param('id', ParseIntPipe) id: number) {\n  return this.service.find(id);\n}\n```\n\nPipes can be bound per parameter, per handler, per controller or globally (`app.useGlobalPipes`).\n\n## Exception filters: output on failure\nAn **exception filter** catches exceptions thrown anywhere in the pipeline after middleware, including by pipes, guards and handlers, and builds the response.\n\n```ts\n@Catch(HttpException)\nexport class ApiErrorFilter implements ExceptionFilter {\n  catch(ex: HttpException, host: ArgumentsHost) {\n    const res = host.switchToHttp().getResponse();\n    res.status(ex.getStatus()).json({ error: { message: ex.message } });\n  }\n}\n```\n\nThe built-in global filter already handles `HttpException` and returns a generic 500 for unknown errors; custom filters let you enforce your own error schema, map domain errors to status codes and log with a correlation ID.\n\n## Comparison\n| | Pipe | Exception filter |\n|---|---|---|\n| When | Before handler | After an exception |\n| Job | Validate/transform input | Translate error to response |\n| Output | Value or thrown exception | HTTP response |\n\n## Common mistakes\n- Hand-validating inside controllers instead of using a pipe.\n- Leaking stack traces or internal messages from a filter.\n- Expecting a filter to catch errors from code that swallowed them.\n\n**Example (hypothetical):** `ValidationPipe` rejects a request with a missing field and throws a 400 with details; the global filter wraps it into the service's standard error envelope.",
+      "followUps": [
+        "Where in the request lifecycle does a filter run for errors thrown by a guard?",
+        "How do you create a global validation pipe?",
+        "How would you map domain errors to HTTP statuses?"
+      ],
+      "related": [
+        "middleware-guards-interceptors-nestjs",
+        "validate-api-input-nestjs"
+      ]
+    },
+    {
+      "slug": "singleton-vs-request-scoped-providers",
+      "title": "Singleton vs request-scoped providers in NestJS: what are the trade-offs?",
+      "topic": "NestJS architecture",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "nestjs",
+        "providers",
+        "scope",
+        "performance"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "companies": [
+        "valuemomentum"
+      ],
+      "quick": "I would say the default in NestJS is a singleton provider: one instance created at startup and shared by all requests, which is cheap and fast. Request-scoped providers are created per incoming request, which is useful when something truly depends on request data, but they add instantiation cost and the scope bubbles up to every class that injects them. So I default to singletons, pass request context explicitly or through AsyncLocalStorage-style mechanisms, and use request scope sparingly.",
+      "revision": "Singletons are the default: created once, shared, cheap. Request-scoped providers get a new instance per request, cost more and make dependents request-scoped too. Use sparingly.",
+      "detailed": "## Scopes\nNestJS providers have three scopes:\n- **DEFAULT (singleton):** one instance for the whole application lifecycle, shared across requests.\n- **REQUEST:** a new instance for each incoming request, discarded afterwards.\n- **TRANSIENT:** a new instance for each consumer that injects it.\n\n```ts\n@Injectable({ scope: Scope.REQUEST })\nexport class RequestContextService {\n  constructor(@Inject(REQUEST) private readonly request: Request) {}\n}\n```\n\n## Trade-offs\n| Aspect | Singleton | Request-scoped |\n|---|---|---|\n| Creation | Once at startup | Every request |\n| Overhead | Minimal | Extra allocation per request; can affect throughput |\n| State | Must be stateless or safely shared | Per-request state is safe |\n| Lifecycle hooks | Fully supported | Some hooks behave differently |\n\n## Scope bubbling\nIf a singleton depends on a request-scoped provider, the singleton effectively becomes request-scoped too, and so does anything that depends on it, up to the controller. One innocent request-scoped service can therefore turn a large part of the graph into per-request objects.\n\n## Alternatives\n- Keep services singleton and **pass context as a parameter** (user ID, tenant ID).\n- Use **AsyncLocalStorage** (Node's async context, with the nestjs-cls community package or a custom implementation) to hold request-level data without changing scope.\n- Keep per-request state in a small object created in the controller or a guard.\n\n## Common mistakes\n- Storing per-user data in fields of a singleton, causing data leaks between requests.\n- Marking services request-scoped \"to be safe\".\n- Not measuring the performance impact.\n\n**Example (hypothetical):** a multi-tenant service needs the current tenant. Instead of making the data layer request-scoped, the tenant ID is stored in AsyncLocalStorage by middleware and read where needed, keeping providers singleton.",
+      "followUps": [
+        "Why is storing request data on a singleton dangerous?",
+        "What is scope bubbling?",
+        "How would AsyncLocalStorage help here?"
+      ],
+      "related": [
+        "dependency-injection-in-nestjs",
+        "middleware-guards-interceptors-nestjs"
+      ]
+    },
+    {
+      "slug": "avoid-circular-dependencies-nestjs",
+      "title": "How do you avoid circular dependencies in NestJS?",
+      "topic": "NestJS architecture",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "nestjs",
+        "modules",
+        "architecture"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "companies": [
+        "valuemomentum"
+      ],
+      "quick": "I would treat a circular dependency as a design smell, not a wiring problem. First I would revisit module boundaries: if two modules need each other, the responsibilities are probably split wrongly. I would extract the shared logic into a third module or a shared contract, depend on an interface or port, or communicate through events. I would use forwardRef only as a last resort when the cycle is justified and understood, because it hides coupling.",
+      "revision": "Circular dependencies signal wrong boundaries. Redesign: extract shared logic, depend on ports or events. Use forwardRef only when a cycle is justified.",
+      "detailed": "A **circular dependency** exists when A depends on B and B depends on A, directly or through a chain. In NestJS it appears either between files (import cycles that make a class `undefined` at decoration time) or between providers/modules (the container cannot decide which to build first).\n\n## First, treat it as design feedback\nA cycle usually means the two parts are not truly separate. Options, in rough order of preference:\n\n1. **Move shared logic out.** Extract the part both need into a third service or module that both import.\n2. **Invert the dependency.** Define an interface (port) in the lower-level module and let the higher-level one implement it, so the dependency points one way.\n3. **Use events.** One side emits a domain event and the other reacts, removing the direct call (for example with `@nestjs/event-emitter` or a message bus).\n4. **Merge modules** if they always change together.\n5. **`forwardRef()`** as a last resort.\n\n```ts\n// last resort, in both places\nconstructor(\n  @Inject(forwardRef(() => UsersService))\n  private readonly users: UsersService,\n) {}\n\n@Module({ imports: [forwardRef(() => UsersModule)] })\nexport class AuthModule {}\n```\n\n## Why avoid forwardRef\n- It silences the symptom while keeping tight coupling.\n- Initialisation order becomes subtle, and a provider may be used before it is ready.\n- Tests need both sides even when you care about one.\n- Code navigation and refactoring get harder.\n\n## Common mistakes\n- Barrel files (`index.ts`) that create import cycles.\n- Putting every service in one \"shared\" module that imports everything.\n- Letting two feature modules call each other's services instead of exposing a narrow API.\n\n**Example (hypothetical):** `OrdersModule` calls `InventoryService` and `InventoryModule` calls back into `OrdersService` to check pending orders. Extracting a small reservation service used by both, or emitting an event when stock changes, removes the loop.",
+      "followUps": [
+        "How do you detect import cycles in a codebase?",
+        "When would forwardRef be acceptable?",
+        "How do events help break cycles and what do they cost?"
+      ],
+      "related": [
+        "dependency-injection-in-nestjs",
+        "keep-business-logic-independent-of-nestjs"
+      ]
+    },
+    {
+      "slug": "validate-api-input-nestjs",
+      "title": "How do you validate API input in NestJS, and why are TypeScript types not enough?",
+      "topic": "Validation and testing",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "nestjs",
+        "validation",
+        "dto",
+        "security"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "companies": [
+        "valuemomentum"
+      ],
+      "quick": "I would say TypeScript types disappear at runtime, so they cannot validate JSON that arrives over the network. In NestJS I define DTO classes with validation rules, using class-validator or a schema library like Zod, and apply a global ValidationPipe with whitelist and transform options so unknown fields are stripped and types converted. Validation failures return a clear 400. I would also validate params and queries, limit payload size, and keep validation separate from business rules.",
+      "revision": "TypeScript types vanish at runtime. Use DTOs with runtime validation (class-validator or a schema library) via a global ValidationPipe with whitelisting; return 400 on failure.",
+      "detailed": "TypeScript checks types at **compile time** only. A request body is untrusted data from outside, so declaring `body: CreateUserDto` does not guarantee it matches. Validation must happen at runtime at the boundary.\n\n## The common NestJS approach\nDefine a DTO with decorators (class-validator) and enable a global pipe:\n\n```ts\nexport class CreateUserDto {\n  @IsEmail()\n  email: string;\n\n  @IsString()\n  @Length(8, 64)\n  password: string;\n\n  @IsOptional()\n  @IsInt()\n  @Min(0)\n  age?: number;\n}\n\n// main.ts\napp.useGlobalPipes(\n  new ValidationPipe({\n    whitelist: true,\n    forbidNonWhitelisted: true,\n    transform: true,\n  }),\n);\n```\n\n- **whitelist** strips properties without decorators, protecting against mass assignment.\n- **forbidNonWhitelisted** rejects unknown fields instead of silently dropping them.\n- **transform** converts plain objects to DTO instances and primitives to declared types (for example query strings to numbers).\n\nAlternatives include schema-first validation with Zod or Joi through a custom pipe, which keeps one definition for both types and runtime checks. OpenAPI documentation can be generated from DTOs with the Nest Swagger plugin.\n\n## What to validate\n- Body, query string, path params and headers.\n- Nested objects and arrays (`@ValidateNested`, `@Type`).\n- Payload size limits at the HTTP layer.\n\n## What not to put in DTOs\nBusiness rules that need data (\"is this email already registered?\") belong in the service or domain layer; DTO validation covers shape and basic constraints.\n\n## Common mistakes\n- Trusting type annotations.\n- Forgetting `@ValidateNested` so nested objects go unchecked.\n- Returning raw validator output that exposes internals instead of a stable error format.\n- Reusing one DTO for create, update and response with different requirements.\n\n**Example (hypothetical):** a client sends `{\"email\":\"a@b.c\",\"isAdmin\":true}`. With whitelist and forbidNonWhitelisted the unknown `isAdmin` property is rejected before it can reach persistence.",
+      "followUps": [
+        "What is mass assignment and how does whitelist help?",
+        "class-validator or Zod: how do you choose?",
+        "Where should business validation live?"
+      ],
+      "related": [
+        "pipes-vs-exception-filters-nestjs",
+        "test-nestjs-applications"
+      ]
+    },
+    {
+      "slug": "test-nestjs-applications",
+      "title": "How do you test a NestJS application at different levels?",
+      "topic": "Validation and testing",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "nestjs",
+        "testing",
+        "jest",
+        "integration"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "companies": [
+        "valuemomentum"
+      ],
+      "quick": "I would use a layered strategy. Unit tests cover domain and service logic with dependencies replaced by fakes, using Nest's testing module to override providers. Integration tests exercise repositories against a real database, ideally a disposable container. API or contract tests call controllers over HTTP with supertest, and a small number of end-to-end tests cover critical journeys through the deployed stack. Most tests sit at the cheap bottom, with fewer at the top.",
+      "revision": "Test in layers: fast unit tests with fakes, integration tests against a real database, HTTP and contract tests via supertest, and few end-to-end journeys. Override providers with the testing module.",
+      "detailed": "A balanced strategy mixes fast, focused tests with a few realistic ones.\n\n| Level | Scope | Dependencies | Speed |\n|---|---|---|---|\n| Unit | One service or domain class | Fakes/mocks | Fastest |\n| Integration | Service plus real infrastructure (database, cache) | Real, usually containerised | Medium |\n| API / contract | HTTP layer: routing, guards, pipes, serialisation | Often fake or stubbed downstream | Medium |\n| End to end | Whole system across services | Everything | Slowest |\n\n## Unit tests\n`Test.createTestingModule` builds a module where you override providers.\n\n```ts\nconst moduleRef = await Test.createTestingModule({\n  providers: [\n    OrderService,\n    { provide: ORDER_REPO, useValue: { save: jest.fn() } },\n  ],\n}).compile();\n\nconst service = moduleRef.get(OrderService);\n```\n\nIf business logic lives in plain classes (see the related question on keeping logic independent), many unit tests need no Nest at all.\n\n## Integration tests\nRun repositories against a real database (for example a throwaway container started by the test run) to catch SQL, mapping and migration problems that mocks cannot. Reset data between tests.\n\n## API tests\nCreate the app with `createNestApplication()`, call it with `supertest`, and verify status codes, validation errors, authentication and response shapes. For service boundaries, consumer-driven contract tests catch breaking changes without a full environment.\n\n## End-to-end tests\nKeep these few and valuable: login, checkout, the critical flows. They are slow and brittle if overused.\n\n## Common mistakes\n- Mocking everything, so tests pass while production fails.\n- Testing framework behaviour instead of your logic.\n- Sharing mutable database state across tests.\n- Inverting the pyramid with mostly slow end-to-end tests.\n\n**Example (hypothetical):** an order service has unit tests for pricing rules, integration tests for the repository's queries, API tests for validation and authorisation, and one end-to-end test that places an order.",
+      "followUps": [
+        "How do you override a guard in a test?",
+        "When do mocks become a liability?",
+        "What is contract testing and when does it help?"
+      ],
+      "related": [
+        "validate-api-input-nestjs",
+        "keep-business-logic-independent-of-nestjs"
+      ]
+    },
+    {
+      "slug": "keep-business-logic-independent-of-nestjs",
+      "title": "How do you keep business logic independent of NestJS?",
+      "topic": "Structure and microservices",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "nestjs",
+        "architecture",
+        "clean-architecture",
+        "ports-and-adapters"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "companies": [
+        "valuemomentum"
+      ],
+      "quick": "I would put core rules in plain TypeScript domain classes and functions with no controllers, request objects or framework decorators. Application services orchestrate use cases and talk to abstractions, called ports. Infrastructure adapters implement those ports for the database, messaging and external APIs, and NestJS modules do the wiring. This keeps the core easy to unit test, makes framework upgrades less risky, and lets me change persistence or transport without touching the rules.",
+      "revision": "Keep rules in plain domain code, orchestrate with application services against ports, and implement ports in infrastructure adapters. Nest wires it together but does not own the logic.",
+      "detailed": "NestJS is a delivery and wiring framework. If rules are written directly inside controllers or depend on `Request` objects and decorators, they become hard to test and tied to HTTP. A layered, ports-and-adapters structure avoids that.\n\n{{diagram:layers}}\n\n## Layers\n- **Domain:** entities, value objects and pure rules (pricing, eligibility, state transitions). Plain TypeScript, no framework imports.\n- **Application:** use-case services that coordinate domain objects and call ports. They accept plain inputs and return plain results.\n- **Ports:** interfaces owned by the inner layers (`OrderRepository`, `PaymentGateway`).\n- **Infrastructure (adapters):** implementations using TypeORM, Prisma, HTTP clients or queues.\n- **Interface layer:** controllers, DTOs, guards and filters that translate HTTP into use-case calls.\n\n```ts\n// domain\nexport class Order {\n  addLine(sku: string, qty: number) {\n    if (qty <= 0) throw new InvalidQuantityError();\n    this.lines.push({ sku, qty });\n  }\n}\n\n// port + use case\nexport interface OrderRepository { save(o: Order): Promise<void>; }\n\nexport class PlaceOrder {\n  constructor(private readonly repo: OrderRepository) {}\n  async execute(cmd: PlaceOrderCommand) { /* build, validate, save */ }\n}\n```\n\nA Nest module then binds `OrderRepository` to a concrete adapter through DI.\n\n## Benefits\n- Fast unit tests without the Nest container.\n- Transport independence: the same use case can serve HTTP, a queue consumer or a CLI job.\n- Easier migration of frameworks, ORMs or messaging.\n\n## Trade-offs\nMore files and mapping code; for simple CRUD services the ceremony may not pay off. Apply the structure where business rules are genuinely rich.\n\n## Common mistakes\n- Passing `Request` or entity decorators into the domain.\n- Using ORM entities as domain objects everywhere.\n- Making `@Injectable` decorators leak into domain classes.\n- Over-abstracting trivial code.\n\n**Example (hypothetical):** a refund-eligibility rule lives in a domain class. It is called from an HTTP controller today and from a scheduled job tomorrow, with no change to the rule or its tests.",
+      "followUps": [
+        "Is it acceptable to use @Injectable in application services?",
+        "How do you map between ORM entities and domain objects?",
+        "When is this structure overkill?"
+      ],
+      "related": [
+        "test-nestjs-applications",
+        "design-microservices-with-nestjs"
+      ],
+      "diagrams": [
+        {
+          "id": "layers",
+          "title": "Layers around the domain",
+          "alt": "Controllers in the interface layer call application use cases. Use cases depend on domain rules and on port interfaces. Infrastructure adapters implement the ports for the database, messaging and external APIs.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "ctl",
+              "label": "Controllers and DTOs"
+            },
+            {
+              "id": "app",
+              "label": "Application use cases"
+            },
+            {
+              "id": "dom",
+              "label": "Domain rules"
+            },
+            {
+              "id": "port",
+              "label": "Ports (interfaces)"
+            },
+            {
+              "id": "adp",
+              "label": "Infrastructure adapters"
+            },
+            {
+              "id": "ext",
+              "label": "Database, queue, external APIs"
+            }
+          ],
+          "edges": [
+            {
+              "from": "ctl",
+              "to": "app"
+            },
+            {
+              "from": "app",
+              "to": "dom"
+            },
+            {
+              "from": "app",
+              "to": "port"
+            },
+            {
+              "from": "adp",
+              "to": "port",
+              "label": "implements"
+            },
+            {
+              "from": "adp",
+              "to": "ext"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "design-microservices-with-nestjs",
+      "title": "How do you design microservices using NestJS?",
+      "topic": "Structure and microservices",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "nestjs",
+        "microservices",
+        "architecture",
+        "resilience"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "companies": [
+        "valuemomentum"
+      ],
+      "quick": "I would start from business capabilities and bounded contexts, not one service per module. Each service owns its logic and its data, exposes versioned APIs or events, and has clear operational and security boundaries. Inside a NestJS service I separate controllers, application services, domain logic and infrastructure adapters, using modules and dependency injection for testability. Between services I add timeouts, retries with idempotency, observability and failure handling. If independent deployment and scaling are not justified, I would choose a modular monolith first.",
+      "revision": "Split by bounded context, each service owns data and versioned contracts; layer inside Nest; add timeouts, retries, idempotency and tracing between services; prefer a modular monolith if independence is unjustified.",
+      "detailed": "## Start with boundaries, not framework features\nDecompose by **business capability and bounded context** (ordering, billing, catalogue), where language and data ownership are naturally cohesive. A NestJS *module* is a code organisation unit and does not automatically deserve its own service.\n\n{{diagram:ms}}\n\n## Principles\n- **Own your data.** No other service reads your tables; share through APIs or events.\n- **Versioned contracts.** Publish OpenAPI specs and event schemas, evolve them compatibly.\n- **Clear operational boundary:** own deployment, scaling, on-call, health checks and security (authentication, authorisation, secrets).\n\n## Inside each NestJS service\n- Controllers translate transport to use cases.\n- Application services coordinate; domain classes hold rules.\n- Infrastructure adapters for the database and messaging.\n- Modules and DI define boundaries and enable test doubles.\n- NestJS offers microservice transports (TCP, Redis, NATS, RabbitMQ, Kafka, gRPC) via `@nestjs/microservices`. Pick them for fit, not because they exist; plain HTTP or a managed broker is often enough.\n\n## Between services\n| Concern | Practice |\n|---|---|\n| Latency/failure | Timeouts, bounded retries with backoff, circuit breakers |\n| Duplicates | Idempotent handlers and idempotency keys |\n| Consistency | Events, outbox pattern, sagas for distributed workflows |\n| Visibility | Correlation IDs, distributed tracing, metrics, structured logs |\n| Contract safety | Consumer-driven contract tests |\n\n## When not to\nMicroservices add network failure, deployment and data-consistency complexity. If a team is small, boundaries are still moving or scaling needs are uniform, a **modular monolith** with strict module boundaries gives most of the structure with far less operational cost, and extracting a service later stays possible.\n\n## Common mistakes\n- One service per entity or per Nest module.\n- Shared database across services.\n- Chatty synchronous call chains.\n- No observability until the first incident.\n\n**Example (hypothetical):** an ordering service publishes an OrderPlaced event via an outbox; billing and notification services consume it idempotently, each with its own database and deployment.",
+      "followUps": [
+        "How would you handle a transaction that spans several services?",
+        "Which NestJS microservice transport would you choose and why?",
+        "How do you decide between a modular monolith and microservices?"
+      ],
+      "related": [
+        "avoid-distributed-monolith",
+        "keep-business-logic-independent-of-nestjs"
+      ],
+      "diagrams": [
+        {
+          "id": "ms",
+          "title": "NestJS microservices with owned data",
+          "alt": "An API gateway routes to ordering, billing and notification services, each a NestJS application with its own database. Ordering publishes events to a message broker, which billing and notification consume.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "gw",
+              "label": "API gateway"
+            },
+            {
+              "id": "o",
+              "label": "Ordering service"
+            },
+            {
+              "id": "b",
+              "label": "Billing service"
+            },
+            {
+              "id": "n",
+              "label": "Notification service"
+            },
+            {
+              "id": "br",
+              "label": "Message broker"
+            },
+            {
+              "id": "odb",
+              "label": "Ordering DB"
+            },
+            {
+              "id": "bdb",
+              "label": "Billing DB"
+            }
+          ],
+          "edges": [
+            {
+              "from": "gw",
+              "to": "o"
+            },
+            {
+              "from": "o",
+              "to": "odb"
+            },
+            {
+              "from": "o",
+              "to": "br",
+              "label": "events"
+            },
+            {
+              "from": "br",
+              "to": "b"
+            },
+            {
+              "from": "br",
+              "to": "n"
+            },
+            {
+              "from": "b",
+              "to": "bdb"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "avoid-distributed-monolith",
+      "title": "What is a distributed monolith and how do you avoid one?",
+      "topic": "Structure and microservices",
+      "difficulty": "advanced",
+      "type": "conceptual",
+      "tags": [
+        "microservices",
+        "architecture",
+        "coupling"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "companies": [
+        "valuemomentum"
+      ],
+      "quick": "I would define a distributed monolith as a system split into separately deployed services that are still so tightly coupled they must change and deploy together, giving the costs of both styles. Signs are synchronous call chains, a shared database, lockstep releases and shared libraries holding business logic. To avoid it I draw boundaries around domain ownership, minimise synchronous dependencies in favour of events, give each service its own data, and verify that each service can really deploy independently.",
+      "revision": "A distributed monolith is services coupled so tightly they must deploy together. Avoid it with domain-based boundaries, owned data, fewer synchronous calls, and genuinely independent deployment.",
+      "detailed": "A **distributed monolith** has the network boundaries of microservices but the coupling of a monolith. You pay for distribution (latency, partial failure, operations) without gaining independent change.\n\n## Warning signs\n- A release of one service requires coordinated releases of others.\n- Services share a database or read each other's tables.\n- Long synchronous call chains, where one slow service stalls the rest.\n- Shared libraries containing domain logic that every service must upgrade together.\n- Breaking API changes without versioning.\n- Services split by technical layer (an \"auth service\", a \"database service\") rather than business capability.\n- One team cannot test a service without starting many others.\n\n## How to avoid it\n1. **Draw boundaries by domain ownership** (bounded contexts), so most changes touch one service.\n2. **Own data per service.** Integrate through APIs or events, not shared tables.\n3. **Reduce synchronous coupling.** Prefer asynchronous events for cross-context reactions; where a synchronous call is needed, add timeouts, fallbacks and circuit breakers.\n4. **Version contracts** and keep changes backward compatible, supported by consumer-driven contract tests.\n5. **Keep shared libraries thin** (utilities, typed clients), without business rules.\n6. **Test independence.** Can you deploy this service alone on a normal day? If not, the boundary is questionable.\n7. **Consider a modular monolith** first when boundaries are uncertain; it is far cheaper to correct internal module boundaries than service boundaries.\n\n## Trade-offs\nEvent-driven decoupling brings eventual consistency and harder debugging. Some synchronous dependencies are legitimate; the goal is to make them few and resilient.\n\n## Common mistakes\n- Splitting for fashion or \"scalability\" without a driver.\n- Sharing a database \"temporarily\".\n- Treating a chain of REST calls as decoupled because each hop is a separate service.\n\n**Example (hypothetical):** to render an order page, a gateway calls five services in sequence, and a change to the pricing schema forces three other services to redeploy. Merging the over-split parts, caching read models and moving updates to events restores independence.",
+      "followUps": [
+        "How would you detect coupling between services in practice?",
+        "What are legitimate reasons for a synchronous call between services?",
+        "How does a modular monolith help avoid this problem?"
+      ],
+      "related": [
+        "design-microservices-with-nestjs"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,438 @@
+{
+  "category": "gcp-architecture",
+  "questions": [
+    {
+      "slug": "gcp-iam-and-service-accounts",
+      "title": "How do IAM and service accounts work on GCP?",
+      "topic": "Identity and security",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "gcp",
+        "iam",
+        "service-account"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "IAM controls who or what can perform which actions on which resources. A principal, such as a user, group or service account, is granted a role, which is a set of permissions, on a resource or at a higher level like a project or folder. A service account is the identity a workload uses to call other Google Cloud services. I would give each application its own service account, grant narrowly scoped roles, and avoid broad primitive roles like Owner or Editor.",
+      "revision": "IAM binds principals to roles on resources. A service account is a workload's identity: one per application, narrow roles, no broad Owner/Editor grants.",
+      "detailed": "## Direct answer\n**Cloud IAM** answers \"who can do what on which resource\". An IAM policy attaches to a resource (or an ancestor in the hierarchy) and contains bindings of **principals** to **roles**. A **service account** is a non-human principal that a workload runs as when it calls Google Cloud APIs.\n\n## Core concepts\n- **Principals:** user accounts, groups, service accounts, and federated external identities.\n- **Roles:** collections of permissions. Predefined roles are narrow and maintained by Google; custom roles let you tailor permissions; basic roles (Owner, Editor, Viewer) are very broad and generally discouraged for workloads.\n- **Hierarchy and inheritance:** organisation, folders, projects and resources. A grant at a higher level flows down, so grant at the lowest level that works.\n- **Conditions:** some bindings support conditions such as time or resource attributes.\n- **Deny policies:** can block permissions regardless of allow grants, where supported.\n- **Audit logs:** administrative activity is logged, and data-access logs can be enabled for sensitive services.\n\n## Service accounts in practice\n- Cloud Run, GKE workloads, Cloud Build and other services each run as a configured service account.\n- The default service accounts often hold broad permissions; create dedicated ones instead.\n- The runtime obtains short-lived credentials from the environment, so application code uses application default credentials and no key file.\n- Permission to act as a service account is itself a permission (for example the ability to attach it to a service), so control who can do that.\n\n## Common mistakes\n- Using the default compute service account with broad roles for every workload.\n- Downloading long-lived service account keys and committing or sharing them.\n- Granting project-level roles when a resource-level grant would do.\n- Never reviewing unused permissions.\n\n## Comparison with other clouds\nThe ideas map to roles and policies elsewhere, but the models differ: GCP policies attach to resources and inherit down a hierarchy, so do not assume one-to-one equivalence.\n\n**Example (hypothetical):** an `orders-api` service account may read secrets for its own service and connect to one database, nothing else.",
+      "followUps": [
+        "What is wrong with the Editor role for an application?",
+        "How do you let a pipeline impersonate a service account safely?",
+        "How do IAM hierarchy and inheritance affect design?"
+      ],
+      "related": [
+        "workload-identity-and-least-privilege",
+        "secure-service-to-service-calls-on-gcp"
+      ]
+    },
+    {
+      "slug": "workload-identity-and-least-privilege",
+      "title": "How do you manage workload identity and least privilege on GCP?",
+      "topic": "Identity and security",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "gcp",
+        "workload-identity",
+        "least-privilege",
+        "security"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would give each application and each pipeline its own dedicated identity with only the permissions it needs. Where supported I would use federated, short-lived credentials such as workload identity instead of long-lived service account keys. I would separate deployment privileges from runtime privileges, audit permission changes and access logs, and regularly review unused permissions. That limits blast radius if any one workload or pipeline is compromised, and makes access reviewable.",
+      "revision": "Dedicated identity per workload and pipeline, least permissions, federation instead of long-lived keys, separate deploy from runtime privileges, audit changes and prune unused grants.",
+      "detailed": "## Direct answer\nTreat identity as the main security boundary: one narrowly privileged identity per workload, short-lived credentials, no exported keys, and separation between who deploys and who runs.\n\n## Practices\n1. **Dedicated service account per workload.** A compromise of the notifications service should not expose billing data.\n2. **Least privilege.** Start with no permissions; add predefined or custom roles at the narrowest scope (resource over project). Use tooling such as policy recommendations to find over-grants.\n3. **No long-lived keys.** Workloads on Cloud Run, GKE or other Google compute obtain credentials from the metadata service. On GKE, use workload identity to map a Kubernetes service account to a Google service account.\n4. **Workload identity federation for external systems.** CI platforms and other clouds can exchange their own short-lived tokens for Google credentials, replacing stored keys. Restrict by repository, branch or environment through attribute conditions.\n5. **Separate duties.** The pipeline identity can deploy and may impersonate the runtime identity but cannot read production data. The runtime identity cannot change infrastructure.\n6. **Audit and review.** Alert on IAM policy changes and key creation, keep admin activity logs, enable data-access logs for sensitive resources, and run periodic access reviews.\n7. **Guardrails.** Organisation policies can disable service account key creation and restrict where resources are created.\n\n## Example binding (illustrative)\n```bash\ngcloud run services add-iam-policy-binding orders-api \\\n  --member=\"serviceAccount:ci-deployer@PROJECT.iam.gserviceaccount.com\" \\\n  --role=\"roles/run.developer\"\n```\nScope roles to the specific service, and verify role names against current documentation.\n\n## Common mistakes\n- A single shared \"app\" service account used everywhere.\n- Handing out Owner or Editor so that something \"just works\".\n- Keys stored in repository secrets and never rotated.\n- Letting the runtime identity create or delete infrastructure.\n- Forgetting that permission to impersonate a service account is equivalent to holding its permissions.\n\n**Example (hypothetical):** a pipeline authenticates through federation as a deployer account; it can create Cloud Run revisions but only the runtime account can read the database secret.",
+      "followUps": [
+        "How does workload identity federation work for a CI system?",
+        "How do you find unused permissions?",
+        "What is the risk of service account impersonation?"
+      ],
+      "related": [
+        "gcp-iam-and-service-accounts",
+        "secrets-in-cicd-on-gcp"
+      ]
+    },
+    {
+      "slug": "secure-service-to-service-calls-on-gcp",
+      "title": "How do you secure service-to-service calls on GCP?",
+      "topic": "Identity and security",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "gcp",
+        "cloud-run",
+        "authentication",
+        "zero-trust"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would give each service a workload identity and make calls authenticated rather than relying on network location. For example, a Cloud Run caller obtains an identity token for the target and the target requires IAM invoker permission for that caller. I would grant least-privilege access, use authenticated encrypted transport, and still perform application-level authorisation checks for what the caller may do. Restricting ingress to internal or load-balancer traffic adds another layer.",
+      "revision": "Per-service identities, IAM-authorised invocation with identity tokens, encrypted transport, restricted ingress, plus application-level authorisation. Network location alone is not authentication.",
+      "detailed": "## Direct answer\nEvery call between services should prove **who the caller is** and be **authorised for what it asks**, over **encrypted transport**. On GCP this typically combines workload identities, IAM and ingress controls.\n\n{{diagram:s2s}}\n\n## Mechanics on Cloud Run\n1. The caller runs as a service account.\n2. It requests a Google-signed **ID token** whose audience is the target service URL (client libraries such as `google-auth-library` can do this).\n3. It sends the token in the `Authorization: Bearer` header.\n4. The target service is deployed as not publicly invokable; IAM checks that the caller has the invoker role on it before the request reaches the code.\n5. Optionally the target also verifies the token and reads the caller's identity claim for finer decisions.\n\n```ts\nimport { GoogleAuth } from 'google-auth-library';\nconst client = await new GoogleAuth().getIdTokenClient(TARGET_URL);\nconst res = await client.request({ url: `${TARGET_URL}/internal/quotes` });\n```\n\n## Layers\n| Layer | Control |\n|---|---|\n| Identity | dedicated service account per service |\n| Authentication | ID tokens, IAM invoker role |\n| Authorisation | application-level rules per caller and resource |\n| Network | internal ingress, VPC controls, no public exposure for internal services |\n| Transport | TLS everywhere (managed endpoints provide it) |\n| Asynchronous paths | Pub/Sub publisher and subscriber IAM, authenticated push endpoints |\n\nOn GKE, similar goals are reached with workload identity, network policies and optionally a service mesh with mutual TLS.\n\n## Common mistakes\n- Relying on \"it is on a private network\" as trust.\n- Making internal services public with no authentication.\n- Passing the end user's token downstream without thinking about audience and scope.\n- Granting the invoker role to broad groups.\n- Skipping authorisation checks because the caller is \"trusted\".\n\n**Example (hypothetical):** only the `policy-service` account holds the invoker role on `pricing-service`, which also checks that the caller's identity claim matches an expected value.",
+      "diagrams": [
+        {
+          "id": "s2s",
+          "title": "Authenticated service-to-service call",
+          "alt": "The caller service runs as its own service account, obtains an ID token for the target audience, and sends it to the target Cloud Run service. IAM checks the invoker role, then the target applies application-level authorisation.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "a",
+              "label": "Caller service (own service account)"
+            },
+            {
+              "id": "t",
+              "label": "ID token (audience = target)"
+            },
+            {
+              "id": "iam",
+              "label": "IAM invoker check"
+            },
+            {
+              "id": "b",
+              "label": "Target Cloud Run service"
+            },
+            {
+              "id": "z",
+              "label": "App-level authorisation"
+            }
+          ],
+          "edges": [
+            {
+              "from": "a",
+              "to": "t",
+              "label": "request"
+            },
+            {
+              "from": "t",
+              "to": "iam",
+              "label": "Bearer token"
+            },
+            {
+              "from": "iam",
+              "to": "b",
+              "label": "allowed"
+            },
+            {
+              "from": "b",
+              "to": "z"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you secure Pub/Sub push to a Cloud Run endpoint?",
+        "What changes on GKE with a service mesh?",
+        "Why still authorise inside the service?"
+      ],
+      "related": [
+        "workload-identity-and-least-privilege",
+        "gcp-iam-and-service-accounts"
+      ]
+    },
+    {
+      "slug": "secret-manager-on-gcp",
+      "title": "How do you manage application secrets with Secret Manager?",
+      "topic": "Identity and security",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "gcp",
+        "secret-manager",
+        "secrets",
+        "security"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Secret Manager stores secrets with versioning and IAM-controlled access. I would keep secrets out of source code and container images, grant each service account access only to the secrets it needs, and inject them at runtime, for example as environment variables or mounted files in Cloud Run, or fetch them through the client library. I would pin to versions deliberately, plan rotation, and review access and audit logs. Where possible I would prefer identity-based access over passwords, so fewer secrets exist at all.",
+      "revision": "Store secrets in Secret Manager, grant per-secret IAM to specific service accounts, inject at runtime, version and rotate, audit access, and prefer identity-based auth to reduce secrets.",
+      "detailed": "## Direct answer\n**Secret Manager** is a managed store for sensitive values such as API keys, passwords and certificates. Each secret has versions, access is governed by IAM, and access can be audited. Applications read secrets at runtime; the values never live in source control or images.\n\n## How to use it well\n- **Per-secret IAM:** give each runtime service account the secret accessor role on only its own secrets, not project-wide.\n- **Injection options on Cloud Run:** expose a secret as an environment variable or a mounted file. Environment variables are read at instance start, so a rotated value needs a new revision or restart; mounted files can reflect new versions, depending on how you reference the version. Verify current behaviour.\n- **Client library access:** fetch at startup or on demand with caching and a refresh strategy for rotation.\n- **Versions:** reference a pinned version for reproducibility, or the latest alias when you want automatic pickup, accepting less control.\n- **Rotation:** define who rotates, how often, and how the application tolerates old and new values during overlap. Notifications and scheduled functions can help automate it.\n- **Auditing:** use audit logs to see who accessed which secret.\n- **Reduce secrets:** use IAM database authentication, workload identity federation and signed tokens where available.\n\n```ts\nimport { SecretManagerServiceClient } from '@google-cloud/secret-manager';\nconst [v] = await new SecretManagerServiceClient().accessSecretVersion({\n  name: 'projects/PROJECT/secrets/payments-api-key/versions/latest',\n});\nconst key = v.payload?.data?.toString();\n```\n\n## Common mistakes\n- Putting secrets in environment files committed to the repository or baked into images.\n- One shared secret for all environments.\n- Logging secret values or full configuration objects.\n- Granting project-wide accessor roles.\n- Never rotating, or rotating without testing the application's reload behaviour.\n\n**Example (hypothetical):** staging and production keep separate secrets in separate projects; only each environment's runtime account can access its own.",
+      "followUps": [
+        "How do you rotate a database password with zero downtime?",
+        "Environment variable versus mounted secret?",
+        "How do you keep secrets out of CI logs?"
+      ],
+      "related": [
+        "secrets-in-cicd-on-gcp",
+        "workload-identity-and-least-privilege"
+      ]
+    },
+    {
+      "slug": "artifact-registry-and-cloud-build",
+      "title": "What are Artifact Registry and Cloud Build, and how do they fit a delivery pipeline?",
+      "topic": "Delivery and operations",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "gcp",
+        "artifact-registry",
+        "cloud-build",
+        "ci-cd"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Artifact Registry is the managed repository for container images and other supported package types such as npm packages, and it supersedes Container Registry. Cloud Build is a managed service that runs build and automation steps, for example building and pushing an image. Together they form a path: a trigger runs the build, tests and scans run, and an immutable versioned image lands in Artifact Registry for deployment. I would restrict who can push and pull, and scan images for vulnerabilities.",
+      "revision": "Artifact Registry stores images and packages (replacing Container Registry); Cloud Build runs build steps. Build, test and scan, push an immutable image, then deploy that exact artifact.",
+      "detailed": "## Direct answer\n**Artifact Registry** stores build outputs: container images and other formats such as npm, Maven and Python packages. **Cloud Build** executes a series of steps (each in a container) to build, test and publish. Together they provide the build-and-publish half of a pipeline on GCP. Other CI systems, such as GitHub Actions, can replace Cloud Build and still publish to Artifact Registry.\n\n## Typical flow\n{{diagram:pipe}}\n\n## Artifact Registry practices\n- Use repositories per team or environment tier with IAM scoped to them.\n- Tag images uniquely (commit SHA) and deploy by **digest** so what you tested is what you run.\n- Enable vulnerability scanning where available and gate promotion on results.\n- Apply cleanup policies to control storage cost.\n- Use remote or virtual repositories carefully to cache or proxy public packages.\n- It replaces the older Container Registry; verify migration status if you meet legacy registry paths.\n\n## Cloud Build practices\n- Define steps in a build configuration file kept in source control.\n- Run it as a dedicated, least-privilege service account rather than a broad default.\n- Keep secrets in Secret Manager, not in build config.\n- Use caching to speed up Node.js dependency installs.\n\n```yaml\nsteps:\n  - name: gcr.io/cloud-builders/docker\n    args: ['build', '-t', 'REGION-docker.pkg.dev/PROJECT/apps/orders:$COMMIT_SHA', '.']\nimages:\n  - 'REGION-docker.pkg.dev/PROJECT/apps/orders:$COMMIT_SHA'\n```\n\n## Common mistakes\n- Deploying mutable tags such as `latest`.\n- Letting any developer push to the production repository.\n- Rebuilding the image per environment instead of promoting the same artifact.\n- No retention policy, so old images accumulate.\n\n**Example (hypothetical):** a merge to main builds `orders:abc123`, scans it, and the same digest is promoted from staging to production.",
+      "diagrams": [
+        {
+          "id": "pipe",
+          "title": "Build and publish path",
+          "alt": "A source commit triggers Cloud Build, which runs tests and scans, builds a container image and pushes it to Artifact Registry. Deployment targets such as Cloud Run or GKE pull the same immutable image.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "src",
+              "label": "Source commit"
+            },
+            {
+              "id": "cb",
+              "label": "Cloud Build (test, scan, build)"
+            },
+            {
+              "id": "ar",
+              "label": "Artifact Registry"
+            },
+            {
+              "id": "cr",
+              "label": "Cloud Run"
+            },
+            {
+              "id": "gke",
+              "label": "GKE"
+            }
+          ],
+          "edges": [
+            {
+              "from": "src",
+              "to": "cb",
+              "label": "trigger"
+            },
+            {
+              "from": "cb",
+              "to": "ar",
+              "label": "push image"
+            },
+            {
+              "from": "ar",
+              "to": "cr",
+              "label": "deploy digest"
+            },
+            {
+              "from": "ar",
+              "to": "gke"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Why deploy by digest rather than tag?",
+        "How do you scan images in the pipeline?",
+        "Cloud Build versus GitHub Actions: how do you choose?"
+      ],
+      "related": [
+        "secrets-in-cicd-on-gcp",
+        "observability-on-gcp"
+      ]
+    },
+    {
+      "slug": "secrets-in-cicd-on-gcp",
+      "title": "How do you handle secrets and credentials in CI/CD for GCP deployments?",
+      "topic": "Delivery and operations",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "gcp",
+        "ci-cd",
+        "secrets",
+        "workload-identity-federation"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would avoid storing long-lived credentials in the CI system at all. The pipeline authenticates through workload identity federation, exchanging its own short-lived token for a restricted Google identity, and that identity can only deploy what it needs. Application secrets live in Secret Manager and are read by the runtime identity, never by the pipeline unless required. Nothing sensitive goes into source, images or logs, and I would scan for committed secrets and audit pipeline access.",
+      "revision": "Use federation for short-lived restricted pipeline identity, keep app secrets in Secret Manager read by the runtime, never in source, images or logs, and scan for leaked secrets.",
+      "detailed": "## Direct answer\nRemove static secrets from the pipeline wherever possible, give the pipeline a narrowly scoped short-lived identity, and keep application secrets in Secret Manager accessed by the runtime service account.\n\n## Pipeline authentication\n- **Workload identity federation:** the CI provider issues an OIDC token for each run; Google validates it and lets that run impersonate a specific service account. Credentials are short-lived, and there is no key to leak or rotate.\n- **Attribute conditions:** restrict which repository, branch or environment may use the identity, so a pull request from a fork cannot deploy to production.\n- **Scope:** the deployer account may update specific Cloud Run services or push to a specific Artifact Registry repository; it does not read production data.\n\n## Application secrets\n- Store them in Secret Manager; the **runtime** account holds accessor rights.\n- Deployment configuration references the secret by name, so the pipeline never sees the value.\n- If the pipeline must read a secret (for example a test credential), use a separate low-privilege secret for that purpose.\n\n## Hygiene\n- Protected branches and environment approvals before production deploys.\n- Secret scanning on commits and in build output; mask secrets in logs.\n- Never bake secrets into images; image layers are readable by anyone with pull access.\n- Separate credentials per environment.\n- Review pipeline permissions and audit logs regularly.\n\n## Illustrative GitHub Actions authentication\n```yaml\npermissions:\n  id-token: write\n  contents: read\nsteps:\n  - uses: google-github-actions/auth@v2\n    with:\n      workload_identity_provider: projects/123/locations/global/workloadIdentityPools/ci/providers/gh\n      service_account: ci-deployer@PROJECT.iam.gserviceaccount.com\n```\nPin actions to approved immutable references and verify current action versions.\n\n## Common mistakes\n- A downloaded service account key stored as a CI secret and shared across repositories.\n- A federation condition that trusts every repository in an organisation.\n- One identity for build, deploy and runtime.\n- Printing environment variables during debugging.\n\n**Example (hypothetical):** only the main branch of the orders repository can assume the production deployer, and only after an approval gate.",
+      "followUps": [
+        "What does a federation attribute condition look like?",
+        "How do you rotate a leaked secret quickly?",
+        "How do you stop a pull request from exfiltrating secrets?"
+      ],
+      "related": [
+        "workload-identity-and-least-privilege",
+        "secret-manager-on-gcp"
+      ]
+    },
+    {
+      "slug": "observability-on-gcp",
+      "title": "How do you build observability on GCP with Cloud Logging, Monitoring and Trace?",
+      "topic": "Delivery and operations",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "gcp",
+        "observability",
+        "cloud-logging",
+        "opentelemetry"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would use the three pillars together. Cloud Logging collects structured logs, Cloud Monitoring handles metrics, dashboards and alerts, and Cloud Trace shows request paths and latency. In Node.js I would instrument with OpenTelemetry, propagate trace context across HTTP and Pub/Sub, and include trace and correlation ids in logs. Alerts would target symptoms such as error rate and latency against service-level objectives. I would avoid logging credentials or sensitive data, and manage log volume and trace sampling because they drive cost.",
+      "revision": "Logging for structured events, Monitoring for metrics and alerts, Trace for latency paths; OpenTelemetry with propagated context and correlation ids; alert on SLO symptoms, control volume and sensitive data.",
+      "detailed": "## Direct answer\nCombine **logs, metrics and traces** and tie them together with a shared trace or correlation id. On GCP: **Cloud Logging** for logs, **Cloud Monitoring** for metrics, dashboards and alerting, **Cloud Trace** for distributed tracing, with OpenTelemetry as the vendor-neutral instrumentation layer.\n\n## What each provides\n| Signal | Tool | Use |\n|---|---|---|\n| Logs | Cloud Logging | what happened in a specific request or error; queryable, with retention and routing controls |\n| Metrics | Cloud Monitoring | rates, errors, latency, saturation; dashboards, alerting policies, uptime checks |\n| Traces | Cloud Trace | where time went across services and dependencies |\n\n## Implementation in Node.js\n- Write **structured JSON logs** to stdout; on Cloud Run and GKE they are collected and fields such as severity are recognised. Include a trace identifier and correlation id.\n- Use **OpenTelemetry** SDK for HTTP, framework and database instrumentation, exporting to Cloud Trace and Monitoring.\n- **Propagate context** across HTTP using the standard trace headers and across Pub/Sub by carrying context in message attributes.\n- Add **custom metrics** for business and runtime signals: event-loop lag, queue backlog, pool usage.\n- Use **log-based metrics** where a log pattern is the only signal.\n\n## Alerting\nAlert on user-visible symptoms (error rate, latency percentiles, availability) and key saturation signals (database connections, backlog age), preferably against service-level objectives. Route alerts to an on-call channel with runbook links, and avoid alerting on every cause.\n\n## Cost and safety\n- Log volume and trace sampling are major cost drivers; set levels per environment, exclude noisy health checks, and use retention and routing rules.\n- Never log secrets, tokens or sensitive personal or health data; redact at the logger.\n- Apply access control to logs, since they often contain sensitive context.\n\n## Common mistakes\n- Free-text logs with no correlation id.\n- Tracing only the API and losing the asynchronous leg.\n- Dashboards without alerts, or alerts without owners.\n- Logging full request bodies.\n\n**Example (hypothetical):** a slow quote request is traced from the gateway through two services; logs filtered by the same trace id show a slow database query.",
+      "followUps": [
+        "How do you propagate trace context through Pub/Sub?",
+        "How would you define an SLO and alert on it?",
+        "How do you control logging cost?"
+      ],
+      "related": [
+        "design-nodejs-application-on-gcp",
+        "artifact-registry-and-cloud-build"
+      ]
+    },
+    {
+      "slug": "gcp-disaster-recovery-and-regional-resilience",
+      "title": "How do you design disaster recovery on GCP, and why is regional HA not the same as DR?",
+      "topic": "Delivery and operations",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "gcp",
+        "disaster-recovery",
+        "rto",
+        "rpo",
+        "cloud-sql"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would start with business-approved RTO and RPO, because they decide backup frequency, retention, replication, regional architecture and failover. Regional high availability, such as a Cloud SQL standby in another zone, protects against a zone failure but not a region-wide outage. For regional recovery I would add cross-region replicas or backups, infrastructure defined as code so I can recreate the stack, documented recovery order and dependencies, and regular restore tests. An untested backup is not a recovery plan.",
+      "revision": "RTO and RPO first. Zonal HA is not regional DR: add cross-region replication or backups, infrastructure as code, a documented recovery order, and regularly tested restores.",
+      "detailed": "## Direct answer\nDisaster recovery on GCP starts with **business-approved RTO and RPO** and then chooses a pattern whose cost matches them. Regional high availability handles zone failures; surviving the loss of a region needs data and capacity in another region plus a rehearsed procedure. (For the generic definitions, see the general RTO and RPO question in the DevOps category; this entry covers the GCP specifics.)\n\n## HA versus DR\n| Failure | Protected by | Typical GCP mechanism |\n|---|---|---|\n| Instance or zone | high availability | Cloud Run multi-zone by default, regional Cloud SQL HA, regional GKE |\n| Region | disaster recovery | cross-region replicas or backups, multi-region or dual-region storage, infrastructure re-creation |\n| Data corruption or deletion | backups and versioning | point-in-time recovery, object versioning |\n\n## Building blocks (verify current features)\n- **Cloud SQL:** automated backups and point-in-time recovery, a cross-region read replica that can be promoted, and cross-region backup options. Promotion means accepting replication lag as potential data loss within your RPO.\n- **Cloud Storage:** dual-region or multi-region buckets for data that must survive a region loss; versioning against deletion.\n- **Pub/Sub and other messaging:** understand regional behaviour and whether unprocessed messages are available after failover.\n- **Compute:** deploy the same service definition in a second region from the same pipeline; keep images in a multi-region Artifact Registry location.\n- **Traffic:** a global load balancer or DNS failover; define who or what triggers failover.\n- **Secrets, configuration and IAM:** replicate or recreate them in the recovery region.\n\n## Process\n1. Inventory dependencies and decide recovery order (identity, data, then services).\n2. Choose a pattern: backup and restore, pilot light, warm standby or active-active, based on RTO and RPO and cost.\n3. Automate recovery with infrastructure as code and runbooks.\n4. **Test restores and failover** on a schedule, measure the actual recovery time and data loss, and fix gaps.\n\n## Common mistakes\n- Calling zonal HA a DR plan.\n- Backups in the same region and project as the data, with the same administrators.\n- Never testing restores.\n- Forgetting external dependencies that do not fail over.\n\n**Example (hypothetical):** a four-hour RTO and fifteen-minute RPO leads to a cross-region replica, images in a multi-region registry, and a quarterly failover drill.",
+      "followUps": [
+        "How would you test a regional failover safely?",
+        "What does RPO mean for an asynchronous replica?",
+        "Which pattern fits an RTO of minutes versus hours?"
+      ],
+      "related": [
+        "cloud-sql-for-postgresql",
+        "reducing-gcp-costs-and-isolating-environments"
+      ]
+    },
+    {
+      "slug": "reducing-gcp-costs-and-isolating-environments",
+      "title": "How do you control GCP costs and keep environments isolated?",
+      "topic": "Delivery and operations",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "gcp",
+        "cost",
+        "finops",
+        "environments",
+        "projects"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "For cost I would right-size compute and databases, tune autoscaling and minimum instances, control logging volume, reduce unnecessary data transfer, apply lifecycle rules to storage, and monitor usage with budgets and alerts. For isolation I would separate development, staging and production using distinct projects with their own identities, networks and deployment permissions, grouped under folders with organisation policies. That limits blast radius, simplifies permissions and makes cost attribution clearer through labels and billing reports.",
+      "revision": "Right-size, tune autoscaling, cap log and egress volume, use lifecycle rules, budgets and labels. Isolate dev, staging and production in separate projects with separate identities and policies.",
+      "detailed": "## Direct answer\nControlling cost is continuous measurement plus design choices that avoid waste; isolating environments by **project** gives clear security, quota and billing boundaries. The two connect: separate projects make cost attribution straightforward. (Generic cost principles appear in the cloud cost optimisation question in the DevOps category; this entry covers GCP levers.)\n\n## Cost levers\n- **Compute:** right-size Cloud Run CPU and memory; consider minimum instances only where cold starts hurt; tune concurrency for better utilisation; stop non-production environments when idle. For GKE, right-size requests and node pools. Review committed-use discounts for steady baselines; verify current options.\n- **Database:** match the Cloud SQL tier to measured load; use read replicas only if justified; avoid over-provisioned storage.\n- **Logging and monitoring:** log volume is a frequent surprise. Lower verbosity in production, exclude health-check noise, set retention and routing, and sample traces.\n- **Storage:** lifecycle rules and suitable storage classes; delete unneeded versions and old artifacts.\n- **Networking:** egress between regions and to the internet is chargeable; keep chatty services in the same region, and use caching or a CDN for heavy public downloads.\n- **Governance:** labels, budgets with alerts, billing export for analysis, and regular reviews.\n\n## Environment isolation\n- **Separate projects** per environment (and often per team or domain), organised in folders.\n- **Separate service accounts and secrets** per environment; no production credentials in lower environments.\n- **Network separation:** distinct VPCs or controlled connectivity.\n- **Deployment governance:** promotion rules and approvals only for production; production IAM tightly limited.\n- **Organisation policies** to enforce baselines such as allowed regions or disabled key creation.\n- **Data:** use synthetic or masked data outside production.\n\n## Common mistakes\n- Using one project and naming conventions as the only separation.\n- Production data copied into development.\n- Unlabelled resources, so nobody owns the bill.\n- Cost cutting that removes backups or observability.\n\n**Example (hypothetical):** production logging drops debug level and health checks, cutting volume substantially, while a budget alert warns the team at an agreed percentage of monthly spend.",
+      "followUps": [
+        "What would you check first if the bill doubled?",
+        "How do you attribute shared platform costs to teams?",
+        "Why separate projects rather than separate VPCs only?"
+      ],
+      "related": [
+        "gcp-disaster-recovery-and-regional-resilience",
+        "observability-on-gcp"
+      ]
+    },
+    {
+      "slug": "migrate-aws-workloads-to-gcp",
+      "title": "How would you approach migrating a Node.js workload from AWS to GCP?",
+      "topic": "Migration and mapping",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "gcp",
+        "aws",
+        "migration",
+        "cutover"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would assess dependencies first, map each capability to a GCP equivalent, and migrate identity and networking early because everything else depends on them. Then I would move data and workloads in stages, validating each: data consistency, performance, security and cost. The cutover would be staged, for example by gradually shifting traffic, with a rollback path until confidence is high. I would not assume equivalent services behave identically, so I would test semantics such as messaging delivery and IAM models.",
+      "revision": "Assess dependencies, map capabilities, migrate identity and networking, validate data and workloads, cut over in stages with rollback. Test semantic differences; services are not identical.",
+      "detailed": "## Direct answer\nTreat it as a staged programme: understand what exists, decide a target design per component, move foundations first, migrate data and workloads incrementally with validation, and keep a rollback path until the old environment is retired.\n\n## Phases\n1. **Assess:** inventory services, data stores, integrations, secrets, networking, scheduled jobs, compliance obligations and traffic patterns. Identify hidden dependencies and shared resources.\n2. **Decide strategy per workload:** rehost, replatform or refactor. Many Node.js containers can move with modest change; managed services need mapping.\n3. **Foundation:** organisation structure and projects, identity and federation, networking and connectivity between clouds, logging and monitoring, CI/CD pointing at Artifact Registry and GCP targets.\n4. **Data migration:** choose online replication or dump and restore; plan for consistency checks, cutover windows and a short write freeze if needed. Verify tooling support for your database versions.\n5. **Workload migration:** deploy to Cloud Run or GKE, run in parallel, compare behaviour under realistic load.\n6. **Cutover:** shift traffic gradually using DNS weights or a load balancer, monitor error rates and latency, keep the source environment available for rollback.\n7. **Decommission:** after a stable period, remove old resources and clean up credentials and DNS.\n\n## Pitfalls specific to the move\n- **Semantic differences:** messaging (SQS and SNS versus Pub/Sub), IAM models, load balancer behaviour, timeouts and limits differ.\n- **Hybrid period:** cross-cloud traffic adds latency and egress cost; keep chatty components together.\n- **Secrets and identities:** rebuild rather than copy; use federation during transition.\n- **Operational readiness:** alerts, runbooks and on-call need to exist before cutover.\n- **Cost:** model both environments running in parallel.\n\n## Common mistakes\n- Lifting everything at once.\n- No rollback plan after data has diverged.\n- Mapping by name only, skipping behavioural tests.\n- Forgetting DNS TTLs and certificate issuance in the cutover plan.\n\n**Example (hypothetical):** an API container moves first behind a weighted load balancer at five percent traffic, while the database continues to replicate until the final scheduled cutover.",
+      "followUps": [
+        "How would you migrate a PostgreSQL database with minimal downtime?",
+        "How do you handle the period when services run in both clouds?",
+        "What would make you abort a cutover?"
+      ],
+      "related": [
+        "aws-to-gcp-service-mapping",
+        "answering-gcp-experience-honestly"
+      ]
+    },
+    {
+      "slug": "aws-to-gcp-service-mapping",
+      "title": "How do common AWS services map to GCP, and what should you verify?",
+      "topic": "Migration and mapping",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "gcp",
+        "aws",
+        "service-mapping",
+        "comparison"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Roughly: ECS and Fargate map to Cloud Run or GKE, EKS to GKE, SNS and SQS to Pub/Sub for many scenarios, RDS PostgreSQL to Cloud SQL for PostgreSQL, S3 to Cloud Storage, API Gateway to Google Cloud API Gateway, IAM to Cloud IAM, Secrets Manager to Secret Manager, CloudWatch to Cloud Monitoring and Logging, and ECR to Artifact Registry. The mapping is a starting point only. Feature sets, limits and semantics differ, so I would verify each one against current documentation for my requirements.",
+      "revision": "Useful starting map, not equivalence: ECS/Fargate to Cloud Run or GKE, SNS/SQS to Pub/Sub, RDS to Cloud SQL, S3 to Cloud Storage. Verify limits, semantics and models for each.",
+      "detailed": "## Direct answer\nService mapping helps you orient, but **similar purpose does not mean identical behaviour**. Use the table to choose candidates, then verify the differences that matter to your workload.\n\n## Mapping table\n| AWS | GCP counterpart | What to verify |\n|---|---|---|\n| ECS or Fargate | Cloud Run, or GKE | execution model, timeouts, scaling signals, networking, sidecar needs |\n| EKS | GKE | modes of operation, add-ons, node management, upgrade model |\n| SNS and SQS | Pub/Sub for many scenarios | not identical queue semantics: ordering, delay, visibility, dead-letter and delivery guarantees |\n| RDS for PostgreSQL | Cloud SQL for PostgreSQL | versions, extensions, HA options, connection limits, replica behaviour |\n| S3 | Cloud Storage | storage classes, consistency and event features, IAM and access model, egress cost |\n| API Gateway | API Gateway on Google Cloud | feature sets are not identical; verify auth, throttling and quotas |\n| IAM | Cloud IAM | models differ: resource-attached policies and hierarchy inheritance, service accounts and federation |\n| Secrets Manager | Secret Manager | rotation tooling, versioning, replication options |\n| CloudWatch | Cloud Monitoring and Cloud Logging | metrics, alarms and log retention; costs and query model differ |\n| ECR | Artifact Registry | repository formats, scanning, cleanup policies, regional layout |\n\n## Where mapping misleads\n- **Messaging:** treating Pub/Sub as \"SQS with a different name\" leads to wrong assumptions about ordering, retries and fan-out.\n- **IAM:** policies, roles and trust relationships are modelled differently; a literal translation tends to over-grant.\n- **Networking:** VPC concepts differ (for example global versus regional scopes), as do load balancing options.\n- **Limits and quotas:** each service has its own; verify against current documentation.\n- **Pricing models:** egress, requests and minimum charges differ.\n\n## How to use the table in practice\n1. Map capability to candidate service.\n2. List the three or four behaviours your system depends on.\n3. Check them in documentation and with a small proof of concept.\n4. Record the decision in an architecture decision record.\n\n**Example (hypothetical):** a worker consuming an SQS queue with a visibility timeout is rebuilt on a Pub/Sub pull subscription with an acknowledgement deadline and a dead-letter topic, and retried behaviour is tested explicitly.",
+      "followUps": [
+        "Which mapping is most likely to mislead a team?",
+        "How would you prove an equivalent works before committing?",
+        "How do the IAM models differ in practice?"
+      ],
+      "related": [
+        "migrate-aws-workloads-to-gcp",
+        "answering-gcp-experience-honestly"
+      ]
+    }
+  ]
+}

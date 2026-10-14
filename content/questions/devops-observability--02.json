@@ -1,0 +1,99 @@
+{
+  "category": "devops-observability",
+  "questions": [
+    {
+      "slug": "distributed-tracing-opentelemetry",
+      "title": "How do you implement distributed tracing with OpenTelemetry?",
+      "topic": "Observability",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "opentelemetry",
+        "tracing",
+        "observability",
+        "sampling",
+        "messaging"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would use OpenTelemetry to instrument services, propagating W3C trace context across HTTP calls and also through message headers so asynchronous flows stay connected. Spans capture timing and dependencies, structured logs carry the trace and correlation IDs, and metrics give aggregates. I would export through a collector, choose sampling to balance cost against diagnostic value, for example keeping errors and slow requests, and make sure credentials and sensitive data, such as health information, never end up in span attributes or logs.",
+      "revision": "Instrument with OpenTelemetry, propagate trace context over HTTP and message headers, link logs by trace ID, sample deliberately, and keep sensitive data out of telemetry.",
+      "detailed": "**Distributed tracing** records the path of one request across services as a tree of **spans**. Each span has a name, start time, duration, attributes and a parent. **OpenTelemetry (OTel)** is the vendor-neutral standard for generating and exporting that telemetry (traces, metrics and logs), so backends can change without re-instrumenting code.\n\n{{diagram:otel}}\n\n## How it works\n1. **Instrumentation**: SDKs and auto-instrumentation libraries create spans for incoming requests, outgoing HTTP calls and database queries. Add manual spans around important business steps.\n2. **Context propagation**: the trace ID and parent span ID travel in a header (the W3C `traceparent` header by default). Each service extracts it on entry and injects it on outbound calls.\n3. **Export**: telemetry is sent, typically over OTLP, to a **collector** that batches, filters, redacts and routes it to a backend.\n\n## Propagation across messaging\nHTTP propagation is automatic with the right instrumentation. For queues and streams you must carry the context in **message headers or attributes**: the producer injects it and the consumer extracts it. A consumer span is then either a child of the producer span or, for batches and fan-out, a span with **links** to the producer spans. Without this step the trace stops at the broker.\n\n```ts\nimport { context, propagation } from '@opentelemetry/api';\n\n// producer\nconst headers: Record<string, string> = {};\npropagation.inject(context.active(), headers);\nawait publish({ body, headers });\n\n// consumer\nconst parent = propagation.extract(context.active(), message.headers);\nawait context.with(parent, () => handle(message));\n```\n\n## Sampling\nStoring every trace is costly. **Head sampling** decides at the start (simple, cheap, may miss rare failures). **Tail sampling**, usually done in a collector, decides after the trace completes so it can keep errors and slow traces. Typical policy: sample a small share of normal traffic, keep all errors and high-latency traces.\n\n## Correlation with logs and metrics\nPut the trace ID and span ID in structured logs so you can jump from a trace to the logs for that request. Use metrics for rates and percentiles; traces explain individual slow or failed requests.\n\n## Sensitive-data hygiene\n- Never place tokens, passwords or personal or health data in span attributes, log fields or baggage.\n- Use IDs, not values; redact or drop attributes in the collector.\n- Be careful with captured URLs, query strings and SQL statements.\n- Apply the same retention and access control as other sensitive data.\n\n## Common mistakes\n- Broken context at queue or thread-pool boundaries.\n- High-cardinality attributes that inflate cost.\n- No sampling plan, then switching tracing off when the bill arrives.\n\n## Example (hypothetical)\nAn order request passes the gateway, an orders service and a queue to a billing consumer. With header propagation the whole path appears as one trace, showing that a slow payment call, not the database, caused the delay.",
+      "diagrams": [
+        {
+          "id": "otel",
+          "title": "Tracing data flow with OpenTelemetry",
+          "alt": "A client request reaches service A, which calls service B over HTTP and publishes a message with trace context in its headers; a consumer service continues the trace. All services export spans over OTLP to a collector, which forwards sampled telemetry to a tracing backend.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "a",
+              "label": "Service A"
+            },
+            {
+              "id": "b",
+              "label": "Service B (HTTP)"
+            },
+            {
+              "id": "q",
+              "label": "Message broker"
+            },
+            {
+              "id": "c",
+              "label": "Consumer service"
+            },
+            {
+              "id": "col",
+              "label": "OTel Collector"
+            },
+            {
+              "id": "be",
+              "label": "Tracing backend"
+            }
+          ],
+          "edges": [
+            {
+              "from": "a",
+              "to": "b",
+              "label": "traceparent header"
+            },
+            {
+              "from": "a",
+              "to": "q",
+              "label": "context in message headers"
+            },
+            {
+              "from": "q",
+              "to": "c"
+            },
+            {
+              "from": "a",
+              "to": "col",
+              "label": "OTLP"
+            },
+            {
+              "from": "c",
+              "to": "col",
+              "label": "OTLP"
+            },
+            {
+              "from": "col",
+              "to": "be",
+              "label": "sampled"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "What is the difference between head and tail sampling?",
+        "How do you correlate logs with traces?",
+        "How would you trace a batch consumer handling many messages?",
+        "How do you stop sensitive data leaking into spans?"
+      ],
+      "related": []
+    }
+  ]
+}

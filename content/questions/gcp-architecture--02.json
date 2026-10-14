@@ -1,0 +1,442 @@
+{
+  "category": "gcp-architecture",
+  "questions": [
+    {
+      "slug": "what-is-pubsub",
+      "title": "What is Cloud Pub/Sub and how does the message flow work?",
+      "topic": "Messaging and data",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "gcp",
+        "pubsub",
+        "messaging"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Pub/Sub is Google Cloud's managed messaging service that decouples publishers from subscribers. A publisher sends messages to a topic, and each subscription attached to that topic receives its own copy of the messages. Consumers acknowledge messages after processing, and unacknowledged messages are redelivered. I would use it for event distribution, work buffering and integration between services. I would design consumers to be idempotent, because delivery is at-least-once by default, and monitor backlog age and delivery attempts.",
+      "revision": "Publishers send to topics; each subscription gets its own copy; consumers ack after processing, unacked messages are redelivered. Default is at-least-once, so consumers must be idempotent.",
+      "detailed": "## Direct answer\n**Pub/Sub** is a managed publish-subscribe messaging service. Publishers write messages to a **topic**. One or more **subscriptions** are attached to the topic, and each subscription independently receives every message, so one event can fan out to many consumers.\n\n{{diagram:flow}}\n\n## How it works\n- A message has a payload, optional attributes and, if enabled, an ordering key.\n- A subscriber receives a message and must **acknowledge** it within the acknowledgement deadline. If it does not, the message is redelivered.\n- **Retry policy** controls redelivery timing; a **dead-letter topic** collects messages that exceed a configured number of delivery attempts.\n- **Retention** keeps unacknowledged messages for a configurable time, so a consumer outage does not lose data within that window.\n- Delivery is **at-least-once** by default, so duplicates are possible. Some configurations offer exactly-once delivery for pull subscriptions; verify the current scope and limits in the documentation before relying on it.\n- **Ordering keys** can preserve order for messages with the same key, at some throughput and failure-handling cost.\n\n## When to use it\n- Decoupling a user-facing API from slower work (emails, document generation).\n- Fan-out of domain events to several services.\n- Smoothing bursts so workers consume at a sustainable rate.\n\n## Compared with a queue\nPub/Sub combines topic fan-out and queue-like consumption through subscriptions. It is not a drop-in clone of every queue feature of other clouds, so verify semantics such as ordering, visibility and delay behaviour.\n\n## Common mistakes\n- Assuming exactly-once processing.\n- Acknowledging before the work is durable.\n- Having no dead-letter handling, so a poison message loops.\n- Putting very large payloads in messages instead of references to Cloud Storage objects.\n\n**Example (hypothetical):** an `invoice-created` topic feeds a PDF-rendering subscription and a notification subscription; each processes at its own pace.",
+      "diagrams": [
+        {
+          "id": "flow",
+          "title": "Pub/Sub message flow",
+          "alt": "A publisher sends a message to a topic. Two subscriptions each receive a copy and deliver it to their own consumers. A consumer acknowledges after processing; failed messages are retried and, after too many attempts, go to a dead-letter topic.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "pub",
+              "label": "Publisher service"
+            },
+            {
+              "id": "top",
+              "label": "Topic"
+            },
+            {
+              "id": "s1",
+              "label": "Subscription A"
+            },
+            {
+              "id": "s2",
+              "label": "Subscription B"
+            },
+            {
+              "id": "c1",
+              "label": "Consumer A"
+            },
+            {
+              "id": "c2",
+              "label": "Consumer B"
+            },
+            {
+              "id": "dlq",
+              "label": "Dead-letter topic"
+            }
+          ],
+          "edges": [
+            {
+              "from": "pub",
+              "to": "top",
+              "label": "publish"
+            },
+            {
+              "from": "top",
+              "to": "s1"
+            },
+            {
+              "from": "top",
+              "to": "s2"
+            },
+            {
+              "from": "s1",
+              "to": "c1",
+              "label": "deliver, ack"
+            },
+            {
+              "from": "s2",
+              "to": "c2"
+            },
+            {
+              "from": "s1",
+              "to": "dlq",
+              "label": "max attempts"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How does a subscription differ from a topic?",
+        "What happens when a consumer is down for hours?",
+        "When would you use ordering keys?"
+      ],
+      "related": [
+        "push-vs-pull-subscriptions",
+        "pubsub-duplicate-delivery"
+      ]
+    },
+    {
+      "slug": "push-vs-pull-subscriptions",
+      "title": "Push vs pull subscriptions in Pub/Sub: how do you choose?",
+      "topic": "Messaging and data",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "gcp",
+        "pubsub",
+        "push",
+        "pull"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "With push, Pub/Sub sends each message to an HTTPS endpoint, such as a Cloud Run service, so there is no polling loop and it suits simple handlers. With pull, consumers request messages and control their own pace, which suits high throughput, batching, flow control and workers that are not publicly reachable. I would choose by how much control I need over rate and concurrency, networking constraints, throughput, and the processing model. Either way I would need idempotent handlers and dead-letter handling.",
+      "revision": "Push delivers to an HTTPS endpoint (simple, autoscaled handlers); pull lets consumers control pace and batching. Choose by control, networking, throughput and processing model.",
+      "detailed": "## Direct answer\nUse **push** when the consumer is an HTTP service that should react to messages with minimal plumbing. Use **pull** when the consumer needs control over how fast and how many messages it takes, or runs where inbound HTTP is awkward.\n\n## Comparison\n| Aspect | Push | Pull |\n|---|---|---|\n| Delivery | Pub/Sub POSTs to an endpoint | consumer requests messages |\n| Flow control | server-driven, with backoff on errors | client-controlled (outstanding messages, concurrency) |\n| Networking | endpoint must be reachable and authenticated | consumer only needs outbound access |\n| Good for | Cloud Run handlers, webhooks, light event processing | high throughput, batch consumers, long-running workers |\n| Ack | a success HTTP response acknowledges | explicit acknowledgement call |\n| Scaling | handler autoscaling follows the request rate | scale consumers on backlog |\n\n## Details to get right\n- **Push authentication:** configure the subscription to attach an identity token and have the endpoint verify it; do not leave an open public endpoint.\n- **Push timeouts:** the handler must respond within the acknowledgement deadline; for long work, acknowledge after enqueuing durable state, or use pull.\n- **Pull concurrency:** set flow-control limits so a worker does not take more than it can process; unprocessed messages hit their deadline and are redelivered.\n- **Both:** at-least-once delivery means duplicates; configure retry policy and dead-letter topics; monitor oldest-unacknowledged-message age.\n\n## Common mistakes\n- Using push into a service that holds a request open for minutes.\n- Pull consumers with unlimited outstanding messages that blow memory.\n- Unauthenticated push endpoints.\n- Treating a non-2xx response as a clean failure rather than a source of retry storms.\n\n**Example (hypothetical):** a notification handler on Cloud Run uses push because each message takes milliseconds; a nightly reconciliation worker pulls batches at a rate its database can sustain.",
+      "followUps": [
+        "How would you secure a push endpoint on Cloud Run?",
+        "How do you scale pull consumers?",
+        "What would you monitor on a subscription?"
+      ],
+      "related": [
+        "what-is-pubsub",
+        "pubsub-duplicate-delivery"
+      ]
+    },
+    {
+      "slug": "pubsub-duplicate-delivery",
+      "title": "How do you handle duplicate message delivery in Pub/Sub?",
+      "topic": "Messaging and data",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "gcp",
+        "pubsub",
+        "idempotency",
+        "reliability"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would assume redelivery can happen and make consumers idempotent. Each message carries a stable business or event id, and the consumer records processed ids or uses a unique constraint in the same transaction as the business update. It acknowledges only after the work is durably complete. I would configure retry and dead-letter policies, and monitor delivery attempts, latency and backlog. Exact delivery and ordering guarantees depend on subscription configuration and current service capabilities, so I would verify them in the documentation rather than assume.",
+      "revision": "Assume redelivery: stable message id, idempotency record or unique constraint in the same transaction, ack after durable success, bounded retries, dead-letter topic, monitor attempts and backlog.",
+      "detailed": "## Direct answer\nPub/Sub is at-least-once by default, so the same message can be delivered more than once, for example when an acknowledgement is slow or lost. The robust answer is **idempotent consumers**: processing a message twice must have the same effect as processing it once.\n\n## Techniques\n1. **Stable identifier:** use a business key or event id generated by the producer. The Pub/Sub message id is assigned per publish, so a publisher retry can create a different message id for the same logical event; prefer your own id carried in attributes or the payload.\n2. **Idempotency store:** insert the id into a table with a unique constraint in the **same database transaction** as the business change. A duplicate violates the constraint and is skipped.\n3. **Naturally idempotent operations:** upserts and \"set status to X\" are safer than increments.\n4. **Acknowledge after durable success**, not before.\n5. **Retry policy and dead-letter topic:** bound attempts; inspect and replay dead letters deliberately.\n6. **Ordering:** if order matters, use ordering keys and design for them, noting that ordering has throughput and failure implications.\n7. **Exactly-once delivery:** some subscription types and configurations offer it, but it applies to delivery, not to your side effects in other systems. Verify current scope in the documentation and keep idempotency anyway.\n\n```ts\nasync function handle(msg: { id: string; data: Buffer }) {\n  await db.tx(async (trx) => {\n    const inserted = await trx.insertIgnore('processed_messages', { id: msg.id });\n    if (!inserted) return; // duplicate: skip\n    await applyBusinessChange(trx, JSON.parse(msg.data.toString()));\n  });\n  // ack only after the transaction commits\n}\n```\n\n## Monitoring\nTrack oldest unacknowledged message age, delivery attempt counts, dead-letter volume and processing latency.\n\n## Common mistakes\n- Deduplicating in memory, which fails across instances and restarts.\n- Acknowledging first, then crashing, which loses work.\n- Retrying poison messages forever.\n- Side effects to third parties (emails, payments) without their own idempotency keys.\n\n**Example (hypothetical):** a payment-posted event may arrive twice; the ledger insert is guarded by a unique event id, so the second delivery is a no-op.",
+      "followUps": [
+        "What if the side effect is an external API call?",
+        "How long do you retain idempotency records?",
+        "When would you use exactly-once delivery?",
+        "How do you replay dead-lettered messages?"
+      ],
+      "related": [
+        "what-is-pubsub",
+        "push-vs-pull-subscriptions"
+      ]
+    },
+    {
+      "slug": "cloud-sql-for-postgresql",
+      "title": "What is Cloud SQL and what must you configure for production PostgreSQL?",
+      "topic": "Messaging and data",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "gcp",
+        "cloud-sql",
+        "postgresql"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Cloud SQL is Google Cloud's managed relational database service, including PostgreSQL. It handles provisioning, patching, backups and replication options, while I still own schema design, indexing, query performance and connection management. For production I would choose a high-availability configuration, enable automated backups and point-in-time recovery, use private connectivity, control access through IAM and database roles, and set maintenance windows. I would also plan read replicas where useful, and size connection limits against the number of application instances.",
+      "revision": "Cloud SQL is managed relational DB: Google runs infrastructure; you own schema, queries and connections. Production needs HA, backups with PITR, private access, least privilege and connection budgeting.",
+      "detailed": "## Direct answer\n**Cloud SQL for PostgreSQL** is a managed database service. The provider takes care of provisioning, operating-system and database patching, storage management and backup mechanics. You remain responsible for data modelling, query performance, access control and capacity planning.\n\n## Production configuration checklist\n- **High availability:** a regional (HA) configuration keeps a standby in another zone of the same region for automatic failover. This protects against zone failure, not region failure.\n- **Backups and recovery:** automated backups and point-in-time recovery; test restores into a separate instance.\n- **Read replicas:** offload reads or reporting; account for replication lag. Cross-region replicas can contribute to a disaster-recovery design; verify promotion behaviour and data-loss window.\n- **Network:** prefer private IP and avoid broad public exposure; authorise only required paths.\n- **Authentication:** database users with least privilege; IAM database authentication where supported; credentials in Secret Manager if passwords are used.\n- **Maintenance:** set maintenance windows and understand which operations cause restarts.\n- **Capacity:** pick machine size and storage with headroom; know the connection limit, which commonly depends on instance memory and database flags.\n- **Observability:** metrics for CPU, memory, connections, replication lag and slow queries.\n\n## Trade-offs\n| Concern | Managed benefit | Still your job |\n|---|---|---|\n| Patching and failover | automated | schema migrations, application retry behaviour |\n| Backups | automated | restore testing, retention policy |\n| Scaling | vertical resize, replicas | connection budget, query tuning |\n\n## Common mistakes\n- Treating HA as disaster recovery.\n- Exhausting connections with many autoscaled instances.\n- Skipping restore drills.\n- Running schema changes that lock large tables during peak hours.\n\n**Example (hypothetical):** a claims database runs regional HA with point-in-time recovery and a cross-region replica for regional recovery planning.",
+      "followUps": [
+        "What is the difference between HA and a read replica?",
+        "How would you run migrations without downtime?",
+        "How does connection limit relate to instance size?"
+      ],
+      "related": [
+        "connect-cloud-run-to-cloud-sql",
+        "prevent-cloud-sql-connection-exhaustion"
+      ]
+    },
+    {
+      "slug": "connect-cloud-run-to-cloud-sql",
+      "title": "How do you connect Cloud Run to Cloud SQL securely and reliably?",
+      "topic": "Messaging and data",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "gcp",
+        "cloud-run",
+        "cloud-sql",
+        "networking"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would use a supported connection method rather than a public database address. Options include the built-in Cloud SQL connection for Cloud Run or the Cloud SQL Auth Proxy or language connectors, and private IP through VPC connectivity. Authentication uses the service's own identity with IAM database authentication where practical, or a password from Secret Manager. In the application I would use a small bounded pool, sensible timeouts and retry on connection errors, then test connection counts under autoscaling.",
+      "revision": "Use supported private connectivity (Cloud SQL connector/proxy or private IP via VPC), authenticate with the service identity or Secret Manager, keep pools small and bounded, and test under scale-out.",
+      "detailed": "## Direct answer\nConnect through a **supported, authenticated path**, keep the database off the open internet, give the Cloud Run service its own identity, and manage connections deliberately.\n\n{{diagram:conn}}\n\n## Connectivity options (verify current details)\n- **Cloud SQL connection for Cloud Run:** a configured integration that exposes a local socket path to the container and handles encryption and IAM-based authorisation to the instance.\n- **Cloud SQL Auth Proxy or language connectors:** libraries or sidecar processes that authenticate with IAM and encrypt the connection.\n- **Private IP with VPC connectivity:** Cloud Run reaches the database's private address through a configured VPC path such as direct VPC egress or a serverless connector.\n- **Public IP with authorised networks:** the least preferred option, because Cloud Run egress addresses are not fixed by default.\n\n## Authentication\n- **IAM database authentication** where supported: the service account obtains short-lived tokens, so no password is stored.\n- **Passwords:** keep them in Secret Manager and inject at startup; rotate periodically.\n- The service account needs the roles required to connect, but not administrative rights.\n\n## Connection management\n- A pool per instance, with a small maximum. Total connections are approximately instances times pool size.\n- Reuse the pool across requests; never open a connection per request.\n- Set connect and query timeouts, and handle dropped connections with retry.\n- Configure the pool's idle timeout below any server-side or network idle limit.\n\n```ts\nconst pool = new Pool({\n  host: '/cloudsql/PROJECT:REGION:INSTANCE', // Unix socket path\n  database: 'app', user: 'app-user',\n  max: 5, idleTimeoutMillis: 30000, connectionTimeoutMillis: 5000,\n});\n```\n\n## Common mistakes\n- Opening a public database to all addresses.\n- Default or large pool sizes multiplied across many instances.\n- Running migrations from every instance on startup.\n- Connection leaks from unreleased clients.\n\n**Example (hypothetical):** a service with at most 20 instances and a pool of 5 uses at most 100 connections, which the team compares with the database limit.",
+      "diagrams": [
+        {
+          "id": "conn",
+          "title": "Cloud Run to Cloud SQL connection and scaling",
+          "alt": "Multiple Cloud Run instances each hold a small connection pool and reach Cloud SQL through the Cloud SQL connection or auth proxy, authenticated with the service account. Total connections equal instances times pool size and must fit within the database connection limit.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "i1",
+              "label": "Instance 1 (pool of 5)"
+            },
+            {
+              "id": "i2",
+              "label": "Instance 2 (pool of 5)"
+            },
+            {
+              "id": "i3",
+              "label": "Instance N (pool of 5)"
+            },
+            {
+              "id": "px",
+              "label": "Cloud SQL connector / proxy"
+            },
+            {
+              "id": "sa",
+              "label": "Service account (IAM)"
+            },
+            {
+              "id": "db",
+              "label": "Cloud SQL instance"
+            }
+          ],
+          "edges": [
+            {
+              "from": "i1",
+              "to": "px"
+            },
+            {
+              "from": "i2",
+              "to": "px"
+            },
+            {
+              "from": "i3",
+              "to": "px"
+            },
+            {
+              "from": "sa",
+              "to": "px",
+              "label": "authorises"
+            },
+            {
+              "from": "px",
+              "to": "db",
+              "label": "encrypted"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Why not allow a public IP with authorised networks?",
+        "What is IAM database authentication?",
+        "How do you run migrations safely?"
+      ],
+      "related": [
+        "prevent-cloud-sql-connection-exhaustion",
+        "cloud-sql-for-postgresql"
+      ]
+    },
+    {
+      "slug": "prevent-cloud-sql-connection-exhaustion",
+      "title": "How do you prevent Cloud SQL connection exhaustion with autoscaled services?",
+      "topic": "Messaging and data",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "gcp",
+        "cloud-sql",
+        "connections",
+        "postgresql",
+        "autoscaling"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would treat connections as a budget. I set a bounded pool per instance, then compare maximum instances times pool size, plus workers, admin sessions and other workloads, against the database connection limit, including the worst case during autoscaling. I would review connection lifetime, transaction duration, query latency and leaks. A supported pooler or proxy can multiplex connections and help, but it does not remove capacity planning, so I would also cap instances and move deferrable work to queues.",
+      "revision": "Treat connections as a budget: max instances times pool size plus other clients must fit under the DB limit. Bound pools, fix leaks and slow queries; a pooler helps but does not replace planning.",
+      "detailed": "## Direct answer\nPostgreSQL connections are expensive, and Cloud SQL caps them. Autoscaled stateless services can multiply connections quickly, so prevent exhaustion by **budgeting** connections, bounding pools and reducing how long each connection is held.\n\n## Step 1: Do the arithmetic\n```text\nworst-case connections = max instances x pool size (per instance)\n                       + background workers + migrations + admin/monitoring\nmust be comfortably below the database connection limit\n```\nFind the actual limit for your instance (it commonly depends on machine size and configuration flags; verify in the documentation) and leave headroom for failover and maintenance tasks.\n\n## Step 2: Bound the supply\n- Small pool per instance, such as a handful of connections, sized to concurrency actually needed. With Node.js, many in-flight requests can share a few connections.\n- Cap Cloud Run maximum instances so the worst case holds.\n- Separate pools or budgets for background jobs versus request paths.\n\n## Step 3: Reduce demand\n- Shorten transactions; never hold a connection while calling external APIs.\n- Fix slow queries, since slow queries hold connections longer.\n- Release clients in a finally block to avoid leaks; set idle and connection timeouts.\n- Cache hot reads and use read replicas for read-heavy paths.\n\n## Step 4: Multiplex if needed\nA server-side pooler (for example PgBouncer-style pooling) or a managed pooling feature, where available, lets many client connections share fewer database connections. Be aware of transaction-pooling limits such as session-level features (prepared statements, advisory locks, temporary tables). Verify what is supported in your Cloud SQL version.\n\n## Step 5: Monitor and test\nTrack connections in use, wait time for pool acquisition, connection errors and database CPU. Load-test scale-out to see the real peak.\n\n## Common mistakes\n- Default large pools copied into every service.\n- Raising `max_connections` instead of fixing demand, which costs memory and may not help.\n- Ignoring that a failover or rolling deploy briefly doubles instances.\n\n**Example (hypothetical):** limit 200, admin and jobs 30, rolling deploy factor 2: with a pool of 4, maximum instances of 20 gives up to 160 during a deploy, which is within budget.",
+      "followUps": [
+        "What goes wrong with transaction-level pooling and prepared statements?",
+        "How do rolling deployments affect the arithmetic?",
+        "How would you detect a connection leak?"
+      ],
+      "related": [
+        "connect-cloud-run-to-cloud-sql",
+        "cloud-run-autoscaling-and-dependencies"
+      ]
+    },
+    {
+      "slug": "what-is-cloud-storage",
+      "title": "What is Cloud Storage and when would you use it in a Node.js system?",
+      "topic": "Messaging and data",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "gcp",
+        "cloud-storage",
+        "object-storage"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Cloud Storage is Google Cloud's object storage for files, documents, media, exports and other unstructured data. Objects live in buckets, and I choose location type and storage class to balance availability, latency and cost. I would use it for uploads, generated reports, backups and static assets, and keep metadata and business state in a database. I would add lifecycle rules for retention, enable versioning where recovery matters, and use signed URLs so large files go directly between client and storage.",
+      "revision": "Cloud Storage is object storage in buckets: use for files, media and exports; keep business state in a database; add lifecycle rules, versioning and signed URLs.",
+      "detailed": "## Direct answer\n**Cloud Storage** stores immutable-by-replacement **objects** inside **buckets**. It is not a file system or a database: objects are written and read whole (or by ranges) through APIs, and there is no in-place partial update.\n\n## Key concepts\n- **Buckets and objects:** object names may look like paths, but the namespace is flat.\n- **Location:** regional, dual-region or multi-region choices trade latency, resilience and cost; verify current options.\n- **Storage classes:** classes for frequently to rarely accessed data, with different cost and retrieval characteristics.\n- **Lifecycle rules:** automatically transition or delete objects by age or other conditions.\n- **Versioning and retention:** recover from overwrite or deletion; retention policies support compliance needs.\n- **Access control:** IAM at bucket level, and uniform bucket-level access is commonly recommended to avoid per-object ACL sprawl.\n- **Signed URLs:** time-limited access to a specific object.\n- **Events:** object changes can trigger notifications, for example to Pub/Sub, enabling pipelines.\n\n## Typical Node.js usage\n```ts\nimport { Storage } from '@google-cloud/storage';\nconst storage = new Storage();\nawait storage.bucket('example-docs').file(`reports/${id}.json`).save(reportBuffer, { contentType: 'application/pdf' });\n```\nCredentials come from the runtime service account via application default credentials, not a key file.\n\n## Design guidance\n- Store the object key and metadata in the database; keep the binary in the bucket.\n- Let clients upload and download directly using signed URLs for large files, rather than proxying through the API.\n- Choose object naming that avoids collisions and supports lifecycle rules.\n\n## Common mistakes\n- Using it as a transactional store or for tiny frequently updated records.\n- Public buckets for convenience.\n- No lifecycle rules, so storage costs grow silently.\n- Ignoring egress costs for heavy downloads.\n\n**Example (hypothetical):** generated policy documents are stored in a private bucket, indexed in PostgreSQL, and delivered through short-lived signed links.",
+      "followUps": [
+        "When would you not use object storage?",
+        "How do signed URLs work and what are their risks?",
+        "What storage class would you choose for archives?"
+      ],
+      "related": [
+        "secure-cloud-storage-files"
+      ]
+    },
+    {
+      "slug": "secure-cloud-storage-files",
+      "title": "How do you secure files stored in Cloud Storage?",
+      "topic": "Messaging and data",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "gcp",
+        "cloud-storage",
+        "security",
+        "signed-urls"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would make buckets private by default and grant least-privilege IAM roles to specific service accounts. Data is encrypted at rest by default, and I would apply retention and lifecycle rules as policy requires, with customer-managed keys only if there is a compliance reason. For temporary access I would issue signed URLs with limited permissions and short expiry. The application still validates ownership, content types and authorisation before issuing access. I would never use public buckets for sensitive files.",
+      "revision": "Private by default, least-privilege IAM, encryption and retention policies, short-lived scoped signed URLs, and application-level ownership and content checks. No public buckets for sensitive data.",
+      "detailed": "## Direct answer\nLayer the controls: **identity and access** at the bucket, **time-limited access paths** for users, **application authorisation** for ownership, and **data protection** through encryption, retention and audit.\n\n## Controls\n1. **Private by default.** Enforce public access prevention where available, and use uniform bucket-level access so permissions are managed through IAM rather than scattered object ACLs.\n2. **Least-privilege IAM.** Grant narrow roles (for example object creator or viewer rather than admin) to the service account that needs them, scoped to the relevant bucket.\n3. **Encryption.** Data is encrypted at rest by default; use customer-managed keys only where policy demands, accepting the key-management burden.\n4. **Signed URLs.** Issue them server-side after authorising the user. Limit the HTTP method, the object, the content type where applicable, and the expiry. Remember that anyone holding a valid URL can use it until it expires.\n5. **Application checks.** Verify that the requesting user may access that object, validate file type and size on upload, and consider malware scanning for user uploads before making files available.\n6. **Retention and recovery.** Retention policies, object versioning and soft-delete style protections guard against accidental or malicious deletion; confirm current features.\n7. **Audit.** Enable data-access audit logs for sensitive buckets and alert on unusual access.\n8. **Network controls.** For high-sensitivity data, consider perimeter controls such as VPC Service Controls; verify fit for your architecture.\n\n## Upload flow\n{{diagram:upload}}\n\n## Common mistakes\n- Public buckets or all-users grants.\n- Long-lived signed URLs, or signing without checking ownership.\n- Trusting the client-declared content type.\n- Using one broad service account for every service.\n- Keeping sensitive objects forever with no retention decision.\n\n**Example (hypothetical):** a user requests a claim attachment; the API checks that the claim belongs to the user, then returns a five-minute read-only signed URL for that object.",
+      "diagrams": [
+        {
+          "id": "upload",
+          "title": "Authorised file access with signed URLs",
+          "alt": "A client asks the API for access to a file. The API checks that the user owns the file, then signs a short-lived URL using its service account. The client uses the URL to upload or download directly from a private Cloud Storage bucket.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "cl",
+              "label": "Client"
+            },
+            {
+              "id": "api",
+              "label": "API (authorises user)"
+            },
+            {
+              "id": "sign",
+              "label": "Signed URL (short expiry)"
+            },
+            {
+              "id": "b",
+              "label": "Private bucket"
+            }
+          ],
+          "edges": [
+            {
+              "from": "cl",
+              "to": "api",
+              "label": "request access"
+            },
+            {
+              "from": "api",
+              "to": "sign",
+              "label": "sign after checks"
+            },
+            {
+              "from": "sign",
+              "to": "cl"
+            },
+            {
+              "from": "cl",
+              "to": "b",
+              "label": "direct upload/download"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you handle malware scanning of uploads?",
+        "What are the risks of signed URLs?",
+        "When would you use customer-managed encryption keys?"
+      ],
+      "related": [
+        "what-is-cloud-storage"
+      ]
+    },
+    {
+      "slug": "api-gateway-on-gcp",
+      "title": "What does API Gateway do on GCP and how does it differ from a load balancer?",
+      "topic": "Messaging and data",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "gcp",
+        "api-gateway",
+        "api-management"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "API Gateway is a managed front door for APIs. I define an API configuration, usually from an OpenAPI document, and it routes requests to backends such as Cloud Run and supports controls like API-key or JWT-based authentication. A load balancer distributes traffic and handles TLS and routing at the network level but is not an API-management product. For richer needs such as developer portals, quotas or analytics I would consider a fuller API-management product. I would validate the exact features and limits in current documentation.",
+      "revision": "API Gateway is a managed API front door with OpenAPI config, routing and auth controls; a load balancer routes traffic. Verify product-specific limits, and use full API management for richer needs.",
+      "detailed": "## Direct answer\n**API Gateway** (Google Cloud's managed service of that name) provides a managed entry point for HTTP APIs. You publish an API configuration, typically based on an OpenAPI specification, and the gateway routes calls to backend services such as Cloud Run, Cloud Run functions or App Engine, applying supported authentication and traffic controls.\n\n## What it commonly provides\n- Routing paths and methods to backends from a declarative spec.\n- Authentication options such as API keys and JSON Web Token validation against configured issuers.\n- A consistent public hostname in front of several backends.\n- Monitoring and logging integration.\n\nCapabilities are narrower than a full API-management platform; verify current features, quotas and limits before depending on a particular one.\n\n## Gateway vs load balancer vs full API management\n| Option | Primary role | Typical extras |\n|---|---|---|\n| API Gateway | spec-driven API front door | auth, simple routing |\n| Cloud Load Balancing | network-level distribution | TLS, global anycast, CDN and WAF integrations, multiple backends |\n| Full API management | API product lifecycle | policies, quotas and monetisation, developer portal, analytics |\n\n## Design guidance\n- Keep **authorisation decisions** close to the services as well; the gateway handling authentication does not replace per-resource checks.\n- Restrict backends so that only the gateway (or load balancer) can invoke them, using IAM invoker permissions or ingress settings.\n- Version the API specification in source control and deploy it through the pipeline.\n- Put rate limiting where the product supports it, and keep fallback limits inside services.\n\n## Common mistakes\n- Assuming the gateway provides every policy a mature API-management product does.\n- Leaving Cloud Run services publicly invokable so the gateway can be bypassed.\n- Hand-editing configurations in the console and losing track of changes.\n- Duplicating business logic in gateway configuration.\n\n**Example (hypothetical):** a spec defines `/quotes` and `/policies`; the gateway validates a JWT and forwards to two Cloud Run services that only accept calls from the gateway's identity.",
+      "followUps": [
+        "How do you stop clients bypassing the gateway?",
+        "When would you pick a load balancer plus Cloud Armor instead?",
+        "How would you version and deploy gateway configuration?"
+      ],
+      "related": [
+        "secure-service-to-service-calls-on-gcp"
+      ]
+    }
+  ]
+}

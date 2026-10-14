@@ -1,0 +1,414 @@
+{
+  "category": "nodejs-nestjs",
+  "questions": [
+    {
+      "slug": "what-is-libuv",
+      "title": "What is libuv and what does it do for Node.js?",
+      "topic": "Event loop and streams",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "nodejs",
+        "libuv",
+        "thread-pool"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "companies": [
+        "valuemomentum"
+      ],
+      "quick": "I would say libuv is the C library underneath Node that provides the event loop and cross-platform asynchronous I/O. For network sockets it uses the operating system's readiness mechanisms, so no thread is blocked per connection. For operations that lack good async OS support, such as many file system calls, DNS lookups via getaddrinfo, and some crypto and compression work, it uses a small thread pool. That is why a heavy file or crypto workload can queue up even though JavaScript itself is single threaded.",
+      "revision": "libuv is Node's C library for the event loop and async I/O. Sockets use OS notification; some fs, DNS, crypto and zlib work runs on a small thread pool.",
+      "detailed": "**libuv** is the cross-platform C library that gives Node.js its event loop and asynchronous I/O. Node's JavaScript engine (V8) executes your code; libuv decides when callbacks get to run and how I/O is performed.\n\n## How it works\n- **Event loop:** a single thread repeatedly cycles through phases (timers, pending callbacks, poll, check, close callbacks) and runs the callbacks that are ready.\n- **Network I/O:** sockets are handled with the operating system's notification facilities (epoll, kqueue, IOCP). One thread can watch many connections without blocking on any of them.\n- **Thread pool:** work with no suitable non-blocking OS API is pushed to a pool of worker threads. Typically this includes many file system operations, `dns.lookup`, and some CPU-heavy library functions such as parts of crypto and zlib. The default pool size is small (commonly four) and can be changed with the `UV_THREADPOOL_SIZE` environment variable; verify the current default in the Node documentation.\n\n## Why it matters\n- \"Node is single threaded\" is true only for your JavaScript. The runtime uses additional threads internally.\n- The pool is **shared**. If many slow file or crypto operations occupy all pool threads, unrelated operations wait, which shows up as unexplained latency while CPU on the main thread looks calm.\n- Increasing the pool size helps only when the work is truly pool-bound and the machine has cores to spare.\n\n## Common mistakes\n- Assuming every async API uses the pool; network I/O normally does not.\n- Treating `async` functions as parallel CPU execution. They only avoid blocking while waiting.\n- Raising the pool size blindly instead of measuring queueing.\n\n**Example (hypothetical):** a report service hashes uploaded files with a CPU-heavy algorithm and also reads files from disk. Under load, simple disk reads slow down because hashing jobs fill the thread pool. The fix is to bound hashing concurrency or move it to worker threads, not to add HTTP replicas blindly.",
+      "followUps": [
+        "Which Node operations use the libuv thread pool and which do not?",
+        "How would you detect thread pool saturation?",
+        "When would you change UV_THREADPOOL_SIZE?"
+      ],
+      "related": [
+        "what-blocks-the-event-loop",
+        "worker-threads-vs-child-processes"
+      ]
+    },
+    {
+      "slug": "what-blocks-the-event-loop",
+      "title": "What blocks the Node.js event loop and how do you fix it?",
+      "topic": "Event loop and streams",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "nodejs",
+        "event-loop",
+        "performance"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "companies": [
+        "valuemomentum"
+      ],
+      "quick": "I would explain that anything that keeps the main thread busy synchronously delays every other request. Typical culprits are long loops, parsing or stringifying very large JSON, catastrophic regular expressions, synchronous file or crypto APIs, and heavy sorting. I would detect it by measuring event loop delay and CPU profiles, then fix it by chunking the work, streaming data, validating regex patterns, moving CPU-bound work to worker threads or a separate service, and limiting payload sizes.",
+      "revision": "Any long synchronous JavaScript stalls all requests. Common causes: big JSON, bad regexes, sync APIs, heavy loops. Measure event loop delay, then chunk, stream or offload to workers.",
+      "detailed": "Any code that runs synchronously for a long time on the main thread **blocks the event loop**, so no other callback, timer or incoming request can be processed until it finishes. Because one Node process serves all its connections from that thread, one slow handler hurts everybody.\n\n## Common causes\n| Cause | Why it hurts | Typical remedy |\n|---|---|---|\n| Long CPU loops, heavy sorting, image or PDF work | Occupies the thread | Worker threads or a worker service |\n| `JSON.parse`/`JSON.stringify` of very large payloads | Synchronous and proportional to size | Limit sizes, paginate, stream |\n| Catastrophic regular expressions | Backtracking can take very long on crafted input | Safer patterns, input length limits |\n| `*Sync` APIs (`readFileSync`, `pbkdf2Sync`) outside startup | Blocks until done | Use async variants |\n| Huge synchronous loops over big arrays | Starves I/O | Batch with yielding, or move off-thread |\n\n## Detecting it\n- Monitor **event loop delay** (for example with `perf_hooks.monitorEventLoopDelay`) and alert on high percentiles.\n- Take CPU profiles to find hot functions.\n- Watch for latency rising across *unrelated* endpoints, a hint that a shared thread is stalled.\n\n## Fixing it\n```js\nimport { Worker } from 'node:worker_threads';\n\nfunction runInWorker(file, data) {\n  return new Promise((resolve, reject) => {\n    const w = new Worker(file, { workerData: data });\n    w.once('message', resolve);\n    w.once('error', reject);\n  });\n}\n```\n\nOffload heavy computation like this, or split work into small chunks that yield between batches (for example with `setImmediate`).\n\n## Common mistakes\n- Wrapping CPU work in `async` or `Promise` and expecting it to be non-blocking. It still runs on the main thread.\n- Accepting unbounded request bodies.\n- Using sync APIs in request handlers because they \"work in dev\".\n\n**Example (hypothetical):** an endpoint exports a 50 MB JSON report. Every export freezes health checks for a moment and the load balancer marks the instance unhealthy. Streaming the output or generating it in a worker resolves it.",
+      "followUps": [
+        "How do you measure event loop lag in production?",
+        "Why does wrapping a loop in a Promise not make it non-blocking?",
+        "What is ReDoS?"
+      ],
+      "related": [
+        "what-is-libuv",
+        "worker-threads-vs-child-processes"
+      ]
+    },
+    {
+      "slug": "worker-threads-vs-child-processes",
+      "title": "Worker threads vs child processes in Node.js: when do you use each?",
+      "topic": "Event loop and streams",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "nodejs",
+        "worker-threads",
+        "child-process"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "companies": [
+        "valuemomentum"
+      ],
+      "quick": "I would use worker threads when I need to run CPU-heavy JavaScript in parallel inside one application, for example image processing or large computations. They live in the same process, can share memory through SharedArrayBuffer, and are cheaper than processes. I would use child processes when I need stronger isolation, a different runtime or binary, or protection from crashes and memory problems. If the work is large or critical, a separate worker service fed by a queue is often better still.",
+      "revision": "Worker threads: parallel CPU-bound JS inside one process, lighter, can share memory. Child processes: separate processes, stronger isolation, can run other programs. Heavy jobs may deserve a separate service.",
+      "detailed": "Both let you run work off the main thread, but they differ in isolation and cost.\n\n## Worker threads (`node:worker_threads`)\n- Run JavaScript in separate threads **within the same process**, each with its own V8 isolate and event loop.\n- Communicate with message passing; large binary data can be transferred or shared via `SharedArrayBuffer`.\n- Cheaper to start than a process and good for CPU-bound JavaScript such as parsing, compression, image transforms or hashing.\n- Not a sandbox: a native crash or out-of-memory condition can still take the whole process down.\n\n## Child processes (`node:child_process`)\n- Start a **separate operating system process** (`fork`, `spawn`, `exec`).\n- Own memory and own crash domain, so a failure does not corrupt the parent.\n- Can run non-Node programs such as ffmpeg or a Python script.\n- Heavier to start, and communication goes through IPC or pipes.\n\n| Aspect | Worker thread | Child process |\n|---|---|---|\n| Memory | Own heap, optional shared buffers | Fully separate |\n| Startup cost | Lower | Higher |\n| Isolation | Weaker | Stronger |\n| Other languages | No | Yes |\n| Typical use | CPU-bound JS | External tools, risky or untrusted work |\n\n## Practical guidance\n- Use a **pool** of workers sized to available cores instead of spawning one per request; unbounded spawning causes its own overload.\n- Remember that I/O-bound work does not need either; async I/O already scales on the main thread.\n- For long, retryable or heavy jobs, a queue plus a dedicated worker service gives independent scaling and failure handling that in-process workers cannot.\n\n## Common mistakes\n- Spawning a thread per request.\n- Sending huge objects back and forth by copy.\n- Using workers for tasks that merely wait on the network.\n\n**Example (hypothetical):** a thumbnail endpoint uses a fixed pool of worker threads for resizing. A feature that shells out to a video tool uses a child process, so a crash in the tool cannot take down the API.",
+      "followUps": [
+        "How would you size a worker pool?",
+        "How do workers share data efficiently?",
+        "When would you move to a separate worker service?"
+      ],
+      "related": [
+        "what-blocks-the-event-loop",
+        "how-to-scale-a-node-application"
+      ]
+    },
+    {
+      "slug": "promise-all-vs-allsettled",
+      "title": "Promise.all vs Promise.allSettled: how do they differ?",
+      "topic": "Event loop and streams",
+      "difficulty": "beginner",
+      "type": "comparison",
+      "tags": [
+        "javascript",
+        "promises",
+        "async"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "companies": [
+        "valuemomentum"
+      ],
+      "quick": "I would say Promise.all resolves with an array of results only if every promise fulfills, and it rejects as soon as any one rejects. That makes it right when the steps depend on each other and a single failure invalidates the whole operation. Promise.allSettled always waits for every promise and returns each outcome with a status, so it suits independent tasks where I want partial results and to report failures individually. I would also mention that neither cancels the underlying work.",
+      "revision": "all fails fast on the first rejection; allSettled waits for everything and reports each outcome. Use all when every result is required, allSettled for independent, partial-success work.",
+      "detailed": "Both combine several promises, but they treat failure differently.\n\n## Behaviour\n- **`Promise.all(promises)`** resolves with an array of values once all fulfill. It **rejects immediately** with the first rejection reason.\n- **`Promise.allSettled(promises)`** never rejects because of its inputs. It waits for all of them and resolves with objects like `{ status: 'fulfilled', value }` or `{ status: 'rejected', reason }`.\n\n```ts\nconst results = await Promise.allSettled([\n  fetchProfile(id),\n  fetchOrders(id),\n  fetchRecommendations(id),\n]);\n\nconst [profile, orders, recs] = results.map((r) =>\n  r.status === 'fulfilled' ? r.value : null,\n);\n```\n\n## When to use which\n| Situation | Prefer |\n|---|---|\n| All parts are required for a valid response | `all` |\n| Independent calls, partial result is acceptable | `allSettled` |\n| Need to log every failure, not only the first | `allSettled` |\n| Want fast failure to save time | `all` |\n\nThere is also `Promise.race` (first to settle) and `Promise.any` (first to fulfill), which are different tools.\n\n## Important details\n- **No cancellation.** When `all` rejects early, the other promises keep running. Pass an `AbortSignal` to calls that support it if you need to stop them.\n- **Unhandled rejections.** With `all`, rejections after the first are still handled internally, but individual failures are lost; `allSettled` preserves them.\n- **Unbounded fan-out.** Passing thousands of promises starts all work at once. Limit concurrency for large lists.\n\n## Common mistakes\n- Using `allSettled` and then ignoring rejected entries silently.\n- Assuming `all` stops the other tasks.\n- Mapping over a huge array with `all` and overloading a database.\n\n**Example (hypothetical):** a dashboard loads profile, orders and recommendations. Recommendations are optional, so the handler uses `allSettled` and renders the page without them if that call fails.",
+      "followUps": [
+        "How would you stop the remaining requests when one fails?",
+        "How do Promise.any and Promise.race differ?",
+        "How would you limit concurrency over a large list?"
+      ],
+      "related": [
+        "limit-concurrent-operations-in-node"
+      ]
+    },
+    {
+      "slug": "streams-in-node",
+      "title": "How do streams help in Node.js and when should you use them?",
+      "topic": "Event loop and streams",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "nodejs",
+        "streams",
+        "memory"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "companies": [
+        "valuemomentum"
+      ],
+      "quick": "I would explain that streams process data in chunks as it arrives instead of loading the whole payload into memory. They keep memory use roughly constant for large files, downloads, exports and uploads, and they let the first bytes flow to the consumer sooner. I would use pipeline from node:stream/promises to connect them, because it propagates errors and cleans up properly, and I would rely on streams' built-in backpressure so a slow consumer slows the producer.",
+      "revision": "Streams process data chunk by chunk, so memory stays flat for big files or exports and output starts earlier. Use stream pipeline for error handling and backpressure.",
+      "detailed": "A **stream** represents data that arrives or is produced over time. Instead of reading an entire file or response into a buffer, you handle it in chunks.\n\n## Why use them\n- **Bounded memory:** a 2 GB file can be copied or transformed with only a few chunks in memory.\n- **Lower time to first byte:** a consumer can start receiving data before the producer finishes.\n- **Composability:** readable, transform and writable streams connect into pipelines (read, decompress, parse, write).\n\n## Types\nReadable, Writable, Duplex (both) and Transform (modifies data in flight). Node's HTTP requests and responses, file handles, sockets and zlib are all streams.\n\n## Use `pipeline`\n```ts\nimport { createReadStream, createWriteStream } from 'node:fs';\nimport { createGzip } from 'node:zlib';\nimport { pipeline } from 'node:stream/promises';\n\nawait pipeline(\n  createReadStream('export.csv'),\n  createGzip(),\n  createWriteStream('export.csv.gz'),\n);\n```\n\n`pipeline` forwards errors, destroys all streams on failure and respects backpressure. Chaining with bare `.pipe()` does not clean up properly when one stage errors.\n\n## Trade-offs\n- Streams are harder to reason about than \"load, process, return\".\n- Operations that need the entire dataset (a global sort, whole-document validation) cannot be fully streamed.\n- Object-mode streams and async iterators (`for await (const chunk of stream)`) are convenient but still need care with buffering.\n\n## Common mistakes\n- Calling `fs.readFile` or `response.json()` on very large inputs inside an API.\n- Ignoring errors on individual streams.\n- Writing to a stream without checking the return value of `write()`, which defeats backpressure.\n\n**Example (hypothetical):** a CSV export endpoint queries rows with a cursor, transforms each row to a line of text and pipes the result into the HTTP response. Memory stays small even for millions of rows, and a client disconnect aborts the pipeline.",
+      "followUps": [
+        "What is the difference between pipe and pipeline?",
+        "How would you stream a large database result to a client?",
+        "What cannot be done in a streaming fashion?"
+      ],
+      "related": [
+        "backpressure-in-node",
+        "what-blocks-the-event-loop"
+      ]
+    },
+    {
+      "slug": "backpressure-in-node",
+      "title": "What is backpressure in Node.js streams and why does it matter?",
+      "topic": "Event loop and streams",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "nodejs",
+        "streams",
+        "backpressure"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "companies": [
+        "valuemomentum"
+      ],
+      "quick": "I would define backpressure as the mechanism that lets a slow consumer tell a fast producer to slow down, so buffers do not grow without limit. In Node streams, write returns false when the internal buffer passes the high-water mark, and the producer should wait for the drain event. Using pipeline handles this automatically. The same principle applies to queues and consumers generally: without limits, memory climbs and the process eventually fails.",
+      "revision": "Backpressure lets a slow consumer throttle a fast producer so buffers stay bounded. In Node, honour write() returning false and wait for drain, or use pipeline.",
+      "detailed": "**Backpressure** is flow control: the consumer signals that it cannot keep up, and the producer reduces its rate. Without it, a fast source feeding a slow sink piles data into memory until latency spikes or the process runs out of memory.\n\n## How Node implements it\nEach stream has an internal buffer with a **high-water mark**. For a writable stream:\n\n1. `stream.write(chunk)` returns `false` once buffered data exceeds the high-water mark.\n2. The producer should stop writing.\n3. When the buffer empties, the stream emits `drain` and the producer resumes.\n\n```js\nfunction writeAll(writable, chunks) {\n  let i = 0;\n  function next() {\n    while (i < chunks.length) {\n      const ok = writable.write(chunks[i++]);\n      if (!ok) {\n        writable.once('drain', next);\n        return;\n      }\n    }\n    writable.end();\n  }\n  next();\n}\n```\n\n`pipeline`, `.pipe()` and `for await` over readable streams apply this automatically, which is a main reason to prefer them over manual event handling.\n\n## Beyond streams\nThe idea applies to the whole system:\n- **Queues:** bound queue length, and reject or delay producers when it is full.\n- **Consumers:** limit in-flight messages (prefetch or concurrency settings).\n- **HTTP:** return 429 or 503 rather than accepting unlimited work.\n- **Database cursors:** read the next batch only after the previous one is processed.\n\n## Common mistakes\n- Ignoring the return value of `write()`.\n- Buffering a whole response into an array \"just in case\".\n- Adding unbounded in-memory queues between stages.\n- Believing that more memory is the solution; it only delays failure.\n\n**Example (hypothetical):** a job reads a large file quickly but uploads each line to a rate-limited service. Without backpressure the unsent lines accumulate in memory. With a pipeline and a concurrency-limited writable stage, memory stays flat and the reader pauses when uploads lag.",
+      "followUps": [
+        "What does the high-water mark control?",
+        "How would you apply backpressure to a message consumer?",
+        "What happens if you ignore the return value of write()?"
+      ],
+      "related": [
+        "streams-in-node",
+        "limit-concurrent-operations-in-node"
+      ]
+    },
+    {
+      "slug": "limit-concurrent-operations-in-node",
+      "title": "How do you prevent unbounded concurrent operations in Node.js?",
+      "topic": "Event loop and streams",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "nodejs",
+        "concurrency",
+        "backpressure"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "companies": [
+        "valuemomentum"
+      ],
+      "quick": "I would put a bound between the work and the resources it uses. Instead of starting thousands of promises at once, I would use a concurrency limiter or worker pool sized to the real constraint, such as database connections or a third-party rate limit. I would cap queue length, add per-task deadlines, and apply backpressure or return 429 when the system is saturated. Load testing then tells me whether the chosen limit protects downstream services.",
+      "revision": "Cap in-flight work with a limiter or pool sized to downstream capacity, bound queues, set deadlines, and shed or delay load when full. Never fire thousands of promises at once.",
+      "detailed": "Node makes it easy to start work: `array.map(async ...)` over 50,000 items launches 50,000 operations immediately. Each holds memory, sockets or pool connections, so the process or its dependencies fail.\n\n## Approach\n1. **Find the real constraint.** Database pool size, a vendor's rate limit, file descriptors or CPU cores.\n2. **Limit concurrency** to a number comfortably below that constraint.\n3. **Bound the queue** of waiting work; decide what happens when it is full.\n4. **Add deadlines** so stuck tasks release their slot.\n5. **Apply backpressure upstream.** Slow producers, reject new requests, or respond 429/503.\n\n## A simple limiter\n```ts\nasync function mapLimit<T, R>(\n  items: T[],\n  limit: number,\n  fn: (item: T) => Promise<R>,\n): Promise<R[]> {\n  const results: R[] = new Array(items.length);\n  let next = 0;\n\n  async function worker() {\n    while (true) {\n      const i = next++;\n      if (i >= items.length) return;\n      results[i] = await fn(items[i]);\n    }\n  }\n\n  await Promise.all(Array.from({ length: limit }, worker));\n  return results;\n}\n```\n\nIn production, libraries such as `p-limit` or `p-queue` are commonly used, or a message queue with a configured consumer concurrency.\n\n## Trade-offs\n- Too low a limit wastes capacity; too high overloads dependencies. Tune with measurements.\n- Limits are **per process**. With ten replicas, total concurrency is ten times the limit, so account for it when sizing against a shared downstream.\n- A bounded in-memory queue loses work on restart; for important jobs use a durable queue.\n\n## Common mistakes\n- `Promise.all(items.map(...))` on large inputs.\n- Limiting concurrency but leaving the waiting queue unbounded.\n- Forgetting error handling, so one failure leaves workers stranded.\n\n**Example (hypothetical):** a nightly sync enriches 100,000 records via an external API allowing 20 requests per second. A limiter of a few concurrent calls with retry and a token-bucket rate cap respects the limit and keeps memory steady.",
+      "followUps": [
+        "How does per-process limiting interact with many replicas?",
+        "When would you use a queue instead of an in-memory limiter?",
+        "How do you choose the concurrency number?"
+      ],
+      "related": [
+        "promise-all-vs-allsettled",
+        "backpressure-in-node"
+      ]
+    },
+    {
+      "slug": "how-to-scale-a-node-application",
+      "title": "How do you scale a Node.js application?",
+      "topic": "Scaling and memory",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "nodejs",
+        "scaling",
+        "performance"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "companies": [
+        "valuemomentum"
+      ],
+      "quick": "I would first find the bottleneck with latency percentiles, throughput, CPU, memory, event loop lag and dependency metrics. For I/O-bound services I would scale horizontally with stateless replicas behind a load balancer, keep sessions and shared state external, and use connection pooling, caching, rate limiting and queues with backpressure. For CPU-bound work I would use worker threads or separate worker services. I would stress that scaling the app without fixing database or downstream limits only moves the failure.",
+      "revision": "Measure the bottleneck first. Scale I/O-bound services with stateless replicas behind a load balancer; offload CPU work to workers; pool, cache, queue and limit. Fix downstream limits or you just move the failure.",
+      "detailed": "Scaling starts with **diagnosis**, not instances. Check latency percentiles (p95/p99), throughput, CPU, memory, event loop delay, and dependency latency and saturation (database, cache, third-party APIs).\n\n{{diagram:scale}}\n\n## I/O-bound services\n- **Horizontal scale:** run several stateless processes or containers behind a load balancer. One Node process uses one main thread, so use multiple processes per host (the cluster module, a process manager) or, more commonly in containers, multiple replicas.\n- **Statelessness:** keep sessions, uploads and caches outside the process (a shared store, object storage) so any instance can serve any request.\n- **Connection pooling** to the database, and sizing so that replicas times pool size does not exceed what the database allows.\n- **Caching** (HTTP, CDN, Redis) to cut repeated work.\n- **Rate limiting and load shedding** to protect the service.\n- **Asynchronous queues** for slow or retryable work, with backpressure.\n\n## CPU-bound work\nOffload to worker threads or to a dedicated worker service so request handling stays responsive. Adding replicas helps only if the CPU work is spread across them and does not block the loop in each.\n\n## Trade-offs\n| Choice | Benefit | Cost |\n|---|---|---|\n| More replicas | Simple capacity | More database connections, harder state |\n| Caching | Large load reduction | Staleness, invalidation |\n| Queues | Smooth bursts | Eventual consistency, extra infrastructure |\n| Workers | Keeps loop free | Operational complexity |\n\n## Common mistakes\n- Scaling out while one slow query is the real limit.\n- Storing session state in memory.\n- Letting replicas exhaust database connections.\n- Skipping event loop monitoring and autoscaling only on CPU.\n\n**Example (hypothetical):** an API slows at peak. Metrics show database connections saturated and event loop delay normal. Adding replicas would worsen it. Adding an index, a read cache and a smaller per-replica pool fixes the cause.",
+      "followUps": [
+        "How would you autoscale a Node service and on which metrics?",
+        "How do you avoid exhausting database connections as replicas grow?",
+        "When is the cluster module useful versus container replicas?"
+      ],
+      "related": [
+        "what-blocks-the-event-loop",
+        "find-node-memory-leaks"
+      ],
+      "diagrams": [
+        {
+          "id": "scale",
+          "title": "Scaling a Node service",
+          "alt": "Clients reach a load balancer that spreads requests across stateless Node replicas. The replicas use a shared cache and a pooled database connection, and push slow work to a queue consumed by worker services.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "c",
+              "label": "Clients"
+            },
+            {
+              "id": "lb",
+              "label": "Load balancer"
+            },
+            {
+              "id": "n",
+              "label": "Stateless Node replicas"
+            },
+            {
+              "id": "ca",
+              "label": "Shared cache"
+            },
+            {
+              "id": "db",
+              "label": "Database (pooled)"
+            },
+            {
+              "id": "qu",
+              "label": "Queue"
+            },
+            {
+              "id": "w",
+              "label": "Worker service"
+            }
+          ],
+          "edges": [
+            {
+              "from": "c",
+              "to": "lb"
+            },
+            {
+              "from": "lb",
+              "to": "n"
+            },
+            {
+              "from": "n",
+              "to": "ca"
+            },
+            {
+              "from": "n",
+              "to": "db"
+            },
+            {
+              "from": "n",
+              "to": "qu"
+            },
+            {
+              "from": "qu",
+              "to": "w"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "find-node-memory-leaks",
+      "title": "How do you find and fix memory leaks in a Node.js service?",
+      "topic": "Scaling and memory",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "nodejs",
+        "memory",
+        "debugging"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "companies": [
+        "valuemomentum"
+      ],
+      "quick": "I would first confirm it is a leak by watching heap usage and garbage collection over time under steady load: a growing baseline after collections means retained objects. Then I would reproduce the workload, take heap snapshots at intervals, compare them to see which object types grow and what retains them. Common causes are unbounded caches, listeners that are never removed, global maps, timers and closures. I would fix the retention, add bounds, and confirm with a repeat test.",
+      "revision": "Confirm a rising heap baseline after GC, reproduce under load, compare heap snapshots to find growing objects and their retainers, fix the retention, and re-test.",
+      "detailed": "A **memory leak** in Node means objects stay reachable when they are no longer needed, so the garbage collector cannot free them and memory grows until the process slows or is killed.\n\n## Step 1: confirm\n- Track `process.memoryUsage()` (heapUsed, rss) or runtime metrics over hours. Normal behaviour is a sawtooth that returns to a stable baseline. A **rising baseline** after garbage collections suggests a leak.\n- Distinguish heap growth from other memory: Buffers, native modules and external memory show up in `rss` and `external` rather than `heapUsed`.\n- Check whether a container limit, rather than a leak, causes restarts.\n\n## Step 2: reproduce\nReplay representative traffic in a test environment or a staging instance, so growth is observable within minutes.\n\n## Step 3: inspect\n- Capture **heap snapshots** (Chrome DevTools via `--inspect`, or `v8.writeHeapSnapshot()`) at intervals, then use the *comparison* view to see which constructors grow.\n- Examine the **retainers path** for suspicious objects to find what holds them.\n- Allocation profiling or sampling can show where objects are created.\n- Be careful in production: snapshots pause the process and can double memory. Prefer taking one from a single drained instance.\n\n## Frequent causes\n- Unbounded in-memory caches or maps keyed by user or request.\n- Event listeners added per request and never removed.\n- Timers or intervals never cleared.\n- Closures capturing large objects.\n- Accumulating promises, arrays or logs.\n\n## Fixes and prevention\n- Bound caches (size and TTL) or use an external cache.\n- Remove listeners and clear timers on cleanup.\n- Add memory and event loop metrics with alerts.\n- Rerun the load test to verify a flat baseline.\n\n**Example (hypothetical):** a per-request handler registers a listener on a shared emitter. Heap snapshots show the listener count growing with request volume, with each retaining a request object. Unsubscribing in a finally block flattens the curve.",
+      "followUps": [
+        "How do you tell a leak from normal high memory usage?",
+        "Is it safe to take heap snapshots in production?",
+        "What is the difference between heapUsed and rss?"
+      ],
+      "related": [
+        "how-to-scale-a-node-application",
+        "what-blocks-the-event-loop"
+      ]
+    },
+    {
+      "slug": "graceful-shutdown-node",
+      "title": "How do you implement graceful shutdown for a Node.js service?",
+      "topic": "Scaling and memory",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "nodejs",
+        "shutdown",
+        "kubernetes"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "companies": [
+        "valuemomentum"
+      ],
+      "quick": "I would handle SIGTERM by marking the instance not ready so the load balancer stops sending traffic, then stop accepting new connections, let in-flight requests finish, stop message consumers, close database and cache connections, and exit. All of this runs under a hard deadline shorter than the orchestrator's kill timeout, after which I force exit and log what was left. The goal is that deployments and scale-in events do not drop requests or leave half-processed work.",
+      "revision": "On SIGTERM: fail readiness, stop accepting traffic, drain in-flight requests, stop consumers, close connections, and exit within a bounded deadline shorter than the platform's kill timeout.",
+      "detailed": "A **graceful shutdown** lets a process finish what it started before it stops. It matters whenever instances are replaced: deployments, autoscaling, node maintenance.\n\n{{diagram:shutdown}}\n\n## Sequence\n1. **Receive the signal.** Orchestrators typically send `SIGTERM`, then `SIGKILL` after a grace period.\n2. **Stop receiving new work.** Fail the readiness probe so the load balancer removes the instance; call `server.close()` so no new connections are accepted.\n3. **Drain in-flight requests.** `server.close()` waits for open connections; idle keep-alive connections may need closing (`server.closeIdleConnections()` in recent Node versions; verify for your version).\n4. **Stop consumers.** Pause queue or stream consumers and finish or release the message being handled.\n5. **Close resources.** Database pools, caches, tracing exporters, flushing logs.\n6. **Exit** with the right code, protected by a **deadline**.\n\n```ts\nconst server = app.listen(3000);\n\nasync function shutdown(signal: string) {\n  console.log('received', signal);\n  const timer = setTimeout(() => process.exit(1), 25_000);\n  timer.unref();\n  await new Promise((r) => server.close(r));\n  await db.end();\n  process.exit(0);\n}\nprocess.on('SIGTERM', () => void shutdown('SIGTERM'));\nprocess.on('SIGINT', () => void shutdown('SIGINT'));\n```\n\nIn NestJS, call `app.enableShutdownHooks()` so providers can implement `onModuleDestroy` and `beforeApplicationShutdown`.\n\n## Pitfalls\n- Shutdown deadline longer than the platform grace period, so the process is killed anyway.\n- No readiness change, so traffic keeps arriving during drain.\n- Consumers acknowledging messages before processing, causing loss when killed.\n- Process managers or shell wrappers that swallow signals so Node never receives them.\n\n**Example (hypothetical):** during a rolling deployment an instance gets SIGTERM, reports unready, finishes two active uploads, stops its queue consumer after the current job, closes its database pool and exits in a few seconds.",
+      "followUps": [
+        "What happens to long-lived connections such as WebSockets during shutdown?",
+        "How do you make message handling safe against abrupt kills?",
+        "How does NestJS support shutdown hooks?"
+      ],
+      "related": [
+        "how-to-scale-a-node-application",
+        "backpressure-in-node"
+      ],
+      "diagrams": [
+        {
+          "id": "shutdown",
+          "title": "Graceful shutdown sequence",
+          "alt": "After a termination signal the service first becomes not ready, then stops accepting new connections, drains in-flight requests, stops consumers, closes database connections and finally exits, all within a deadline.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "a",
+              "label": "SIGTERM received"
+            },
+            {
+              "id": "b",
+              "label": "Fail readiness"
+            },
+            {
+              "id": "c",
+              "label": "Stop new connections"
+            },
+            {
+              "id": "d",
+              "label": "Drain in-flight work"
+            },
+            {
+              "id": "e",
+              "label": "Close DB and consumers"
+            },
+            {
+              "id": "f",
+              "label": "Exit before deadline"
+            }
+          ],
+          "edges": [
+            {
+              "from": "a",
+              "to": "b"
+            },
+            {
+              "from": "b",
+              "to": "c"
+            },
+            {
+              "from": "c",
+              "to": "d"
+            },
+            {
+              "from": "d",
+              "to": "e"
+            },
+            {
+              "from": "e",
+              "to": "f"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,492 @@
+{
+  "category": "gcp-architecture",
+  "questions": [
+    {
+      "slug": "answering-gcp-experience-honestly",
+      "title": "How do you answer \"What is your experience with GCP?\" when your background is mostly another cloud?",
+      "topic": "Positioning and decisions",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "gcp",
+        "interview",
+        "cloud-fundamentals"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would be straightforward about where my depth is, then show that the concepts transfer. Identity, private networking, container orchestration, managed databases, asynchronous messaging, observability and automated deployment exist on every major cloud, so I can map them to Cloud Run, GKE, Pub/Sub, Cloud SQL, IAM and Cloud Logging. I would say exactly what I have implemented myself and what I understand from design and documentation. Then I would name what I would validate before production: limits, identity model, delivery semantics and cost.",
+      "revision": "Be precise about what you personally implemented, show the concept-to-product mapping, and name what you would verify (limits, identity, networking, delivery semantics) before production.",
+      "detailed": "## Direct answer\nAnswer in three parts: state your real level plainly, show that the underlying concepts are the same across clouds, and explain how you would close the product-specific gaps. Interviewers for architect roles usually care less about memorised service names than about whether you reason correctly and know the edge of your knowledge.\n\n## A structure that works\n1. **Honest scope.** Say which parts you have built or operated and which you know from design work, study or documentation. Never imply production ownership you do not have.\n2. **Transferable concepts.** Identity and least privilege, private networking, container orchestration, managed relational databases, asynchronous messaging, observability and automated delivery are cloud-neutral problems.\n3. **Mapping.** Connect them to GCP products: Cloud Run or GKE for compute, Pub/Sub for messaging, Cloud SQL for PostgreSQL, Cloud Storage, IAM and service accounts, Secret Manager, Cloud Logging and Monitoring.\n4. **Validation plan.** Say what you would confirm before production: quotas and limits, the identity model, networking options, delivery guarantees and cost behaviour.\n\n## What not to do\n- Do not bluff on service internals; one follow-up question exposes it.\n- Do not apologise at length or dismiss the gap either.\n- Do not recite a product catalogue without a decision rule for each service.\n\n## Example answer shape (hypothetical)\n\"My cloud depth is mainly on another provider. The architectural questions are the same, so I would design the stateless APIs on Cloud Run, async work on Pub/Sub, and relational data on Cloud SQL, and I would load-test connection usage and verify Pub/Sub delivery semantics against current documentation before committing.\"\n\n## Prepare concrete talking points\n| Concern | Cloud-neutral idea | GCP product to name |\n|---|---|---|\n| Compute | stateless containers | Cloud Run, GKE |\n| Messaging | decoupled pub/sub | Pub/Sub |\n| Data | managed relational DB | Cloud SQL |\n| Identity | least-privilege workload identity | IAM, service accounts |\n\nPair each with one risk you would check, such as connection limits or redelivery.",
+      "followUps": [
+        "Which GCP service would you be most careful about, and why?",
+        "How would you ramp up on GCP in your first month?",
+        "What would you validate before a first production release?"
+      ],
+      "related": [
+        "aws-to-gcp-service-mapping",
+        "cloud-run-vs-gke"
+      ]
+    },
+    {
+      "slug": "what-is-cloud-run",
+      "title": "What is Cloud Run and when does it fit?",
+      "topic": "Compute",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "gcp",
+        "cloud-run",
+        "serverless"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Cloud Run is a managed platform that runs container images as services or jobs without me operating a Kubernetes cluster. It scales instances with demand, can scale down to zero when configured that way, and bills mainly for resources used while handling requests, depending on the configuration. I would use it for stateless HTTP APIs, event-driven handlers and batch jobs. I would check request timeout, concurrency, CPU allocation and connection behaviour to downstream databases before choosing it for a given workload.",
+      "revision": "Cloud Run runs stateless containers as autoscaled services or jobs without cluster management; tune concurrency, instance limits and timeouts, and protect downstream connections.",
+      "detailed": "## Direct answer\n**Cloud Run** is Google Cloud's managed runtime for containers. You supply an image that listens on a configured port (or runs to completion, for jobs); the platform handles provisioning, routing, TLS and scaling. You do not manage nodes or a control plane.\n\n## How it works\n- A **service** receives HTTP requests (or events delivered over HTTP) and runs as a set of instances that the platform adds or removes.\n- Each instance can handle several requests at once, controlled by the **concurrency** setting.\n- **Minimum and maximum instances** bound scaling; a minimum above zero reduces cold starts at a cost.\n- **Revisions** are immutable versions, so traffic can be split between revisions for gradual rollouts and rolled back quickly.\n- **Jobs** run containers to completion for batch or scheduled work.\n- Each service runs as a **service account**, which is how it gets access to other Google Cloud resources.\n\n## Good fit\n- Stateless APIs, backend-for-frontend layers and webhook receivers.\n- Pub/Sub push handlers and lightweight workers.\n- Spiky or low-average traffic where idle cost matters.\n\n## Trade-offs and cautions\n- Instances are ephemeral; keep state in databases, caches or object storage.\n- A request has a maximum duration; long work belongs in jobs or queues. Verify current limits in the documentation.\n- Cold starts affect tail latency; measure them for a Node.js image with realistic startup work.\n- Rapid scale-out multiplies database connections and downstream calls, so cap instances and pool sizes.\n- Features such as specialised networking, sidecar patterns or privileged workloads may point toward GKE instead.\n\n## Common mistakes\n- Treating it as a long-running server with in-memory state.\n- Leaving maximum instances unbounded in front of a small database.\n- Doing background work after the response is sent without confirming the CPU allocation mode allows it.\n\n**Example (hypothetical):** a quotes API is packaged as a container, deployed to Cloud Run with a concurrency of 40 and maximum 20 instances, and reads Cloud SQL through a bounded pool.",
+      "followUps": [
+        "How do concurrency and instance count interact?",
+        "How do you reduce cold starts for a Node.js service?",
+        "When would a Cloud Run job be better than a service?"
+      ],
+      "related": [
+        "cloud-run-vs-gke",
+        "cloud-run-concurrency-tuning",
+        "what-is-gke"
+      ]
+    },
+    {
+      "slug": "what-is-gke",
+      "title": "What is GKE and what does it add over a fully managed runtime?",
+      "topic": "Compute",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "gcp",
+        "gke",
+        "kubernetes"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "GKE is Google's managed Kubernetes service. Google operates much of the control plane, and I still define workloads, networking, scaling and policies using standard Kubernetes objects. It gives more control than a fully managed runtime such as Cloud Run, for example custom scheduling, sidecars, specialised networking and stateful or unusual workloads. The price is more operational responsibility: cluster upgrades, node and capacity choices, policy and a team that knows Kubernetes. I would pick it for those needs, not by default.",
+      "revision": "GKE is managed Kubernetes: more control (scheduling, sidecars, networking) than Cloud Run, but more operational ownership. Choose it for real Kubernetes needs, not by default.",
+      "detailed": "## Direct answer\n**Google Kubernetes Engine (GKE)** is a managed Kubernetes service. Google operates the control plane and offers options for how much of the node layer you manage. You still describe your applications with Kubernetes resources: Deployments, Services, Ingress or Gateway, ConfigMaps, HorizontalPodAutoscalers and so on.\n\n## What it adds\n- **Control over scheduling and runtime:** node pools, affinity, taints, resource requests and limits.\n- **Pod-level composition:** sidecars, init containers and shared volumes inside a pod.\n- **Networking flexibility:** internal services, network policies, service-mesh options.\n- **Portability of skills and manifests** across Kubernetes environments, with the caveat that cloud-specific integrations still differ.\n- **Workload variety:** long-running processes, stateful sets, GPU or specialised node needs, depending on configuration.\n\n## Operating modes (verify current names)\nGKE commonly offers a mode where Google manages nodes more heavily and a mode where you manage node pools yourself. The trade is convenience against control and cost model; check current documentation for details.\n\n## Trade-offs\n| Concern | GKE | Cloud Run |\n|---|---|---|\n| Operational surface | cluster, upgrades, policies, capacity | mostly the service and its config |\n| Flexibility | high | narrower, opinionated |\n| Team skill | Kubernetes expertise needed | container knowledge enough |\n| Idle cost | depends on mode and node setup | can scale to zero |\n\n## Common mistakes\n- Adopting Kubernetes for a handful of simple APIs and spending the savings on platform work.\n- Ignoring upgrade, patching and policy ownership.\n- Setting no resource requests, causing noisy-neighbour problems and poor autoscaling.\n- Treating a cluster as multi-tenant-safe without namespaces, quotas, network policies and workload identity.\n\n**Example (hypothetical):** a platform team running forty services with sidecar-based observability, custom network rules and shared tooling may justify GKE. A small team with three stateless APIs usually does not.",
+      "followUps": [
+        "What does the shared responsibility model look like for GKE?",
+        "How would you roll out a new version safely on GKE?",
+        "What would make you move a workload from GKE to Cloud Run, or the reverse?"
+      ],
+      "related": [
+        "cloud-run-vs-gke",
+        "deploy-nodejs-service-to-gke"
+      ]
+    },
+    {
+      "slug": "cloud-run-vs-gke",
+      "title": "Cloud Run vs GKE: how do you choose for a Node.js workload?",
+      "topic": "Positioning and decisions",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "gcp",
+        "cloud-run",
+        "gke",
+        "decision"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would default to Cloud Run for stateless HTTP services and event-driven workers, because the platform handles infrastructure and autoscaling and the team operates less. I would choose GKE when we need deeper Kubernetes control: sidecars, complex networking, specialised workloads, or an existing Kubernetes operating model. The comparison is deployment complexity, scaling behaviour, networking, execution constraints, operational ownership, cost and team skills. One platform need not run everything, and I would not pick GKE merely because Kubernetes is available.",
+      "revision": "Default to Cloud Run for stateless services; choose GKE for real Kubernetes needs and an existing operating model. Compare ownership, scaling, networking, constraints, cost and skills.",
+      "detailed": "## Direct answer\nPrefer **Cloud Run** when a workload is a stateless container that serves requests or processes events and the team wants minimal operations. Prefer **GKE** when the workload or organisation genuinely needs Kubernetes capabilities. Mixed estates are normal and often sensible.\n\n## Decision factors\n| Factor | Cloud Run leans | GKE leans |\n|---|---|---|\n| Workload shape | stateless HTTP, event handlers, jobs | long-running, stateful, specialised, many co-located components |\n| Scaling | request-driven, can scale to zero | pod and node autoscaling you configure |\n| Networking | simple service exposure | complex internal topology, policies, mesh |\n| Execution constraints | request timeout, container contract | broad control within Kubernetes |\n| Ops ownership | small | larger platform responsibility |\n| Team skills | containers | Kubernetes expertise |\n| Cost shape | pay for usage, idle can be near zero | baseline cluster and node cost, better packing at scale |\n\nVerify current limits and pricing models in the documentation, since both change.\n\n## Practical heuristic\n1. Start with the least operational surface that meets the requirements.\n2. Write down the specific requirement that Cloud Run cannot meet (for example sidecar-dependent tooling or unusual network needs). If you cannot name one, stay on Cloud Run.\n3. Consider the platform that your organisation already runs well; a mature GKE platform lowers the marginal cost of one more service.\n\n## Common mistakes\n- Choosing GKE for resume-driven or \"everything is Kubernetes\" reasons.\n- Choosing Cloud Run without checking connection pressure on the database during scale-out.\n- Forcing one platform on all services instead of deciding per workload.\n- Ignoring the migration path: containers built to twelve-factor principles move between the two with modest changes.\n\n**Example (hypothetical):** a claims-intake API and a notification worker run on Cloud Run. A rules-engine component needing a sidecar and custom network policy runs on an existing GKE cluster. Both publish to Pub/Sub.",
+      "followUps": [
+        "What would make you migrate a service from Cloud Run to GKE?",
+        "How does cost compare at steady high load versus spiky load?",
+        "How do you keep deployment practices consistent across both?"
+      ],
+      "related": [
+        "what-is-cloud-run",
+        "what-is-gke",
+        "design-nodejs-application-on-gcp"
+      ]
+    },
+    {
+      "slug": "design-nodejs-application-on-gcp",
+      "title": "How would you design a Node.js application on GCP?",
+      "topic": "Positioning and decisions",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "gcp",
+        "architecture",
+        "cloud-run",
+        "pubsub",
+        "cloud-sql"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would first identify public APIs, internal services, asynchronous workloads, data ownership and availability needs. Public traffic enters through API Gateway or a load balancer with an API-management layer, then reaches stateless services on Cloud Run. Slow or decoupled work goes through Pub/Sub. Cloud SQL holds relational data, Cloud Storage holds files, and Secret Manager holds secrets. Each service uses its own least-privilege identity, with private connectivity where possible. I would add Cloud Logging, Monitoring, Trace and OpenTelemetry, deliver immutable artifacts through controlled pipelines, and validate quotas, connection limits and regional dependencies.",
+      "revision": "Edge gateway, stateless Cloud Run services, Pub/Sub for async, Cloud SQL and Cloud Storage for data, Secret Manager, per-service identities, full observability, controlled CI/CD, validated limits.",
+      "detailed": "## Direct answer\nStart from requirements, not products: which APIs are public, which services are internal, which work is asynchronous, who owns which data, and what availability and recovery the business needs. Then place the managed services that fit.\n\n{{diagram:ref}}\n\n## Component choices\n- **Edge:** API Gateway, or a load balancer with an API-management layer, for authentication, routing and throttling. Verify the capabilities you rely on.\n- **Compute:** stateless Node.js services on Cloud Run by default; GKE only for demonstrated needs.\n- **Async:** Pub/Sub topics decouple producers from consumers; dead-letter topics capture poison messages.\n- **Data:** Cloud SQL for PostgreSQL where relational integrity matters; each service owns its schema; Cloud Storage for documents and exports.\n- **Secrets and config:** Secret Manager; no secrets in images or source.\n- **Identity:** one service account per service, least privilege, private connectivity to databases.\n- **Observability:** structured logs to Cloud Logging, metrics and alerts in Cloud Monitoring, traces via OpenTelemetry to Cloud Trace.\n- **Delivery:** immutable images in Artifact Registry, promoted through environments by a controlled pipeline.\n\n## Validation checklist\n- Quotas and per-project limits for the services used.\n- Worst-case database connections at maximum scale-out.\n- Regional dependencies and whether a regional failure is within the recovery objective.\n- Redelivery handling in every Pub/Sub consumer.\n- Cost drivers such as log volume and egress.\n\n## Common mistakes\n- Drawing every managed service without tying it to a requirement.\n- Sharing one database across services.\n- Forgetting idempotency for at-least-once messaging.\n- No explicit recovery design behind a single-region deployment.\n\n**Example (hypothetical):** a policy-administration platform exposes quote and policy APIs through the gateway; quote calculation runs in one Cloud Run service, document generation is triggered through Pub/Sub, and generated PDFs land in a private bucket.",
+      "diagrams": [
+        {
+          "id": "ref",
+          "title": "Reference architecture on GCP",
+          "alt": "Clients call an API gateway, which routes to stateless Cloud Run services. Services read and write Cloud SQL, store files in Cloud Storage, read secrets from Secret Manager and publish events to Pub/Sub, which feeds a worker service. Logs, metrics and traces flow to the observability tools.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "c",
+              "label": "Clients"
+            },
+            {
+              "id": "gw",
+              "label": "API Gateway / load balancer"
+            },
+            {
+              "id": "api",
+              "label": "Cloud Run API services"
+            },
+            {
+              "id": "sql",
+              "label": "Cloud SQL (PostgreSQL)"
+            },
+            {
+              "id": "gcs",
+              "label": "Cloud Storage"
+            },
+            {
+              "id": "sm",
+              "label": "Secret Manager"
+            },
+            {
+              "id": "ps",
+              "label": "Pub/Sub topic"
+            },
+            {
+              "id": "w",
+              "label": "Cloud Run worker"
+            },
+            {
+              "id": "obs",
+              "label": "Logging, Monitoring, Trace"
+            }
+          ],
+          "edges": [
+            {
+              "from": "c",
+              "to": "gw"
+            },
+            {
+              "from": "gw",
+              "to": "api"
+            },
+            {
+              "from": "api",
+              "to": "sql"
+            },
+            {
+              "from": "api",
+              "to": "gcs"
+            },
+            {
+              "from": "api",
+              "to": "sm"
+            },
+            {
+              "from": "api",
+              "to": "ps",
+              "label": "publish"
+            },
+            {
+              "from": "ps",
+              "to": "w",
+              "label": "deliver"
+            },
+            {
+              "from": "w",
+              "to": "sql"
+            },
+            {
+              "from": "api",
+              "to": "obs"
+            },
+            {
+              "from": "w",
+              "to": "obs"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Where would you put the boundaries between services and databases?",
+        "How would you make this survive a regional outage?",
+        "How would you handle a slow downstream dependency?",
+        "What would you load-test first?"
+      ],
+      "related": [
+        "cloud-run-vs-gke",
+        "pubsub-duplicate-delivery",
+        "observability-on-gcp"
+      ]
+    },
+    {
+      "slug": "deploy-nestjs-api-to-cloud-run",
+      "title": "How would you deploy a NestJS API to Cloud Run?",
+      "topic": "Compute",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "gcp",
+        "cloud-run",
+        "nestjs",
+        "docker",
+        "deployment"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would build a production multi-stage Docker image, run as a non-root user, and make the app listen on the port Cloud Run provides. The pipeline tests, scans and publishes the image to Artifact Registry, then deploys it to Cloud Run with environment configuration and a dedicated service account that has least-privilege access to Cloud SQL and Secret Manager. I would set concurrency and instance limits, health behaviour and request deadlines, verify the rollout through logs and metrics, test connection usage under autoscaling, and confirm the rollback path before relying on it.",
+      "revision": "Build slim non-root image, test and scan, push to Artifact Registry, deploy with a least-privilege service account, set scaling limits, verify metrics, keep a rollback revision.",
+      "detailed": "## Direct answer\nPackage the API as an immutable container, publish it to Artifact Registry, and deploy it as a Cloud Run revision using a controlled pipeline and a dedicated, least-privilege runtime identity. Then verify and keep a rollback target.\n\n## Steps\n1. **Image:** multi-stage Dockerfile; install dev dependencies and compile in a build stage, copy only production dependencies and compiled output into a small runtime stage; run as a non-root user.\n2. **Port and startup:** Cloud Run supplies a port through the PORT environment variable; the app should listen on it on all interfaces and start quickly.\n3. **Pipeline:** install reproducibly, lint, type-check, test, scan dependencies and the image, then push a uniquely tagged (ideally digest-pinned) image.\n4. **Deploy:** the deployer identity creates a new revision; the runtime identity (a different service account) accesses Cloud SQL and Secret Manager with only the roles it needs.\n5. **Configuration:** environment variables for non-secrets; secrets mounted or injected from Secret Manager.\n6. **Scaling controls:** concurrency, minimum and maximum instances, CPU and memory, request timeout.\n7. **Verify:** check startup, readiness behaviour, error rate, latency and database connection count on the new revision.\n8. **Rollback:** route traffic back to the previous revision, which Cloud Run retains.\n\n```dockerfile\nFROM node:22-slim AS build\nWORKDIR /app\nCOPY package*.json ./\nRUN npm ci\nCOPY . .\nRUN npm run build && npm prune --omit=dev\n\nFROM node:22-slim\nWORKDIR /app\nENV NODE_ENV=production\nCOPY --from=build /app/node_modules ./node_modules\nCOPY --from=build /app/dist ./dist\nUSER node\nCMD [\"node\", \"dist/main.js\"]\n```\n\nIn NestJS, bootstrap with `await app.listen(process.env.PORT ?? 3000, '0.0.0.0')`.\n\n## Common mistakes\n- Hard-coding the port or listening only on localhost.\n- Running the deployer's broad permissions at runtime.\n- Unbounded instances in front of a small Cloud SQL instance.\n- Migrations that break the previous revision during a rolling cutover.\n- Logging unstructured text and sensitive data.\n\n**Example (hypothetical):** a staged rollout sends ten percent of traffic to the new revision, the team watches error rate and connection count, then promotes or reverts.",
+      "followUps": [
+        "How would you run database migrations during this deployment?",
+        "How do you do a gradual rollout on Cloud Run?",
+        "How do you keep image size and cold starts under control?"
+      ],
+      "related": [
+        "cloud-run-concurrency-tuning",
+        "artifact-registry-and-cloud-build",
+        "workload-identity-and-least-privilege"
+      ]
+    },
+    {
+      "slug": "deploy-nodejs-service-to-gke",
+      "title": "How do you deploy a Node.js service to GKE?",
+      "topic": "Compute",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "gcp",
+        "gke",
+        "kubernetes",
+        "deployment"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would build the image in the pipeline, publish it to Artifact Registry, and update the Kubernetes resources, usually a Deployment with a Service and an Ingress or Gateway. I would set resource requests and limits, readiness and liveness probes, and an autoscaler. The workload uses its own service account bound to a Google identity for least-privilege access. After applying, I would verify rollout health and metrics, and keep an easy rollback path such as the previous image or `kubectl rollout undo`.",
+      "revision": "Build, push to Artifact Registry, apply Deployment/Service/Ingress with probes and resource requests, use workload identity, verify rollout health, keep a rollback path.",
+      "detailed": "## Direct answer\nBuild and publish an immutable image, update Kubernetes manifests to reference it, let the Deployment perform a rolling update, verify health, and retain a rollback.\n\n## Flow\n{{diagram:gke}}\n\n## What the manifests need\n- **Deployment:** image reference (preferably by digest), replicas, rolling update settings, resource requests and limits.\n- **Probes:** a readiness probe so traffic only reaches ready pods, and a liveness probe used carefully so slow starts are not killed.\n- **Service and Ingress or Gateway:** stable internal address and external exposure.\n- **HorizontalPodAutoscaler:** scale on CPU or custom metrics; confirm the node layer can add capacity.\n- **Identity:** a Kubernetes service account mapped to a Google service account through workload identity, instead of mounted key files.\n- **Config and secrets:** ConfigMaps for settings; secrets from Secret Manager through a supported integration.\n- **Disruption controls:** PodDisruptionBudget so upgrades do not remove all replicas.\n\n```yaml\nreadinessProbe:\n  httpGet:\n    path: /health/ready\n    port: 3000\n  periodSeconds: 5\nresources:\n  requests: { cpu: 250m, memory: 256Mi }\n  limits: { memory: 512Mi }\n```\n\n## Delivery practice\nUse a pipeline or a GitOps controller so that the cluster state is declared in version control. Gate promotion on tests and approvals, and verify with smoke tests after rollout.\n\n## Common mistakes\n- No resource requests, so scheduling and autoscaling misbehave.\n- Missing graceful shutdown: Node.js should handle SIGTERM, stop accepting connections and drain.\n- Using the `latest` tag, which makes rollback and audit unreliable.\n- Granting broad permissions to the node's default identity rather than a per-workload identity.\n\n**Example (hypothetical):** a billing service rolls out three replicas at a time, the readiness probe holds traffic until the database pool is warm, and a failed check triggers a rollback to the prior revision.",
+      "diagrams": [
+        {
+          "id": "gke",
+          "title": "Deploying to GKE",
+          "alt": "A pipeline builds an image and pushes it to Artifact Registry, applies manifests to the GKE cluster, where a Deployment pulls the image and runs pods behind a Service and ingress; verification then decides whether to keep or roll back.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "p",
+              "label": "CI/CD pipeline"
+            },
+            {
+              "id": "ar",
+              "label": "Artifact Registry"
+            },
+            {
+              "id": "k",
+              "label": "GKE Deployment"
+            },
+            {
+              "id": "pod",
+              "label": "Pods"
+            },
+            {
+              "id": "svc",
+              "label": "Service / Ingress"
+            },
+            {
+              "id": "v",
+              "label": "Verify or roll back"
+            }
+          ],
+          "edges": [
+            {
+              "from": "p",
+              "to": "ar",
+              "label": "push image"
+            },
+            {
+              "from": "p",
+              "to": "k",
+              "label": "apply manifests"
+            },
+            {
+              "from": "ar",
+              "to": "pod",
+              "label": "pull"
+            },
+            {
+              "from": "k",
+              "to": "pod"
+            },
+            {
+              "from": "pod",
+              "to": "svc"
+            },
+            {
+              "from": "svc",
+              "to": "v"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you do zero-downtime deploys and rollbacks here?",
+        "Why handle SIGTERM in a Node.js pod?",
+        "GitOps versus push-based deployment?"
+      ],
+      "related": [
+        "what-is-gke",
+        "cloud-run-vs-gke",
+        "artifact-registry-and-cloud-build"
+      ]
+    },
+    {
+      "slug": "cloud-run-concurrency-tuning",
+      "title": "How do you choose a Cloud Run concurrency setting?",
+      "topic": "Compute",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "gcp",
+        "cloud-run",
+        "concurrency",
+        "performance"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would not guess; I would load-test with realistic request sizes, CPU and memory use, and dependency latency. Higher concurrency usually improves utilisation for I/O-bound Node.js services, but it also increases contention inside the instance and pressure on downstream connections. I would tune it together with CPU allocation, instance limits, request deadlines and database pool sizes, then check tail latency and error rates rather than average latency. The right value is whatever keeps p95 and p99 healthy while using instances efficiently.",
+      "revision": "Load-test, then tune concurrency with CPU, memory, instance limits, timeouts and DB pools; higher helps I/O-bound work but adds contention and downstream pressure. Judge by tail latency and errors.",
+      "detailed": "## Direct answer\n**Concurrency** is the number of simultaneous requests Cloud Run may send to one instance. The best value comes from measurement against your workload, because it depends on how much CPU each request burns, how much memory it holds, and how long it waits on dependencies.\n\n## How it works\nCloud Run scales instance count from request load and the concurrency setting. With a lower concurrency it adds instances sooner; with a higher one each instance absorbs more requests. Verify the current default and maximum in the documentation.\n\n## Node.js considerations\n- Node.js handles many I/O-bound requests on one event loop, so moderately high concurrency often suits it.\n- A CPU-heavy request blocks the loop for everyone on that instance. Lower concurrency, or move the work to worker threads or a separate service.\n- Memory scales with in-flight requests: large payloads times high concurrency can exhaust memory.\n- If concurrency is one, you are paying for many instances and many database connections.\n\n## Effects on dependencies\nTotal database connections are roughly instances times pool size, so raising concurrency without raising pool size increases queueing inside the instance, while raising both increases pressure on the database. Plan the worst case against the database's connection budget.\n\n## Tuning procedure\n1. Choose an initial value; establish latency objectives (for example p95 and p99).\n2. Load-test with representative payloads and dependency latencies.\n3. Increase concurrency stepwise while watching event-loop lag, CPU, memory, tail latency and errors.\n4. Stop where tail latency or event-loop lag degrades; leave headroom.\n5. Cap maximum instances so scale-out cannot overwhelm downstream systems.\n6. Re-test after significant code or dependency changes.\n\n## Common mistakes\n- Tuning on average latency.\n- Testing against a mocked database that hides contention.\n- Ignoring request timeouts, so queued requests fail rather than slow down.\n\n**Example (hypothetical):** a pricing API tested at 20, 40 and 80 concurrent requests shows p99 climbing sharply past 40 because of event-loop lag, so the team sets 40 and adds instances instead.",
+      "followUps": [
+        "How would you detect event-loop saturation in this service?",
+        "How does CPU allocation mode influence your choice?",
+        "How do you size the database pool against concurrency?"
+      ],
+      "related": [
+        "cloud-run-autoscaling-and-dependencies",
+        "prevent-cloud-sql-connection-exhaustion"
+      ]
+    },
+    {
+      "slug": "cloud-run-autoscaling-and-dependencies",
+      "title": "How do you stop Cloud Run autoscaling from overwhelming downstream systems?",
+      "topic": "Compute",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "gcp",
+        "cloud-run",
+        "autoscaling",
+        "resilience"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Autoscaling compute is only safe if the dependencies can survive peak replica counts. More instances mean more database connections, more downstream requests and more background work. I would set maximum instances and concurrency deliberately, use bounded connection pools, and compare worst-case demand with database and third-party capacity. I would also add timeouts, retries with backoff and queues for work that can wait. Then I would monitor cold starts, tail latency, errors and utilisation, because scaling compute without protecting dependencies just moves the failure.",
+      "revision": "Scaling out multiplies connections and downstream calls: set max instances and concurrency, bound pools, add queues and timeouts, and monitor tail latency and errors.",
+      "detailed": "## Direct answer\nAutoscaling answers \"do I have enough compute?\" but not \"can everything behind it cope?\". The control is to cap and shape scale-out so that the worst-case load on every dependency stays within what it can handle.\n\n{{diagram:scale}}\n\n## Controls\n- **Maximum instances:** the hard ceiling on parallel capacity. Derive it from the weakest dependency, not from budget optimism.\n- **Concurrency:** requests per instance; together with the maximum, it bounds in-flight work.\n- **Bounded pools:** per-instance database pool sizes so instances times pool does not exceed the connection budget.\n- **Queue-based leveling:** for work that need not be synchronous, publish to Pub/Sub and let a worker with a capped rate drain it.\n- **Timeouts, retries and backoff:** retries multiply load during incidents, so bound them and add jitter.\n- **Circuit breakers and bulkheads:** fail fast on an unhealthy dependency instead of piling up requests.\n- **Rate limiting:** at the edge or per client, to protect shared capacity.\n- **Minimum instances:** reduce cold-start spikes when latency matters, at a cost.\n\n## What to watch\nCold start frequency, p95 and p99 latency, error rate, instance count, container utilisation, database connection count and saturation, and downstream rate-limit responses.\n\n## Common mistakes\n- Leaving maximum instances at a very high value in front of a database with a few hundred connections.\n- Retrying aggressively so a brief blip becomes a sustained overload.\n- Load-testing the service but not the dependencies at that load.\n- Starting background work that outlives the request without accounting for its CPU and connection use.\n\n**Example (hypothetical):** a claims API is capped at 30 instances with a pool of 5 per instance, giving at most 150 application connections, which fits within the database budget alongside admin and batch use.",
+      "diagrams": [
+        {
+          "id": "scale",
+          "title": "Scale-out pressure on dependencies",
+          "alt": "Incoming traffic spawns more Cloud Run instances. Each instance opens pooled connections to Cloud SQL and calls downstream services. Maximum instances and pool size cap the total, while a Pub/Sub queue absorbs work that can wait.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "t",
+              "label": "Traffic spike"
+            },
+            {
+              "id": "cr",
+              "label": "Cloud Run instances (max capped)"
+            },
+            {
+              "id": "pool",
+              "label": "Bounded pools"
+            },
+            {
+              "id": "db",
+              "label": "Cloud SQL"
+            },
+            {
+              "id": "ds",
+              "label": "Downstream APIs"
+            },
+            {
+              "id": "q",
+              "label": "Pub/Sub buffer"
+            }
+          ],
+          "edges": [
+            {
+              "from": "t",
+              "to": "cr"
+            },
+            {
+              "from": "cr",
+              "to": "pool"
+            },
+            {
+              "from": "pool",
+              "to": "db"
+            },
+            {
+              "from": "cr",
+              "to": "ds",
+              "label": "timeouts, backoff"
+            },
+            {
+              "from": "cr",
+              "to": "q",
+              "label": "defer work"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you pick the maximum instance value?",
+        "What would you do if the downstream is a third-party with strict rate limits?",
+        "How do cold starts interact with this?"
+      ],
+      "related": [
+        "cloud-run-concurrency-tuning",
+        "prevent-cloud-sql-connection-exhaustion",
+        "pubsub-duplicate-delivery"
+      ]
+    }
+  ]
+}

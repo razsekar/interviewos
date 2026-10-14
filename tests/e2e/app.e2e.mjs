@@ -197,7 +197,7 @@ test('bank: search, filters and URL state', { skip }, async () => {
   await go(page, 'app/');
   await hash(page, '#/bank');
   await page.type('#f-q', 'idempotency');
-  await page.waitForFunction(() => /^\d+ questions? match/.test(document.querySelector('#summary').textContent) && !/^554 /.test(document.querySelector('#summary').textContent));
+  await page.waitForFunction(() => /^\d+ questions? match/.test(document.querySelector('#summary').textContent) && !/^652 /.test(document.querySelector('#summary').textContent));
   const titles = await page.$$eval('.qrow h3', (n) => n.map((x) => x.textContent.toLowerCase()));
   assert.ok(titles.some((t) => t.includes('idempotency')));
   await page.select('#f-diff', 'advanced');

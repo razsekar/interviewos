@@ -1,0 +1,506 @@
+{
+  "category": "git-cicd-governance",
+  "questions": [
+    {
+      "slug": "gitflow-vs-trunk-based",
+      "title": "GitFlow versus trunk-based development: how do you choose?",
+      "topic": "Branching and versioning",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "git",
+        "branching",
+        "gitflow",
+        "trunk-based"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would choose by release cadence, compliance needs, test maturity and pipeline quality. GitFlow uses long-lived develop, release and hotfix branches, which suits scheduled, versioned releases. Trunk-based development uses short-lived branches merged to the mainline at least daily, which reduces divergence and merge pain but depends on strong automated tests and feature flags. For continuously delivered services I would lean trunk-based, and keep release branches only where a product must support several versions at once.",
+      "revision": "GitFlow: long-lived develop, release and hotfix branches for scheduled releases. Trunk-based: short-lived branches, frequent merges, needs tests and feature flags. Pick by cadence, compliance, maturity and pipeline quality.",
+      "detailed": "Both models answer the same question: how do changes travel from a developer's machine to production safely? They differ in how long work stays isolated.\n\n{{diagram:flows}}\n\n## How they work\n- **GitFlow**: `main` holds released code, `develop` collects finished features, `feature/*` branches start from `develop`, `release/*` branches stabilise a version, and `hotfix/*` branches start from `main`. Everything is merged back, so history carries several parallel lines.\n- **Trunk-based**: everyone integrates into one mainline (`main`) through small, short-lived branches, often lasting hours rather than weeks. Unfinished work is hidden behind feature flags, so the mainline stays releasable.\n\n## Trade-offs\n| Aspect | GitFlow | Trunk-based |\n|---|---|---|\n| Integration | Late, in bigger batches | Continuous, in small slices |\n| Merge conflicts | Larger and rarer to resolve well | Smaller and frequent |\n| Test demand | Lower: release branch is a stabilisation buffer | High: every merge must be safe |\n| Release model | Scheduled, versioned, multi-version support | Continuous delivery of one current version |\n| Extra needs | Discipline around merging back | Feature flags, fast CI, strong review |\n\n## Common mistakes\n- Adopting trunk-based without reliable automated tests, so the mainline becomes unstable.\n- Keeping GitFlow for a web service deployed many times a week, then paying for long-lived branches without benefit.\n- Letting \"short-lived\" branches live for weeks.\n- Treating the choice as ideology instead of a function of cadence, compliance, maturity and tooling.\n\n## Example (hypothetical)\nA team ships a customer portal several times a day behind feature flags: trunk-based with squash merges and required checks fits. A vendor product installed on customer sites that must patch versions 3.x and 4.x in parallel: release branches, in a GitFlow-like shape, remain justified.",
+      "diagrams": [
+        {
+          "id": "flows",
+          "title": "GitFlow versus trunk-based",
+          "alt": "Two flows side by side. GitFlow: feature branches merge into develop, develop goes to a release branch, release goes to main, hotfix branches start from main. Trunk-based: short-lived branches merge quickly into main, which deploys through the pipeline.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "f",
+              "label": "feature/* (GitFlow)"
+            },
+            {
+              "id": "d",
+              "label": "develop"
+            },
+            {
+              "id": "r",
+              "label": "release/*"
+            },
+            {
+              "id": "m",
+              "label": "main"
+            },
+            {
+              "id": "s",
+              "label": "short-lived branch (trunk)"
+            },
+            {
+              "id": "t",
+              "label": "main + feature flags"
+            },
+            {
+              "id": "p",
+              "label": "CI/CD to production"
+            }
+          ],
+          "edges": [
+            {
+              "from": "f",
+              "to": "d"
+            },
+            {
+              "from": "d",
+              "to": "r"
+            },
+            {
+              "from": "r",
+              "to": "m"
+            },
+            {
+              "from": "s",
+              "to": "t",
+              "label": "merge daily"
+            },
+            {
+              "from": "t",
+              "to": "p"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Why do feature flags matter for trunk-based development?",
+        "How would you migrate a team from GitFlow to trunk-based gradually?",
+        "Where do release branches still make sense?"
+      ],
+      "related": [
+        "recommend-branching-strategy",
+        "hotfix-process",
+        "merge-vs-rebase"
+      ]
+    },
+    {
+      "slug": "recommend-branching-strategy",
+      "title": "Which branching strategy would you recommend for a team and why?",
+      "topic": "Branching and versioning",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "git",
+        "branching",
+        "release-management"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "My default recommendation is trunk-based development with short-lived branches, but only when the foundations are in place: strong automated tests, required status checks, branch protection and feature flags. If those are not mature yet, or if I must coordinate scheduled releases or support several versions, I would use release branches cut from the mainline. I would say that the strategy should follow the team's maturity, and I would improve the foundations so the team can simplify over time.",
+      "revision": "Trunk-based when tests, branch protection and flags are mature; release branches when coordination or multi-version support demands it. Strategy follows maturity, and maturity can be improved.",
+      "detailed": "A good answer is conditional: it states a default, the preconditions for it, and the fallback.\n\n## Recommended default\nTrunk-based development with short-lived branches (ideally merged within a day or two), pull requests with required checks, and feature flags for incomplete work. It minimises divergence, keeps merges small and makes releases routine.\n\n## Preconditions\n- A fast, trustworthy automated test suite that runs on every pull request.\n- Branch protection with required reviews and status checks.\n- A feature-flag mechanism, with an owner for removing stale flags.\n- Reliable deployment and rollback, so a bad merge is cheap to undo.\n\n## When to use release branches instead\n- Scheduled releases that need a stabilisation window or sign-off.\n- Products installed by customers, where older versions need patches.\n- Regulated environments where a specific release candidate must be frozen and audited.\n\nA release branch is cut from the mainline, receives only fixes (cherry-picked from the mainline where possible), and is tagged on release. This keeps most development on trunk.\n\n## Decision table\n| Situation | Suggested strategy |\n|---|---|\n| Web service, deployed often, good tests | Trunk-based |\n| Weak tests, immature pipeline | Trunk-based plus investment in tests; short-term release branches |\n| Several supported versions | Mainline plus long-lived release branches |\n| Strict audit of release candidates | Release branches with tagged candidates |\n\n## Common mistakes\n- Recommending one model without stating assumptions.\n- Moving to trunk-based by decree while the test suite is flaky.\n- Forgetting that branching is only one part of the flow: reviews, checks and deployment controls matter just as much.\n\n## Example (hypothetical)\nA new team inherits long feature branches and a slow test suite. The plan: introduce required checks and flags, shrink branches to a couple of days, speed up tests, then retire the develop branch once releases from main have been stable for several cycles.",
+      "diagrams": [],
+      "followUps": [
+        "How would you convince a sceptical team to shorten its branches?",
+        "What do you do about long-running work that cannot be released incrementally?",
+        "How do release branches and hotfixes interact?"
+      ],
+      "related": [
+        "gitflow-vs-trunk-based",
+        "hotfix-process",
+        "protected-branches-and-codeowners"
+      ]
+    },
+    {
+      "slug": "merge-vs-rebase",
+      "title": "Merge versus rebase: when do you use each?",
+      "topic": "Branching and versioning",
+      "difficulty": "beginner",
+      "type": "comparison",
+      "tags": [
+        "git",
+        "merge",
+        "rebase"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "A merge combines two histories with a merge commit, so it preserves exactly what happened and when branches were integrated. A rebase replays my commits on top of a newer base, which gives a linear, easier-to-read history but creates new commits. I would rebase my own unpublished branch to stay current, and merge or squash when landing in the mainline. I would never rewrite shared, published history without agreeing it with everyone who has pulled it.",
+      "revision": "Merge preserves integration history with a merge commit; rebase replays commits for a linear history. Rebase local work freely, never rewrite shared published history without coordination.",
+      "detailed": "Both commands integrate changes from one branch into another; they differ in what history they leave behind.\n\n## How they work\n- **Merge** creates a merge commit with two parents. Existing commits are untouched, so history is accurate but can look branchy.\n- **Rebase** takes the commits unique to your branch and re-applies them on top of the target. Each gets a new hash, because its parent changed. History becomes a straight line.\n- **Squash merge** collapses a branch into one commit on the target, giving a tidy mainline at the cost of detailed intermediate history.\n\n```bash\n# Update my own feature branch with the latest main\ngit fetch origin\ngit rebase origin/main\n\n# Safer force-push after rewriting my own branch\ngit push --force-with-lease\n```\n\n## Trade-offs\n| | Merge | Rebase |\n|---|---|---|\n| History | Faithful, non-linear | Linear, rewritten |\n| Conflict handling | Resolve once | May resolve per replayed commit |\n| Safety on shared branches | Safe | Risky: rewrites published commits |\n| Bisecting and reading log | Harder with many merges | Easier |\n\n## Practical rules\n- Rebase only commits that nobody else has based work on.\n- Use `--force-with-lease`, not plain `--force`, so you do not overwrite a teammate's push.\n- Agree one policy for pull requests (merge commit, squash or rebase-and-merge) and enforce it in repository settings.\n- Never rebase protected or shared branches such as `main`.\n\n## Common mistakes\n- Rebasing a branch that a colleague has pulled, causing duplicated commits and confusing conflicts.\n- Using force-push by habit.\n- Squashing everything and then losing the context needed to revert part of a change.\n\n## Example (hypothetical)\nA developer rebases a two-day-old feature branch onto the latest main, runs tests, and opens a pull request that the team lands with a squash merge. The mainline shows one clear commit per change, and each pull request keeps its full discussion.",
+      "diagrams": [],
+      "followUps": [
+        "What is git reflog and how can it recover a bad rebase?",
+        "Why does a rebase change commit hashes?",
+        "Which pull request merge mode would you set as the repository default?"
+      ],
+      "related": [
+        "gitflow-vs-trunk-based",
+        "protected-branches-and-codeowners"
+      ]
+    },
+    {
+      "slug": "hotfix-process",
+      "title": "How do you handle a hotfix for a production issue?",
+      "topic": "Branching and versioning",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "git",
+        "hotfix",
+        "release-management",
+        "incident"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would branch from the exact commit or tag running in production, make the smallest fix that resolves the issue, and add a test that reproduces it. It still goes through review and the pipeline, perhaps with an expedited approver, then deploys with verification and a ready rollback. Afterwards I reconcile the fix into the mainline and any active release branch so it is not lost, and I record what happened for the incident review.",
+      "revision": "Branch from the production release point, minimal fix plus test, expedited review, deploy with verification, then merge the fix back into mainline and release branches. Do not skip the pipeline.",
+      "detailed": "A hotfix is an urgent, narrowly scoped change to production that cannot wait for the normal release. Speed matters, but the process must still protect production.\n\n## Steps\n1. **Confirm the production version** (tag or commit) and branch from it, not from a mainline that has moved on with unreleased work.\n2. **Fix minimally.** Change only what resolves the issue; resist bundling clean-ups.\n3. **Add a regression test** that fails before the fix and passes after.\n4. **Review and pipeline.** Use the same required checks, with a defined fast-path for approvals (for example one accountable reviewer rather than two).\n5. **Deploy with verification**: smoke tests, health and error-rate watching, and a ready rollback target.\n6. **Reconcile.** Merge or cherry-pick the fix into the mainline and any open release branches, otherwise the bug returns in the next release.\n7. **Tag and document.** Create a patch version tag, and capture the cause in the incident review.\n\n## Trunk-based variation\nIf production always runs a recent build of the mainline, the fix can be made on main and deployed forward, or the faulty change reverted. Reverting is often the fastest and safest hotfix.\n\n## Trade-offs and mistakes\n- **Skipping checks \"because it is urgent\"** often causes a second incident.\n- **Forgetting to back-port** the fix to the main line.\n- **Fixing forward when a revert or rollback is faster.** Restore service first, investigate afterwards.\n- **Hotfix branches from the wrong base**, shipping unreleased features by accident.\n- **No audit trail** for emergency access or approvals.\n\n## Example (hypothetical)\nVersion 2.4.1 returns wrong tax totals for one region. The team branches `hotfix/2.4.2` from tag `v2.4.1`, fixes the rounding rule with a test, gets one expedited approval, deploys to a small slice first, confirms error rates, then merges the branch into main and the open release branch.",
+      "diagrams": [],
+      "followUps": [
+        "When is a revert better than a hotfix?",
+        "How would you approve an emergency change while keeping auditability?",
+        "How do you make sure the hotfix is not lost in the next release?"
+      ],
+      "related": [
+        "release-rollback-strategy",
+        "semantic-versioning",
+        "gitflow-vs-trunk-based"
+      ]
+    },
+    {
+      "slug": "semantic-versioning",
+      "title": "What is semantic versioning and how do teams apply it?",
+      "topic": "Branching and versioning",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "versioning",
+        "semver",
+        "releases"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Semantic versioning uses MAJOR.MINOR.PATCH. I increase MAJOR for incompatible changes, MINOR for backward-compatible new functionality, and PATCH for backward-compatible bug fixes. It tells consumers how risky an upgrade is, which matters most for libraries and public APIs. To make it reliable I would define what counts as breaking, automate version bumps from reviewed changes where possible, and tag every release so the artifact can be traced back to a commit.",
+      "revision": "MAJOR for incompatible changes, MINOR for backward-compatible features, PATCH for backward-compatible fixes. It signals upgrade risk, so define what counts as breaking and tag every release.",
+      "detailed": "Semantic versioning (SemVer) encodes compatibility into a version number `MAJOR.MINOR.PATCH`, for example `3.2.1`.\n\n## Rules\n| Increment | When | Consumer expectation |\n|---|---|---|\n| MAJOR | Incompatible public API change | Read migration notes, may need code changes |\n| MINOR | New backward-compatible functionality | Safe to upgrade |\n| PATCH | Backward-compatible bug fix | Safe to upgrade |\n\nPre-release labels (`2.0.0-rc.1`) mark versions that are not yet stable. Under SemVer, versions with major `0` are generally treated as unstable, where anything may change.\n\n## What it depends on\nSemVer only works when there is a clearly defined **public API**: exported functions, REST endpoints, event schemas, configuration. Without that, nobody can judge whether a change is breaking.\n\n## Applying it well\n- Keep a changelog that separates breaking changes, features and fixes.\n- Use conventional commit messages or labelled pull requests so tooling can propose the next version.\n- Publish immutable versions: never re-release different content under the same number.\n- Add compatibility tests and, for HTTP APIs, contract checks to catch accidental breaking changes.\n- Use compatible-range constraints in consumers (for example `^3.2.0` in npm) deliberately, and lock files for repeatable builds.\n\n## Common mistakes\n- Treating a behaviour change or removed default as \"just a patch\".\n- Bumping MAJOR constantly, which makes the number meaningless.\n- Applying SemVer to a continuously deployed service where consumers never choose versions; there, API versioning and deprecation policies matter more than release numbers.\n- Moving tags after publishing.\n\n## Example (hypothetical)\nA shared validation library renames an exported function: that is a MAJOR bump (`4.0.0`). Adding an optional parameter gives `3.3.0`. Fixing a regex bug gives `3.2.1`.",
+      "diagrams": [],
+      "followUps": [
+        "Is a bug fix that changes observable behaviour a patch or a major change?",
+        "How can you automate version bumps in CI?",
+        "How does semantic versioning relate to REST API versioning?"
+      ],
+      "related": [
+        "shared-libraries-versioning",
+        "prevent-breaking-api-changes",
+        "hotfix-process"
+      ]
+    },
+    {
+      "slug": "protected-branches-and-codeowners",
+      "title": "What are protected branches and CODEOWNERS, and how do they work together?",
+      "topic": "Repository governance",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "git",
+        "github",
+        "branch-protection",
+        "codeowners",
+        "governance"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "A protected branch enforces rules on important branches: changes arrive only through pull requests, with required reviews, passing status checks and no direct or force pushes. CODEOWNERS is a file that maps paths to owners, so the right people are automatically requested as reviewers, and with protection enabled their approval can be required. Together they make review accountable and enforced by the platform rather than by convention. I would add exceptions only through an auditable process.",
+      "revision": "Protected branches enforce PR reviews, passing checks and no direct pushes. CODEOWNERS maps paths to owners who are auto-requested and can be required to approve. Together they enforce accountable review.",
+      "detailed": "These two features turn review policy from a convention into something the platform enforces.\n\n## Protected branches\nTypical rules on `main` and release branches:\n- Require a pull request before merging, with a minimum number of approvals.\n- Require status checks (build, tests, lint, security scans) to pass, and branches to be up to date.\n- Dismiss stale approvals when new commits arrive.\n- Block force pushes and branch deletion; restrict who can push or bypass.\n- Require signed commits or linear history if policy demands it.\n\n## CODEOWNERS\nA `CODEOWNERS` file (commonly in the repository root, `.github/` or `docs/` on GitHub) maps path patterns to users or teams:\n\n```text\n# Default owners\n*                       @org/platform-team\n/payments/              @org/payments-team\n/infra/                 @org/sre-team\n*.sql                   @org/data-team\n```\n\nWhen a pull request touches those paths, owners are requested automatically. If the branch rule \"require review from code owners\" is enabled, the PR cannot merge without one of them approving. Later matching patterns generally take precedence, so order matters.\n\n## Why combine them\nProtection alone ensures a review happens; CODEOWNERS ensures the review comes from people who understand the change. Together they also create an audit trail of who approved what.\n\n## Trade-offs and mistakes\n- Owners that are individuals rather than teams become bottlenecks and single points of failure.\n- Too many required reviewers slow delivery without improving quality.\n- Allowing administrators to bypass rules silently defeats the control; if bypass exists, log and review it.\n- A stale CODEOWNERS file referencing departed people or renamed teams blocks merges or reviews quietly.\n- Remember that protection rules apply to the branch, so also protect release branches and tags.\n\n## Example (hypothetical)\nChanges to the `/infra/` folder require the SRE team, while application code needs any one teammate. The pipeline checks must pass before either can merge.",
+      "diagrams": [],
+      "followUps": [
+        "How do you handle an emergency change that needs to bypass protection?",
+        "How would you keep CODEOWNERS files accurate across many repositories?",
+        "What is the difference between required reviews and required status checks?"
+      ],
+      "related": [
+        "govern-multiple-repositories",
+        "release-approvals-and-separation-of-duties",
+        "merge-vs-rebase"
+      ]
+    },
+    {
+      "slug": "govern-multiple-repositories",
+      "title": "How do you govern many repositories consistently?",
+      "topic": "Repository governance",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "git",
+        "governance",
+        "platform",
+        "repositories"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would standardise the baseline and automate it. Every repository gets the same branch protection, CODEOWNERS, required CI checks, versioning and release conventions, and security scanning, applied through repository templates and policy-as-code or organisation-level rulesets rather than by hand. Shared pipeline templates keep checks consistent, and a periodic report flags drift. Teams can add stricter rules, but not remove the baseline without an approved exception.",
+      "revision": "Standardise protection, CODEOWNERS, CI checks, versioning, scanning and release conventions through templates and org-level policy; automate enforcement, report drift, allow only approved exceptions.",
+      "detailed": "Governance across many repositories fails when it depends on people remembering rules. The goal is a small, enforced baseline with room for team-specific additions.\n\n{{diagram:gov}}\n\n## What to standardise\n| Area | Baseline |\n|---|---|\n| Branch rules | Protected default branch, required reviews, no force pushes |\n| Ownership | CODEOWNERS present with team owners |\n| CI | Shared required checks: build, tests, lint |\n| Security | Secret scanning, dependency and static analysis, image scanning |\n| Versioning | One scheme (for example semantic versioning) and tagging convention |\n| Release | Common promotion and approval flow |\n| Hygiene | Licence, README, issue templates, security policy |\n\n## How to enforce it\n- **Repository templates** so new repositories start compliant.\n- **Organisation-level rulesets or policies** (many Git platforms support these) to apply branch rules centrally.\n- **Reusable pipeline workflows** or shared templates, versioned and owned by a platform team, so a fix reaches everyone.\n- **Configuration as code** for repository settings, so changes are reviewed and drift can be detected.\n- **A compliance report** listing repositories that diverge from the baseline.\n\n## Trade-offs and mistakes\n- Over-centralising slows teams; allow additive rules and a documented exception process with an expiry date.\n- Rolling out strict rules to existing repositories at once can block delivery. Phase in with warnings first.\n- Treating governance as policing rather than as a service: the platform team should make the compliant path the easiest one.\n- Updating shared templates without versioning, which breaks consumers unexpectedly.\n\n## Example (hypothetical)\nA platform team publishes a reusable CI workflow and an organisation ruleset requiring it. A weekly report shows three repositories without CODEOWNERS; owners get a ticket, and after two weeks the ruleset starts blocking merges there.",
+      "diagrams": [
+        {
+          "id": "gov",
+          "title": "Central baseline, many repositories",
+          "alt": "A platform team defines a template, organisation rulesets and reusable pipelines, which are applied to every service repository. A drift report flows back to the platform team.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "p",
+              "label": "Platform team"
+            },
+            {
+              "id": "t",
+              "label": "Repo template"
+            },
+            {
+              "id": "r",
+              "label": "Org rulesets"
+            },
+            {
+              "id": "w",
+              "label": "Reusable pipelines"
+            },
+            {
+              "id": "s",
+              "label": "Service repositories"
+            },
+            {
+              "id": "d",
+              "label": "Drift report"
+            }
+          ],
+          "edges": [
+            {
+              "from": "p",
+              "to": "t"
+            },
+            {
+              "from": "p",
+              "to": "r"
+            },
+            {
+              "from": "p",
+              "to": "w"
+            },
+            {
+              "from": "t",
+              "to": "s"
+            },
+            {
+              "from": "r",
+              "to": "s"
+            },
+            {
+              "from": "w",
+              "to": "s"
+            },
+            {
+              "from": "s",
+              "to": "d"
+            },
+            {
+              "from": "d",
+              "to": "p"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you roll out new mandatory rules without blocking teams?",
+        "How would you handle a team that needs an exception?",
+        "What would you measure to know governance is working?"
+      ],
+      "related": [
+        "protected-branches-and-codeowners",
+        "secure-cicd-pipeline",
+        "shared-libraries-versioning"
+      ]
+    },
+    {
+      "slug": "shared-libraries-versioning",
+      "title": "How do you manage shared libraries used by many services?",
+      "topic": "Repository governance",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "libraries",
+        "versioning",
+        "dependencies",
+        "monorepo"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I treat a shared library as a product with consumers. It is published as versioned packages using semantic versioning, with a written compatibility policy, automated tests including checks against typical consumers, and a changelog. Breaking changes get a major version and a deprecation window, and consumers upgrade incrementally on their own schedule instead of all at once. I would also keep the library small, since heavy shared code couples teams and slows independent releases.",
+      "revision": "Publish versioned packages with a compatibility and deprecation policy, automated tests and a changelog; let consumers upgrade incrementally. Keep shared code small to avoid coupling.",
+      "detailed": "Shared libraries save duplication but create coupling: one change can affect many services. Governance exists to keep that coupling safe.\n\n## Core practices\n- **Versioned, immutable packages** in an internal registry, following semantic versioning.\n- **A compatibility policy**: what is public API, how long old majors are supported, and how deprecations are announced.\n- **Automated tests**, including contract-style tests and, ideally, a build of a few representative consumers against the release candidate.\n- **A changelog and migration notes** for every major version.\n- **Incremental upgrades**: consumers pin versions and move when ready; automated dependency-update pull requests make the next upgrade easy.\n- **Clear ownership** with CODEOWNERS and a documented support channel.\n\n## Upgrade flow\n1. Library team adds the new capability and keeps the old one, marked deprecated.\n2. Release a minor version with both.\n3. Automation opens upgrade pull requests in consumer repositories.\n4. After the deprecation window, remove the old path in a new major version.\n\n## Trade-offs\n| Choice | Benefit | Cost |\n|---|---|---|\n| Pin exact versions | Reproducible builds | Needs upgrade automation |\n| Allow compatible ranges | Easier uptake of fixes | Surprise changes if SemVer is not respected |\n| Single shared library for everything | Little duplication | Large blast radius, slow releases |\n| Copying small utilities | Full independence | Duplicate fixes |\n\n## Common mistakes\n- A \"common\" library that grows into a dumping ground and ties all services to one release train.\n- Breaking changes in minor versions.\n- Forcing all consumers to upgrade simultaneously, recreating a synchronised release.\n- Sharing business logic that belongs behind a service API instead.\n\n## Example (hypothetical)\nA logging library deprecates a configuration option in version 2.5, supplies a codemod, and removes the option in 3.0 six months later. Bots open pull requests in each service so teams upgrade at their own pace.",
+      "diagrams": [],
+      "followUps": [
+        "When would you copy code instead of sharing a library?",
+        "How would you test a library against its consumers before release?",
+        "How do you handle a security fix that all consumers must adopt quickly?"
+      ],
+      "related": [
+        "semantic-versioning",
+        "govern-multiple-repositories",
+        "monorepo-cicd"
+      ]
+    },
+    {
+      "slug": "monorepo-cicd",
+      "title": "How do you design CI/CD for a monorepo?",
+      "topic": "Repository governance",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "monorepo",
+        "ci-cd",
+        "build",
+        "affected"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would build a dependency graph of projects, detect which ones a change affects, and run builds and tests only for those, with caching to avoid repeating work. Shared pipeline templates keep standards uniform, while each deployable component keeps its own release controls, versioning and deployment pipeline so teams still release independently. I would also use CODEOWNERS per directory, and make sure that changes to shared code trigger tests of all dependants.",
+      "revision": "Use a project dependency graph and affected-project detection with caching; share pipeline standards but keep independent release controls and ownership for each deployable component.",
+      "detailed": "A monorepo keeps many projects in one repository. CI/CD must avoid two traps: rebuilding everything on every commit, and coupling every team's release to every other team's.\n\n{{diagram:mono}}\n\n## Key techniques\n- **Dependency graph**: build tooling (for example Nx, Turborepo, Bazel or Gradle) knows which projects depend on which.\n- **Affected detection**: compare the change against the base branch and run tasks only for changed projects and their dependants.\n- **Remote caching**: reuse build and test outputs across runs and machines.\n- **Path-based triggers**: pipelines or jobs start only when relevant paths change.\n- **Shared templates**: a common workflow for lint, test, scan and publish, so standards stay uniform.\n- **Per-component release**: each deployable has its own version, artifact and deployment pipeline, with environment protection tailored to its risk.\n\n## Governance in a monorepo\n- Directory-level CODEOWNERS so teams review their own areas.\n- A single protected main branch with required checks that always report a status, even when the component was skipped (otherwise merges can be blocked or, worse, allowed without tests).\n- Clear rules for shared packages, since a change there affects many dependants.\n\n## Trade-offs\n| Benefit | Cost |\n|---|---|\n| Atomic cross-project changes | Tooling investment |\n| One place for standards | Repository size and clone time |\n| Easy code sharing | Risk of tight coupling and noisy ownership |\n\n## Common mistakes\n- Running the full test suite on every commit until CI becomes unusable.\n- Over-aggressive path filters that skip tests for dependants of changed shared code.\n- Releasing everything together because the code lives together.\n- No cache invalidation discipline, leading to stale results.\n\n## Example (hypothetical)\nA change to a shared UI package triggers tests for the package and three applications that depend on it, but not for two unrelated services. Only the applications whose artifacts changed are rebuilt and deployed.",
+      "diagrams": [
+        {
+          "id": "mono",
+          "title": "Affected-based monorepo pipeline",
+          "alt": "A commit triggers detection of affected projects using the dependency graph. Affected projects are built and tested with a shared cache, and each deployable then follows its own release pipeline.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "c",
+              "label": "Commit or pull request"
+            },
+            {
+              "id": "g",
+              "label": "Dependency graph"
+            },
+            {
+              "id": "a",
+              "label": "Affected projects"
+            },
+            {
+              "id": "b",
+              "label": "Build and test with cache"
+            },
+            {
+              "id": "r1",
+              "label": "Service A release"
+            },
+            {
+              "id": "r2",
+              "label": "Service B release"
+            }
+          ],
+          "edges": [
+            {
+              "from": "c",
+              "to": "g"
+            },
+            {
+              "from": "g",
+              "to": "a"
+            },
+            {
+              "from": "a",
+              "to": "b"
+            },
+            {
+              "from": "b",
+              "to": "r1",
+              "label": "if changed"
+            },
+            {
+              "from": "b",
+              "to": "r2",
+              "label": "if changed"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you avoid blocking merges when a required check is skipped by path filtering?",
+        "Monorepo or multi-repo for ten services: how do you decide?",
+        "How would you version components that live in one repository?"
+      ],
+      "related": [
+        "shared-libraries-versioning",
+        "shorten-pipeline-duration",
+        "govern-multiple-repositories"
+      ]
+    },
+    {
+      "slug": "prevent-secrets-entering-git",
+      "title": "How do you prevent secrets from entering Git, and what do you do if one leaks?",
+      "topic": "Repository governance",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "secrets",
+        "git",
+        "security",
+        "scanning"
+      ],
+      "companies": [
+        "valuemomentum"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Prevention is layered: developers use pre-commit secret scanning, the platform runs push protection and secret scanning on every pull request, and applications read credentials from a secret store or workload identity rather than from files. If a secret does leak, I treat it as compromised: revoke and rotate it immediately, check logs for misuse, then clean history if needed. Deleting the commit is not enough, because the value may already have been copied or cloned.",
+      "revision": "Layer controls: pre-commit and push-protection scanning, secret stores instead of files, least-privilege credentials. If one leaks, revoke and rotate at once; rewriting history is secondary.",
+      "detailed": "Once a secret is committed it should be assumed exposed, because history is copied to clones, forks, caches and build logs. The best strategy is making the secure path easy and catching mistakes early.\n\n## Prevention layers\n1. **Do not need secrets in code.** Use a managed secret store and, where possible, workload identity so applications obtain short-lived credentials at runtime. Local development uses ignored `.env` files with fake or low-privilege values.\n2. **Pre-commit hooks** with a scanner (for example gitleaks or similar tools) catch obvious keys before they leave the laptop.\n3. **Push protection and secret scanning** on the Git platform block or flag pushes containing known token patterns.\n4. **CI scanning** of pull requests and, periodically, of full history.\n5. **Least privilege and short lifetimes**, so a leaked credential has limited power and expires.\n6. **Hygiene**: `.gitignore` for environment and key files, and review of configuration templates.\n\n## Response when a secret leaks\n| Step | Action |\n|---|---|\n| 1 | Revoke or rotate the credential immediately |\n| 2 | Review access logs for use by anyone else |\n| 3 | Replace it everywhere that depends on it, using the secret store |\n| 4 | Remove it from history if policy requires (rewriting history, then forcing clones to refresh), accepting that this is hygiene, not remediation |\n| 5 | Find the root cause and add a control that would have caught it |\n\n```bash\n# Local scan before pushing (example tool)\ngitleaks detect --source . --log-opts=\"origin/main..HEAD\"\n```\n\n## Common mistakes\n- Deleting the file in a later commit and assuming it is gone.\n- Rotating the secret but not checking whether it was abused.\n- Relying on a scanner only: scanners miss unusual formats, so design out the need for static secrets.\n- Putting secrets in build arguments or container image layers.\n\n## Example (hypothetical)\nA developer commits a cloud API key to a feature branch. Push protection blocks the push; had it passed, the response would be to revoke the key, review its activity, issue a replacement through the secret store and add the pattern to the scanner.",
+      "diagrams": [],
+      "followUps": [
+        "Why is rewriting Git history not enough after a leak?",
+        "How would you scan existing repositories for historical secrets?",
+        "What is the difference between a secret store and environment variables?"
+      ],
+      "related": [
+        "secure-cicd-pipeline",
+        "secure-github-actions",
+        "protected-branches-and-codeowners"
+      ]
+    }
+  ]
+}
