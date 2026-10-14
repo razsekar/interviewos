@@ -10,7 +10,7 @@ const DIFF = ['beginner', 'intermediate', 'advanced'];
 const TYPES = ['conceptual', 'comparison', 'scenario', 'design', 'coding'];
 const SRC = ['reference-derived', 'enhanced', 'new'];
 
-export function validateFile(doc, cats, file = '') {
+export function validateFile(doc, cats, file = '', companyIds = null) {
   const errs = [], warns = [];
   const e = (m) => errs.push(`${file}: ${m}`), w = (m) => warns.push(`${file}: ${m}`);
   if (!cats.some((c) => c.id === doc.category)) e(`unknown category "${doc.category}"`);
@@ -26,6 +26,7 @@ export function validateFile(doc, cats, file = '') {
     if (!TYPES.includes(q.type)) e(`${at} type`);
     if (!SRC.includes(q.sourceType)) e(`${at} sourceType`);
     if (!Array.isArray(q.tags) || !q.tags.length) e(`${at} tags`);
+    if (q.companies !== undefined && (!Array.isArray(q.companies) || !q.companies.length || (companyIds && q.companies.some((c) => !companyIds.includes(c))))) e(`${at} companies must be a non-empty list of ids from content/companies.json`);
     if (!Array.isArray(q.sources) || (q.sourceType !== 'new' && !q.sources.length)) e(`${at} sources`);
     const qw = wc(q.quick), rw = wc(q.revision), dw = wc(q.detailed);
     if (qw < 45 || qw > 115) e(`${at} quick has ${qw} words (need 45-115, aim 60-100)`);
@@ -79,6 +80,7 @@ export function crossCheck(docs) {
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   const cats = JSON.parse(await readFile('content/categories.json', 'utf8'));
+  const companyIds = JSON.parse(await readFile('content/companies.json', 'utf8')).companies.map((c) => c.id);
   let files = process.argv.slice(2);
   if (!files.length) files = (await readdir('content/questions')).filter((f) => f.endsWith('.json')).map((f) => path.join('content/questions', f));
   let E = 0, W = 0, N = 0;
@@ -86,7 +88,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   for (const f of files) {
     let doc; try { doc = JSON.parse(await readFile(f, 'utf8')); } catch (x) { console.log(`${f}: INVALID JSON ${x.message}`); E++; continue; }
     parsed.push({ file: path.basename(f), doc });
-    const { errs, warns } = validateFile(doc, cats, path.basename(f));
+    const { errs, warns } = validateFile(doc, cats, path.basename(f), companyIds);
     errs.forEach((x) => console.log('ERROR', x)); warns.forEach((x) => console.log('warn ', x));
     E += errs.length; W += warns.length; N += doc.questions?.length || 0;
   }

@@ -13,7 +13,7 @@ const PAGE = 50;
 export async function render({ main, signal, query, go }) {
   document.title = 'Question Bank | InterviewOS';
   const [idx, all] = await Promise.all([loadIndex(), loadAllQuestions()]);
-  const state = { q: query.get('q') || '', cat: query.get('cat') || '', diff: query.get('diff') || '', type: query.get('type') || '', status: query.get('status') || '', src: query.get('src') || '', topic: query.get('topic') || '', shown: PAGE };
+  const state = { q: query.get('q') || '', cat: query.get('cat') || '', diff: query.get('diff') || '', type: query.get('type') || '', status: query.get('status') || '', src: query.get('src') || '', topic: query.get('topic') || '', company: query.get('company') || '', shown: PAGE };
   let searchDocsCache = null;
 
   const opt = (v, label, cur) => `<option value="${esc(v)}"${v === cur ? ' selected' : ''}>${esc(label)}</option>`;
@@ -24,6 +24,7 @@ export async function render({ main, signal, query, go }) {
     <div class="field"><label for="f-q">Search</label><input type="search" id="f-q" value="${esc(state.q)}" autocomplete="off" placeholder="e.g. cache invalidation, hydration, idempotency"></div>
     <div class="grid-cards" style="gap:0.75rem">
       <div class="field"><label for="f-cat">Topic area</label><select id="f-cat">${opt('', 'All', state.cat)}${idx.categories.map((c) => opt(c.id, c.title, state.cat)).join('')}</select></div>
+      ${idx.companies?.length ? `<div class="field"><label for="f-company">Company prep</label><select id="f-company">${opt('', 'Any', state.company)}${idx.companies.map((c) => opt(c.id, `${c.name} (${c.count})`, state.company)).join('')}</select></div>` : ''}
       <div class="field"><label for="f-topic">Subtopic</label><select id="f-topic"></select></div>
       <div class="field"><label for="f-diff">Difficulty</label><select id="f-diff">${opt('', 'Any', state.diff)}${['beginner', 'intermediate', 'advanced'].map((d) => opt(d, cap(d), state.diff)).join('')}</select></div>
       <div class="field"><label for="f-type">Type</label><select id="f-type">${opt('', 'Any', state.type)}${['conceptual', 'comparison', 'scenario', 'design', 'coding'].map((d) => opt(d, cap(d), state.type)).join('')}</select></div>
@@ -59,6 +60,7 @@ export async function render({ main, signal, query, go }) {
     }
     if (state.cat) list = list.filter((q) => q.cat === state.cat);
     if (state.topic) list = list.filter((q) => q.topic === state.topic);
+    if (state.company) list = list.filter((q) => q.companies?.includes(state.company));
     matches = applyFilters(list, { difficulty: state.diff, type: state.type, status: state.status, source: state.src, cards: repo.allCards(), opts: srsOpts(), bookmarkSet: new Set(repo.bookmarkIds()) });
   }
 
@@ -77,7 +79,7 @@ export async function render({ main, signal, query, go }) {
 
   function syncUrl() {
     const p = new URLSearchParams();
-    for (const [k, v] of Object.entries({ q: state.q, cat: state.cat, topic: state.topic, diff: state.diff, type: state.type, status: state.status, src: state.src })) if (v) p.set(k, v);
+    for (const [k, v] of Object.entries({ q: state.q, cat: state.cat, topic: state.topic, company: state.company, diff: state.diff, type: state.type, status: state.status, src: state.src })) if (v) p.set(k, v);
     history.replaceState(null, '', '#/bank' + (p.toString() ? '?' + p : ''));
   }
 
@@ -94,7 +96,7 @@ export async function render({ main, signal, query, go }) {
   }, 200);
   $('#f-q').addEventListener('input', onInput, { signal });
   $('#filters').addEventListener('submit', (e) => e.preventDefault(), { signal });
-  const sel = { 'f-cat': 'cat', 'f-topic': 'topic', 'f-diff': 'diff', 'f-type': 'type', 'f-status': 'status', 'f-src': 'src' };
+  const sel = { 'f-cat': 'cat', 'f-topic': 'topic', 'f-company': 'company', 'f-diff': 'diff', 'f-type': 'type', 'f-status': 'status', 'f-src': 'src' };
   $('#filters').addEventListener(
     'change',
     (e) => {
@@ -112,9 +114,9 @@ export async function render({ main, signal, query, go }) {
   $('#f-clear').addEventListener(
     'click',
     () => {
-      Object.assign(state, { q: '', cat: '', diff: '', type: '', status: '', src: '', topic: '' });
+      Object.assign(state, { q: '', cat: '', diff: '', type: '', status: '', src: '', topic: '', company: '' });
       $('#f-q').value = '';
-      for (const id of Object.keys(sel)) $('#' + id).value = '';
+      for (const id of Object.keys(sel)) if ($('#' + id)) $('#' + id).value = '';
       fill();
       refresh();
       announce('Filters cleared');

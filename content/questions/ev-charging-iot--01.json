@@ -1,0 +1,421 @@
+{
+  "category": "ev-charging-iot",
+  "questions": [
+    {
+      "slug": "what-is-a-charging-management-system",
+      "title": "What is a Charging Management System?",
+      "topic": "EV charging fundamentals",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "ev",
+        "cms",
+        "ocpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "companies": [
+        "meil"
+      ],
+      "quick": "A Charging Management System, often called a CMS or central system, is the back-end platform that manages charging infrastructure and talks to charging stations. Depending on the product, it covers station monitoring, charging-session management, remote commands, tariffs, user access, billing integration and reporting. I would stress that the exact feature set is vendor dependent, so as an architect I would document what the chosen CMS actually supports and keep my own business platform separate from it rather than assuming capabilities.",
+      "revision": "A CMS is the central platform that monitors and controls compatible charging stations and their sessions; features vary by vendor, so verify capabilities rather than assume them.",
+      "detailed": "A **Charging Management System (CMS)**, also called a central system or charging station management system, is the back-end platform that manages charging infrastructure and its operational interactions with charging stations. It is the \"control room\" for chargers: it knows which stations exist, what state they are in, and what is happening in each charging session.\n\n## Typical capabilities\nDepending on the product, a CMS commonly offers:\n\n- Station and connector monitoring (availability, faults, last-seen time)\n- Charging-session management (start, stop, session history, energy delivered)\n- Remote operations (start/stop, reset, configuration changes) where the charger supports them\n- Tariff and pricing management\n- User and access management (identity tokens, authorisation)\n- Billing and payment integration, and reporting\n\nThe exact feature set is **vendor dependent**. Treat any list as a checklist to verify against the vendor's documentation, not as a given.\n\n## Where it sits\nChargers connect to the CMS, usually over a standard protocol such as OCPP, which commonly runs over WebSocket. Business applications (driver apps, billing, support tools) typically sit on the other side and consume the CMS through its APIs or events.\n\n## Architect's view\n- **Decide build vs buy early.** A CMS is a product with its own roadmap and constraints.\n- **Do not let business logic leak into the CMS or depend directly on its vendor API.** Keep an internal model and an integration layer.\n- **Clarify the system of record** for sessions, tariffs and users.\n\n## Common mistakes\n- Assuming a CMS handles billing, invoicing and customer support end to end.\n- Conflating the CMS with the driver app or the payment provider.\n- Ignoring which charger models and protocol versions the CMS actually supports.\n\n**Example (hypothetical):** a fleet operator buys a CMS that handles station monitoring and remote reset, but invoicing and customer accounts live in the operator's own platform. The CMS reports finished sessions, and the platform turns them into invoices.",
+      "followUps": [
+        "What features would you expect from a CMS and which would you build yourself?",
+        "How does a CMS differ from a driver app or a payment gateway?",
+        "How would you evaluate a vendor CMS?"
+      ],
+      "related": [
+        "high-level-ev-charging-architecture",
+        "what-is-ocpp"
+      ]
+    },
+    {
+      "slug": "high-level-ev-charging-architecture",
+      "title": "Explain the high-level EV charging architecture",
+      "topic": "EV charging fundamentals",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "ev",
+        "architecture",
+        "integration"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "companies": [
+        "meil"
+      ],
+      "quick": "I would describe five parts. A driver app starts a charging request. A backend business platform validates the user and business rules. A CMS coordinates the supported charging operations with the station. The charging station delivers energy and reports back. External payment and identity services sit alongside. Status and session information flow back through an integration layer for display, billing, reconciliation and monitoring. I would keep the integration layer explicit so vendor specifics do not leak into the business platform.",
+      "revision": "Driver app, business platform, CMS, charging station, plus payment and identity services; commands flow down, status and session data flow back through an integration layer.",
+      "detailed": "## Direct answer\nAn EV charging platform is usually a chain of cooperating systems: the **driver app**, a **backend business platform**, a **CMS**, the **charging stations**, and **external services** such as payment and identity providers. Requests flow down toward the charger; status and session data flow back up.\n\n{{diagram:arch}}\n\n## Flow\n1. The driver app requests a charge (for example, scan a connector and start).\n2. The business platform validates the user, account standing, tariff and business rules.\n3. The CMS coordinates the supported operation with the station, commonly over OCPP.\n4. The station reports status, session and meter data back to the CMS.\n5. An integration layer turns those events into internal records used for display, billing, reconciliation and monitoring.\n\n## Design points\n- **Commands and events are different.** A start command is a request that may fail or time out; session events are facts reported later.\n- **Asynchrony is normal.** Networks to chargers are unreliable, so the platform must tolerate delay and duplicates.\n- **Keep one internal model** of stations, connectors, sessions and meter readings, independent of the CMS vendor.\n- **Separate concerns:** session tracking, tariff calculation, payment and reconciliation are distinct responsibilities.\n\n## Trade-offs\nBuying a CMS speeds delivery but adds vendor dependency. A thin integration layer costs effort up front but keeps replacement options open.\n\n## Common mistakes\n- Treating a timed-out start command as a failure without checking the outcome.\n- Letting the mobile app talk to vendor APIs directly.\n- Having no reconciliation between station data, session records and payments.\n\n**Example (hypothetical):** a driver taps Start, the platform confirms the account is valid, the CMS sends the command, and the charger reports the session beginning. If the CMS reply is slow, the platform marks the command as pending and resolves it from later events.",
+      "diagrams": [
+        {
+          "id": "arch",
+          "title": "EV charging platform architecture",
+          "alt": "A driver app calls the business platform, which uses an integration layer to reach the CMS and then the charging station. Payment and identity services connect to the business platform. Status and session events flow back through the CMS and integration layer to the platform.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "app",
+              "label": "Driver app"
+            },
+            {
+              "id": "biz",
+              "label": "Business platform"
+            },
+            {
+              "id": "int",
+              "label": "Integration layer"
+            },
+            {
+              "id": "cms",
+              "label": "CMS"
+            },
+            {
+              "id": "cp",
+              "label": "Charging station"
+            },
+            {
+              "id": "pay",
+              "label": "Payment and identity services"
+            }
+          ],
+          "edges": [
+            {
+              "from": "app",
+              "to": "biz",
+              "label": "request"
+            },
+            {
+              "from": "biz",
+              "to": "int",
+              "label": "command"
+            },
+            {
+              "from": "int",
+              "to": "cms"
+            },
+            {
+              "from": "cms",
+              "to": "cp",
+              "label": "OCPP"
+            },
+            {
+              "from": "cp",
+              "to": "cms",
+              "label": "status and sessions"
+            },
+            {
+              "from": "cms",
+              "to": "int",
+              "label": "events"
+            },
+            {
+              "from": "int",
+              "to": "biz",
+              "label": "internal records"
+            },
+            {
+              "from": "biz",
+              "to": "pay"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Where would you place the system of record for sessions?",
+        "How do you handle a start command that times out?",
+        "What would you monitor end to end?"
+      ],
+      "related": [
+        "what-is-a-charging-management-system",
+        "third-party-cms-integration"
+      ]
+    },
+    {
+      "slug": "what-is-ocpp",
+      "title": "What is OCPP?",
+      "topic": "EV charging fundamentals",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "ocpp",
+        "protocol",
+        "websocket"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "companies": [
+        "meil"
+      ],
+      "quick": "OCPP stands for Open Charge Point Protocol, maintained by the Open Charge Alliance. It standardises communication between charging stations and a central management system, commonly over WebSocket, so equipment and software from different vendors can interoperate. What a given charger supports depends on the protocol version and the vendor's implementation. As an architect, I would verify the supported versions and mandatory features in the vendor's documentation before defining the integration contract.",
+      "revision": "OCPP is the Open Charge Point Protocol between chargers and a central system; capabilities depend on version and implementation, so verify support before defining contracts.",
+      "detailed": "**OCPP** (Open Charge Point Protocol) is an open communication protocol between charging stations (\"charge points\") and a central management system. It is developed by the Open Charge Alliance. The goal is interoperability: chargers and back-end software from different vendors can work together without bespoke integrations for each pair.\n\n## How it works\n- A charge point opens a connection to the central system, commonly a **WebSocket**.\n- Both sides exchange request/response messages. Typical OCPP 1.6 messages include **BootNotification**, **Heartbeat**, **StatusNotification**, **Authorize**, **StartTransaction**, **StopTransaction** and **MeterValues**.\n- The central system can also send commands to the charger, such as remote start/stop or reset, where supported.\n\nOCPP 1.6 is widely deployed, in JSON (often called OCPP-J) and SOAP forms. Version 2.0.1 is newer and is not backward compatible with 1.6.\n\n## Why it matters to an architect\n- It reduces vendor lock-in at the charger-to-CMS boundary.\n- It defines the vocabulary for stations, connectors, transactions and meter data.\n- It is **not a whole platform**: billing, driver apps, tariffs and roaming sit outside the charger protocol.\n\n## Trade-offs and pitfalls\n- \"Supports OCPP\" is not enough. Charger and CMS implementations differ in optional features, profiles and quirks.\n- Mixed fleets may run different versions, so the integration layer must handle both.\n- Certification and test evidence are worth checking, not assuming.\n\n**Common mistake:** writing the integration contract from the specification alone instead of from what the specific charger models and CMS actually support.\n\n**Example (hypothetical):** a team plans to support remote start. Before committing, they check the vendor's documented OCPP version and confirm the charger models support remote start in that version.",
+      "followUps": [
+        "Which OCPP version would you target for a new project?",
+        "Does OCPP cover billing or roaming?",
+        "How would you handle a fleet with mixed protocol versions?"
+      ],
+      "related": [
+        "difference-between-ocpp-16-and-ocpp-201",
+        "what-is-a-charging-management-system"
+      ]
+    },
+    {
+      "slug": "difference-between-ocpp-16-and-ocpp-201",
+      "title": "What is the difference between OCPP 1.6 and OCPP 2.0.1?",
+      "topic": "EV charging fundamentals",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "ocpp",
+        "versions",
+        "migration"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "companies": [
+        "meil"
+      ],
+      "quick": "Both are versions of the same protocol, but they differ in message model, security and device-management capabilities. OCPP 1.6 is widely deployed. Version 2.0.1 adds richer device management, security profiles and improved transaction handling, using a TransactionEvent model. It is not backward compatible with 1.6, so it needs explicit support. I would assess charger support, CMS compatibility, certification, required features and migration constraints, and verify everything against the vendor's documentation before choosing.",
+      "revision": "1.6 is widely deployed; 2.0.1 adds device management, security profiles and better transaction handling but is not wire-compatible. Choose based on charger and CMS support.",
+      "detailed": "## Direct answer\nBoth are versions of OCPP, but **2.0.1 is a significant redesign, not a minor upgrade**. It is **not backward compatible** with 1.6, so a charger or CMS must explicitly support each version it speaks.\n\n## Comparison\n\n| Aspect | OCPP 1.6 | OCPP 2.0.1 |\n|---|---|---|\n| Adoption | Widely deployed, JSON (OCPP-J) and SOAP forms | Newer; support varies by charger and CMS |\n| Transactions | Commonly StartTransaction / StopTransaction and MeterValues | TransactionEvent-based model |\n| Device management | More limited | Expanded monitoring and configuration capabilities |\n| Security | Basic; security enhancements exist as add-ons | Security profiles built into the specification |\n| Compatibility | n/a | Not wire-compatible with 1.6 |\n\nTreat the table as a general guide. Exact features depend on the charger and CMS implementation.\n\n## How to decide\n- **Charger support:** what do the actual models in the field speak, and can firmware be upgraded?\n- **CMS support:** does it implement the version, and which optional features?\n- **Required features:** security, remote configuration, richer transaction data.\n- **Certification and test evidence** from the vendor.\n- **Migration constraints:** a mixed fleet means supporting both versions at once.\n\n## Architectural implication\nKeep your internal model **protocol-neutral** (station, connector, session, meter reading) and map each OCPP version in an adapter. Then a version change affects the adapter, not the business platform.\n\n## Common mistakes\n- Assuming \"newer\" automatically means \"better for this fleet\".\n- Planning a big-bang migration instead of running both versions side by side.\n- Mapping 1.6 message names straight into business logic, which makes later migration painful.\n\n**Example (hypothetical):** an operator has older chargers on 1.6 and orders new ones with 2.0.1. The integration layer converts both into the same session events, so billing does not care which protocol produced them.",
+      "followUps": [
+        "How would you support both versions at once?",
+        "What would make you stay on 1.6?",
+        "How do you keep business logic independent of protocol version?"
+      ],
+      "related": [
+        "what-is-ocpp",
+        "third-party-cms-integration"
+      ]
+    },
+    {
+      "slug": "third-party-cms-integration",
+      "title": "How would you integrate the platform with an existing third-party CMS?",
+      "topic": "CMS integration architecture",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "cms",
+        "integration",
+        "adapter",
+        "canonical-model"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "companies": [
+        "meil"
+      ],
+      "quick": "I would use a controlled integration layer rather than letting business apps depend on vendor APIs. First assess the vendor's API, authentication, webhooks, rate limits and SLA. Then define a canonical internal model for stations, connectors, sessions, status and meter readings, and write a vendor adapter that maps to it. Event ingestion would be asynchronous with idempotency, retries and dead-letter handling, plus reconciliation of critical data and monitoring. This isolates the vendor and keeps replacement possible.",
+      "revision": "Vendor assessment, adapter, canonical model, reliable async processing, reconciliation, observability, portability: isolate vendor behaviour behind your own contract.",
+      "detailed": "## Direct answer\nIntegrate through a **controlled integration layer**: business applications depend on your own contract, and a **vendor adapter** translates to the third-party CMS. This isolates vendor behaviour and keeps replacement possible.\n\n{{diagram:adapter}}\n\n## Steps\n1. **Assess the vendor:** API documentation, authentication, webhooks or event streams, rate limits, SLA, supported operations, versioning.\n2. **Define a canonical model** for stations, connectors, sessions, status and meter readings, independent of vendor field names.\n3. **Build the adapter** that maps the external contract to the canonical model in both directions.\n4. **Ingest events asynchronously** through a durable queue.\n5. **Make processing safe:** timeouts, retries with backoff, idempotency, duplicate detection and dead-letter handling.\n6. **Own authoritative business records** and reconcile important session and billing data against the vendor.\n7. **Observe:** API failures, sync delay, data discrepancies.\n8. **Govern:** vendor ownership, support escalation, security requirements, change notification.\n9. **Validate:** sandbox tests, failure injection, UAT and a controlled pilot.\n\n## Trade-offs\n| Choice | Benefit | Cost |\n|---|---|---|\n| Adapter and canonical model | Portability, testability | Up-front design effort |\n| Direct vendor calls | Quick start | Vendor lock-in spreads everywhere |\n| Own records plus reconciliation | Auditability | Extra storage and jobs |\n\n## Common mistakes\n- Using vendor identifiers and status codes throughout the codebase.\n- Skipping reconciliation because the happy path works.\n- Assuming webhooks are delivered exactly once and in order.\n\n**Example (hypothetical):** the vendor reports a session as \"FINISHED\", while the canonical model uses COMPLETED. Only the adapter knows this mapping, so a later vendor change touches one module.",
+      "diagrams": [
+        {
+          "id": "adapter",
+          "title": "Vendor CMS adapter and canonical model",
+          "alt": "Business apps use a canonical internal model. A vendor adapter translates between that model and the third-party CMS API. Vendor events enter a durable queue, are processed idempotently into the platform database, and a reconciliation job compares records with the vendor.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "apps",
+              "label": "Business apps"
+            },
+            {
+              "id": "model",
+              "label": "Canonical model"
+            },
+            {
+              "id": "adp",
+              "label": "Vendor adapter"
+            },
+            {
+              "id": "cms",
+              "label": "Third-party CMS"
+            },
+            {
+              "id": "q",
+              "label": "Durable queue"
+            },
+            {
+              "id": "proc",
+              "label": "Idempotent processor"
+            },
+            {
+              "id": "db",
+              "label": "Platform database"
+            },
+            {
+              "id": "rec",
+              "label": "Reconciliation job"
+            }
+          ],
+          "edges": [
+            {
+              "from": "apps",
+              "to": "model"
+            },
+            {
+              "from": "model",
+              "to": "adp"
+            },
+            {
+              "from": "adp",
+              "to": "cms",
+              "label": "API calls"
+            },
+            {
+              "from": "cms",
+              "to": "q",
+              "label": "events"
+            },
+            {
+              "from": "q",
+              "to": "proc"
+            },
+            {
+              "from": "proc",
+              "to": "db"
+            },
+            {
+              "from": "rec",
+              "to": "db"
+            },
+            {
+              "from": "rec",
+              "to": "cms",
+              "label": "compare"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you test the adapter without a real charger?",
+        "How would you swap the vendor later?",
+        "What would you put in the vendor contract or SLA?",
+        "How do you version the canonical model?"
+      ],
+      "related": [
+        "duplicate-charging-session-events",
+        "third-party-cms-unavailable"
+      ]
+    },
+    {
+      "slug": "duplicate-charging-session-events",
+      "title": "How do you handle duplicate charging-session events?",
+      "topic": "Reliability and data",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "idempotency",
+        "events",
+        "deduplication"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "companies": [
+        "meil"
+      ],
+      "quick": "I would give every event a stable identifier, ideally the source's event or session ID, and persist a unique business key. The consumer checks whether the event was already processed and returns a safe result for duplicates, so redelivery changes nothing. Where possible I would record processing state and apply the business update in one transaction. I would monitor duplicate rates and add reconciliation for cases where the source produces inconsistent session information, because deduplication alone cannot fix wrong data.",
+      "revision": "Use a stable event or session key with a unique constraint, make consumers idempotent, update state transactionally, monitor duplicates, and reconcile inconsistent source data.",
+      "detailed": "## Direct answer\nMake processing **idempotent**: the same event applied twice must have the same effect as applying it once. This needs a **stable identifier** and a **uniqueness guarantee** in storage.\n\n{{diagram:dedupe}}\n\n## How it works\n- **Choose the key.** Prefer an identifier supplied by the source (event ID, or session ID plus event type and sequence). If none exists, derive one from stable fields, with care.\n- **Enforce uniqueness in the database,** not only in application memory, so concurrent consumers cannot both succeed.\n- **Process transactionally where possible:** record the event key and apply the business change in the same transaction.\n- **Return a safe result for duplicates:** acknowledge them rather than raising errors that trigger more retries.\n\n## Example pattern\n```sql\nINSERT INTO processed_events (event_id, received_at)\nVALUES ($1, now())\nON CONFLICT (event_id) DO NOTHING;\n-- if zero rows inserted: duplicate, skip the business update\n```\n\n## Trade-offs\n- Keeping every key forever costs storage, so define a retention window based on how long redelivery can realistically occur.\n- Time-based dedupe windows are simple but fail for late duplicates.\n\n## Common mistakes\n- Deduplicating by timestamp, which can collide or differ between retries.\n- Checking existence and then inserting in separate steps without a unique constraint (a race).\n- Treating duplicates as errors, causing retry storms.\n- Assuming dedupe fixes **inconsistent** data: two different events that disagree need reconciliation, not dedupe.\n\n**Example (hypothetical):** a webhook for \"session 8841 completed\" is delivered twice. The second insert hits the unique key and is acknowledged without creating a second invoice line.",
+      "diagrams": [
+        {
+          "id": "dedupe",
+          "title": "Duplicate event handling",
+          "alt": "An incoming event goes to a consumer, which tries to insert its key into a unique-key store. If the key is new, the business update is applied and the event acknowledged. If the key already exists, the event is acknowledged and skipped. Reconciliation periodically checks session records against the source.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "ev",
+              "label": "Incoming event"
+            },
+            {
+              "id": "con",
+              "label": "Consumer"
+            },
+            {
+              "id": "key",
+              "label": "Unique key check"
+            },
+            {
+              "id": "apply",
+              "label": "Apply business update"
+            },
+            {
+              "id": "skip",
+              "label": "Acknowledge and skip"
+            },
+            {
+              "id": "rec",
+              "label": "Reconciliation"
+            }
+          ],
+          "edges": [
+            {
+              "from": "ev",
+              "to": "con"
+            },
+            {
+              "from": "con",
+              "to": "key"
+            },
+            {
+              "from": "key",
+              "to": "apply",
+              "label": "new"
+            },
+            {
+              "from": "key",
+              "to": "skip",
+              "label": "duplicate"
+            },
+            {
+              "from": "apply",
+              "to": "rec"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "What if the source has no stable event ID?",
+        "How long would you keep processed keys?",
+        "How do you handle out-of-order events?"
+      ],
+      "related": [
+        "synchronize-charging-station-status",
+        "third-party-cms-integration"
+      ]
+    },
+    {
+      "slug": "third-party-cms-unavailable",
+      "title": "What if the third-party CMS becomes unavailable?",
+      "topic": "Reliability and data",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "resilience",
+        "circuit-breaker",
+        "retries"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "companies": [
+        "meil"
+      ],
+      "quick": "I would use timeouts, bounded retries and circuit breaking so failures do not cascade, and a durable queue for events that can safely be delayed. For status, I would show the last known value with a clear freshness indicator instead of pretending it is current. Critical commands need explicit outcome tracking, because a timeout does not prove the command failed. After recovery, I would reconcile and process queued work according to ordering and expiry rules.",
+      "revision": "Timeouts, bounded retries, circuit breaker, durable queue; show last-known status with freshness; track command outcomes; reconcile after recovery and expire stale work.",
+      "detailed": "## Direct answer\nDesign for **graceful degradation**: contain the failure, keep serving what is safe, avoid lying about state, and **reconcile on recovery**.\n\n## Techniques\n- **Timeouts and bounded retries** with backoff and jitter, so a slow vendor does not exhaust your threads or hammer it on recovery.\n- **Circuit breaker** where appropriate: after repeated failures, fail fast for a period instead of waiting on each call.\n- **Durable queue** for work that can safely be delayed, such as status syncs and usage records.\n- **Last-known status with a freshness indicator** (\"updated 12 minutes ago\") instead of presenting stale data as live.\n- **Explicit command outcome tracking.** A timed-out start or stop command may still have taken effect. Record states such as PENDING, CONFIRMED, FAILED and UNKNOWN, and resolve UNKNOWN from later events or a status query.\n- **Expiry rules:** a queued \"start charging\" request from an hour ago should usually be discarded, not replayed.\n\n## After recovery\n1. Drain queued events respecting ordering where it matters.\n2. Reconcile sessions and statuses against the vendor.\n3. Review dead-lettered items and discrepancies.\n\n## Trade-offs\n| Option | Benefit | Risk |\n|---|---|---|\n| Aggressive retries | Fast catch-up | Overloads the recovering vendor |\n| Queue everything | No data loss | Stale or unsafe commands replayed |\n| Fail fast | Protects your platform | Degraded driver experience |\n\n## Common mistakes\n- Retrying non-idempotent commands blindly.\n- Showing stale status without any indication.\n- Having no agreed user-facing behaviour for the outage.\n\n**Example (hypothetical):** during an outage, the app shows stations as \"status unavailable, last seen 20 minutes ago\" and blocks new remote starts, while session events queue and are reconciled afterward.",
+      "followUps": [
+        "How would you decide which operations may be queued?",
+        "How do you resolve an UNKNOWN command state?",
+        "Would you build a fallback path to chargers directly?"
+      ],
+      "related": [
+        "third-party-cms-integration",
+        "synchronize-charging-station-status"
+      ]
+    }
+  ]
+}

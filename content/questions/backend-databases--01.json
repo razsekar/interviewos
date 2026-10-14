@@ -1,0 +1,332 @@
+{
+  "category": "backend-databases",
+  "questions": [
+    {
+      "slug": "nodejs-event-loop",
+      "title": "Explain the Node.js event loop",
+      "topic": "Node.js and NestJS",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "nodejs",
+        "event-loop",
+        "libuv",
+        "concurrency"
+      ],
+      "companies": [
+        "meil"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would explain that Node runs your JavaScript on one main thread, and the event loop is the mechanism that picks up completed async work and runs its callbacks. Network and file operations are handed to the operating system or to libuv's thread pool, so the main thread stays free to serve other requests. That makes Node great for I/O-heavy services. The risk is CPU-heavy JavaScript, which blocks every request, so I would optimise it, move it to worker threads, or push it to a separate worker service.",
+      "revision": "Node runs JavaScript on one thread; the event loop dispatches callbacks as async I/O completes. I/O scales well, but CPU-bound code blocks everything, so offload it to workers.",
+      "detailed": "Node.js executes your JavaScript on a single main thread. The **event loop**, provided by the libuv library, repeatedly checks for finished asynchronous work and runs the matching callbacks. This lets one process keep thousands of connections open without a thread per request.\n\n## How it works\n\n1. Your code runs to completion (the call stack empties).\n2. Pending I/O (sockets, files, DNS, timers) is handled by the operating system or by libuv's small thread pool.\n3. When an operation finishes, its callback is queued and the loop runs it on the main thread.\n\nThe loop moves through phases, commonly described as timers, pending callbacks, poll (I/O), check (`setImmediate`) and close callbacks. Promise callbacks and `process.nextTick` run in microtask-style queues between callbacks, before the loop moves on.\n\n{{diagram:loop}}\n\n## What blocks it\n\nOnly I/O is offloaded. Plain JavaScript such as large JSON parsing, synchronous crypto, heavy loops or a catastrophic regular expression occupies the main thread, and every other request waits.\n\n```js\n// Blocks the loop for the whole computation\napp.get('/report', (req, res) => {\n  res.json(buildHugeReportSync());\n});\n```\n\n## Options for CPU-heavy work\n\n| Option | Use when |\n|---|---|\n| Optimise or chunk the work | The cost is avoidable or can be yielded in slices |\n| `worker_threads` | CPU work should run in parallel inside the same service |\n| Separate worker service or queue | Work is long-running or needs independent scaling |\n| `cluster` or multiple instances | You want to use several CPU cores for request handling |\n\n## Common mistakes\n\n- Using `*Sync` file or crypto APIs inside request handlers.\n- Assuming async/await makes CPU work non-blocking; it does not.\n- Ignoring event-loop lag as a health metric.\n\nHypothetical example: a PDF-export endpoint that renders in-process can stall health checks for seconds. Moving rendering to a queue-backed worker keeps the API responsive.",
+      "diagrams": [
+        {
+          "id": "loop",
+          "title": "Event loop and offloaded work",
+          "alt": "Incoming requests run callbacks on the main thread. I/O is passed to the operating system or libuv thread pool, and completed work returns to the event loop as callbacks.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "req",
+              "label": "Incoming request"
+            },
+            {
+              "id": "main",
+              "label": "Main thread (event loop)"
+            },
+            {
+              "id": "os",
+              "label": "OS / libuv thread pool"
+            },
+            {
+              "id": "cb",
+              "label": "Callback queue"
+            }
+          ],
+          "edges": [
+            {
+              "from": "req",
+              "to": "main"
+            },
+            {
+              "from": "main",
+              "to": "os",
+              "label": "async I/O"
+            },
+            {
+              "from": "os",
+              "to": "cb",
+              "label": "completed"
+            },
+            {
+              "from": "cb",
+              "to": "main",
+              "label": "run callback"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "What is the difference between process.nextTick and setImmediate?",
+        "How do worker threads differ from the cluster module?",
+        "How would you detect that the event loop is blocked in production?"
+      ],
+      "related": [
+        "nestjs-error-handling"
+      ]
+    },
+    {
+      "slug": "nestjs-error-handling",
+      "title": "How do you handle errors in a NestJS application?",
+      "topic": "Node.js and NestJS",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "nestjs",
+        "exception-filters",
+        "validation",
+        "error-handling"
+      ],
+      "companies": [
+        "meil"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would centralise error handling rather than scatter try/catch blocks. Request validation with pipes rejects bad input early, and exception filters turn errors into one consistent response format. Guards handle authorization and interceptors handle cross-cutting concerns such as logging and timing. I separate expected business errors, which map to clear 4xx responses, from unexpected failures, which return a generic 500 while the full detail and stack trace go to structured logs, never to the client.",
+      "revision": "Validate with pipes, standardise responses in exception filters, log details server-side, map business errors to 4xx, and never leak stack traces on unexpected 500s.",
+      "detailed": "NestJS gives you a request pipeline with distinct extension points, so error handling can be centralised instead of repeated in each controller.\n\n## The building blocks\n\n- **Pipes** validate and transform input (for example `ValidationPipe` with DTO classes), rejecting bad requests before business code runs.\n- **Guards** decide whether a request may proceed (authentication and authorization).\n- **Interceptors** wrap handlers for logging, timing, response mapping or timeouts.\n- **Exception filters** catch thrown errors and build the HTTP response.\n\nNest ships built-in `HttpException` classes such as `NotFoundException`; throwing one produces a matching status and body.\n\n## Expected versus unexpected errors\n\n| Kind | Example | Response |\n|---|---|---|\n| Expected business error | Order already cancelled | 4xx with a stable error code |\n| Validation error | Missing required field | 400 or 422 with field details |\n| Unexpected failure | Database outage, bug | Generic 500, details only in logs |\n\n## A global filter\n\n```ts\nimport { ExceptionFilter, Catch, ArgumentsHost, HttpException, HttpStatus, Logger } from '@nestjs/common';\n\n@Catch()\nexport class AllExceptionsFilter implements ExceptionFilter {\n  private readonly logger = new Logger(AllExceptionsFilter.name);\n\n  catch(exception: unknown, host: ArgumentsHost) {\n    const res = host.switchToHttp().getResponse();\n    const isHttp = exception instanceof HttpException;\n    const status = isHttp ? exception.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;\n\n    if (!isHttp) this.logger.error('Unhandled error', (exception as Error).stack);\n\n    res.status(status).json({\n      code: isHttp ? 'REQUEST_ERROR' : 'INTERNAL_ERROR',\n      message: isHttp ? exception.message : 'Something went wrong',\n    });\n  }\n}\n```\n\nRegister it with `app.useGlobalFilters(...)` or the `APP_FILTER` provider.\n\n## Common mistakes\n\n- Returning stack traces or SQL errors to clients.\n- Swallowing errors in empty catch blocks.\n- Using 500 for every failure, including client mistakes.\n- Not including a request or correlation id in both response and logs.\n\nHypothetical example: a domain `InsufficientStockError` is translated by a filter into a 409 response with code `INSUFFICIENT_STOCK`, while a connection failure becomes a generic 500 and an alert.",
+      "followUps": [
+        "What is the difference between a guard, an interceptor and a pipe?",
+        "How would you map domain errors to HTTP status codes?",
+        "How do you correlate a client error response with server logs?"
+      ],
+      "related": [
+        "nodejs-event-loop",
+        "design-good-rest-api"
+      ]
+    },
+    {
+      "slug": "design-good-rest-api",
+      "title": "How do you design a good REST API?",
+      "topic": "API design and security",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "rest",
+        "api-design",
+        "openapi",
+        "pagination",
+        "idempotency"
+      ],
+      "companies": [
+        "meil"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would design around resources with clear nouns, use HTTP methods and status codes correctly, and keep validation and error formats consistent. List endpoints get pagination and filtering from day one. I define the contract in OpenAPI so clients and tests share it, and I add explicit versioning only where breaking changes are likely. Security covers authentication and authorization, and retryable operations like payments get idempotency keys. I also document rate limits, compatibility rules and how clients should handle errors.",
+      "revision": "Good REST design: resource nouns, correct methods and status codes, consistent errors, pagination, OpenAPI contract, authn/authz, idempotency for retries, and documented limits and compatibility.",
+      "detailed": "A good API is predictable: a developer who has seen one endpoint can guess how the others behave. That comes from a small set of consistently applied rules.\n\n## Core principles\n\n- **Resource-oriented URLs**: nouns and nesting that reflect the domain, such as `/orders/42/items`, not `/getOrderItems`.\n- **Right method, right status**: `GET` safe and cacheable, `POST` creates (`201` plus `Location`), `PUT` replaces, `PATCH` partially updates, `DELETE` removes. Use `400/422` for bad input, `401/403` for auth, `404`, `409` for conflicts, `429` for rate limits.\n- **Consistent errors**: one shape everywhere, for example a stable `code`, a human `message`, field-level `details` and a request id.\n- **Pagination and filtering**: never return unbounded lists. Cursor pagination is typically more stable for changing data than offset.\n- **Versioning**: prefer additive, backward-compatible changes; introduce an explicit version (path or header) only for breaking ones.\n\n## Contract and operations\n\nDescribe the API in an **OpenAPI** document and use it for documentation, mock servers, client generation and contract tests. Publish rate limits, deprecation policy and expected retry behaviour.\n\n```http\nPOST /orders\nIdempotency-Key: 7d9f2c1e-...\nContent-Type: application/json\n\nHTTP/1.1 201 Created\nLocation: /orders/42\n```\n\n## Retryable operations\n\nNetwork failures cause clients to retry. Make unsafe operations idempotent by accepting a client-supplied key and returning the original result on repeats.\n\n## Common mistakes\n\n- Verbs in URLs and `POST` for everything.\n- Returning `200` with an error body.\n- Exposing database structure directly as the API.\n- Breaking changes without a version or deprecation window.\n- Inconsistent naming and casing across endpoints.\n\nHypothetical example: a `GET /invoices?status=open&limit=50&cursor=...` endpoint returns a page of items plus a `nextCursor`, with the same error format as every other endpoint.",
+      "followUps": [
+        "How do you version an API without breaking existing clients?",
+        "Cursor versus offset pagination: when would you choose each?",
+        "How do you make a POST endpoint safe to retry?",
+        "What should a consistent error format contain?"
+      ],
+      "related": [
+        "rest-vs-graphql",
+        "secure-rest-api",
+        "prevent-duplicate-operations"
+      ]
+    },
+    {
+      "slug": "rest-vs-graphql",
+      "title": "REST versus GraphQL: how do you choose?",
+      "topic": "API design and security",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "rest",
+        "graphql",
+        "api-design",
+        "caching"
+      ],
+      "companies": [
+        "meil"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I choose by client needs, not by fashion. REST fits resource-oriented APIs with clear HTTP semantics and straightforward caching. GraphQL lets clients ask for exactly the fields they need across related resources, which reduces over-fetching and round trips, but it adds query-complexity control, more involved authorization and harder HTTP caching. For a simple enterprise integration API I would default to REST, and consider GraphQL when many different clients need flexible views over a rich domain.",
+      "revision": "REST: simple, HTTP-native, easy caching. GraphQL: client-shaped queries over related data, but extra complexity in authorization, caching and cost control. Pick by client needs, not by default.",
+      "detailed": "Both are ways to expose data over HTTP. They differ in who decides the shape of the response.\n\n## Comparison\n\n| Aspect | REST | GraphQL |\n|---|---|---|\n| Shape of response | Fixed by the server per endpoint | Chosen by the client per query |\n| Endpoints | Many, resource-based | Typically one endpoint with a typed schema |\n| Over/under-fetching | Common without extra endpoints or field selection | Reduced; client requests needed fields |\n| HTTP caching | Natural with `GET`, URLs and cache headers | Harder; queries usually go through `POST`, so needs persisted queries or client caches |\n| Authorization | Often per endpoint | Must be enforced per field or resolver |\n| Cost control | Rate limits per endpoint | Needs depth, complexity limits and timeouts |\n| Tooling | OpenAPI, mature gateways | Schema introspection, strong typing, client codegen |\n\n## When REST fits\n\nStable resource models, public or partner APIs, simple CRUD, heavy use of CDNs and caching, and teams that want predictable operations.\n\n## When GraphQL fits\n\nSeveral client types (web, mobile, dashboards) needing different slices of related data, fast-moving front ends, or an aggregation layer over many backend services.\n\n## Costs of GraphQL to plan for\n\n- Resolver-level **N+1 queries** need batching (for example a DataLoader-style pattern).\n- Unbounded nested queries can overload the backend, so limit depth and complexity.\n- Error handling differs: responses often return `200` with an `errors` array.\n- Monitoring is harder because everything shares one URL.\n\n## Common mistakes\n\n- Choosing GraphQL by default without a client-driven need.\n- Skipping field-level authorization.\n- Treating the two as mutually exclusive; a GraphQL layer can sit in front of REST services.\n\nHypothetical example: an internal reporting integration with a few stable endpoints is a REST case, while a dashboard stitching together orders, customers and shipments for several screens may justify GraphQL.",
+      "followUps": [
+        "How would you protect a GraphQL API from expensive queries?",
+        "What is the N+1 problem in GraphQL and how is it addressed?",
+        "Can REST and GraphQL coexist in one system?"
+      ],
+      "related": [
+        "design-good-rest-api",
+        "secure-rest-api"
+      ]
+    },
+    {
+      "slug": "secure-rest-api",
+      "title": "How do you secure a REST API?",
+      "topic": "API design and security",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "security",
+        "owasp",
+        "authentication",
+        "authorization",
+        "rate-limiting"
+      ],
+      "companies": [
+        "meil"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would layer defences. All traffic uses TLS, every request is authenticated by validating the token, and authorization is enforced on the server for each operation and object. Inputs are validated and queries parameterised to prevent injection, rate limiting protects against abuse, and CORS is restricted to known origins. Secrets live in a secrets manager, dependencies are scanned, and audit logs record sensitive actions. Authentication proves who you are; authorization decides what that identity may do.",
+      "revision": "Layered defence: TLS, token validation, server-side authorization per object, input validation, rate limits, tight CORS, managed secrets, audit logs. Authentication is identity; authorization is permission.",
+      "detailed": "Securing an API is a set of layered controls, because no single one covers every threat. The OWASP API Security Top 10 is a useful checklist to organise them.\n\n## Core controls\n\n- **Transport**: TLS everywhere, with HTTP redirected or rejected.\n- **Authentication**: verify who is calling, typically by validating a token on every request.\n- **Authorization**: check on the server that this identity may perform this action on this specific object. Broken object-level authorization (changing an id in the URL to read someone else's data) is among the most common API flaws.\n- **Input validation**: validate type, size and format of all input; use parameterised queries to prevent injection.\n- **Rate limiting and quotas**: limit abuse and accidental overload; return `429`.\n- **CORS**: allow only known origins, not `*` with credentials.\n- **Secrets management**: keep keys and passwords in a secrets manager, rotate them, never commit them.\n- **Observability**: audit logs for sensitive actions and alerts on anomalies, without logging secrets or personal data.\n- **Supply chain**: scan and update dependencies.\n\n## Authentication versus authorization\n\n| | Authentication | Authorization |\n|---|---|---|\n| Question | Who are you? | May you do this? |\n| Typical check | Token signature, expiry, issuer | Role, tenant, ownership, policy |\n| Failure status | `401` | `403` |\n\n## Example of an object-level check\n\n```ts\nconst order = await repo.findOne(orderId);\nif (!order || order.tenantId !== user.tenantId) {\n  throw new NotFoundException();\n}\n```\n\n## Common mistakes\n\n- Trusting the client to hide buttons instead of enforcing rules on the server.\n- Verbose error messages that reveal internals.\n- Long-lived tokens with no revocation strategy.\n- Exposing internal ids or whole database objects, including fields the caller should not see.\n\nHypothetical example: a partner API validates the access token, checks the partner's tenant against the requested resource, limits requests per partner, and logs every export operation.",
+      "followUps": [
+        "What is the difference between authentication and authorization?",
+        "How do you prevent broken object-level authorization?",
+        "How would you handle CORS for a browser client?",
+        "Where do you keep secrets in production?"
+      ],
+      "related": [
+        "jwt-oauth-oidc",
+        "rbac-authorization",
+        "design-good-rest-api"
+      ]
+    },
+    {
+      "slug": "jwt-oauth-oidc",
+      "title": "Explain JWT, OAuth 2.0 and OpenID Connect",
+      "topic": "API design and security",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "jwt",
+        "oauth2",
+        "oidc",
+        "authentication",
+        "tokens"
+      ],
+      "companies": [
+        "meil"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I keep the three apart. JWT is a token format: a signed set of claims. OAuth 2.0 is an authorization framework for delegated access, where a client obtains an access token to call an API on a user's behalf. OpenID Connect builds on OAuth 2.0 and adds an identity layer, including an ID token, so applications can authenticate users. On the API I validate the signature, issuer, audience, expiry and relevant claims, use an appropriate flow, and store tokens securely.",
+      "revision": "JWT is a signed token format; OAuth 2.0 delegates authorization via access tokens; OpenID Connect adds authentication on top of OAuth with an ID token.",
+      "detailed": "These three are often confused because they appear together, but they solve different problems.\n\n| Term | What it is | Answers |\n|---|---|---|\n| **JWT** | A compact token format carrying signed claims | How is the token structured? |\n| **OAuth 2.0** | A framework for delegated authorization | How does a client get permission to call an API? |\n| **OpenID Connect (OIDC)** | An identity layer on top of OAuth 2.0 | Who is the user that just logged in? |\n\n## JWT\n\nA JSON Web Token has a header, a payload of claims (such as `iss`, `sub`, `aud`, `exp`) and a signature. Anyone can read the payload; the signature only proves it was not altered. Never put secrets in it. JWT is a format: OAuth access tokens may be JWTs or opaque strings.\n\n## OAuth 2.0\n\nA resource owner grants a client limited access. An authorization server issues an **access token** that the client sends to the resource server (the API). The authorization code flow with PKCE is the commonly recommended flow for browser and mobile apps; client credentials suits service-to-service calls.\n\n## OpenID Connect\n\nOIDC adds an **ID token** (a JWT describing the authenticated user), a standard `userinfo` endpoint and discovery metadata. Use OAuth for \"may this app call that API\" and OIDC for \"sign this user in\".\n\n## What the API should validate\n\n```text\n- Signature, using keys from the issuer's published key set\n- iss  : expected issuer\n- aud  : this API is the intended audience\n- exp / nbf : token is within its valid time window\n- scope / roles : required permissions are present\n```\n\n## Common mistakes\n\n- Using an ID token to call APIs, or an access token as proof of login.\n- Skipping audience or issuer checks.\n- Accepting unsigned tokens or trusting the algorithm named in the header without restricting it.\n- Keeping long-lived tokens in browser local storage without considering XSS risk.\n- Treating a JWT as encrypted.\n\nHypothetical example: a web portal signs users in with OIDC, receives an access token scoped to `orders.read`, and the orders API validates issuer, audience, expiry and scope on every call.",
+      "followUps": [
+        "Which OAuth 2.0 flow would you use for a single-page app?",
+        "How do you revoke or rotate JWT access tokens?",
+        "What is the difference between an ID token and an access token?",
+        "Where should tokens be stored in a browser client?"
+      ],
+      "related": [
+        "secure-rest-api",
+        "rbac-authorization"
+      ]
+    },
+    {
+      "slug": "rbac-authorization",
+      "title": "What is RBAC and how do you apply it?",
+      "topic": "API design and security",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "rbac",
+        "authorization",
+        "access-control",
+        "multi-tenancy"
+      ],
+      "companies": [
+        "meil"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Role-Based Access Control assigns permissions to roles and roles to users, for example administrator, business-unit manager, operator and auditor. I enforce it on the backend, never only in the UI, and combine it with tenant and resource-level checks where a role alone is not enough. Sensitive operations are audited. I design roles around business responsibilities so they stay manageable, rather than letting them turn into a pile of individual permissions.",
+      "revision": "RBAC maps permissions to roles and roles to users. Enforce on the backend, add tenant and resource checks, audit sensitive actions, and keep roles tied to business duties.",
+      "detailed": "**Role-Based Access Control (RBAC)** grants access through roles. Permissions describe actions (`invoice:approve`), roles bundle permissions, and users are assigned roles. Changing what a job function can do means editing one role instead of many users.\n\n## Model\n\n```text\nUser -- has --> Role -- grants --> Permission (action on a resource type)\n```\n\n## Example roles (hypothetical)\n\n| Role | Typical permissions |\n|---|---|\n| Administrator | Manage users and configuration |\n| Business-unit manager | Approve and view records of own unit |\n| Operator | Create and edit day-to-day records |\n| Auditor | Read-only access, including audit logs |\n\n## Enforcing it in a backend\n\nCheck permissions on the server for every request, for example with a NestJS guard that reads required roles from route metadata.\n\n```ts\n@Roles('manager')\n@UseGuards(AuthGuard, RolesGuard)\n@Post(':id/approve')\napprove(@Param('id') id: string) { /* ... */ }\n```\n\n## Where roles are not enough\n\nRoles say what kind of action is allowed, not on which data. Combine with:\n\n- **Tenant or business-unit scoping**: a manager sees only their own unit's records.\n- **Ownership or resource checks**: users edit only their own drafts.\n- **Attribute or policy rules (ABAC)** when conditions such as amount thresholds or time matter.\n\n## Operating RBAC\n\n- Audit role changes and sensitive actions.\n- Review assignments periodically and apply least privilege.\n- Prefer role names that reflect business duties.\n\n## Common mistakes\n\n- Hiding menu items in the UI but not enforcing the rule on the API.\n- Creating one role per person, leading to **role explosion**.\n- Hard-coding role names throughout the code instead of checking permissions.\n- Forgetting to revoke access when people change jobs.",
+      "followUps": [
+        "How does RBAC differ from ABAC?",
+        "How would you add tenant isolation on top of roles?",
+        "How do you avoid role explosion?"
+      ],
+      "related": [
+        "secure-rest-api",
+        "jwt-oauth-oidc"
+      ]
+    },
+    {
+      "slug": "postgresql-slow-query",
+      "title": "How do you optimize a slow PostgreSQL query?",
+      "topic": "PostgreSQL and transactions",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "postgresql",
+        "explain-analyze",
+        "indexes",
+        "performance"
+      ],
+      "companies": [
+        "meil"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I start by measuring: find which query is slow and inspect its plan with EXPLAIN ANALYZE, comparing estimated and actual rows. Then I look for missing or unsuitable indexes, sequential scans on large tables, unnecessary joins, fetching too many columns or rows, lock contention and poor pagination. I change the query or schema, test with realistic data volumes and compare before and after. I choose indexes carefully because each one costs storage and slows writes.",
+      "revision": "Measure first: EXPLAIN ANALYZE, compare estimated and actual rows, fix indexes, joins, over-fetching and pagination, verify with realistic data, and weigh index write cost.",
+      "detailed": "Optimise with evidence, not guesses. Identify the slow statement (slow-query logging or `pg_stat_statements`), then ask the planner what it is doing.\n\n## Read the plan\n\n```sql\nEXPLAIN (ANALYZE, BUFFERS)\nSELECT o.id, o.total\nFROM orders o\nWHERE o.customer_id = 42 AND o.status = 'open'\nORDER BY o.created_at DESC\nLIMIT 20;\n```\n\nNote that `ANALYZE` actually runs the statement, so wrap data-modifying queries in a transaction you roll back. Look at:\n\n- **Scan type**: sequential scan on a large table with a selective filter suggests a missing index.\n- **Estimated versus actual rows**: large gaps point to stale statistics (run `ANALYZE`) or correlated columns.\n- **Join strategy and sort cost**: sorts spilling to disk, nested loops over big sets.\n- **Buffers and time per node**: shows where the time really goes.\n\n## Common fixes\n\n| Symptom | Typical fix |\n|---|---|\n| Seq scan with selective filter | Add a suitable (often composite) index |\n| Sort after filter | Index matching `WHERE` columns then `ORDER BY` |\n| Fetching many columns or rows | Select only needed columns, add limits |\n| Deep `OFFSET` pagination | Keyset (cursor) pagination |\n| Stale statistics | `ANALYZE`, tune autovacuum |\n| Waits on locks | Shorten transactions, review lock order |\n\n```sql\nCREATE INDEX CONCURRENTLY idx_orders_customer_status_created\n  ON orders (customer_id, status, created_at DESC);\n```\n\n`CONCURRENTLY` avoids blocking writes during the build on a live table.\n\n## Trade-offs and mistakes\n\n- Every index uses storage and slows inserts and updates; avoid indexing everything.\n- Functions on indexed columns (`WHERE lower(email) = ...`) can prevent index use unless you create an expression index.\n- Testing on a tiny dev database hides problems; plans change with data volume.\n- Always compare timings before and after the change.\n\nHypothetical example: an open-orders list drops from a sequential scan to an index scan after a composite index, and keyset pagination keeps later pages as fast as the first.",
+      "followUps": [
+        "How do you read a sequential scan versus an index scan in a plan?",
+        "When is an index not used even though it exists?",
+        "Why is OFFSET pagination slow on large tables?",
+        "What does an index cost on write-heavy tables?"
+      ],
+      "related": [
+        "transactions-isolation-levels",
+        "connection-pooling"
+      ]
+    },
+    {
+      "slug": "transactions-isolation-levels",
+      "title": "Explain database transactions and isolation levels",
+      "topic": "PostgreSQL and transactions",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "transactions",
+        "acid",
+        "isolation-levels",
+        "postgresql",
+        "concurrency"
+      ],
+      "companies": [
+        "meil"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "A transaction groups statements into one unit that should satisfy ACID: atomic, consistent, isolated and durable. Isolation levels control how concurrent transactions see each other's changes, and weaker levels allow anomalies like non-repeatable reads, phantom reads or, at the strictest level, serialization failures. I choose the level by the consistency the operation needs, keep transactions short to reduce contention, and make sure the application retries when a serializable transaction is aborted.",
+      "revision": "Transactions give ACID. Isolation levels trade anomalies for concurrency; keep transactions short, pick the weakest level that is correct, and retry serialization failures.",
+      "detailed": "A **transaction** wraps several operations so they either all take effect or none do. It aims for ACID: **atomicity** (all or nothing), **consistency** (constraints hold), **isolation** (concurrent work does not interfere unexpectedly) and **durability** (committed data survives crashes).\n\n## Isolation and anomalies\n\nIsolation levels define which anomalies concurrent transactions may observe:\n\n| Level | Dirty read | Non-repeatable read | Phantom read |\n|---|---|---|---|\n| Read uncommitted | Possible in the standard, not in PostgreSQL | Possible | Possible |\n| Read committed | No | Possible | Possible |\n| Repeatable read | No | No | Standard allows; PostgreSQL's implementation prevents it |\n| Serializable | No | No | No |\n\nPostgreSQL defaults to **read committed**: each statement sees data committed before it started. **Repeatable read** uses one snapshot for the whole transaction. **Serializable** behaves as if transactions ran one after another and may abort one with a serialization failure.\n\n## Practical use\n\n```sql\nBEGIN ISOLATION LEVEL SERIALIZABLE;\nUPDATE accounts SET balance = balance - 100 WHERE id = 1;\nUPDATE accounts SET balance = balance + 100 WHERE id = 2;\nCOMMIT;\n```\n\nIf the database reports a serialization failure (SQLSTATE `40001`) or deadlock, the application should roll back and **retry the whole transaction**.\n\nFor targeted protection you can also use row locks (`SELECT ... FOR UPDATE`) or optimistic version columns, instead of raising the isolation level for everything.\n\n## Guidelines\n\n- Use the weakest level that is still correct for the business rule.\n- Keep transactions short; do not hold them open across network calls or user think time.\n- Access rows in a consistent order to reduce deadlocks.\n\n## Common mistakes\n\n- Assuming read committed prevents lost updates in read-modify-write code.\n- Not retrying after serialization failures.\n- Long transactions that bloat the database and hold locks.\n- Mixing external side effects (emails, payments) inside a transaction that may roll back.\n\nHypothetical example: two requests both read a stock count of 1 and decrement it; a row lock or serializable transaction makes one wait or retry.",
+      "followUps": [
+        "What is a phantom read and which levels prevent it in PostgreSQL?",
+        "How would you prevent lost updates on a balance row?",
+        "Why must you retry serialization failures?",
+        "What is the difference between optimistic and pessimistic locking?"
+      ],
+      "related": [
+        "postgresql-slow-query",
+        "prevent-duplicate-operations"
+      ]
+    }
+  ]
+}

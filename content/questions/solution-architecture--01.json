@@ -1,0 +1,525 @@
+{
+  "category": "solution-architecture",
+  "questions": [
+    {
+      "slug": "requirement-to-solution-architecture",
+      "title": "How do you translate a business requirement into a solution architecture?",
+      "topic": "Requirements and NFRs",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "solution-architecture",
+        "requirements",
+        "discovery"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "companies": [
+        "meil"
+      ],
+      "quick": "I would start with discovery: the business problem, stakeholders, current process and the outcome they want. Then I turn that into functional requirements, integrations and non-functional requirements, and list the constraints such as budget, deadlines, existing systems and team skills. Only then do I choose the application style, data model, APIs and deployment model. I validate risky assumptions with a prototype or design review, record decisions and trade-offs, and plan delivery through to operations, including monitoring and support ownership.",
+      "revision": "Problem, requirements and NFRs, constraints, architecture, validation, delivery, operations. Architecture follows the problem and constraints, and every major decision is written down with its trade-offs.",
+      "detailed": "A good solution architecture is the **smallest design that satisfies the real requirements within the real constraints**, with its decisions explained. The process is a funnel from problem to operations.\n\n{{diagram:flow}}\n\n## Steps\n\n1. **Discovery.** Clarify the problem, who is affected, how the process works today, the pain points and the measurable outcome. Many bad designs come from solving a stated solution instead of the underlying problem.\n2. **Requirements.** Capture functional needs, users and roles, workflows and integrations with other systems.\n3. **Non-functional requirements.** Security, availability, performance, scalability, recovery and auditability, expressed as measurable targets.\n4. **Constraints.** Budget, deadline, existing systems, team skills, vendor and regulatory limits.\n5. **Architecture.** Choose the application style, data model, API and integration patterns, and deployment model that fit the above.\n6. **Validation.** Prototype the riskiest parts, run design and security reviews, keep a risk list and record decisions in ADRs.\n7. **Delivery.** Define MVP scope, milestones, acceptance criteria, test strategy and rollout.\n8. **Operations.** Decide monitoring, support ownership, recovery procedures and success metrics before go-live.\n\n## Trade-offs and common mistakes\n\n- Jumping to technology (for example \"we need microservices\") before NFRs and constraints are known.\n- Treating constraints as obstacles rather than design inputs. A small team is a legitimate reason for a simpler architecture.\n- Skipping validation, so a critical integration limit is discovered late.\n- Forgetting operations: a system nobody can monitor or support is not finished.\n\n**Example (hypothetical):** a business wants to digitise equipment inspections. Discovery shows inspectors work offline in remote sites, which turns \"offline sync and conflict handling\" into a headline requirement and shapes the data model, API design and mobile approach, long before any framework is picked.",
+      "diagrams": [
+        {
+          "id": "flow",
+          "title": "From requirement to running system",
+          "alt": "A left-to-right flow: discovery, requirements and NFRs, constraints, architecture, validation, delivery and operations.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "a",
+              "label": "Discovery"
+            },
+            {
+              "id": "b",
+              "label": "Requirements + NFRs"
+            },
+            {
+              "id": "c",
+              "label": "Constraints"
+            },
+            {
+              "id": "d",
+              "label": "Architecture"
+            },
+            {
+              "id": "e",
+              "label": "Validation"
+            },
+            {
+              "id": "f",
+              "label": "Delivery"
+            },
+            {
+              "id": "g",
+              "label": "Operations"
+            }
+          ],
+          "edges": [
+            {
+              "from": "a",
+              "to": "b"
+            },
+            {
+              "from": "b",
+              "to": "c"
+            },
+            {
+              "from": "c",
+              "to": "d"
+            },
+            {
+              "from": "d",
+              "to": "e"
+            },
+            {
+              "from": "e",
+              "to": "f"
+            },
+            {
+              "from": "f",
+              "to": "g"
+            },
+            {
+              "from": "g",
+              "to": "a",
+              "label": "feedback"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you handle requirements that are vague or keep changing?",
+        "What do you do when two stakeholders have conflicting requirements?",
+        "Which part of this process do teams most often skip?",
+        "How do you decide what goes in the MVP?"
+      ],
+      "related": [
+        "define-non-functional-requirements",
+        "architecture-decision-record"
+      ]
+    },
+    {
+      "slug": "monolith-vs-microservices-decision",
+      "title": "How do you choose between a monolith and microservices?",
+      "topic": "Architecture styles",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "monolith",
+        "microservices",
+        "architecture-styles"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "companies": [
+        "meil"
+      ],
+      "quick": "I would decide from evidence, not fashion. I look at domain complexity, how independently teams need to deploy, scaling differences between parts of the system, data boundaries and the operational maturity we really have. For a small team or an evolving product I usually start with a modular monolith with clear domain boundaries. I move to microservices when there is a measurable need for independent deployment, scaling, fault isolation or team autonomy, because they add network failures, distributed data problems and observability overhead.",
+      "revision": "Default to a modular monolith; split into microservices only for proven needs like independent deployment, scaling or team autonomy, because the price is distributed-system complexity.",
+      "detailed": "**Choose the simplest deployment model that meets your current needs and keeps future splitting possible.** A monolith is one deployable unit; microservices are many independently deployable services. Neither is inherently better.\n\n## Decision factors\n\n| Factor | Leans monolith | Leans microservices |\n|---|---|---|\n| Domain understanding | Still evolving, boundaries unclear | Stable, well-understood boundaries |\n| Team size and structure | One or few teams | Several teams needing autonomy |\n| Release cadence | Shared cadence is fine | Parts must ship independently |\n| Scaling profile | Roughly uniform load | A few hot components with very different needs |\n| Fault isolation | Acceptable shared fate | Failure of one part must not take down others |\n| Operational maturity | Limited automation | Strong CI/CD, observability, platform support |\n\n## What microservices cost\n\n- Calls become network calls: latency, timeouts, retries and partial failure.\n- Data is split, so cross-service consistency needs sagas, outbox patterns or accepted eventual consistency instead of one transaction.\n- Debugging needs distributed tracing, centralised logs and correlation IDs.\n- More pipelines, versioning of contracts and environments to manage.\n\n## Practical approach\n\n1. Start with a modular monolith with enforced module boundaries.\n2. Measure: deployment conflicts, scaling hot spots, incident blast radius.\n3. Extract a module when a specific, measured pain justifies it.\n\n## Common mistakes\n\n- Splitting by technical layer (an \"API service\", a \"database service\") instead of business capability.\n- Creating a \"distributed monolith\": services that must be deployed together or share one database schema.\n- Adopting microservices to fix an organisational or code-quality problem they will not fix.\n\n**Example (hypothetical):** an asset-management platform launches with inventory, workflow and reporting modules in one codebase. When reporting queries start hurting transactional performance and a separate team owns it, reporting is extracted first.",
+      "followUps": [
+        "What signals would tell you it is time to extract a service?",
+        "What is a distributed monolith and how do you spot one?",
+        "How do you handle transactions across services?",
+        "Can a team of five run microservices sensibly?"
+      ],
+      "related": [
+        "modular-monolith-vs-microservices",
+        "legacy-application-modernization"
+      ]
+    },
+    {
+      "slug": "modular-monolith-vs-microservices",
+      "title": "What is the difference between a modular monolith and microservices?",
+      "topic": "Architecture styles",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "modular-monolith",
+        "microservices",
+        "boundaries"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "companies": [
+        "meil"
+      ],
+      "quick": "A modular monolith is deployed as one application, but its business capabilities live in well-defined modules that talk through explicit interfaces. They may share a process and even a database, as long as the boundaries are enforced. Microservices are independently deployable services with explicit API or messaging contracts and their own data ownership. The modular monolith keeps operations simple; microservices buy deployment and scaling independence at the cost of distributed-system complexity. A good modular monolith is also an easy path to extract services later.",
+      "revision": "Modular monolith: one deployable, strict internal module boundaries. Microservices: separately deployed with own data and network contracts. Same modularity goal, very different operational cost.",
+      "detailed": "Both styles aim at the same thing, **well-separated business capabilities**. They differ in *where the boundary is enforced*: by code structure inside one process, or by the network between processes.\n\n{{diagram:compare}}\n\n## Comparison\n\n| Aspect | Modular monolith | Microservices |\n|---|---|---|\n| Deployment | One unit | Each service separately |\n| Communication | In-process calls through public module interfaces | HTTP/gRPC or messaging |\n| Data | Often one database, ideally with per-module schemas or ownership rules | Each service owns its data |\n| Transactions | Local ACID transactions are possible | Sagas, outbox and eventual consistency |\n| Failure model | Shared process | Independent failures, partial outages |\n| Scaling | Scale the whole app | Scale each service separately |\n| Operations | One pipeline, simpler monitoring | Many pipelines, tracing, service discovery |\n| Refactoring | Cheap, compiler and tests help | Cross-service changes are expensive |\n\n## Keeping a monolith genuinely modular\n\n- Each module exposes a small public API; other modules may not import its internals or query its tables directly.\n- Enforce rules with lint or architecture tests (for example, dependency-direction checks) rather than convention alone.\n- Use events or interfaces between modules so a later extraction replaces an in-process call with a network call.\n\n## Common mistakes\n\n- Calling a codebase \"modular\" when any module reaches into any table. That is a big ball of mud.\n- Extracting services while the domain boundaries are still moving, which makes every change a multi-repository change.\n- Assuming microservices automatically give team autonomy. They only do so with clear ownership and stable contracts.\n\n**Example (hypothetical):** an enterprise platform has identity, workflow and billing modules in one deployable. Billing later needs a different release cadence and compliance scope, so it is moved behind an API and given its own database while the rest stays together.",
+      "diagrams": [
+        {
+          "id": "compare",
+          "title": "Modular monolith versus microservices",
+          "alt": "Two structures: a single deployable containing orders, billing and inventory modules calling each other in process, and three separate services communicating over the network, each with its own database.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "m",
+              "label": "One deployable"
+            },
+            {
+              "id": "m1",
+              "label": "Orders module"
+            },
+            {
+              "id": "m2",
+              "label": "Billing module"
+            },
+            {
+              "id": "s1",
+              "label": "Orders service"
+            },
+            {
+              "id": "s2",
+              "label": "Billing service"
+            },
+            {
+              "id": "d1",
+              "label": "Orders DB"
+            },
+            {
+              "id": "d2",
+              "label": "Billing DB"
+            }
+          ],
+          "edges": [
+            {
+              "from": "m",
+              "to": "m1"
+            },
+            {
+              "from": "m",
+              "to": "m2"
+            },
+            {
+              "from": "m1",
+              "to": "m2",
+              "label": "in-process interface"
+            },
+            {
+              "from": "s1",
+              "to": "s2",
+              "label": "network contract"
+            },
+            {
+              "from": "s1",
+              "to": "d1"
+            },
+            {
+              "from": "s2",
+              "to": "d2"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you enforce module boundaries in a Node.js codebase?",
+        "Can modules share a database safely?",
+        "How do you extract a module into a service with minimal risk?",
+        "Why can a modular monolith be easier to evolve than early microservices?"
+      ],
+      "related": [
+        "monolith-vs-microservices-decision",
+        "domain-driven-design-overview"
+      ]
+    },
+    {
+      "slug": "domain-driven-design-overview",
+      "title": "What is Domain-Driven Design and how does it shape service boundaries?",
+      "topic": "Architecture styles",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "ddd",
+        "bounded-context",
+        "domain-modelling"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "companies": [
+        "meil"
+      ],
+      "quick": "Domain-Driven Design is modelling software around the business domain. I would work with domain experts to build a ubiquitous language, then identify bounded contexts, where a term has one consistent meaning, and model entities, value objects and aggregates inside them. For an enterprise platform that might mean contexts like asset management, workflow, billing, identity and reporting. I would avoid splitting only by technical layers; boundaries should follow cohesive business responsibilities, and they guide module or service boundaries.",
+      "revision": "DDD models software around the business: ubiquitous language, bounded contexts, aggregates. Draw boundaries around cohesive business capabilities, not technical layers.",
+      "detailed": "**Domain-Driven Design (DDD)** is an approach for complex business domains: the structure of the software mirrors the structure of the business problem, using a language shared by developers and domain experts.\n\n## Core concepts\n\n- **Ubiquitous language:** the same terms in conversations, documents and code. If the business says \"work order\", the code does not say \"task record\".\n- **Bounded context:** an explicit boundary in which a model and its terms have one meaning. \"Customer\" in billing (a payer with invoices) is different from \"customer\" in support (a person with tickets).\n- **Entity:** an object with identity that persists over time.\n- **Value object:** defined by its values and immutable, such as a money amount or date range.\n- **Aggregate:** a cluster of objects treated as one consistency unit, accessed through a root. Invariants are enforced inside it, and other aggregates are referenced by ID.\n- **Domain events:** facts that happened, used to integrate contexts loosely.\n\n## Strategic design\n\nContext mapping describes how contexts relate: shared kernel, customer-supplier, or an anti-corruption layer that translates when integrating with a legacy or third-party model. Contexts are natural candidates for modules or services.\n\n## Trade-offs\n\n- DDD pays off in complicated domains with rich rules. For simple CRUD it can be unnecessary ceremony.\n- It needs sustained access to domain experts; modelling workshops (for example event storming) take time.\n\n## Common mistakes\n\n- Using the vocabulary (repositories, aggregates) without the strategic part: no bounded contexts and no shared language.\n- Oversized aggregates that lock too much data and hurt concurrency.\n- Sharing one model across the whole enterprise, so every change affects everyone.\n- Cutting services by layer (\"data service\", \"validation service\") instead of by capability.\n\n**Example (hypothetical):** in an asset-management platform, \"Asset\" in the maintenance context carries service history and schedules, while in the finance context it carries depreciation and cost centre. Two models, linked by an asset ID and events, are cleaner than one giant shared model.",
+      "followUps": [
+        "What is an aggregate and how large should it be?",
+        "What is an anti-corruption layer and when do you need one?",
+        "How do bounded contexts map to microservices?",
+        "When would you not use DDD?"
+      ],
+      "related": [
+        "clean-architecture-overview",
+        "modular-monolith-vs-microservices"
+      ]
+    },
+    {
+      "slug": "clean-architecture-overview",
+      "title": "What is Clean Architecture?",
+      "topic": "Architecture styles",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "clean-architecture",
+        "dependency-inversion",
+        "testability"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "companies": [
+        "meil"
+      ],
+      "quick": "Clean Architecture separates business rules from external technology. The domain and application logic do not depend directly on frameworks, databases or the UI. Instead, they define interfaces, and infrastructure adapters implement them, so dependencies point inward toward the business rules. That makes the core easy to test without a database or web server, and it lets me replace a database, a message broker or a vendor integration without rewriting the rules. I would apply it pragmatically, not as ceremony for simple CRUD.",
+      "revision": "Dependencies point inward: domain and use cases define interfaces, infrastructure implements them. Business rules stay testable and independent of frameworks, databases and vendors.",
+      "detailed": "**Clean Architecture** organises code in concentric layers so that **source-code dependencies point inward**: toward the domain and use cases, never from them to frameworks, databases or user interfaces.\n\n{{diagram:layers}}\n\n## Layers\n\n- **Domain:** entities, value objects and business rules that would still be true without any software framework.\n- **Application (use cases):** orchestrates the domain to fulfil one user or system goal, such as \"approve a work order\". It declares the ports (interfaces) it needs.\n- **Interface adapters:** controllers, presenters, mappers.\n- **Infrastructure:** database access, message brokers, HTTP clients and vendor SDKs that implement the ports.\n\nThe mechanism is the dependency inversion principle: the use case owns an interface, and the adapter depends on it.\n\n```ts\n// application layer owns the port\nexport interface AssetRepository {\n  findById(id: string): Promise<Asset | null>;\n  save(asset: Asset): Promise<void>;\n}\n\nexport class RetireAsset {\n  constructor(private readonly assets: AssetRepository) {}\n  async execute(id: string) {\n    const asset = await this.assets.findById(id);\n    if (!asset) throw new Error('Asset not found');\n    asset.retire();               // business rule lives in the domain\n    await this.assets.save(asset);\n  }\n}\n```\n\nAn infrastructure class then implements `AssetRepository` with a specific database library.\n\n## Benefits and trade-offs\n\n| Benefit | Cost |\n|---|---|\n| Core logic is unit-testable without infrastructure | More files, interfaces and mapping code |\n| Vendors and databases are replaceable | Risk of speculative abstractions |\n| Clear place for each kind of change | Learning curve for the team |\n\n## Common mistakes\n\n- Wrapping every framework feature behind an interface \"just in case\".\n- Letting ORM entities leak into the domain so the database shape drives the rules.\n- Applying full layering to a simple CRUD module where it adds nothing.\n\nHexagonal (\"ports and adapters\") and onion architecture share the same inward-dependency idea.",
+      "diagrams": [
+        {
+          "id": "layers",
+          "title": "Dependency direction in Clean Architecture",
+          "alt": "Controllers and infrastructure adapters depend on application use cases, which depend on the domain model; the database adapter implements a repository interface owned by the application layer.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "ui",
+              "label": "Controllers / UI"
+            },
+            {
+              "id": "app",
+              "label": "Use cases"
+            },
+            {
+              "id": "dom",
+              "label": "Domain model"
+            },
+            {
+              "id": "port",
+              "label": "Repository interface"
+            },
+            {
+              "id": "db",
+              "label": "Database adapter"
+            }
+          ],
+          "edges": [
+            {
+              "from": "ui",
+              "to": "app",
+              "label": "calls"
+            },
+            {
+              "from": "app",
+              "to": "dom",
+              "label": "uses"
+            },
+            {
+              "from": "app",
+              "to": "port",
+              "label": "defines"
+            },
+            {
+              "from": "db",
+              "to": "port",
+              "label": "implements"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How does Clean Architecture differ from a traditional layered architecture?",
+        "Where do you put validation and authorization?",
+        "Is it worth using in a NestJS project?",
+        "How do you test the use-case layer?"
+      ],
+      "related": [
+        "domain-driven-design-overview",
+        "avoid-overengineering"
+      ]
+    },
+    {
+      "slug": "design-scalable-enterprise-application",
+      "title": "How would you design a scalable enterprise application?",
+      "topic": "Scalability and availability",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "scalability",
+        "caching",
+        "queues",
+        "load-balancing"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "companies": [
+        "meil"
+      ],
+      "quick": "I would begin with workloads, usage patterns, critical business flows and non-functional requirements. Typically I run stateless application instances behind a load balancer, use a well-indexed relational database for transactional data, add caching for read-heavy paths, and move slow or bursty work to queues. Then I add rate limiting, observability and fault isolation as measured needs justify. Finally I load test against realistic scenarios, because adding infrastructure does not help if the bottleneck is a query or a lock.",
+      "revision": "Know the workload first; stateless instances, load balancer, indexed database, cache and queues; measure and load test before adding complexity. Scale the actual bottleneck.",
+      "detailed": "**Scalability is the ability to handle growth in load by adding resources in a predictable way.** Design starts from the workload, not from a list of technologies.\n\n## Start with the numbers\n\nIdentify peak concurrent users, read/write ratio, data growth, critical flows and latency targets. A system serving a few hundred internal users has very different needs from a public one.\n\n{{diagram:arch}}\n\n## Building blocks\n\n- **Stateless application tier.** Keep session state in a shared store or signed tokens so any instance can serve any request, which allows horizontal scaling behind a load balancer.\n- **Relational database for transactional data.** Good schema, indexes and query design usually matter more than hardware. Add read replicas for read-heavy reporting, and consider partitioning only when data volume demands it.\n- **Caching.** Cache read-heavy, slowly changing data. Define invalidation and expiry up front, since stale data is the price.\n- **Queues and workers.** Move emails, report generation, imports and third-party calls off the request path. Design consumers to be idempotent.\n- **Protection.** Rate limiting, timeouts, retries with backoff and circuit breakers prevent one slow dependency from cascading.\n- **Observability.** Metrics, logs and traces tied to service objectives, so scaling decisions are evidence-based.\n\n## Trade-offs\n\n| Technique | Gain | Cost |\n|---|---|---|\n| Cache | Lower latency and database load | Invalidation complexity, stale reads |\n| Queue | Smooths spikes, decouples | Eventual results, duplicate handling |\n| Read replica | Offloads reads | Replication lag |\n| Sharding | Write scale | Large operational and query complexity |\n\n## Common mistakes\n\n- Scaling the application tier when the bottleneck is a missing index or a long transaction.\n- Storing state on instance disks or memory.\n- Skipping load tests, or testing with unrealistic data volumes.\n\n**Example (hypothetical):** a document-approval platform slows at month end. Profiling shows report generation locking tables, so reports move to a queue and a replica, not to a larger set of web servers.",
+      "diagrams": [
+        {
+          "id": "arch",
+          "title": "A typical scalable web application",
+          "alt": "Clients reach a load balancer that spreads traffic over stateless app instances; the instances use a cache and a relational database and publish slow work to a queue processed by workers.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "c",
+              "label": "Clients"
+            },
+            {
+              "id": "lb",
+              "label": "Load balancer"
+            },
+            {
+              "id": "app",
+              "label": "Stateless app instances"
+            },
+            {
+              "id": "cache",
+              "label": "Cache"
+            },
+            {
+              "id": "db",
+              "label": "Relational database"
+            },
+            {
+              "id": "q",
+              "label": "Queue"
+            },
+            {
+              "id": "w",
+              "label": "Workers"
+            }
+          ],
+          "edges": [
+            {
+              "from": "c",
+              "to": "lb"
+            },
+            {
+              "from": "lb",
+              "to": "app"
+            },
+            {
+              "from": "app",
+              "to": "cache"
+            },
+            {
+              "from": "app",
+              "to": "db"
+            },
+            {
+              "from": "app",
+              "to": "q"
+            },
+            {
+              "from": "q",
+              "to": "w"
+            },
+            {
+              "from": "w",
+              "to": "db"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you find the real bottleneck before scaling?",
+        "When would you introduce a read replica versus a cache?",
+        "How do you keep a queue consumer safe against duplicate messages?",
+        "How would you load test this system?"
+      ],
+      "related": [
+        "high-availability-design",
+        "define-non-functional-requirements"
+      ]
+    },
+    {
+      "slug": "high-availability-design",
+      "title": "What is high availability and how would you achieve it?",
+      "topic": "Scalability and availability",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "high-availability",
+        "multi-az",
+        "resilience",
+        "failover"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "companies": [
+        "meil"
+      ],
+      "quick": "High availability means the service stays accessible despite component failures. I would start from the availability target the business actually needs, then remove single points of failure: multiple instances across availability zones, health checks with automated replacement, a resilient database setup with failover, and monitoring of dependencies. I would define graceful degradation and recovery procedures too. I would only go multi-region when business continuity requirements justify the extra cost and complexity, and I would test failover rather than assume it works.",
+      "revision": "High availability means surviving component failure: no single points of failure, multi-AZ, health checks, database failover, tested recovery. Multi-region only when the business case justifies it.",
+      "detailed": "**High availability (HA)** is designing a system so that the failure of a component does not make the service unavailable, or keeps downtime within an agreed target. It is expressed as a target (for example a monthly availability percentage) together with recovery objectives such as RTO and RPO.\n\n{{diagram:ha}}\n\n## Techniques\n\n1. **Remove single points of failure** at every tier: more than one app instance, redundant load balancing, redundant database nodes.\n2. **Spread across failure domains.** Run instances in at least two availability zones.\n3. **Health checks and self-healing.** Load balancers stop routing to unhealthy instances; an orchestrator or auto-scaling group replaces them.\n4. **Data resilience.** Replicated databases with automated failover, backups and point-in-time recovery. Understand whether replication is synchronous (no data loss, higher latency) or asynchronous (possible small loss).\n5. **Dependency management.** Timeouts, retries with backoff, circuit breakers and bulkheads so a failing third party does not take everything down.\n6. **Graceful degradation.** Decide in advance what still works when a part fails, such as read-only mode or a cached catalogue.\n7. **Safe change.** Rolling or blue-green deployments, tested rollbacks.\n\n## Trade-offs\n\nEach extra \"nine\" of availability costs disproportionately more. Multi-region active-active adds data-replication and consistency problems, so it suits only systems where regional outage tolerance is a stated requirement. Many enterprise systems are well served by multi-zone plus tested backups.\n\n## Common mistakes\n\n- Redundant servers but a single database or a single shared dependency.\n- Failover that has never been exercised, and that fails when needed.\n- Confusing HA with disaster recovery. HA handles component failure; DR handles loss of a site or serious data corruption.\n- Promising an availability target without monitoring that measures it.\n\n**Example (hypothetical):** a billing portal runs in two zones with database failover. Quarterly game days force a zone failure to confirm the failover time meets the RTO.",
+      "diagrams": [
+        {
+          "id": "ha",
+          "title": "Multi-zone high availability",
+          "alt": "A load balancer distributes traffic to application instances in two availability zones; both use a primary database in one zone that replicates to a standby in the other zone, with health checks feeding automated replacement.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "lb",
+              "label": "Load balancer + health checks"
+            },
+            {
+              "id": "a1",
+              "label": "App instances, zone A"
+            },
+            {
+              "id": "a2",
+              "label": "App instances, zone B"
+            },
+            {
+              "id": "p",
+              "label": "Primary database"
+            },
+            {
+              "id": "s",
+              "label": "Standby database"
+            }
+          ],
+          "edges": [
+            {
+              "from": "lb",
+              "to": "a1"
+            },
+            {
+              "from": "lb",
+              "to": "a2"
+            },
+            {
+              "from": "a1",
+              "to": "p"
+            },
+            {
+              "from": "a2",
+              "to": "p"
+            },
+            {
+              "from": "p",
+              "to": "s",
+              "label": "replication"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "What is the difference between HA and disaster recovery?",
+        "How do RTO and RPO influence the design?",
+        "When is multi-region justified?",
+        "How would you test that failover really works?"
+      ],
+      "related": [
+        "design-scalable-enterprise-application",
+        "define-non-functional-requirements"
+      ]
+    }
+  ]
+}

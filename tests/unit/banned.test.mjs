@@ -31,3 +31,12 @@ test('crossCheck finds duplicate slugs/titles and dangling related links', () =>
   assert.match(e, /duplicate title/);
   assert.match(e, /related "ghost"/);
 });
+
+test('companies must be a non-empty list of known company ids', () => {
+  const run = (companies) => validateFile({ category: 'react', questions: [q({ companies })] }, [{ id: 'react' }], 'f', ['acme']).errs.filter((e) => /companies/.test(e));
+  assert.equal(run(['acme']).length, 0);
+  assert.equal(run(undefined).length, 0);
+  assert.equal(run(['nope']).length, 1);
+  assert.equal(run([]).length, 1);
+  assert.equal(run('acme').length, 1);
+});

@@ -20,7 +20,7 @@ Categories are in `content/categories.json`. Validate every file with `node tool
 ## Quality rules
 - Be technically accurate. Correct errors in the source silently in the detailed text (note it by using sourceType "enhanced"). Hedge claims that depend on product/version ("typically", "commonly").
 - Write ORIGINAL prose; do not copy long passages. Neutral educational voice in `detailed`. `quick` may use "I would..." interview phrasing.
-- NEVER mention the employer or company named in the source documents, never write about the learner's resume, experience, or what they "haven't done hands-on". Use generic examples (e.g. "a global automotive/retail website", vehicle pages, dealer search) and invented-but-plausible neutral names. Label hypothetical examples as examples.
+- Company prep sets (`companies` field, see CONTENT_SCHEMA.md) may name the target company only on the company guide, never inside question text. Otherwise: NEVER mention the employer or company named in the source documents, never write about the learner's resume, experience, or what they "haven't done hands-on". Use generic examples (e.g. "a global automotive/retail website", vehicle pages, dealer search) and invented-but-plausible neutral names. Label hypothetical examples as examples.
 - Do not invent citations, statistics, benchmarks or product limits. Don't claim code was executed. Code examples must be correct, small and idiomatic.
 - Avoid padding and repetition across questions; each question must be useful on its own.
 - Ignore that PDFs may contain odd page footers like "W3C" / "Google for Developers +1" / "Official reference" boilerplate.

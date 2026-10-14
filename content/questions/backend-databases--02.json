@@ -1,0 +1,635 @@
+{
+  "category": "backend-databases",
+  "questions": [
+    {
+      "slug": "prevent-duplicate-operations",
+      "title": "How do you prevent duplicate payments or duplicate business operations?",
+      "topic": "Integration and consistency",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "idempotency",
+        "payments",
+        "unique-constraint",
+        "retries"
+      ],
+      "companies": [
+        "meil"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would use an idempotency key tied to the business operation, persisted with its processing status, and enforce uniqueness in the database rather than only in application code. If the client retries, I return the original result or the current status instead of creating a second record. With an external payment provider I also store the provider's transaction identifier, handle asynchronous callbacks idempotently, and run reconciliation to catch cases where the outcome was unclear after a timeout.",
+      "revision": "Tie an idempotency key to the operation, store its status, enforce a database unique constraint, return the original result on retry, and reconcile with provider transaction ids.",
+      "detailed": "Retries are normal: clients time out, load balancers resend, message brokers redeliver. An operation is **idempotent** when repeating it has the same effect as doing it once. For payments and similar operations this must be guaranteed by design, not hoped for.\n\n## Approach\n\n1. The client sends a unique `Idempotency-Key` (or the business supplies a natural one, such as an order id and attempt).\n2. The server records the key together with a request fingerprint and a status (`in_progress`, `completed`, `failed`) in a table with a **unique constraint**.\n3. The first request wins the insert and does the work. Concurrent or later requests hit the constraint and get the stored result or the current status.\n\n```sql\nCREATE TABLE idempotency_keys (\n  key          text PRIMARY KEY,\n  request_hash text NOT NULL,\n  status       text NOT NULL DEFAULT 'in_progress',\n  response     jsonb,\n  created_at   timestamptz NOT NULL DEFAULT now()\n);\n\nINSERT INTO idempotency_keys (key, request_hash)\nVALUES ($1, $2)\nON CONFLICT (key) DO NOTHING;   -- zero rows inserted means a duplicate\n```\n\nIf zero rows are inserted, read the existing row: return its stored response when `completed`, return a \"still processing\" answer when `in_progress`, and reject with a conflict error if the `request_hash` differs.\n\n## External providers\n\nA timeout leaves the outcome unknown. Pass your own key to the provider when it supports one, store the provider transaction id, process webhooks idempotently (dedupe by event id), and run a **reconciliation** job comparing your records with the provider's.\n\n## Trade-offs\n\n| Choice | Benefit | Cost |\n|---|---|---|\n| Unique constraint | Correct under concurrency | Needs cleanup of old keys |\n| Cache-only key check | Fast | Can lose keys and allow duplicates |\n| Natural business key | No extra header | Only works if one exists |\n\n## Common mistakes\n\n- Checking \"does it exist?\" and then inserting, which races under concurrency.\n- Keeping keys only in memory or a cache with short expiry.\n- Not storing the result, so retries re-execute the work.\n- Assuming exactly-once delivery from the network or broker.\n\nHypothetical example: a checkout call is retried after a timeout; the second call finds the completed key and returns the first receipt without charging again.",
+      "followUps": [
+        "How long should idempotency keys be retained?",
+        "What if two identical requests arrive at the same moment?",
+        "How do you handle a provider callback delivered twice?",
+        "What should you return when the same key is reused with a different payload?"
+      ],
+      "related": [
+        "transactional-outbox",
+        "reliable-third-party-integration",
+        "transactions-isolation-levels",
+        "design-good-rest-api"
+      ]
+    },
+    {
+      "slug": "connection-pooling",
+      "title": "What is database connection pooling?",
+      "topic": "PostgreSQL and transactions",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "connection-pool",
+        "postgresql",
+        "performance",
+        "serverless"
+      ],
+      "companies": [
+        "meil"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "A connection pool keeps a set of open database connections and lends them to requests, instead of opening a new connection each time. That removes connection setup cost and, more importantly, caps how many connections hit the database. I size it from the database's connection capacity, the number of application instances, the workload and how long transactions run. In serverless setups I watch connection limits and concurrency spikes, and often use an external pooler or proxy.",
+      "revision": "A pool reuses a bounded set of open connections, cutting setup cost and protecting the database. Size it by DB capacity, instance count and transaction time; be careful with serverless.",
+      "detailed": "Opening a database connection is expensive: network handshake, authentication and, in PostgreSQL, a dedicated backend process per connection. A **connection pool** opens a bounded number of connections once and lends them to requests.\n\n## How it works\n\nA request asks the pool for a connection, runs its queries, then returns the connection. If all connections are busy, the request waits in a queue (usually with a timeout) instead of opening more.\n\n{{diagram:pool}}\n\n## Sizing\n\nMore connections is not faster. Beyond what the database can execute in parallel, extra connections add contention and memory use. Consider:\n\n- Total connections = pool size per instance x number of instances, which must stay under the database limit with room for admin and migrations.\n- Short transactions need fewer connections than long ones; a pool slot held during a slow external call is wasted.\n- Start modestly, then measure queue wait time and database CPU.\n\n```ts\n// node-postgres style pool settings\nconst pool = new Pool({\n  max: 10,                    // connections per app instance\n  idleTimeoutMillis: 30000,\n  connectionTimeoutMillis: 2000,\n});\n```\n\n## Application pool versus external pooler\n\n| Option | Notes |\n|---|---|\n| In-process pool | Simple; each instance has its own pool |\n| External pooler (for example PgBouncer or a managed proxy) | Shares connections across many instances; useful with serverless or many replicas, but transaction-mode pooling limits session features such as session-level state |\n\n## Common mistakes\n\n- Forgetting to release connections (leaks), especially on error paths.\n- Holding a connection while calling slow third-party services.\n- Setting a large pool on each of many instances and exhausting the database.\n- Ignoring timeouts, so requests hang when the pool is empty.\n\nHypothetical example: fifty short-lived function instances each opening a connection can overwhelm a database, whereas routing them through a pooler keeps the real connection count steady.",
+      "diagrams": [
+        {
+          "id": "pool",
+          "title": "Connection pool between app and database",
+          "alt": "Several application requests borrow connections from a pool, which holds a limited number of open connections to the PostgreSQL database.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "r1",
+              "label": "Requests"
+            },
+            {
+              "id": "pool",
+              "label": "Connection pool"
+            },
+            {
+              "id": "db",
+              "label": "PostgreSQL"
+            }
+          ],
+          "edges": [
+            {
+              "from": "r1",
+              "to": "pool",
+              "label": "borrow / release"
+            },
+            {
+              "from": "pool",
+              "to": "db",
+              "label": "bounded connections"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you choose a pool size?",
+        "What is the difference between an application pool and PgBouncer?",
+        "What happens when the pool is exhausted?",
+        "Why do serverless functions cause connection problems?"
+      ],
+      "related": [
+        "postgresql-slow-query",
+        "transactions-isolation-levels"
+      ]
+    },
+    {
+      "slug": "zero-downtime-migrations",
+      "title": "How do you run database migrations without downtime?",
+      "topic": "PostgreSQL and transactions",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "migrations",
+        "zero-downtime",
+        "expand-contract",
+        "postgresql"
+      ],
+      "companies": [
+        "meil"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I use backward-compatible, phased migrations. First add the new column as nullable, then deploy code that works with both old and new schemas, backfill existing rows in batches, switch reads and writes to the new column, and only remove the obsolete field after every consumer has moved. I rehearse the migration in a production-like environment to measure duration and test recovery, and I avoid combining destructive changes with an application deployment.",
+      "revision": "Expand, migrate, contract: add nullable, deploy dual-compatible code, backfill, switch over, then drop old schema later. Rehearse on realistic data and never bundle destructive changes with deploys.",
+      "detailed": "During a rolling deployment, old and new application versions run against the same database at the same time. A zero-downtime migration therefore keeps every intermediate schema compatible with both versions. The usual technique is **expand and contract**.\n\n## Phases\n\n1. **Expand**: add new structures without breaking old code (a nullable column, a new table, a new index).\n2. **Deploy** application code that tolerates both shapes, often writing to both.\n3. **Backfill** existing data in small batches.\n4. **Switch** reads, then writes, to the new structure.\n5. **Contract**: after all consumers are updated and verified, remove the old column or table in a separate release.\n\n{{diagram:phases}}\n\n## Example: renaming a column\n\nDo not run `ALTER TABLE ... RENAME` while old code still reads the old name. Instead:\n\n```sql\n-- 1. expand\nALTER TABLE customers ADD COLUMN full_name text;\n\n-- 3. backfill in batches (repeat until no rows remain)\nUPDATE customers SET full_name = name\nWHERE id IN (\n  SELECT id FROM customers WHERE full_name IS NULL LIMIT 1000\n);\n```\n\n## Operational cautions\n\n- Some `ALTER TABLE` statements take strong locks, and a short statement queued behind a long transaction can still block other traffic. Set a `lock_timeout` so a migration fails fast instead of piling up requests.\n- Create indexes with `CREATE INDEX CONCURRENTLY` on busy tables.\n- Adding constraints can be staged (for example add as not validated, then validate) to avoid long locks; behaviour depends on version, so check the documentation for your release.\n- Large backfills create load and replication lag; batch and throttle.\n\n## Common mistakes\n\n- Dropping or renaming columns in the same release as the code change.\n- Backfilling in one huge transaction.\n- No tested rollback or recovery plan.\n- Skipping rehearsal on production-sized data.\n\nHypothetical example: splitting a `name` field into first and last names takes three releases over several days, each safely reversible until the final cleanup.",
+      "diagrams": [
+        {
+          "id": "phases",
+          "title": "Expand and contract migration phases",
+          "alt": "Five sequential phases: add nullable column, deploy code supporting both schemas, backfill data, switch reads and writes, then remove the old column.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "a",
+              "label": "Expand: add nullable column"
+            },
+            {
+              "id": "b",
+              "label": "Deploy dual-compatible code"
+            },
+            {
+              "id": "c",
+              "label": "Backfill in batches"
+            },
+            {
+              "id": "d",
+              "label": "Switch reads and writes"
+            },
+            {
+              "id": "e",
+              "label": "Contract: drop old column"
+            }
+          ],
+          "edges": [
+            {
+              "from": "a",
+              "to": "b"
+            },
+            {
+              "from": "b",
+              "to": "c"
+            },
+            {
+              "from": "c",
+              "to": "d"
+            },
+            {
+              "from": "d",
+              "to": "e"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "What is the expand and contract pattern?",
+        "How do you add a NOT NULL column safely on a large table?",
+        "How do you roll back a migration that has already backfilled data?",
+        "Why can an ALTER TABLE block traffic even if it is fast?"
+      ],
+      "related": [
+        "postgresql-slow-query",
+        "transactions-isolation-levels"
+      ]
+    },
+    {
+      "slug": "caching-strategies",
+      "title": "Explain caching strategies for a backend service",
+      "topic": "Caching and messaging",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "caching",
+        "cache-aside",
+        "write-through",
+        "redis",
+        "stampede"
+      ],
+      "companies": [
+        "meil"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would name the main patterns. Cache-aside means the application checks the cache, reads the database on a miss and populates the cache. Read-through and write-through move that logic into the cache layer. Whatever the pattern, I define cache keys, TTLs, invalidation rules and how much staleness is acceptable. I guard against cache stampedes, and I make sure a cache failure degrades gracefully instead of sending an uncontrolled surge of traffic to the database.",
+      "revision": "Cache-aside: app checks cache, loads from DB on miss, then fills cache. Define keys, TTLs, invalidation and staleness; prevent stampedes and survive cache outages.",
+      "detailed": "A cache keeps frequently read data in fast storage (often Redis or in-process memory) to cut latency and database load. The strategy decides who reads and writes the cache and when.\n\n## Common patterns\n\n| Pattern | How it works | Notes |\n|---|---|---|\n| **Cache-aside** | App reads cache; on miss reads DB and stores result | Most common; app owns the logic |\n| **Read-through** | Cache layer loads from DB on a miss | Simpler app code; needs a loader |\n| **Write-through** | Writes go to cache and DB together | Reads stay fresh; writes cost more |\n| **Write-behind** | Cache accepts writes, flushes to DB later | Fast writes; risk of data loss |\n\n{{diagram:aside}}\n\n## Cache-aside in code\n\n```ts\nasync function getProduct(id: string) {\n  const key = `product:${id}`;\n  const hit = await redis.get(key);\n  if (hit) return JSON.parse(hit);\n\n  const product = await db.products.findById(id);\n  if (product) await redis.set(key, JSON.stringify(product), 'EX', 300);\n  return product;\n}\n```\n\n## Decisions to make\n\n- **Keys**: predictable, namespaced and, if needed, versioned.\n- **TTL**: a time bound on staleness; also the safety net when invalidation is missed.\n- **Invalidation**: delete or update the entry when the source changes; this is usually the hard part.\n- **Acceptable staleness**: some data (prices) needs tight freshness, other data (descriptions) does not.\n\n## Failure modes\n\n- **Stampede**: a popular key expires and many requests hit the database together. Mitigate with request coalescing or locks, jittered TTLs and refresh-ahead.\n- **Cache outage**: fall back with timeouts, circuit breakers and rate limits so the database is not flooded.\n- **Stale or inconsistent data** after a failed invalidation.\n\n## Common mistakes\n\n- Caching without measuring a real bottleneck.\n- Identical TTLs for everything, causing synchronised expiry.\n- Caching per-user data under shared keys.\n\nHypothetical example: a product catalogue cached for five minutes with jitter keeps the database calm during a promotion.",
+      "diagrams": [
+        {
+          "id": "aside",
+          "title": "Cache-aside read flow",
+          "alt": "The application checks the cache first. On a hit it returns the value. On a miss it reads from the database, stores the result in the cache and returns it.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "app",
+              "label": "Application"
+            },
+            {
+              "id": "cache",
+              "label": "Cache"
+            },
+            {
+              "id": "db",
+              "label": "Database"
+            }
+          ],
+          "edges": [
+            {
+              "from": "app",
+              "to": "cache",
+              "label": "1 get"
+            },
+            {
+              "from": "app",
+              "to": "db",
+              "label": "2 on miss, read"
+            },
+            {
+              "from": "app",
+              "to": "cache",
+              "label": "3 set with TTL"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you avoid a cache stampede?",
+        "How do you invalidate a cache when data changes?",
+        "What happens if the cache goes down?",
+        "When would write-behind be appropriate?"
+      ],
+      "related": [
+        "postgresql-slow-query",
+        "eventual-consistency"
+      ]
+    },
+    {
+      "slug": "queue-vs-event-stream",
+      "title": "What is the difference between a message queue and an event stream?",
+      "topic": "Caching and messaging",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "queue",
+        "kafka",
+        "rabbitmq",
+        "bullmq",
+        "event-streaming"
+      ],
+      "companies": [
+        "meil"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "A work queue distributes tasks to consumers, and a message is typically removed once it has been processed. An event stream keeps an ordered log for a retention period, so several independent consumers can read it and even replay past events. RabbitMQ and BullMQ are common for task processing, while Kafka is common for durable, high-throughput streaming. I choose based on delivery semantics, ordering needs, replay, throughput and the operational complexity the team can handle.",
+      "revision": "Queues hand out tasks that are consumed and removed; streams retain an ordered log that many consumers can read and replay. Choose by semantics, ordering, replay, throughput and operations.",
+      "detailed": "Both move data asynchronously between components, but they model different things: a queue models **work to be done**, a stream models **things that happened**.\n\n## Comparison\n\n| Aspect | Work queue | Event stream |\n|---|---|---|\n| Purpose | Distribute tasks | Record an ordered history of events |\n| After consumption | Message acknowledged and removed | Retained until retention expires |\n| Consumers | Competing workers share the load | Independent consumers or groups, each with its own position |\n| Replay | Generally not | Yes, by resetting the position |\n| Ordering | Often best-effort per queue | Ordered within a partition |\n| Typical tools | RabbitMQ, BullMQ (Redis-based), cloud queues | Kafka, similar log-based platforms |\n| Complexity | Lower | Higher to operate and design |\n\n{{diagram:qs}}\n\n## When to choose which\n\n- **Queue**: background jobs such as sending emails, generating reports, resizing images, retrying a vendor call. You want retries, delays and dead-letter handling.\n- **Stream**: many systems need the same events (billing, analytics, search indexing), you need replay to rebuild a read model, or throughput and retention matter.\n\n## Delivery guarantees\n\nMost systems provide **at-least-once** delivery, so a message can arrive twice. Consumers must be idempotent. \"Exactly-once\" claims usually apply under specific conditions inside a platform, not end to end across your database and external services.\n\n## Common mistakes\n\n- Using a stream when a simple job queue would do, adding operational burden.\n- Using a queue and then needing replay or multiple consumers later.\n- Expecting global ordering; ordering is normally per queue or partition, so choose partition keys deliberately.\n- Missing dead-letter handling for poison messages.\n\nHypothetical example: \"generate invoice PDF\" is a job for a queue, while \"order placed\" is an event that billing, shipping and analytics each consume from a stream.",
+      "diagrams": [
+        {
+          "id": "qs",
+          "title": "Queue versus event stream",
+          "alt": "In a queue, a producer sends tasks that competing workers consume and remove. In a stream, a producer appends events to a retained log that several independent consumers read at their own positions.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "p1",
+              "label": "Producer"
+            },
+            {
+              "id": "q",
+              "label": "Queue (tasks removed when done)"
+            },
+            {
+              "id": "w",
+              "label": "Competing workers"
+            },
+            {
+              "id": "p2",
+              "label": "Producer"
+            },
+            {
+              "id": "log",
+              "label": "Retained event log"
+            },
+            {
+              "id": "c1",
+              "label": "Consumer A"
+            },
+            {
+              "id": "c2",
+              "label": "Consumer B"
+            }
+          ],
+          "edges": [
+            {
+              "from": "p1",
+              "to": "q"
+            },
+            {
+              "from": "q",
+              "to": "w"
+            },
+            {
+              "from": "p2",
+              "to": "log"
+            },
+            {
+              "from": "log",
+              "to": "c1",
+              "label": "own offset"
+            },
+            {
+              "from": "log",
+              "to": "c2",
+              "label": "own offset"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do consumer groups work in a stream?",
+        "What delivery guarantees do queues typically offer?",
+        "How do you preserve ordering?",
+        "When would you use both in one system?"
+      ],
+      "related": [
+        "transactional-outbox",
+        "eventual-consistency",
+        "cqrs"
+      ]
+    },
+    {
+      "slug": "transactional-outbox",
+      "title": "Explain the transactional outbox pattern",
+      "topic": "Integration and consistency",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "outbox",
+        "dual-write",
+        "messaging",
+        "consistency"
+      ],
+      "companies": [
+        "meil"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "The outbox pattern solves the dual-write problem: when a service must update its database and publish an event, doing both separately can leave them inconsistent if one fails. I write the business change and an outbox record in the same database transaction. A separate publisher reads pending outbox rows, delivers them to the broker and marks them as published. Delivery can still repeat, so consumers must be idempotent.",
+      "revision": "Save the business change and an outbox event in one DB transaction; a separate publisher sends it to the broker and marks it sent. Delivery is at-least-once, so consumers dedupe.",
+      "detailed": "The **dual-write problem**: a service saves an order in its database and then publishes `OrderPlaced` to a broker. If the process crashes between the two steps, the order exists but no event is sent (or the reverse). A database transaction cannot span both systems, so you need a different approach.\n\n## How the outbox works\n\n1. In one local transaction, write the business data and an **outbox** row describing the event.\n2. Commit. Either both exist or neither does.\n3. A **publisher** reads unpublished rows, sends them to the broker and marks them published.\n4. Consumers process events idempotently.\n\n{{diagram:outbox}}\n\n```sql\nCREATE TABLE outbox (\n  id           uuid PRIMARY KEY,\n  aggregate_id text NOT NULL,\n  type         text NOT NULL,\n  payload      jsonb NOT NULL,\n  created_at   timestamptz NOT NULL DEFAULT now(),\n  published_at timestamptz\n);\n\nBEGIN;\nINSERT INTO orders (id, status) VALUES ($1, 'placed');\nINSERT INTO outbox (id, aggregate_id, type, payload)\nVALUES (gen_random_uuid(), $1, 'OrderPlaced', $2);\nCOMMIT;\n```\n\n## Publishing options\n\n| Option | Notes |\n|---|---|\n| Polling publisher | Simple query for rows where `published_at IS NULL`; adds some latency |\n| Change data capture | Reads the database log; lower latency, more infrastructure |\n\nIf the publisher crashes after sending but before marking, the row is sent again. That is why delivery is **at-least-once** and each event carries a unique id for consumers to deduplicate.\n\n## Trade-offs\n\n- Adds a table, a publisher process and monitoring for lag.\n- Events appear slightly after the commit (eventual consistency).\n- Ordering must be handled, for example by publishing per aggregate in order.\n- Old rows need cleanup or archiving.\n\n## Common mistakes\n\n- Publishing to the broker inside the transaction before commit.\n- Assuming consumers will never see duplicates.\n- Letting the outbox grow without limits.\n\nHypothetical example: an order service stores `OrderPlaced` in the outbox with the order, and a publisher forwards it to the billing and shipping consumers.",
+      "diagrams": [
+        {
+          "id": "outbox",
+          "title": "Transactional outbox flow",
+          "alt": "The service writes the business row and an outbox row in one database transaction. A publisher reads unpublished outbox rows, sends them to the message broker and marks them published. Consumers read from the broker.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "svc",
+              "label": "Service"
+            },
+            {
+              "id": "db",
+              "label": "Database: business table + outbox"
+            },
+            {
+              "id": "pub",
+              "label": "Outbox publisher"
+            },
+            {
+              "id": "br",
+              "label": "Message broker"
+            },
+            {
+              "id": "con",
+              "label": "Idempotent consumers"
+            }
+          ],
+          "edges": [
+            {
+              "from": "svc",
+              "to": "db",
+              "label": "one transaction"
+            },
+            {
+              "from": "pub",
+              "to": "db",
+              "label": "read unpublished"
+            },
+            {
+              "from": "pub",
+              "to": "br",
+              "label": "publish, then mark"
+            },
+            {
+              "from": "br",
+              "to": "con"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How does change data capture compare with a polling publisher?",
+        "How do you avoid publishing the same outbox row twice?",
+        "How do consumers handle duplicates?",
+        "How do you clean up old outbox rows?"
+      ],
+      "related": [
+        "prevent-duplicate-operations",
+        "queue-vs-event-stream",
+        "eventual-consistency"
+      ]
+    },
+    {
+      "slug": "reliable-third-party-integration",
+      "title": "How do you design a reliable third-party integration?",
+      "topic": "Integration and consistency",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "integration",
+        "resilience",
+        "circuit-breaker",
+        "retries",
+        "adapter"
+      ],
+      "companies": [
+        "meil"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would define a stable internal contract and hide vendor-specific details behind an adapter, so the rest of the system never depends on the vendor's shapes. Calls get timeouts, bounded retries with backoff, circuit breakers where appropriate and idempotent processing, and errors are classified as retryable or not. I monitor latency, failures, rate limits and data discrepancies, and I document ownership, API versions, security, SLA expectations and what a vendor exit would involve.",
+      "revision": "Wrap the vendor in an adapter with a stable internal contract; add timeouts, bounded backoff retries, circuit breakers, idempotency and monitoring; document ownership, SLAs and exit options.",
+      "detailed": "A third-party system is outside your control: it can be slow, change formats, rate-limit you or go down. Reliable integration means containing those risks.\n\n## Design elements\n\n- **Anti-corruption adapter**: your domain talks to an internal interface; one adapter translates to and from the vendor's API. Swapping vendors then touches one module.\n- **Timeouts**: every outbound call has a connect and total timeout. Unbounded waits tie up threads and connections.\n- **Retries with backoff**: retry only transient failures (network errors, `429`, most `5xx`), with exponential backoff and jitter, and a maximum attempt count.\n- **Circuit breaker**: after repeated failures, stop calling for a cool-down period and fail fast or use a fallback, so you neither hammer a struggling vendor nor exhaust your own resources.\n- **Idempotency**: safe retries need idempotency keys or deduplication on both request and callback sides.\n- **Asynchronous decoupling**: put calls behind a queue or outbox so vendor downtime does not block user requests.\n\n{{diagram:integration}}\n\n## Error classification\n\n| Class | Examples | Action |\n|---|---|---|\n| Transient | Timeout, `503`, `429` | Retry with backoff |\n| Permanent | `400`, `422`, validation failure | Do not retry; surface or park for review |\n| Unknown outcome | Timeout after a write | Check status or reconcile before retrying |\n\n## Operating it\n\nTrack latency, error rates, rate-limit headroom and queue depth. Run **reconciliation** jobs to find mismatches. Record contract details: owner, API version and deprecation dates, credentials rotation, data-sharing and security requirements, SLA, and a plan for leaving the vendor.\n\n## Common mistakes\n\n- Retrying non-idempotent calls blindly.\n- Retrying forever or without jitter, creating synchronised retry storms.\n- Leaking vendor data models through your own API.\n- No visibility into failures until a customer reports them.\n\nHypothetical example: a shipping-label provider sits behind a `LabelService` adapter, jobs run from a queue, and a nightly reconciliation compares issued labels with the provider's list.",
+      "diagrams": [
+        {
+          "id": "integration",
+          "title": "Resilient integration path",
+          "alt": "The domain service calls an internal interface, implemented by a vendor adapter that applies timeouts, retries and a circuit breaker before calling the external vendor API. Failures go to a dead-letter queue and metrics.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "dom",
+              "label": "Domain service"
+            },
+            {
+              "id": "ad",
+              "label": "Vendor adapter"
+            },
+            {
+              "id": "res",
+              "label": "Timeout, retry, circuit breaker"
+            },
+            {
+              "id": "ven",
+              "label": "External vendor API"
+            },
+            {
+              "id": "dlq",
+              "label": "Dead-letter queue and alerts"
+            }
+          ],
+          "edges": [
+            {
+              "from": "dom",
+              "to": "ad",
+              "label": "internal contract"
+            },
+            {
+              "from": "ad",
+              "to": "res"
+            },
+            {
+              "from": "res",
+              "to": "ven"
+            },
+            {
+              "from": "res",
+              "to": "dlq",
+              "label": "permanent failure"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you classify errors as retryable or not?",
+        "What is a circuit breaker and when does it open?",
+        "How would you handle a vendor rate limit?",
+        "How do you detect data drift between systems?"
+      ],
+      "related": [
+        "prevent-duplicate-operations",
+        "transactional-outbox",
+        "eventual-consistency"
+      ]
+    },
+    {
+      "slug": "eventual-consistency",
+      "title": "What is eventual consistency and where is it acceptable?",
+      "topic": "Integration and consistency",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "eventual-consistency",
+        "distributed-systems",
+        "reconciliation",
+        "consistency"
+      ],
+      "companies": [
+        "meil"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Eventual consistency means replicas or services may temporarily disagree, but they converge once updates are propagated and processed. It suits asynchronous workflows, analytics and integration pipelines. I identify where temporary inconsistency is acceptable, define how and when reconciliation happens, and keep stronger consistency where immediate correctness matters, for example enforcing a unique business transaction or preventing an overdraft. It is a deliberate trade, not an accident.",
+      "revision": "Eventual consistency: parts of a system may briefly disagree but converge as updates propagate. Use where staleness is harmless, reconcile drift, and keep strong consistency for critical invariants.",
+      "detailed": "In a distributed system, updating every copy of the data instantly and atomically is costly or impossible without sacrificing availability or speed. **Eventual consistency** accepts that copies may differ for a short time, provided that, if updates stop, they all converge to the same state.\n\n## Where it appears\n\n- Database read replicas lagging behind the primary.\n- Caches and search indexes updated after the source of truth.\n- Events propagated between services through a broker.\n- Reporting stores fed by a pipeline.\n\n## Strong versus eventual\n\n| | Strong consistency | Eventual consistency |\n|---|---|---|\n| Read after write | Sees the latest value | May see an older value briefly |\n| Cost | Coordination, latency, lower availability under failures | Cheaper and more scalable |\n| Fit | Money balances, uniqueness, inventory limits | Feeds, analytics, notifications, derived views |\n\n## Designing with it\n\n1. **Decide per use case** what staleness is tolerable and for how long.\n2. **Keep critical invariants inside one transactional boundary**, such as a unique constraint on a payment reference.\n3. **Make consumers idempotent**, because retries and duplicates are part of the model.\n4. **Reconcile**: periodic jobs compare sources and repair differences.\n5. **Set expectations in the UX and API**: for example \"processing\" states, or routing a user's own reads to the primary (read-your-writes).\n\n```text\nOrder service (source of truth) -- event --> Reporting store\nReporting lags by seconds; a nightly job verifies row counts and totals.\n```\n\n## Common mistakes\n\n- Using it where users expect immediate correctness, such as showing a stale balance before a withdrawal.\n- No monitoring of replication or pipeline lag.\n- Failing to define conflict rules when two copies are updated concurrently.\n- Treating \"eventually\" as unbounded; define a target and alert on breaches.\n\nHypothetical example: a dashboard may lag the transactional database by a minute, but two requests for the same payment reference must be resolved by a database constraint, not eventual reconciliation.",
+      "followUps": [
+        "What is the difference between strong and eventual consistency?",
+        "How do you show users data that may be stale?",
+        "How do you reconcile two systems that drifted apart?",
+        "What is read-your-writes consistency?"
+      ],
+      "related": [
+        "transactional-outbox",
+        "cqrs",
+        "caching-strategies",
+        "reliable-third-party-integration"
+      ]
+    },
+    {
+      "slug": "cqrs",
+      "title": "What is CQRS and when is it worth using?",
+      "topic": "Integration and consistency",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "cqrs",
+        "read-model",
+        "architecture",
+        "event-driven"
+      ],
+      "companies": [
+        "meil"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Command Query Responsibility Segregation separates the write side, which handles commands and enforces business rules, from the read side, which serves queries. The read model can be shaped for dashboards or reporting without forcing the transactional model to answer every query. It helps when read and write workloads differ a lot, but it adds synchronisation, eventual consistency and operational complexity. I would not use it by default for straightforward CRUD.",
+      "revision": "CQRS splits commands (writes) from queries (reads) so each model is optimised separately. Use it when workloads differ sharply; avoid it for plain CRUD because of added complexity.",
+      "detailed": "**CQRS** separates the model used to change state (commands) from the model used to read state (queries). Instead of one schema serving both, the write side focuses on validation and business rules, and the read side is shaped for fast, convenient queries.\n\n## Levels of CQRS\n\n1. **Same database, separate code paths**: command handlers and query handlers with different models. Cheap and often enough.\n2. **Separate read store**: a denormalised read database, view or search index updated from the write side.\n3. **Combined with event sourcing**: state stored as events, read models built from them. Related but independent; CQRS does not require event sourcing.\n\n{{diagram:cqrs}}\n\n## Keeping the read side current\n\nThe write side emits events (ideally through an outbox), and a projection updates the read model. The read model is therefore **eventually consistent**, so users may briefly not see their latest change unless the design handles it.\n\n## When it helps\n\n- Read and write loads differ widely, so each side needs independent scaling.\n- Complex reporting queries would otherwise burden the transactional tables.\n- Reads need a very different shape than writes (joins across services, search).\n- Domain rules on the write side are complex and benefit from isolation.\n\n## When it hurts\n\n| Cost | Detail |\n|---|---|\n| More moving parts | Projections, messaging, monitoring |\n| Eventual consistency | Stale reads, extra UX handling |\n| Duplication | Read models to rebuild and version |\n| Skills and testing | Harder debugging across components |\n\n## Common mistakes\n\n- Applying it to simple CRUD screens.\n- Assuming it requires microservices or event sourcing.\n- Ignoring how to rebuild a read model after a bug.\n- Not defining what \"fresh enough\" means for each read.\n\nHypothetical example: an order system keeps normalised transactional tables for commands, while a reporting view of orders by region and status is projected into a separate read store.",
+      "diagrams": [
+        {
+          "id": "cqrs",
+          "title": "CQRS write and read sides",
+          "alt": "Clients send commands to the write model and its transactional database. Changes are published as events to a projection that updates a read store. Clients send queries to the read store.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "cl",
+              "label": "Client"
+            },
+            {
+              "id": "cmd",
+              "label": "Command handler (write model)"
+            },
+            {
+              "id": "wdb",
+              "label": "Transactional database"
+            },
+            {
+              "id": "proj",
+              "label": "Projection"
+            },
+            {
+              "id": "rdb",
+              "label": "Read store"
+            }
+          ],
+          "edges": [
+            {
+              "from": "cl",
+              "to": "cmd",
+              "label": "command"
+            },
+            {
+              "from": "cmd",
+              "to": "wdb"
+            },
+            {
+              "from": "wdb",
+              "to": "proj",
+              "label": "events"
+            },
+            {
+              "from": "proj",
+              "to": "rdb",
+              "label": "update"
+            },
+            {
+              "from": "cl",
+              "to": "rdb",
+              "label": "query"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How is CQRS related to event sourcing?",
+        "How do you keep the read model up to date?",
+        "Can CQRS be used without separate databases?",
+        "What problems appear when the read model lags?"
+      ],
+      "related": [
+        "eventual-consistency",
+        "queue-vs-event-stream",
+        "transactional-outbox"
+      ]
+    }
+  ]
+}

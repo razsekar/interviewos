@@ -1,0 +1,428 @@
+{
+  "category": "ev-charging-iot",
+  "questions": [
+    {
+      "slug": "synchronize-charging-station-status",
+      "title": "How would you synchronize charging-station status?",
+      "topic": "CMS integration architecture",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "status",
+        "webhooks",
+        "polling",
+        "reconciliation"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "companies": [
+        "meil"
+      ],
+      "quick": "I would prefer vendor-supported webhooks or event streams when they are reliable, and use polling to fill gaps and recover from missed notifications. Each update would carry the event timestamp, source identifier, processing status and latest confirmed state. I would define how out-of-order and stale events are handled, for example by ignoring updates older than the stored state, and run periodic reconciliation to correct drift. Freshness would be visible to consumers.",
+      "revision": "Events first, polling to fill gaps; store event time and source, ignore stale or out-of-order updates, and reconcile periodically so state converges.",
+      "detailed": "## Direct answer\nCombine **push and pull**: use vendor webhooks or event streams as the primary path when reliable, and **polling or periodic reconciliation** as a safety net. The goal is that stored station state eventually converges to the truth.\n\n{{diagram:sync}}\n\n## Design elements\n- **Record metadata:** event timestamp (when it happened), received time, source identifier, processing status and the latest confirmed state per station and connector.\n- **Ordering rules:** apply an update only if its event time (or sequence number, if the source provides one) is newer than the stored state. Otherwise log and drop it.\n- **Missed events:** a heartbeat or \"last seen\" check can flag stations that went silent; polling then refreshes them.\n- **Periodic reconciliation:** compare a full or sampled snapshot against stored state and correct differences.\n- **Rate limits:** budget polling so it does not exceed vendor limits; poll hot stations more often than idle ones.\n\n## Trade-offs\n| Approach | Strength | Weakness |\n|---|---|---|\n| Webhooks or streams | Low latency, efficient | Can be lost, duplicated or reordered |\n| Polling | Simple, recovers gaps | Delay, cost, rate limits |\n| Hybrid | Resilient | More moving parts |\n\n## Common mistakes\n- Trusting arrival order instead of event time.\n- Using polling interval as the only freshness guarantee.\n- Overwriting newer state with a late event.\n- Not exposing how fresh the status is.\n\n**Example (hypothetical):** an \"Available\" event arrives after a newer \"Charging\" event because of retry delay. The platform compares event times, discards the older update, and keeps \"Charging\".",
+      "diagrams": [
+        {
+          "id": "sync",
+          "title": "Station status synchronisation",
+          "alt": "Vendor webhooks or events and a polling job both feed a status processor. The processor compares event times against stored state, writes the latest confirmed state to the status store, and a reconciliation job periodically compares the store with vendor snapshots.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "wh",
+              "label": "Webhooks or event stream"
+            },
+            {
+              "id": "poll",
+              "label": "Polling job"
+            },
+            {
+              "id": "proc",
+              "label": "Status processor"
+            },
+            {
+              "id": "store",
+              "label": "Status store"
+            },
+            {
+              "id": "rec",
+              "label": "Reconciliation job"
+            },
+            {
+              "id": "ven",
+              "label": "Vendor snapshot"
+            }
+          ],
+          "edges": [
+            {
+              "from": "wh",
+              "to": "proc"
+            },
+            {
+              "from": "poll",
+              "to": "proc"
+            },
+            {
+              "from": "proc",
+              "to": "store",
+              "label": "if newer"
+            },
+            {
+              "from": "rec",
+              "to": "store"
+            },
+            {
+              "from": "rec",
+              "to": "ven"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you detect a silent station?",
+        "What if the vendor gives no event timestamps?",
+        "How often would you poll?"
+      ],
+      "related": [
+        "duplicate-charging-session-events",
+        "telemetry-at-scale"
+      ]
+    },
+    {
+      "slug": "in-house-cms-roadmap",
+      "title": "How would you approach an in-house CMS roadmap?",
+      "topic": "CMS integration architecture",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "roadmap",
+        "build-vs-buy",
+        "cms",
+        "migration"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "companies": [
+        "meil"
+      ],
+      "quick": "I would not rebuild the third-party CMS immediately. First assess business needs, vendor limitations, interoperability requirements and total cost of ownership. Then identify the capabilities with strategic value, define the canonical integration model, and plan phased delivery. A pilot would validate critical functionality and operational readiness before any production migration, and the vendor CMS would stay operational until the replacement meets agreed acceptance criteria.",
+      "revision": "Assess before building: needs, vendor limits, TCO. Build only strategic capabilities behind a canonical model, in phases, with a pilot; keep the vendor live until acceptance criteria are met.",
+      "detailed": "## Direct answer\nTreat it as a **build-versus-buy and phasing decision**, not a rewrite. Replacing a working CMS is costly and risky, so earn the right to do it with evidence.\n\n## Approach\n1. **Assess needs and pain:** which business capabilities does the vendor limit (pricing flexibility, reporting, roaming, features)? Which are merely inconvenient?\n2. **Estimate total cost of ownership** for both paths: licences, integration, hosting, staffing, support, upgrades and the cost of protocol and certification work.\n3. **Identify strategic capabilities** worth owning versus commodity ones that can stay bought.\n4. **Define the canonical integration model first.** If business systems already depend on it rather than on the vendor, either CMS can sit behind it.\n5. **Plan in phases,** for example read-only monitoring, then a pilot site, then a gradual fleet migration.\n6. **Pilot** to validate protocol compatibility, charger behaviour, operations tooling and support readiness.\n7. **Keep the vendor operational** until the replacement meets written acceptance criteria and a rollback plan exists.\n\n## Trade-offs\n| Path | Gains | Costs |\n|---|---|---|\n| Stay with vendor | Low risk, fast | Constraints, dependency |\n| Hybrid (own selected capabilities) | Targeted control | Two systems to run |\n| Full in-house | Maximum control | Protocol, operations, security and support burden |\n\n## Common mistakes\n- Underestimating charger compatibility testing and 24x7 operational ownership.\n- Starting with a big-bang cutover.\n- Skipping the canonical model, so migration still touches everything.\n\n**Example (hypothetical):** a team first builds an in-house status and session store behind the canonical model, runs it in parallel with the vendor for one region, and compares results before deciding to expand.",
+      "followUps": [
+        "What would make you decide not to build?",
+        "What acceptance criteria would you define for a pilot?",
+        "How would you staff and operate an in-house CMS?"
+      ],
+      "related": [
+        "risks-of-replacing-vendor-cms",
+        "third-party-cms-integration"
+      ]
+    },
+    {
+      "slug": "risks-of-replacing-vendor-cms",
+      "title": "What are the risks of replacing a vendor CMS?",
+      "topic": "CMS integration architecture",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "risk",
+        "migration",
+        "cms"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "companies": [
+        "meil"
+      ],
+      "quick": "The main risks are protocol incompatibility, charger features the new system does not support, session and billing discrepancies, loss of historical data, downtime, operational safety issues and unexpected maintenance cost. I would mitigate with compatibility testing against real charger models, validated data exports, parallel reconciliation, a staged migration by site or region, a rollback plan and clear operational ownership including support and incident response.",
+      "revision": "Risks: protocol and feature gaps, billing mismatches, lost history, downtime, safety, hidden run costs. Mitigate with compatibility tests, parallel reconciliation, staged rollout, rollback and ownership.",
+      "detailed": "## Direct answer\nReplacing a CMS touches live chargers, drivers' sessions and money, so the risks span technical, financial and operational areas.\n\n## Key risks and mitigations\n\n| Risk | Why it happens | Mitigation |\n|---|---|---|\n| Protocol incompatibility | Different OCPP versions, optional features or charger quirks | Test with the actual charger models and firmware; check documented supported versions |\n| Unsupported charger features | Remote commands or configuration the new CMS lacks | Feature matrix agreed before migration |\n| Session and billing discrepancies | Different session semantics or meter-value handling | Run in parallel and reconcile |\n| Loss of history | Incomplete or lossy export | Validate exports, archive originals |\n| Downtime | Chargers must be repointed to a new endpoint | Staged cutover by site, off-peak windows |\n| Safety and operations | Remote stop or fault handling behaves differently | Operational runbooks, tested emergency procedures |\n| Hidden costs | Support, monitoring, certifications, staffing | Total cost of ownership analysis |\n\n## Migration strategy\n- **Stage the rollout** by site or charger model, starting with low-risk sites.\n- **Run in parallel** where possible and compare sessions and energy figures.\n- **Plan rollback:** keep the ability to point chargers back to the old endpoint, and decide the rollback trigger in advance.\n- **Define ownership:** who is on call, how vendor support hands over, who owns incidents.\n\n## Common mistakes\n- Assuming chargers can be repointed instantly or remotely without checking.\n- Migrating all sites at once.\n- Discovering historical-data gaps after the old contract ends.\n\n**Example (hypothetical):** during a pilot, kilowatt-hour totals differ slightly between old and new systems. The team traces it to a different rounding rule for meter values and fixes it before expanding.",
+      "followUps": [
+        "How would you decide the rollback trigger?",
+        "How do you migrate in-flight sessions?",
+        "What testing would you require before the first site moves?"
+      ],
+      "related": [
+        "in-house-cms-roadmap",
+        "difference-between-ocpp-16-and-ocpp-201"
+      ]
+    },
+    {
+      "slug": "telemetry-at-scale",
+      "title": "How would you handle telemetry at scale?",
+      "topic": "Reliability and data",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "telemetry",
+        "ingestion",
+        "time-series",
+        "streaming"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "companies": [
+        "meil"
+      ],
+      "quick": "I would start by measuring message volume, payload size, retention and query patterns, because they decide the design. A durable ingestion layer absorbs bursts, and stream or worker processing validates and enriches messages. Relational storage suits transactional session data, while time-series storage may suit high-volume telemetry. I would partition or archive by workload, preserve event timestamps, and monitor ingestion lag and data quality.",
+      "revision": "Size the workload first; durable ingestion absorbs bursts, workers validate and enrich, relational for transactions and time-series for telemetry, keep event time, watch lag and quality.",
+      "detailed": "## Direct answer\nDesign from the **workload**, then separate **ingestion**, **processing** and **storage** so each can scale and fail independently.\n\n{{diagram:telemetry}}\n\n## Start with numbers\nEstimate message rate (average and peak), payload size, retention period, required latency, and how the data is queried (latest value per device, range scans, aggregates, alerts). These decide whether a simple database is enough.\n\n## Pipeline\n1. **Durable ingestion** (a queue or log) absorbs bursts and decouples producers from consumers.\n2. **Stream or worker processing** validates schema, rejects or quarantines bad records, enriches with station metadata and computes derived values.\n3. **Storage by workload:**\n   - Transactional data (sessions, invoices) in a relational store.\n   - High-volume telemetry in a time-series-oriented store, or a partitioned table, depending on scale.\n   - Older raw data archived to cheap storage, with aggregates kept for reporting.\n4. **Serving:** pre-computed aggregates and a \"latest value\" view for dashboards.\n\n## Practices\n- **Preserve event timestamps** separately from ingestion time, since devices may buffer and send late.\n- **Idempotent writes** so retries do not duplicate readings.\n- **Downsample and retain** according to business need, not by default.\n- **Monitor** ingestion lag, queue depth, rejection rate and data completeness.\n\n## Common mistakes\n- Writing every reading straight into the transactional database.\n- Using arrival time as measurement time.\n- Keeping all raw data forever without a retention decision.\n- Skipping backpressure and overload planning.\n\n**Example (hypothetical):** chargers report meter values periodically. Workers store raw readings in a partitioned store, update a per-session energy total, and roll readings into hourly aggregates for reports.",
+      "diagrams": [
+        {
+          "id": "telemetry",
+          "title": "Telemetry pipeline",
+          "alt": "Stations send telemetry to a durable ingestion queue. Workers validate and enrich messages. Valid data is written to time-series storage and session totals go to the relational database. Invalid messages go to quarantine. Old raw data is archived, and a dashboard reads aggregates.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "st",
+              "label": "Stations and CMS"
+            },
+            {
+              "id": "q",
+              "label": "Durable ingestion"
+            },
+            {
+              "id": "w",
+              "label": "Validate and enrich workers"
+            },
+            {
+              "id": "ts",
+              "label": "Time-series storage"
+            },
+            {
+              "id": "db",
+              "label": "Relational database"
+            },
+            {
+              "id": "bad",
+              "label": "Quarantine"
+            },
+            {
+              "id": "arc",
+              "label": "Archive"
+            },
+            {
+              "id": "dash",
+              "label": "Dashboards"
+            }
+          ],
+          "edges": [
+            {
+              "from": "st",
+              "to": "q"
+            },
+            {
+              "from": "q",
+              "to": "w"
+            },
+            {
+              "from": "w",
+              "to": "ts",
+              "label": "readings"
+            },
+            {
+              "from": "w",
+              "to": "db",
+              "label": "session totals"
+            },
+            {
+              "from": "w",
+              "to": "bad",
+              "label": "invalid"
+            },
+            {
+              "from": "ts",
+              "to": "arc",
+              "label": "old data"
+            },
+            {
+              "from": "ts",
+              "to": "dash",
+              "label": "aggregates"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you handle devices that send data late?",
+        "When is plain PostgreSQL enough?",
+        "How would you control storage cost?"
+      ],
+      "related": [
+        "operational-vs-time-series-data",
+        "synchronize-charging-station-status"
+      ]
+    },
+    {
+      "slug": "operational-vs-time-series-data",
+      "title": "What is the difference between operational data and time-series data?",
+      "topic": "Reliability and data",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "data-modeling",
+        "time-series",
+        "postgresql"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "companies": [
+        "meil"
+      ],
+      "quick": "Operational data describes business entities and transactions, such as stations, users, sessions and invoices. Time-series data is measurements with timestamps, such as power, energy readings, temperature and device status. PostgreSQL may handle both at moderate scale, but high-volume telemetry benefits from partitioning or specialised time-series storage. The choice depends on retention, query patterns and ingestion rates, so I would measure the workload before choosing.",
+      "revision": "Operational data is entities and transactions you update; time-series is timestamped measurements you mostly append. Choose storage by volume, retention and query pattern.",
+      "detailed": "## Direct answer\n**Operational data** models the business: entities and transactions that are created and **updated**. **Time-series data** is a stream of timestamped measurements that is mostly **appended** and rarely changed.\n\n## Comparison\n\n| Aspect | Operational data | Time-series data |\n|---|---|---|\n| Examples | Stations, users, sessions, invoices | Power, energy readings, temperature, device status |\n| Access pattern | Lookups, joins, updates, transactions | Append, range scans, aggregates over time |\n| Consistency needs | Strong, transactional | Often relaxed; ordering by time matters |\n| Retention | Long, business and legal driven | Tiered: raw short, aggregates long |\n| Typical size | Moderate | Can be very large |\n\n## Storage choices\n- **Relational (for example PostgreSQL)** is a good default for operational data and can often handle moderate telemetry too, especially with time-based partitioning and suitable indexes.\n- **Specialised time-series storage** may help when ingestion rates, compression needs or time-range query performance outgrow a general database.\n- A hybrid is common: relational for sessions and billing, a time-series store for readings, linked by session or station identifiers.\n\n## How to decide\nMeasure ingestion rate, retention, query shapes (latest value, ranges, aggregates), and operational skills. Avoid adding a new datastore until measured needs justify it.\n\n## Common mistakes\n- Putting high-frequency readings in the same tables as invoices and sessions.\n- Choosing a specialised database from fashion rather than workload.\n- Forgetting retention and downsampling policies.\n\n**Example (hypothetical):** a session row holds start time, energy total and status. The individual meter readings during that session are stored as timestamped points, and the session total is derived from them.",
+      "followUps": [
+        "When would you move telemetry out of PostgreSQL?",
+        "How do you link readings to sessions?",
+        "What indexing or partitioning would you use?"
+      ],
+      "related": [
+        "telemetry-at-scale",
+        "payment-and-billing-integration"
+      ]
+    },
+    {
+      "slug": "payment-and-billing-integration",
+      "title": "How would you design a payment and billing integration for EV charging?",
+      "topic": "Billing and location",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "billing",
+        "payments",
+        "ledger",
+        "reconciliation"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "companies": [
+        "meil"
+      ],
+      "quick": "I would separate session tracking, tariff calculation, payment authorisation, payment capture and financial reconciliation, so each has a clear responsibility. Every transaction gets stable identifiers and idempotency keys. The design must handle interrupted sessions, delayed meter readings, failed callbacks, refunds, and differences between session records and provider settlements. A ledger with auditable status transitions is reconciled against the payment provider's records.",
+      "revision": "Separate session, tariff, authorise, capture and reconcile; use stable IDs and idempotency; handle interruptions and late data; keep an auditable ledger reconciled with provider settlements.",
+      "detailed": "## Direct answer\nSplit the problem into distinct stages, drive each with **stable identifiers and idempotent operations**, and keep an **auditable ledger** that is reconciled against the payment provider.\n\n{{diagram:billing}}\n\n## Stages\n1. **Session tracking:** the authoritative record of energy and time, built from session and meter events.\n2. **Tariff calculation:** price rules applied to a completed or partial session, with the tariff version recorded.\n3. **Payment authorisation:** a hold or pre-authorisation before or at session start, where the model supports it.\n4. **Payment capture:** charge the final amount once the session is priced.\n5. **Reconciliation:** match ledger entries to provider settlements and to session records.\n\n## Edge cases to design for\n- **Interrupted sessions:** charger offline, power cut or abrupt stop; price from the last confirmed readings and flag for review.\n- **Delayed meter data:** allow a finalisation window, then adjust or correct explicitly.\n- **Failed or duplicated callbacks:** idempotency keys and a status query as a fallback.\n- **Refunds and disputes:** modelled as new ledger entries, never edits.\n- **Mismatches** between sessions and settlements: surfaced in an exceptions queue.\n\n## Ledger sketch\n| Entry | Status flow |\n|---|---|\n| Charge | created, authorised, captured, settled |\n| Refund | requested, issued, settled |\n\nAppend-only entries with timestamps give an audit trail.\n\n## Common mistakes\n- Computing price inside the payment callback handler.\n- Mutating records instead of appending corrections.\n- Treating a provider timeout as failure and charging twice.\n- Ignoring tax, rounding and currency rules; confirm them with finance and legal requirements.\n\n**Example (hypothetical):** a session ends abruptly. The platform prices it from the last confirmed reading, captures that amount, and later issues a small adjustment when delayed meter data arrives.",
+      "diagrams": [
+        {
+          "id": "billing",
+          "title": "Billing and payment flow",
+          "alt": "Session events feed a session record. A tariff engine prices the session, writing to an append-only ledger. A payment service authorises and captures through an external payment provider using idempotency keys. A reconciliation job compares the ledger with provider settlements and sends mismatches to an exceptions queue.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "ev",
+              "label": "Session and meter events"
+            },
+            {
+              "id": "ses",
+              "label": "Session record"
+            },
+            {
+              "id": "tar",
+              "label": "Tariff engine"
+            },
+            {
+              "id": "led",
+              "label": "Ledger"
+            },
+            {
+              "id": "pay",
+              "label": "Payment service"
+            },
+            {
+              "id": "prov",
+              "label": "Payment provider"
+            },
+            {
+              "id": "rec",
+              "label": "Reconciliation"
+            },
+            {
+              "id": "exc",
+              "label": "Exceptions queue"
+            }
+          ],
+          "edges": [
+            {
+              "from": "ev",
+              "to": "ses"
+            },
+            {
+              "from": "ses",
+              "to": "tar"
+            },
+            {
+              "from": "tar",
+              "to": "led",
+              "label": "priced charge"
+            },
+            {
+              "from": "led",
+              "to": "pay"
+            },
+            {
+              "from": "pay",
+              "to": "prov",
+              "label": "idempotent calls"
+            },
+            {
+              "from": "prov",
+              "to": "rec",
+              "label": "settlements"
+            },
+            {
+              "from": "led",
+              "to": "rec"
+            },
+            {
+              "from": "rec",
+              "to": "exc",
+              "label": "mismatches"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you handle a failed payment after the session ends?",
+        "How do you prevent double charging?",
+        "How would you support refunds and disputes?",
+        "What compliance concerns would you raise?"
+      ],
+      "related": [
+        "duplicate-charging-session-events",
+        "operational-vs-time-series-data"
+      ]
+    },
+    {
+      "slug": "gis-gps-field-service-platform",
+      "title": "How would you integrate GIS or GPS data into a field-service platform?",
+      "topic": "Billing and location",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "gis",
+        "gps",
+        "geospatial",
+        "field-service"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "companies": [
+        "meil"
+      ],
+      "quick": "I would model assets, locations, service areas and work orders as separate concepts. Location services then support nearby-asset lookup, route planning and technician assignment. I would validate coordinate quality, access permissions, location freshness and map-provider limitations. For large spatial datasets I would assess spatial database capabilities and query patterns before choosing storage and indexing, rather than assuming a particular technology.",
+      "revision": "Model assets, locations, service areas and work orders separately; build location services on top; validate quality, freshness, privacy and provider limits; evaluate spatial storage by query pattern.",
+      "detailed": "## Direct answer\nTreat location as **a capability layered on a clean domain model**: assets, locations, service areas and work orders are separate entities, and location services answer spatial questions about them.\n\n## Domain model\n- **Asset:** the thing being serviced (for example a charger), with an identifier and metadata.\n- **Location:** coordinates and address, with accuracy and source recorded.\n- **Service area:** a polygon or region used for coverage and assignment.\n- **Work order:** a task linked to an asset and location, assigned to a technician.\n\n## Location services\n- **Nearby-asset lookup:** find assets within a radius or bounding box.\n- **Technician assignment:** match work orders to technicians by area, skill and availability.\n- **Route planning:** usually delegated to a map or routing provider, with results treated as estimates.\n\n## Quality and risk checks\n| Concern | What to validate |\n|---|---|\n| Coordinate quality | Ranges, swapped latitude/longitude, accuracy values, coordinate reference system |\n| Freshness | Timestamp of the last technician or asset position |\n| Permissions and privacy | Who may see technician locations; retention and consent rules |\n| Provider limits | Terms, quotas, offline behaviour, cost per call |\n| Mobile reality | Poor GPS indoors, intermittent connectivity, battery use |\n\n## Storage\nFor modest data, a relational database with coordinates and basic indexes may be enough. For large spatial datasets, evaluate a database with spatial types and spatial indexing (for example PostGIS on PostgreSQL) against your real queries: radius search, polygon containment, nearest-neighbour. Decide on measured need, not by default.\n\n## Common mistakes\n- Storing only an address string, with no coordinates or accuracy.\n- Mixing coordinate systems or lat/lon order.\n- Tracking technicians continuously without a privacy and retention policy.\n- Depending on one map provider with no cost or outage plan.\n\n**Example (hypothetical):** a failed-charger alert creates a work order linked to the asset. The platform finds available technicians whose service area contains the site, and a routing provider estimates travel time.",
+      "followUps": [
+        "How would you handle technician location privacy?",
+        "When would you use a spatial database extension?",
+        "How do you cope with poor GPS accuracy or offline mobile use?"
+      ],
+      "related": [
+        "payment-and-billing-integration",
+        "telemetry-at-scale"
+      ]
+    }
+  ]
+}

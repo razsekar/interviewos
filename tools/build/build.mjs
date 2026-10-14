@@ -23,7 +23,19 @@ const write = (rel, data) => {
 
 // ---------- load content ----------
 const categories = readJson('content/categories.json').sort((a, b) => a.order - b.order);
-const pathsDef = readJson('content/paths.json').paths;
+const companies = readJson('content/companies.json').companies;
+const companyById = new Map(companies.map((c) => [c.id, c]));
+// each company gets a generated learning path: its tagged questions, in the category order set in companies.json
+const pathsDef = [
+  ...readJson('content/paths.json').paths,
+  ...companies.map((co) => ({
+    id: `company-${co.id}`,
+    title: `${co.name}: ${co.role}`,
+    description: co.description,
+    categories: co.categories,
+    company: co.id,
+  })),
+];
 const catById = new Map(categories.map((c) => [c.id, c]));
 const questions = [];
 const qFiles = fs.readdirSync(path.join(ROOT, 'content/questions')).filter((f) => f.endsWith('.json')).sort();
@@ -33,6 +45,7 @@ for (const f of qFiles) {
   if (!catById.has(doc.category)) throw new Error(`Unknown category ${doc.category} in ${f}`);
   for (const q of doc.questions) {
     if (q.draft) continue; // drafts never reach the build output
+    for (const c of q.companies || []) if (!companyById.has(c)) throw new Error(`Unknown company ${c} in ${f}`);
     const order = orderInCat.get(doc.category) || 0;
     orderInCat.set(doc.category, order + 1);
     const { html, headings } = md.render(q.detailed, q.diagrams || [], 'dg');
@@ -51,6 +64,7 @@ for (const f of qFiles) {
 }
 const qById = new Map(questions.map((q) => [q.id, q]));
 const byCat = new Map(categories.map((c) => [c.id, questions.filter((q) => q.cat === c.id)]));
+const byCompany = new Map(companies.map((c) => [c.id, c.categories.flatMap((cid) => byCat.get(cid).filter((q) => q.companies?.includes(c.id)))]));
 
 // cross-category suggestions by shared tags (internal linking)
 const tagIndex = new Map();
@@ -289,6 +303,7 @@ ${crumbs(p, items)}
   <aside class="card section" aria-labelledby="h-about" style="margin-top:1.5rem">
     <h2 id="h-about" style="font-size:1.05rem">About this answer</h2>
     <p><strong>${prov.label}.</strong> ${prov.text} Technical details change; check official documentation before relying on a specific product limit, price or version. See the <a href="${R}methodology/">methodology</a>.</p>
+    ${(q.companies || []).map((id) => companyById.get(id)).filter(Boolean).map((co) => `<p>Part of the <a href="${R}companies/${co.id}/">${esc(co.name)}: ${esc(co.role)}</a> prep set. ${esc(co.disclaimer)}</p>`).join('')}
   </aside>
   <nav class="wrap" aria-label="Previous and next question" style="display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap;padding:0;margin-top:1rem">
     ${prev ? `<a class="btn" href="${R + qUrl(prev)}" rel="prev">← ${esc(prev.title)}</a>` : '<span></span>'}
@@ -370,6 +385,49 @@ ${crumbs(p, items)}
   emit({ path: p, title: `${cat.title} Interview Questions and Answers`, description, body, jsonld: [webPageLd(p, `${cat.title} interview guide`, description), crumbLd(items)], nav: 'categories/', kind: 'guide' });
 }
 
+// ---------- company prep guide ----------
+function companyGuide(co) {
+  const p = `companies/${co.id}/`;
+  const R = relRoot(p);
+  const qs = byCompany.get(co.id);
+  const words = qs.reduce((n, q) => n + q.words, 0);
+  const items = [
+    { name: 'Home', to: '' },
+    { name: 'Topics', to: 'categories/' },
+    { name: `${co.name} prep`, to: p },
+  ];
+  const groups = co.categories.map((cid) => ({ cat: catById.get(cid), qs: qs.filter((q) => q.cat === cid) })).filter((g) => g.qs.length);
+  const description = metaDescription(`${co.name} ${co.role} interview preparation: ${qs.length} predicted questions with detailed, quick and short-revision answers. ${co.description}`, 160);
+  const body = `
+${crumbs(p, items)}
+<div class="wrap prose-col section">
+  <p class="eyebrow">Company prep</p>
+  <h1 style="font-size:clamp(1.8rem,4vw,2.5rem);margin:0.25rem 0 0.75rem">${esc(co.name)}: ${esc(co.role)} interview questions</h1>
+  <p class="lead" style="font-size:1.15rem">${esc(co.description)}</p>
+  <p class="muted">${qs.length} questions in ${groups.length} sections · about ${readingMinutes(words)} minutes of detailed reading.</p>
+  <p class="card" role="note"><strong>Please note.</strong> ${esc(co.disclaimer)}</p>
+  <p><a class="btn btn-primary" href="${R}app/#/paths/company-${co.id}">Study this path in the app</a></p>
+  <nav class="card" aria-label="Sections in this guide"><strong>Sections</strong><ul style="margin:0.5rem 0 0;padding-left:1.2rem;list-style:disc">${groups.map((g) => `<li><a href="#s-${g.cat.id}">${esc(g.cat.title)}</a> <span class="muted">(${g.qs.length})</span></li>`).join('')}</ul></nav>
+  ${groups
+    .map(
+      (g) => `<section class="section" aria-labelledby="s-${g.cat.id}">
+    <h2 id="s-${g.cat.id}">${esc(g.cat.title)}</h2>
+    ${g.qs
+      .map(
+        (q) => `<article class="card" style="margin-bottom:0.9rem">
+      <h3><a href="${R + qUrl(q)}">${esc(q.title)}</a></h3>
+      <div class="chips" style="margin-bottom:0.5rem">${chip('chip-' + q.difficulty, cap(q.difficulty))}${chip('', TYPE_LABEL[q.type] || q.type)}</div>
+      <p style="margin:0">${md.inline(q.quick)}</p>
+    </article>`,
+      )
+      .join('')}
+  </section>`,
+    )
+    .join('')}
+</div>`;
+  emit({ path: p, title: `${co.name} ${co.role} Interview Questions`, description, body, jsonld: [webPageLd(p, `${co.name} interview preparation`, description), crumbLd(items)], nav: 'categories/', kind: 'guide' });
+}
+
 function categoriesIndex() {
   const p = 'categories/';
   const R = relRoot(p);
@@ -391,6 +449,11 @@ ${crumbs(p, items)}
       return `<a class="card" href="${R}topics/${c.id}/"><h2>${esc(c.title)}</h2><p class="muted" style="margin:0 0 0.5rem">${esc(c.short)}</p><p style="margin:0"><strong>${qs.length}</strong> questions · ${topics.length} topics</p></a>`;
     })
     .join('')}
+  </div>
+  <h2 style="margin-top:2.5rem">Company prep</h2>
+  <p class="muted" style="max-width:44rem">Questions grouped for one specific interview, drawn from the topic guides above.</p>
+  <div class="grid-cards">
+  ${companies.map((co) => `<a class="card" href="${R}companies/${co.id}/"><h3>${esc(co.name)}</h3><p class="muted" style="margin:0 0 0.5rem">${esc(co.role)}</p><p style="margin:0"><strong>${byCompany.get(co.id).length}</strong> questions</p></a>`).join('')}
   </div>
 </div>`;
   emit({ path: p, title: 'Interview Topic Guides', description, body, jsonld: [webPageLd(p, 'Interview topic guides', description), crumbLd(items)], nav: 'categories/', kind: 'index' });
@@ -577,6 +640,7 @@ function directoryPage() {
   const body = `${crumbs(p, items)}<div class="wrap section"><h1 style="font-size:clamp(1.8rem,4vw,2.4rem);margin:0.25rem 0 1rem">Site directory</h1>
 <h2>Main pages</h2>
 <ul style="padding-left:1.2rem;list-style:disc"><li><a href="${R}">Home</a></li><li><a href="${R}categories/">Topic guides</a></li><li><a href="${R}app/">Study app</a></li>${['about', 'methodology', 'privacy', 'terms', 'accessibility', 'contact'].map((x) => `<li><a href="${R}${x}/">${cap(x)}</a></li>`).join('')}</ul>
+<h2>Company prep</h2><ul style="padding-left:1.2rem;list-style:disc">${companies.map((co) => `<li><a href="${R}companies/${co.id}/">${esc(co.name)}: ${esc(co.role)}</a></li>`).join('')}</ul>
 ${categories
   .map(
     (c) => `<h2><a href="${R}topics/${c.id}/">${esc(c.title)}</a></h2><ul style="padding-left:1.2rem;list-style:disc">${byCat
@@ -680,9 +744,10 @@ function emitData() {
       count: byCat.get(c.id).length,
       topics: [...new Set(byCat.get(c.id).map((q) => q.topic))],
     })),
+    companies: companies.map((co) => ({ id: co.id, name: co.name, role: co.role, count: byCompany.get(co.id).length })),
     paths: pathsDef.map((pp) => ({
       ...pp,
-      ids: pp.categories.flatMap((cid) => byCat.get(cid).filter((q) => !pp.types || pp.types.includes(q.type)).map((q) => q.id)),
+      ids: pp.categories.flatMap((cid) => byCat.get(cid).filter((q) => (!pp.types || pp.types.includes(q.type)) && (!pp.company || q.companies?.includes(pp.company))).map((q) => q.id)),
     })),
     total: questions.length,
   };
@@ -698,6 +763,7 @@ function emitData() {
       difficulty: q.difficulty,
       type: q.type,
       tags: q.tags || [],
+      companies: q.companies || [],
       sourceType: q.sourceType,
       quick: q.quick,
       revision: q.revision,
@@ -780,6 +846,7 @@ assets();
 home();
 categoriesIndex();
 for (const c of categories) topicGuide(c);
+for (const co of companies) companyGuide(co);
 for (const q of questions) questionPage(q);
 infoPages();
 directoryPage();
