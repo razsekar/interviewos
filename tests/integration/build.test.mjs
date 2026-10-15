@@ -37,7 +37,7 @@ for (const k of Object.keys(SITES)) {
     assert.equal(r.status, 0, r.stdout.slice(-2000));
     const rep = JSON.parse(r.stdout.trim().split('\n').pop());
     assert.equal(rep.errors, 0);
-    assert.equal(rep.questionsChecked, 652);
+    assert.equal(rep.questionsChecked, 768);
     assert.ok(rep.internalLinksChecked > 10000);
   });
 }
@@ -45,9 +45,9 @@ for (const k of Object.keys(SITES)) {
 test('output structure: pages, data files, SEO files, no sources', () => {
   const d = dirs.sub;
   for (const f of ['index.html', 'categories/index.html', 'about/index.html', 'methodology/index.html', 'privacy/index.html', 'terms/index.html', 'accessibility/index.html', 'contact/index.html', 'directory/index.html', '404.html', 'offline.html', 'app/index.html', 'sitemap.xml', 'robots.txt', 'manifest.webmanifest', 'sw.js', 'data/index.json', 'data/search.json']) assert.ok(fs.existsSync(path.join(d, f)), f);
-  assert.equal(fs.readdirSync(path.join(d, 'topics')).length, 25);
-  assert.equal(fs.readdirSync(path.join(d, 'data/q')).length, 25);
-  assert.equal(walk(path.join(d, 'questions')).length, 652);
+  assert.equal(fs.readdirSync(path.join(d, 'topics')).length, 26);
+  assert.equal(fs.readdirSync(path.join(d, 'data/q')).length, 26);
+  assert.equal(walk(path.join(d, 'questions')).length, 768);
   assert.equal(walk(d).filter((f) => /\.pdf$/i.test(f)).length, 0);
   for (const dir of ['sources', 'extracted', 'content', 'docs']) assert.ok(!fs.existsSync(path.join(d, dir)), dir + ' must not be published');
 });

@@ -1,0 +1,398 @@
+{
+  "category": "architect-handbook",
+  "questions": [
+    {
+      "slug": "two-services-need-same-data-scenario",
+      "title": "Scenario: two services need the same data. How do you design it?",
+      "topic": "Scenario drills",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "data-ownership",
+        "events",
+        "read-models",
+        "scenario"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            22,
+            23
+          ]
+        }
+      ],
+      "quick": "I clarify who owns the data and how fresh and consistent the second service needs it to be. I prefer one authoritative owner exposing an API or publishing events, with the consumer using either synchronous calls or its own purpose-built read model built from those events. I avoid two services writing the same tables unless there is a deliberate, governed reason. I validate with contract tests and monitor replication lag, and I plan how the read model is rebuilt.",
+      "revision": "One authoritative owner; others use APIs or events, or a local read model. Avoid shared writes to the same tables; decide freshness needs first.",
+      "detailed": "When two services read the same data, the question is **ownership and freshness**, not where to put a join.\n\n## Clarify\n\n- Which service is the system of record, and who is accountable for its correctness?\n- How fresh must the other service's copy be: real time, seconds, daily?\n- Does the consumer need to read, or also change the data?\n- What happens if the owner is down?\n\n## Options\n\n| Option | Strength | Cost |\n|---|---|---|\n| Synchronous API call to owner | Always current, simple | Runtime coupling, latency, availability chain |\n| Events building a local read model | Autonomy, fast local reads, resilient | Eventual consistency, duplicated storage, rebuild logic |\n| Shared database, read-only views | Simple short-term | Schema coupling, hidden dependencies |\n| Shared writable tables | Immediate | Breaks ownership; avoid unless deliberately governed |\n| Merge the services | Removes the problem | Only if they genuinely are one boundary |\n\nA frequent answer is a split between **commands** (go to the owner) and **queries** (served from a local projection).\n\n{{diagram:shared-data-options}}\n\n## Mechanics for the event approach\n\nThe owner publishes change events through a transactional outbox. The consumer stores only the fields it needs, keyed by the owner's identifier, handles events idempotently and out of order, and can rebuild from a snapshot or event history. Version the event contract and test it with consumer-driven contract tests.\n\n## Validate and prevent\n\nMeasure propagation lag against the freshness target, test the rebuild procedure, and watch for drift with reconciliation checks. If the two services change together constantly, that is a signal the boundary is wrong.\n\n## Common mistakes\n\n- Sharing tables \"temporarily\", which tends to become permanent.\n- Copying the entire model rather than the needed fields.\n- Treating events as free of consistency issues.\n- Two services each believing they own updates to a field.",
+      "diagrams": [
+        {
+          "id": "shared-data-options",
+          "title": "Two services sharing data",
+          "alt": "An owner service writes to its database and publishes change events through an outbox; a consuming service builds a local read model from the events and serves its own queries, while writes go to the owner through an API.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "own",
+              "label": "Owner service"
+            },
+            {
+              "id": "odb",
+              "label": "Owner database"
+            },
+            {
+              "id": "ob",
+              "label": "Outbox and event stream"
+            },
+            {
+              "id": "con",
+              "label": "Consumer service"
+            },
+            {
+              "id": "rm",
+              "label": "Consumer read model"
+            }
+          ],
+          "edges": [
+            {
+              "from": "own",
+              "to": "odb"
+            },
+            {
+              "from": "odb",
+              "to": "ob",
+              "label": "events"
+            },
+            {
+              "from": "ob",
+              "to": "rm"
+            },
+            {
+              "from": "con",
+              "to": "rm",
+              "label": "reads"
+            },
+            {
+              "from": "con",
+              "to": "own",
+              "label": "commands via API"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you rebuild a read model that has drifted from the source?",
+        "What if the consumer needs strongly consistent data?",
+        "How do you detect that two services are really one boundary?"
+      ],
+      "related": [
+        "new-technology-speed-claims-scenario",
+        "stale-architecture-docs-scenario"
+      ]
+    },
+    {
+      "slug": "new-technology-speed-claims-scenario",
+      "title": "Scenario: a new technology promises major speed gains. How do you decide whether to adopt it?",
+      "topic": "Scenario drills",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "technology-selection",
+        "benchmarking",
+        "poc",
+        "scenario"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            23
+          ]
+        }
+      ],
+      "quick": "I define the actual bottleneck and the success criteria before looking at the technology. Then I assess operational, migration and learning costs, and run a focused proof of concept or benchmark with a representative workload and data. I compare the result to simply optimising the current stack, since that often delivers most of the gain. If the measured benefit justifies the total cost and risk, I adopt it in a limited, reversible way and record the decision in an ADR.",
+      "revision": "Name the real bottleneck and success metric, benchmark representative workloads, compare with optimising what you have, count total cost, and adopt reversibly.",
+      "detailed": "Speed claims come from vendors' best cases. The task is to find out what the technology does for **your** bottleneck, at what total cost.\n\n## Clarify\n\n- What is slow today, for whom, and how is it measured?\n- What improvement matters (p95 latency, throughput, build time) and by how much?\n- Is the bottleneck even in the layer this technology replaces?\n\n## Measure the baseline\n\nProfile the current system so there is something to compare. Many \"slow stack\" problems turn out to be missing indexes, chatty calls or poor caching, and cost far less to fix.\n\n## Evaluate\n\n| Question | Why it matters |\n|---|---|\n| Does it address the measured bottleneck? | Gains elsewhere do not help |\n| Operational cost | On-call, upgrades, monitoring, security patching |\n| Migration cost and risk | Data movement, dual running, rollback |\n| Team skills and hiring | Learning curve and bus factor |\n| Maturity and ecosystem | Support, community, longevity, lock-in |\n| Total lifecycle cost | Including cost of delay |\n\n## Run a bounded proof of concept\n\nUse representative data volume, query shapes and concurrency, not a toy example. Time-box it, define pass/fail thresholds beforehand, test failure behaviour as well as speed, and compare against an optimised baseline, not the neglected one.\n\n## Decide\n\nOptions are adopt, adopt for a narrow use case first, defer, or reject. Prefer reversible adoption behind an interface or for a single workload. Capture context, evidence and revisit conditions in an ADR.\n\n## Common mistakes\n\n- Benchmarks with unrealistic workloads, or only the happy path.\n- Ignoring the operational burden of a second technology.\n- Fashion-driven adoption without a stated problem.\n- Comparing against a poorly tuned existing system.",
+      "followUps": [
+        "How would you design a fair benchmark for this decision?",
+        "What if the proof of concept shows a gain but the team has no experience with the technology?",
+        "How would you make the adoption reversible?"
+      ],
+      "related": [
+        "team-wants-micro-frontends-scenario",
+        "ai-suggests-complex-architecture-scenario"
+      ]
+    },
+    {
+      "slug": "team-wants-micro-frontends-scenario",
+      "title": "Scenario: a team wants to adopt micro-frontends. What do you ask and recommend?",
+      "topic": "Scenario drills",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "micro-frontends",
+        "frontend-architecture",
+        "team-autonomy",
+        "scenario"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            23
+          ]
+        }
+      ],
+      "quick": "I start by asking what problem they are solving: is it independent team ownership and deployment, or something a modular frontend could fix? I compare micro-frontends with a well-structured modular monolith frontend, and assess the costs: shared design system, duplicated dependencies, runtime integration, performance, consistency and governance. I would adopt them only when autonomy benefits clearly outweigh integration cost, and I would pilot with one team and measure bundle size, load time and delivery speed.",
+      "revision": "Ask what autonomy problem exists. Compare with a modular frontend, weigh integration, performance and design-system costs, and adopt only if autonomy outweighs them; pilot first.",
+      "detailed": "Micro-frontends split a web UI into independently built and deployed pieces, usually aligned with team ownership. They solve an **organisational** problem; they do not make a UI faster or simpler.\n\n## Clarify\n\n- How many teams work on the frontend, and where do they block each other: merge conflicts, release coordination, framework upgrades?\n- Do teams really need independent release cadences?\n- Are there legacy or acquired applications that must be combined?\n\n## Alternatives to compare\n\n| Approach | Autonomy | Complexity | Fits |\n|---|---|---|---|\n| Modular frontend in one repo (clear module boundaries, code ownership, lint rules) | Medium | Low | Most single-product UIs |\n| Shared component library plus separate apps linked by navigation | Medium-high | Low-medium | Distinct sections of a portal |\n| Micro-frontends (runtime composition or build-time packages) | High | High | Many teams, independent releases, legacy mixing |\n\n## Costs to assess\n\n- **Consistency**: a shared design system with versioning and governance.\n- **Performance**: duplicated frameworks or libraries, additional network requests, layout shift between fragments.\n- **Integration**: routing, shared state and authentication across fragments, cross-fragment communication contracts.\n- **Operations**: more pipelines, versioning, error tracking and testing across composition.\n- **Cognitive load**: more moving parts for every developer.\n\n## Recommendation approach\n\nIf the pain is code organisation, strengthen module boundaries first. If teams truly need independent deployment, pilot with one or two teams, define the integration contract, shared dependency policy and performance budget, and measure the result: delivery lead time, bundle size, load metrics and defect rates. Keep an exit path.\n\n## Common mistakes\n\n- Adopting micro-frontends because backend microservices were adopted.\n- No governance for shared dependencies, so the page loads three versions of a framework.\n- Inconsistent user experience across fragments.\n- Underestimating testing across compositions.",
+      "followUps": [
+        "What performance budget would you set for a micro-frontend pilot?",
+        "How would you share authentication and state between fragments?",
+        "When would build-time composition be better than runtime composition?"
+      ],
+      "related": [
+        "conways-law-team-topologies-platform-engineering",
+        "new-technology-speed-claims-scenario"
+      ]
+    },
+    {
+      "slug": "ai-suggests-complex-architecture-scenario",
+      "title": "Scenario: an AI assistant suggests a very complex architecture. What do you do?",
+      "topic": "Scenario drills",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "ai",
+        "overengineering",
+        "red-team",
+        "scenario"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            23
+          ]
+        }
+      ],
+      "quick": "I ask the assistant to list the requirement each component satisfies, then to produce a simpler alternative and the assumptions behind both. I make it red-team its own recommendation and tell me what evidence would change it. Then I compare the options on cost, operational burden and measurable requirements myself, verifying key claims in documentation or a prototype. If a component has no requirement behind it, it comes out. The decision stays human and goes into an ADR.",
+      "revision": "Map every component to a requirement, request a simpler alternative and assumptions, red-team it, then judge cost and operations against measurable needs; remove what lacks a reason.",
+      "detailed": "Assistants tend to produce complete, impressive architectures because breadth reads as quality. Your job is to turn that proposal into a justified one.\n\n## Clarify\n\nWhat requirements and scale did you actually give it? Often a short prompt led it to assume high scale, many teams and strict availability that you do not have.\n\n## Interrogate the proposal\n\n1. **Requirement traceability**: for each component (service, broker, cache, orchestration layer), ask which stated requirement it satisfies and what happens if it is removed.\n2. **Simplest viable alternative**: ask for the smallest design that could meet the requirements and what it would sacrifice.\n3. **Assumptions**: have it list assumptions on load, data, team and compliance, and mark which are unverified.\n4. **Red team**: ask it to argue strongly against its own proposal and to list failure modes.\n5. **Decision criteria**: agree the weights first (cost, delivery time, risk, reversibility).\n\n{{diagram:trace-components}}\n\n## Evaluate\n\n| Component | Requirement | Measurable benefit | Cost to run | Keep? |\n|---|---|---|---|---|\n| Event streaming platform | Several consumers need replayable history | Replay and decoupling | High | If requirement confirmed |\n| Separate search cluster | Full-text search at scale | Query latency target | Medium | If database search cannot meet it |\n| Service mesh | Mutual TLS and traffic policy across many services | Security posture | Medium-high | Probably not for a handful of services |\n\n(Illustrative table; the answers depend on real requirements.)\n\n## Verify and decide\n\nCheck disputed technical claims against official documentation, prototype the riskiest piece, and estimate run cost. Decide as a human owner, record rejected options and revisit triggers in an ADR, and plan the simpler version with seams that allow growth.\n\n## Common mistakes\n\n- Accepting the design because it is thorough.\n- Prompting with vague scale, then trusting scale-driven recommendations.\n- Having the same assistant be both author and sole reviewer.",
+      "diagrams": [
+        {
+          "id": "trace-components",
+          "title": "Requirement traceability check",
+          "alt": "Each proposed component is traced to a stated requirement and a measurable benefit; components that pass are kept, and those with no requirement are removed or deferred.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "prop",
+              "label": "AI proposal"
+            },
+            {
+              "id": "comp",
+              "label": "Each component"
+            },
+            {
+              "id": "req",
+              "label": "Maps to a stated requirement?"
+            },
+            {
+              "id": "ben",
+              "label": "Measurable benefit and cost?"
+            },
+            {
+              "id": "keep",
+              "label": "Keep"
+            },
+            {
+              "id": "drop",
+              "label": "Remove or defer"
+            }
+          ],
+          "edges": [
+            {
+              "from": "prop",
+              "to": "comp"
+            },
+            {
+              "from": "comp",
+              "to": "req"
+            },
+            {
+              "from": "req",
+              "to": "ben",
+              "label": "yes"
+            },
+            {
+              "from": "req",
+              "to": "drop",
+              "label": "no"
+            },
+            {
+              "from": "ben",
+              "to": "keep",
+              "label": "justified"
+            },
+            {
+              "from": "ben",
+              "to": "drop",
+              "label": "not justified"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you prompt the assistant so it gives a simple design first?",
+        "What would convince you that a complex component is actually needed?",
+        "How do you record that you rejected an AI-suggested component?"
+      ],
+      "related": [
+        "new-technology-speed-claims-scenario",
+        "team-wants-micro-frontends-scenario"
+      ]
+    },
+    {
+      "slug": "security-blocks-release-scenario",
+      "title": "Scenario: the security team blocks your release. What do you do?",
+      "topic": "Scenario drills",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "security",
+        "risk-acceptance",
+        "release",
+        "scenario"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            23
+          ]
+        }
+      ],
+      "quick": "I first understand the finding: the threat, the likelihood and the impact, and which control is required. Then I compare safe mitigations, such as fixing the vulnerability, reducing exposure with a flag or network restriction, or adding compensating controls. If the release must proceed, it happens only under a formal exception with a named risk owner, conditions and an expiry date. I never bypass a critical control silently. Afterwards I move earlier checks into the pipeline to avoid late surprises.",
+      "revision": "Understand threat and impact, compare mitigations, release only via a documented exception with owner and expiry, never bypass silently, and shift security checks left.",
+      "detailed": "A security block is information, not an obstacle. Treat the security team as a stakeholder with a legitimate objective, and aim for a safe path to release rather than a win.\n\n## Clarify\n\n- What exactly is the finding: vulnerability, missing control, policy violation?\n- What is the realistic threat: who could exploit it, how, and what is the impact on data and users?\n- Is it a false positive? Ask for the evidence and reproduce it.\n- What is the business impact of delay?\n\n## Options\n\n| Option | When it fits |\n|---|---|\n| Fix the issue now | Small, well understood change |\n| Reduce exposure | Ship with the risky feature disabled, restricted to internal users, or behind additional network and authentication controls |\n| Compensating control | Fix is large, but monitoring, rate limits or isolation reduce the risk to an acceptable level |\n| Time-boxed exception | Risk is accepted deliberately, by someone with authority, with an expiry |\n| Do not release | Critical risk with no acceptable mitigation |\n\n## Exception discipline\n\nRecord the risk, the reasoning, the compensating controls, the **named risk owner** (usually a business owner, not just the engineer), the review or expiry date and the remediation plan. Critical controls (authentication, encryption of sensitive data, authorisation checks) must not be waived silently or indefinitely.\n\n## Collaborate\n\nBring options and evidence rather than pressure. Agree on severity using a shared framework (for example a common scoring approach), and keep the conversation about risk, not schedules.\n\n## Prevent\n\nShift security left: threat modelling during design, dependency and secret scanning in CI, security acceptance criteria in stories, and early reviews of high-risk changes, so findings arrive when they are cheap to fix.\n\n## Common mistakes\n\n- Escalating around the security team to force the release.\n- Accepting risk without an owner or expiry.\n- Treating all findings as equal severity.\n- Fixing the symptom in the report but not the class of problem.",
+      "followUps": [
+        "How do you evaluate whether a finding is a false positive?",
+        "Who should accept the risk, and how is that recorded?",
+        "How would you reduce late security surprises in your delivery process?"
+      ],
+      "related": [
+        "release-causes-errors-scenario",
+        "stale-architecture-docs-scenario"
+      ]
+    },
+    {
+      "slug": "stale-architecture-docs-scenario",
+      "title": "Scenario: the architecture documentation is stale. How do you fix it?",
+      "topic": "Scenario drills",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "documentation",
+        "adr",
+        "diagrams-as-code",
+        "scenario"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            23
+          ]
+        }
+      ],
+      "quick": "I treat documentation as a product with users. First I find out who uses it and for what, and identify the sources of truth: code, infrastructure definitions and API contracts. I generate diagrams and reference material from those where possible, keep decisions in versioned ADRs, give every document an owner and a review trigger, and delete documents nobody will maintain. A small set of accurate views, such as context, containers and key flows, beats a large stale library.",
+      "revision": "Treat docs as a product: know the audience, derive from sources of truth, version decisions as ADRs, assign owners and review triggers, and delete what nobody maintains.",
+      "detailed": "Docs go stale when they are expensive to update and nobody feels the pain of being wrong. The remedy is to make accuracy cheap and ownership explicit.\n\n## Clarify\n\nWho reads the documentation (new joiners, operators, auditors, other teams), what questions do they need answered, and which documents are actually used? Check page views or ask.\n\n## Decide what to keep\n\n| Artifact | Approach |\n|---|---|\n| System context and container views | Few, high level, reviewed on structural change |\n| Sequence diagrams of critical flows | Keep close to the code, review with changes |\n| API contracts | Generate from or validate against the specification |\n| Infrastructure topology | Derive from infrastructure-as-code |\n| Decisions | ADRs in the repository, immutable, superseded rather than edited |\n| Runbooks | Owned by the on-call team, exercised in drills |\n| Everything else | Delete or archive if unowned |\n\n## Make accuracy cheap\n\n- **Docs next to code**, in the same repository and pull request, so a change updates both.\n- **Diagrams as code** or generated from definitions, rendered in the pipeline.\n- **Contract tests and linting** that fail when documentation and implementation diverge.\n- **Ownership and review triggers**: each document has an owner and a trigger (architecture change, quarterly review, incident).\n- **A visible freshness date** and a \"last verified\" practice.\n\n## Rollout\n\nStart with the three or four documents that answer most questions, correct them with the people who run the system, and automate what you can. Announce what is deleted. Add a documentation check to the definition of done for architectural changes.\n\n## Common mistakes\n\n- A big documentation sprint that decays again within months.\n- Detailed diagrams of low-level structure that change weekly.\n- Writing documents for an imagined reader.\n- Keeping everything \"just in case\", so users cannot tell what is current.",
+      "followUps": [
+        "How would you decide which documents to delete?",
+        "How can you keep diagrams in sync with infrastructure?",
+        "What belongs in an ADR, and how do you handle a superseded decision?"
+      ],
+      "related": [
+        "two-services-need-same-data-scenario",
+        "security-blocks-release-scenario"
+      ]
+    },
+    {
+      "slug": "how-to-structure-system-design-answer",
+      "title": "How do you structure an answer to a system design or architecture interview question?",
+      "topic": "System design case studies",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "interview-technique",
+        "system-design",
+        "frameworks",
+        "communication"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            2,
+            23,
+            24
+          ]
+        }
+      ],
+      "quick": "I begin by clarifying requirements and quality attributes, state my assumptions, and then draw in a consistent order: context, containers, the critical sequence, and data, deployment or security views as needed. For decisions I use context, requirements, constraints, options, decision, trade-offs and validation. I lead with the recommendation, adapt the detail to the audience, cover failure and operations, and keep time to invite cross-questioning. Afterwards I note my biggest gap and one follow-up to rehearse.",
+      "revision": "Clarify requirements, state assumptions, name quality attributes, draw context then containers then critical flow, cover failure and operations, justify trade-offs, validate, and invite questions.",
+      "detailed": "A strong answer shows how you think, not only what you know. Pick the framework that matches the question type, and keep the same opening habit each time.\n\n## Frameworks by question type\n\n| Question type | Structure | What it demonstrates |\n|---|---|---|\n| Architecture decision | Context, requirements, constraints, options, decision, trade-offs, validation | Judgment and evidence |\n| Past experience | Situation, challenge, responsibility, options, action, result, learning | Ownership and credibility |\n| Production incident | Impact, containment, diagnosis, recovery, root cause, prevention | Calm operational leadership |\n| Conflict | Listen, clarify, criteria, evidence, decide, document, review | Fairness and ownership |\n\n## Opening a design question\n\n1. **Clarify requirements**: functional scope, users, scale, latency, availability, consistency, security and compliance, budget, team.\n2. **State assumptions** aloud and confirm them; label unknowns.\n3. **Pick the top quality attributes** and phrase them as testable scenarios.\n4. **Draw in order**: context view (who and what interacts), container view (deployable parts and data stores), then the **critical sequence** for the main flow, then data, deployment or security views if time allows.\n5. **Walk the failure paths**: what if a dependency is slow, a message repeats, a node dies?\n6. **State trade-offs and alternatives**: why this and not the simpler or the more scalable option.\n7. **Validation and operations**: how you would test it, monitor it and evolve it.\n\n## Delivery tips\n\n- Lead with the decision, then justify. Adapt detail to the interviewer's level and interest.\n- Use a 45 to 90 second spoken version for each concept before expanding.\n- Be honest about what you would verify instead of bluffing. For designs you have not built, say \"given these requirements, I would design it this way\".\n- Leave room for cross-questioning; treat it as collaboration.\n\n## Self-review after practice\n\nWrite down the strongest answer, the biggest gap, one concept to revise, one follow-up to rehearse and one improvement to structure. A useful rubric rates requirements, architecture, trade-offs, security and reliability, operations, communication, leadership and judgment about AI from weak to architect-level.\n\n## Common mistakes\n\n- Jumping to technologies before requirements.\n- Adding security and reliability only at the end.\n- A happy-path-only design.\n- Rambling without a visible structure.",
+      "followUps": [
+        "What do you do if the interviewer gives you almost no requirements?",
+        "How do you decide how deep to go on each part of a design?",
+        "How do you handle a hint or challenge that contradicts your design?"
+      ],
+      "related": [
+        "questions-to-ask-the-interviewer-for-an-architect-role",
+        "design-multi-tenant-crm-saas"
+      ]
+    },
+    {
+      "slug": "questions-to-ask-the-interviewer-for-an-architect-role",
+      "title": "What questions should you ask the interviewer when interviewing for an architect role?",
+      "topic": "Leadership and behavioral",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "interview-technique",
+        "architect-role",
+        "expectations"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            24
+          ]
+        }
+      ],
+      "quick": "I ask questions that show how the role actually works. What business and quality drivers matter most? Which architectural decisions are fixed, and which can I influence? How are decisions documented and reviewed? What are the biggest reliability, scalability, security or maintainability challenges? How are responsibilities split between architecture, engineering, platform, security and product? How is success measured in the first six months, and how is effort split between new work and modernisation?",
+      "revision": "Ask about drivers, open versus fixed decisions, decision records, biggest technical risks, role boundaries, first six-month success measures, and the balance of new work versus modernization.",
+      "detailed": "Your questions signal how you think and let you judge whether the role is real architecture work with authority, or a title without influence. Prepare several and choose by conversation.\n\n## Questions and why they matter\n\n| Question | What it reveals |\n|---|---|\n| What are the most important business and quality-attribute drivers for this role? | Whether priorities are clear and whether they conflict |\n| Which architectural decisions are already fixed, and which are open for the architect to influence? | Real scope of influence and legacy constraints |\n| How are architecture decisions documented and reviewed today? | Maturity of governance, use of ADRs, review culture |\n| What are the biggest reliability, scalability, security or maintainability challenges? | The actual problems you would inherit |\n| How are responsibilities divided among architecture, engineering, platform, security and product teams? | Ownership, collaboration and likely friction |\n| How do you measure success for this role in the first six months? | Expectations and whether they are measurable |\n| What is the balance between new development, modernisation and operational improvement? | Where your time will actually go |\n\n## More options by situation\n\n- How do teams learn about and adopt architectural guidance: mandates, paved roads, or reviews?\n- How are incidents analysed, and do findings change the architecture?\n- What does technical debt tracking look like, and who decides when to repay it?\n- What is the current stance on using AI tools in design and development, including data policies?\n\n## How to ask\n\nKeep questions open, tie them to what was discussed, and listen for specifics rather than slogans. Take notes, as the answers help you compare offers and prepare for follow-up rounds.\n\n## Common mistakes\n\n- Asking only about salary or perks in a technical round.\n- Asking questions answered on the company website.\n- Skipping questions entirely, which can suggest low curiosity.\n- Challenging the interviewer's architecture aggressively before understanding the context.",
+      "followUps": [
+        "How would you respond if the answer reveals that architects have no authority over decisions?",
+        "Which of these questions would you prioritise with only five minutes left?",
+        "How would you use the answers to decide whether to accept the role?"
+      ],
+      "related": [
+        "how-to-structure-system-design-answer",
+        "influence-without-authority"
+      ]
+    }
+  ]
+}

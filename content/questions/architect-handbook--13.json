@@ -1,0 +1,688 @@
+{
+  "category": "architect-handbook",
+  "questions": [
+    {
+      "topic": "High-scale and low-latency systems",
+      "type": "design",
+      "sourceType": "new",
+      "sources": [],
+      "slug": "design-for-high-availability-at-scale",
+      "title": "How do you design a system for high availability at scale?",
+      "difficulty": "advanced",
+      "tags": [
+        "high-availability",
+        "failure-domains",
+        "multi-az",
+        "load-shedding"
+      ],
+      "quick": "I would start from the availability target and map failure domains: instance, rack, zone, region, dependency and deploy. Stateless tiers run across at least three zones behind health-checked load balancers, with capacity to lose one zone. State is replicated with a clear failover story. I add timeouts, retries with budgets, circuit breakers and load shedding so one slow dependency cannot take everything down, and I define graceful degradation for non-critical features. Finally I remove shared fate, such as one config push or one database, and prove it with failure drills.",
+      "revision": "Availability comes from isolating failure domains, redundancy across zones, graceful degradation and load shedding, no shared fate, and proving failover by regularly practising it.",
+      "detailed": "High availability means the system keeps meeting its availability target while components fail. It is designed by identifying **failure domains** and making sure no single one can take down the whole service.\n\n## Clarify first\n\n- Availability target per user journey (for example checkout versus browsing) and the tolerated downtime. Numbers such as 99.9 versus 99.99 percent are very different budgets.\n- Which functions are critical and which can degrade.\n- Tolerable data loss on failover (RPO) and time to recover (RTO).\n\n## Baseline architecture\n\n{{diagram:ha}}\n\nRun stateless services in at least three zones, sized so that losing one zone still leaves enough capacity (roughly N+1 at the zone level). Place a load balancer in front with active health checks. Put state in a replicated store with automatic leader election or a managed multi-zone option.\n\n## Active-active vs active-passive\n\n| Aspect | Active-active | Active-passive |\n|---|---|---|\n| Capacity use | All sites serve traffic | Standby mostly idle |\n| Failover | Shift weights, often fast | Promote and redirect, slower |\n| Data | Needs conflict handling or partitioned ownership | Simple single writer |\n| Risk | Complexity | Untested standby that fails when needed |\n\n## Failure handling\n\n- **Health checks**: separate liveness (restart me) from readiness (stop sending traffic). Avoid deep checks that call dependencies, or one outage marks every instance unhealthy.\n- **Timeouts and retry budgets**: bounded retries with jitter, otherwise retries multiply load during an incident.\n- **Circuit breakers and bulkheads**: isolate pools per dependency so a slow recommendation call cannot exhaust threads for checkout.\n- **Load shedding**: when saturated, reject low-priority requests early and cheaply rather than let latency climb for everyone.\n- **Graceful degradation**: serve cached or default content, hide non-essential widgets, switch to read-only mode.\n\n## Avoid shared fate\n\nCommon hidden couplings are a single database, a global config or feature-flag push, one DNS or certificate provider, a shared deployment pipeline, and a control plane that data traffic depends on. Roll changes out in stages by cell or zone, and keep a fast rollback.\n\n## Observability and testing\n\nTrack error rate, latency percentiles and saturation per zone. Run game days that kill an instance, a zone and a dependency, and check that alarms and failover behave as designed.\n\n## Common mistakes\n\n- Redundancy that shares a single point (same zone, same database, same deploy).\n- Failover paths never exercised.\n- Aggressive retries causing retry storms.\n- Health checks that cascade a partial outage into a total one.\n- Ignoring the availability of dependencies: serial dependencies multiply their availabilities.\n\nHypothetical example: a booking site stays up when one zone fails because instances in the other zones absorb traffic, while recommendations quietly fall back to a static list.",
+      "diagrams": [
+        {
+          "id": "ha",
+          "title": "Zone-redundant serving tier",
+          "alt": "Users reach a global DNS and edge layer, which sends traffic to a load balancer. The load balancer spreads requests across application instances in three availability zones. All instances read and write a primary database with replicas in other zones.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "u",
+              "label": "Users"
+            },
+            {
+              "id": "e",
+              "label": "DNS and Edge"
+            },
+            {
+              "id": "lb",
+              "label": "Load Balancer"
+            },
+            {
+              "id": "a",
+              "label": "App Zone A"
+            },
+            {
+              "id": "b",
+              "label": "App Zone B"
+            },
+            {
+              "id": "c",
+              "label": "App Zone C"
+            },
+            {
+              "id": "db",
+              "label": "Replicated Database"
+            }
+          ],
+          "edges": [
+            {
+              "from": "u",
+              "to": "e"
+            },
+            {
+              "from": "e",
+              "to": "lb"
+            },
+            {
+              "from": "lb",
+              "to": "a"
+            },
+            {
+              "from": "lb",
+              "to": "b"
+            },
+            {
+              "from": "lb",
+              "to": "c"
+            },
+            {
+              "from": "a",
+              "to": "db"
+            },
+            {
+              "from": "b",
+              "to": "db"
+            },
+            {
+              "from": "c",
+              "to": "db"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you size capacity so a zone failure does not overload the survivors?",
+        "What makes a health check dangerous?",
+        "When would you choose active-passive over active-active?",
+        "How do retries reduce availability?"
+      ],
+      "related": []
+    },
+    {
+      "topic": "High-scale and low-latency systems",
+      "type": "design",
+      "sourceType": "new",
+      "sources": [],
+      "slug": "low-latency-system-design-latency-budgets",
+      "title": "How do you design a low-latency system? Explain latency budgets and tail latency.",
+      "difficulty": "advanced",
+      "tags": [
+        "latency",
+        "p99",
+        "tail-latency",
+        "performance"
+      ],
+      "quick": "I would set a target at a percentile such as p99, not an average, and split it into a budget per hop: network, gateway, service logic, cache, database. Then I cut hops, co-locate chatty services, reuse connections, cache in tiers, and avoid pauses from garbage collection, locks and cold starts. Batching raises throughput but adds waiting time, so I cap batch delay. I measure per hop with tracing and watch tail latency, because fan-out calls make the slowest dependency dominate.",
+      "revision": "Budget latency per hop against a p99 target, remove hops, reuse connections, co-locate, cache, avoid pauses, and cap batching delay. Tails dominate with fan-out.",
+      "detailed": "A low-latency design starts from a **budget**: the end-to-end target at a chosen percentile, divided among the hops on the critical path.\n\n## Clarify first\n\n- Target and percentile (for example p99 under some number of milliseconds), and whether it is per request or per user action.\n- Request mix, payload sizes and peak rate.\n- Whether consistency can be relaxed to save time.\n\n## Why percentiles, not averages\n\nAverages hide the slow minority. With fan-out, a request that calls many backends is slow if any one is slow, so the chance of hitting a tail event grows with fan-out. Designers therefore watch p95, p99 and sometimes p99.9, and track the latency distribution rather than a single number.\n\n## Budget per hop\n\n{{diagram:budget}}\n\nIllustrative budget for a 100 ms p99 target: network and edge 20, gateway 10, service logic 20, cache 5, database 30, margin 15. The numbers are examples; the practice is to assign an owner and a measurable limit to each hop and to keep a margin.\n\n## Techniques\n\n- **Fewer hops**: collapse chatty call chains, move work off the critical path (asynchronous side effects).\n- **Co-location**: keep services and their data in the same zone or even the same host; cross-region calls are rarely compatible with tight budgets.\n- **Connection reuse**: keep-alive, connection pools and multiplexed protocols avoid repeated handshakes (TCP, TLS).\n- **Caching tiers**: in-process, shared cache, then database; precompute expensive results.\n- **Avoid pauses**: tune or choose runtimes to limit garbage collection pauses, avoid lock contention, pre-allocate and warm caches and JIT paths, avoid cold starts on the hot path.\n- **Hedged requests and timeouts**: send a backup request after a short delay for idempotent reads, with strict deadlines propagated across hops.\n- **Batching vs latency**: batching improves throughput and cost, but each item waits for the batch to fill. Use small batches with a maximum wait time.\n- **Isolation**: separate queues and thread pools so slow work does not queue ahead of fast work.\n\n## Observability\n\nDistributed tracing with per-hop spans, latency histograms (not averages), and saturation metrics. Queueing is often the real cause of tail latency, so watch utilisation: latency typically climbs sharply as utilisation approaches saturation.\n\n## Common mistakes\n\n- Optimising the mean while p99 is unchanged.\n- Ignoring queueing delay and running hot.\n- Timeouts longer than the budget, which pile up work.\n- Unbounded retries and hedging that amplify load.\n- Adding a cache without considering invalidation and cold-start misses.\n\nTrade-off: lower latency usually costs money (over-provisioning, memory, replication) or consistency.",
+      "diagrams": [
+        {
+          "id": "budget",
+          "title": "Latency budget along the request path",
+          "alt": "A request flows from client through edge, gateway, service, cache and database. Each hop is annotated by the idea of a latency budget; on a cache miss the service reads the database.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "c",
+              "label": "Client"
+            },
+            {
+              "id": "e",
+              "label": "Edge"
+            },
+            {
+              "id": "g",
+              "label": "Gateway"
+            },
+            {
+              "id": "s",
+              "label": "Service"
+            },
+            {
+              "id": "k",
+              "label": "Cache"
+            },
+            {
+              "id": "d",
+              "label": "Database"
+            }
+          ],
+          "edges": [
+            {
+              "from": "c",
+              "to": "e"
+            },
+            {
+              "from": "e",
+              "to": "g"
+            },
+            {
+              "from": "g",
+              "to": "s"
+            },
+            {
+              "from": "s",
+              "to": "k",
+              "label": "read"
+            },
+            {
+              "from": "k",
+              "to": "d",
+              "label": "miss"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Why does fan-out make tail latency worse?",
+        "How do hedged requests work and when are they unsafe?",
+        "How does utilisation affect latency?",
+        "How would you cut a garbage collection pause problem?"
+      ],
+      "related": [
+        "design-low-latency-order-matching-system"
+      ]
+    },
+    {
+      "topic": "High-scale and low-latency systems",
+      "type": "design",
+      "sourceType": "new",
+      "sources": [],
+      "slug": "design-low-latency-order-matching-system",
+      "title": "Design a low-latency order-matching system for a stock exchange-style trading platform.",
+      "difficulty": "advanced",
+      "tags": [
+        "trading",
+        "matching-engine",
+        "event-sourcing",
+        "sequencer"
+      ],
+      "quick": "I would route each instrument to a single-writer matching engine that keeps the order book in memory and processes events in order from a sequencer. Every input is appended to a replicated event log first, so processing is deterministic and a standby can replay it to take over. Pre-trade risk checks run before orders reach the engine. Market data is fanned out from the engine's output stream. Colocation and kernel-bypass networking are optional optimisations. The log doubles as the audit trail.",
+      "revision": "Single writer per instrument, in-memory book, sequenced replicated event log, deterministic replay for failover and audit, risk checks before matching, separate market-data fan-out.",
+      "detailed": "The core idea is **determinism through a single writer**: for each instrument, one thread processes a strictly ordered stream of events, so there are no locks and the result can be reproduced by replay.\n\n## Clarify first\n\n- Latency target and percentile, and message rate per instrument (peak versus average).\n- Order types needed (limit, market, cancel, modify) and matching rules (price-time priority).\n- Recovery objectives: RPO should be effectively zero for accepted orders; RTO in seconds.\n- Regulatory audit and reporting requirements.\n\n## Architecture\n\n{{diagram:match}}\n\n1. **Gateway** authenticates sessions, validates messages and assigns session sequence numbers.\n2. **Pre-trade risk** checks limits, credit and sanity (price bands, fat-finger size) in memory.\n3. **Sequencer** assigns a global order per partition and appends to a replicated **event log**. Acceptance is acknowledged only after the log is durable (replicated to a quorum or standby).\n4. **Matching engine** (one per instrument or instrument group) consumes the log, updates the in-memory order book and emits events: acks, fills, cancels.\n5. **Market-data publisher** converts engine output into public feeds; **drop-copy and audit** consumers read the same log.\n\n## Critical flow\n\nOrder arrives, passes risk, is sequenced and persisted, then matched. Output events are produced from the log order, so every consumer sees the same sequence.\n\n## Data and consistency\n\nState is the order book rebuilt from the log plus periodic snapshots. Because processing is deterministic (no wall-clock reads or random numbers inside the engine, timestamps come from the sequencer), a standby engine consuming the same log holds identical state.\n\n## Failure modes\n\n- **Engine crash**: standby, already replaying the log, takes over; fence the old primary to avoid two writers.\n- **Gateway failure**: clients reconnect and resend; sequence numbers allow gap detection and duplicate rejection.\n- **Log failure**: replication quorum protects acknowledged orders.\n- **Slow consumers**: market-data lag must never back-pressure the engine; use separate buffers and drop or conflate for slow subscribers.\n\n## Scaling and latency\n\nScale by partitioning instruments across engines, not by multi-threading one book. Latency measures include pinned CPU cores, pre-allocated memory, avoiding garbage collection pauses, and batching only where it does not hurt. Colocation and kernel-bypass networking can reduce network and stack overhead but are optional and depend on the latency target.\n\n## Observability and audit\n\nTime-stamp at each stage, monitor sequence gaps, queue depth and latency histograms. The immutable log supports reconstruction of any disputed trade.\n\n## Trade-offs and mistakes\n\n- Sharing a book across threads with locks: unpredictable tail latency.\n- Non-deterministic engine logic breaks replay.\n- Acknowledging before durability risks losing accepted orders.\n- Cross-instrument operations (spreads, portfolio risk) need extra design.",
+      "diagrams": [
+        {
+          "id": "match",
+          "title": "Order-matching pipeline",
+          "alt": "Client orders enter a gateway, then pre-trade risk checks, then a sequencer that writes to a replicated event log. The matching engine consumes the log and keeps an in-memory order book. A standby engine replays the same log, and a market data publisher reads the engine output.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "c",
+              "label": "Clients"
+            },
+            {
+              "id": "g",
+              "label": "Gateway"
+            },
+            {
+              "id": "r",
+              "label": "Pre-trade Risk"
+            },
+            {
+              "id": "s",
+              "label": "Sequencer"
+            },
+            {
+              "id": "l",
+              "label": "Replicated Event Log"
+            },
+            {
+              "id": "m",
+              "label": "Matching Engine"
+            },
+            {
+              "id": "sb",
+              "label": "Standby Engine"
+            },
+            {
+              "id": "md",
+              "label": "Market Data Publisher"
+            }
+          ],
+          "edges": [
+            {
+              "from": "c",
+              "to": "g"
+            },
+            {
+              "from": "g",
+              "to": "r"
+            },
+            {
+              "from": "r",
+              "to": "s"
+            },
+            {
+              "from": "s",
+              "to": "l"
+            },
+            {
+              "from": "l",
+              "to": "m"
+            },
+            {
+              "from": "l",
+              "to": "sb"
+            },
+            {
+              "from": "m",
+              "to": "md"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Why a single writer per instrument instead of a multi-threaded engine?",
+        "How do you fail over without losing or duplicating orders?",
+        "How do you fan out market data without slowing the engine?",
+        "How do you make the engine deterministic?"
+      ],
+      "related": [
+        "low-latency-system-design-latency-budgets",
+        "design-for-high-availability-at-scale"
+      ]
+    },
+    {
+      "topic": "High-scale and low-latency systems",
+      "type": "design",
+      "sourceType": "new",
+      "sources": [],
+      "slug": "design-flash-sale-ecommerce-platform",
+      "title": "Design an e-commerce platform that survives flash sales and sudden traffic spikes.",
+      "difficulty": "advanced",
+      "tags": [
+        "e-commerce",
+        "flash-sale",
+        "inventory",
+        "waiting-room"
+      ],
+      "quick": "I would serve the catalogue from a CDN and edge cache, put a virtual waiting room in front of checkout, and rate limit by user and IP. Cart and browsing stay separate from checkout. Inventory is reserved with an atomic decrement in a fast store, then orders go onto a queue for processing. Payments use idempotency keys. I pre-warm capacity before the event and shed non-essential features, like recommendations, if load exceeds what the core path can handle.",
+      "revision": "Edge-cache everything static, admit users through a waiting room, reserve stock atomically, process orders from a queue, make payments idempotent, pre-warm and shed optional features.",
+      "detailed": "Flash sales concentrate demand on a few products in a short window. The design protects the scarce resource (inventory and the checkout path) and lets everything else scale cheaply.\n\n## Clarify first\n\n- Expected peak requests per second and concurrent users (estimate, then add margin; numbers here are examples only).\n- Stock per item, overselling policy (never oversell is typical), and whether holds expire.\n- Fairness expectations: first come first served, or lottery.\n\n## Architecture\n\n{{diagram:flash}}\n\n- **CDN and edge**: product pages, images and scripts cached at the edge; serve a static sale page that polls a lightweight status endpoint.\n- **Virtual waiting room**: admits users to checkout at a rate the backend can handle, using signed tokens.\n- **Rate limiting and bot protection** at the edge and gateway.\n- **Separated paths**: browse, cart and checkout are different services with independent scaling and failure isolation.\n- **Inventory service** backed by a fast store with atomic operations.\n- **Order queue** decouples order acceptance from fulfilment steps.\n- **Payment** with a provider integration behind timeouts and idempotency.\n\n## Critical flow\n\n1. User passes the waiting room and receives an admission token.\n2. Add to cart is cheap and does not reserve stock.\n3. At checkout, the inventory service performs an atomic conditional decrement (for example decrement only if remaining is at least the quantity). Success creates a reservation with a TTL.\n4. The order is written and enqueued; the user sees a pending status.\n5. Payment is attempted with an idempotency key. Failure or timeout releases the reservation back to stock.\n6. Workers handle confirmation, email and fulfilment.\n\n## Data and consistency\n\nInventory is the strongly consistent part; keep it small and in one authoritative place per item. For extremely hot items, split stock into buckets or shards to spread the write load, accepting some complexity near sold-out. The durable order database is the source of truth; the fast store can be reconciled from it.\n\n## Failure modes\n\n- Payment provider slow: queue and retry with idempotency, show pending.\n- Cache or inventory store failure: fail closed for purchases (do not oversell) while browsing continues.\n- Duplicate submissions: idempotency keys on order creation.\n\n## Scaling and operations\n\nPre-warm instances, caches, connection pools and CDN before the start time, since autoscaling reacts too slowly to a vertical spike. Shed optional features (recommendations, reviews) first. Run load tests shaped like the real spike. Monitor admission rate, queue depth, reservation success and payment error rate.\n\n## Common mistakes\n\n- Reserving stock when adding to cart.\n- Letting every user hit the database directly.\n- Relying on autoscaling alone.\n- Non-idempotent payment retries causing double charges.\n- No expiry on reservations, which strands inventory.",
+      "diagrams": [
+        {
+          "id": "flash",
+          "title": "Flash-sale request path",
+          "alt": "Users hit a CDN, then a waiting room that admits them to the gateway. The gateway calls the cart service and the checkout service. Checkout reserves stock in an inventory store and places orders on a queue, and workers process payment and fulfilment.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "u",
+              "label": "Users"
+            },
+            {
+              "id": "cdn",
+              "label": "CDN"
+            },
+            {
+              "id": "w",
+              "label": "Waiting Room"
+            },
+            {
+              "id": "gw",
+              "label": "API Gateway"
+            },
+            {
+              "id": "ck",
+              "label": "Checkout Service"
+            },
+            {
+              "id": "inv",
+              "label": "Inventory Store"
+            },
+            {
+              "id": "q",
+              "label": "Order Queue"
+            },
+            {
+              "id": "wk",
+              "label": "Order Workers"
+            }
+          ],
+          "edges": [
+            {
+              "from": "u",
+              "to": "cdn"
+            },
+            {
+              "from": "cdn",
+              "to": "w"
+            },
+            {
+              "from": "w",
+              "to": "gw"
+            },
+            {
+              "from": "gw",
+              "to": "ck"
+            },
+            {
+              "from": "ck",
+              "to": "inv",
+              "label": "atomic reserve"
+            },
+            {
+              "from": "ck",
+              "to": "q"
+            },
+            {
+              "from": "q",
+              "to": "wk"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you prevent overselling a very hot item?",
+        "Why not reserve stock when adding to cart?",
+        "What happens if the payment provider times out?",
+        "How would you pre-warm for a known start time?"
+      ],
+      "related": [
+        "design-movie-ticket-booking-system"
+      ]
+    },
+    {
+      "topic": "High-scale and low-latency systems",
+      "type": "design",
+      "sourceType": "new",
+      "sources": [],
+      "slug": "design-movie-ticket-booking-system",
+      "title": "Design a movie ticket booking system with seat holds and no double booking.",
+      "difficulty": "advanced",
+      "tags": [
+        "booking",
+        "seat-hold",
+        "concurrency",
+        "ttl"
+      ],
+      "quick": "I would separate the read-heavy search and seat-map path from the booking path. When a user picks seats, I place a temporary hold with a TTL using an atomic conditional write, so two users cannot hold the same seat. Payment must finish before the hold expires; on timeout or failure the seats are released. The final confirmation is protected by a database unique constraint or version check as the last line of defence. Hot shows get a waiting room and per-show contention control.",
+      "revision": "Cache the read path; hold seats with an atomic TTL write; confirm with a unique constraint; release on payment timeout; protect hot shows with a queue.",
+      "detailed": "The hard problem is **contention on a small set of seats** for a popular show, while keeping search fast and never selling the same seat twice.\n\n## Clarify first\n\n- Peak concurrent users on a single show and the hold duration (typically a few minutes).\n- Seat model: reserved seating or general admission, group bookings, price tiers.\n- Behaviour on payment failure, refunds and partial group availability.\n\n## Architecture\n\n{{diagram:ticket}}\n\n- **Search and catalogue** (movies, theatres, showtimes) is read-heavy, cacheable and eventually consistent.\n- **Seat-map service** shows availability from a fast store; slight staleness is acceptable because the hold step is authoritative.\n- **Booking service** manages holds and confirmation.\n- **Hold store** (an in-memory store with TTL or a database row with an expiry) records seat, user, expiry.\n- **Booking database** holds confirmed bookings with a **unique constraint** on (show, seat).\n- **Payment** is asynchronous with provider callbacks.\n\n## Critical flow\n\n1. User selects seats; the booking service tries to hold all of them atomically (all or nothing), for example a conditional write that succeeds only if each seat is free or its hold has expired.\n2. On success the user gets a countdown; on failure the UI refreshes the seat map and asks for alternatives.\n3. User pays within the window. The service verifies the hold is still owned by the user, then writes the confirmed booking inside a transaction. The unique constraint (or an optimistic version check) rejects any conflicting write.\n4. On payment failure, cancellation or expiry, the hold is released by TTL or an explicit release, and a sweeper cleans leftovers.\n\n## Concurrency options\n\n| Approach | Strength | Weakness |\n|---|---|---|\n| Pessimistic row lock | Simple correctness | Lock waits on hot shows |\n| Optimistic version check | No locks held while user thinks | Retries under heavy contention |\n| Atomic hold with TTL | Fast, self-cleaning | Needs the database check as a backstop |\n\n## Failure modes\n\n- Payment succeeds after the hold expired: re-check ownership, and refund or re-hold if the seats were taken. Handle provider callbacks idempotently.\n- Hold store loses data: the unique constraint still prevents double booking.\n- Duplicate callbacks or clicks: idempotency keys.\n\n## Scaling\n\nShard by show so each show's contention is isolated. For blockbuster openings, add a **virtual waiting room** that admits users to seat selection at a controlled rate. Cache search aggressively and keep it off the booking path.\n\n## Observability\n\nHold success rate, expired-hold ratio, payment conversion, contention retries per show.\n\n## Common mistakes\n\n- Trusting the cache for the final seat check.\n- Holds with no expiry.\n- Charging before confirming the seats are still held.\n- One global lock or table for all shows.",
+      "diagrams": [
+        {
+          "id": "ticket",
+          "title": "Search and booking paths",
+          "alt": "Users use a search service backed by a cache for browsing. Seat selection goes through a waiting room to a booking service. The booking service places holds in a hold store with expiry, calls a payment service, and writes confirmed bookings to a booking database that enforces uniqueness per seat.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "u",
+              "label": "Users"
+            },
+            {
+              "id": "s",
+              "label": "Search and Catalogue Cache"
+            },
+            {
+              "id": "w",
+              "label": "Waiting Room"
+            },
+            {
+              "id": "b",
+              "label": "Booking Service"
+            },
+            {
+              "id": "h",
+              "label": "Seat Hold Store with TTL"
+            },
+            {
+              "id": "p",
+              "label": "Payment Service"
+            },
+            {
+              "id": "db",
+              "label": "Booking Database"
+            }
+          ],
+          "edges": [
+            {
+              "from": "u",
+              "to": "s",
+              "label": "browse"
+            },
+            {
+              "from": "u",
+              "to": "w",
+              "label": "book"
+            },
+            {
+              "from": "w",
+              "to": "b"
+            },
+            {
+              "from": "b",
+              "to": "h",
+              "label": "hold"
+            },
+            {
+              "from": "b",
+              "to": "p"
+            },
+            {
+              "from": "b",
+              "to": "db",
+              "label": "confirm"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you hold several seats atomically?",
+        "What happens if the payment callback arrives after the hold expired?",
+        "How would you handle a blockbuster opening-day rush?",
+        "Why keep the unique constraint if you already have holds?"
+      ],
+      "related": [
+        "design-flash-sale-ecommerce-platform"
+      ]
+    },
+    {
+      "topic": "High-scale and low-latency systems",
+      "type": "design",
+      "sourceType": "new",
+      "sources": [],
+      "slug": "design-video-streaming-platform",
+      "title": "Design an on-demand video streaming platform.",
+      "difficulty": "advanced",
+      "tags": [
+        "video",
+        "cdn",
+        "transcoding",
+        "hls",
+        "drm"
+      ],
+      "quick": "I would split it into an upload and transcoding pipeline, a delivery path and a metadata path. Uploads land in object storage, then workers transcode into an adaptive bitrate ladder and package as HLS or DASH segments with manifests. Delivery goes through tiered CDN caches with origin shielding, so most requests never reach the origin. Playback uses tokenised manifest access and DRM for protected content. Catalogue and recommendations are separate services, and playback telemetry feeds quality monitoring.",
+      "revision": "Upload, transcode into bitrate ladders, package as HLS or DASH, deliver via tiered CDN with origin shield, secure with tokens and DRM, keep catalogue and telemetry separate.",
+      "detailed": "A video platform is mostly a **content-delivery** problem: large files, read-heavy, globally distributed. The design keeps heavy media traffic on the CDN and keeps the application services small.\n\n## Clarify first\n\n- Catalogue size, daily plays, peak concurrent viewers, regions and device mix.\n- Content type: user uploads or licensed studio content, which affects ingest and DRM.\n- Start-up time and rebuffering goals.\n\n## Architecture\n\n{{diagram:vod}}\n\n**Ingest and transcoding.** The uploader sends the source file to object storage (resumable, chunked uploads). A job queue triggers a transcoding workflow: validate, split into chunks, transcode in parallel into an **adaptive bitrate ladder** (several resolutions and bitrates and codecs), then package into short segments with HLS or DASH manifests. Chunk-level parallelism shortens wall-clock time, and jobs are idempotent so a failed chunk can be retried.\n\n**Delivery.** Players fetch a manifest, then request segments, choosing the rendition based on measured throughput. Segments are immutable files, so they cache extremely well. Use a multi-tier CDN: edge caches, regional caches, and an **origin shield** that collapses cache misses so storage sees few requests. Popular titles can be pre-positioned near viewers during quiet hours.\n\n**Security.** Access is controlled with signed URLs or tokens on manifests and segments, short-lived and tied to entitlement. DRM (key services issuing licences to authorised devices) protects premium content. Hot-link and token-sharing abuse can be limited with per-session checks.\n\n**Metadata and recommendations.** A catalogue service (titles, artwork, availability by region) and a recommendation service are separate, cache-friendly paths. If recommendations fail, show a default or trending list; playback must not depend on them.\n\n**Playback telemetry.** Players send events (start-up time, bitrate switches, rebuffer events, errors) to an ingestion pipeline for dashboards, CDN steering and alerts.\n\n## Data choices\n\nObject storage for media; a relational or document store for catalogue and entitlements; a stream plus analytics store for telemetry. Eventual consistency is acceptable for catalogue and view counts; entitlements need stronger guarantees.\n\n## Failure modes\n\n- Transcoding worker failure: retry per chunk.\n- CDN degradation: multi-CDN or failover with DNS or client-side steering.\n- Origin overload on a viral title: origin shield plus request coalescing.\n- Licence service outage: cache licences for offline-tolerant playback where policy allows.\n\n## Scaling and cost\n\nEgress dominates cost, so cache hit ratio and efficient codecs matter. Storage grows with ladder size, so choose ladders per title popularity (fewer renditions for rarely watched content).\n\n## Common mistakes\n\n- Serving media from application servers.\n- A single bitrate for all devices.\n- Putting recommendations on the playback critical path.\n- Long-lived, shareable media URLs.\n- Ignoring telemetry, so quality problems go unseen.",
+      "diagrams": [
+        {
+          "id": "vod",
+          "title": "Upload to playback pipeline",
+          "alt": "A creator uploads a video to object storage, a queue triggers transcoding workers that produce an adaptive bitrate ladder and packaged segments in an origin store. Viewers fetch manifests and segments through a CDN edge and an origin shield. A separate catalogue service and a telemetry pipeline serve viewers' apps.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "up",
+              "label": "Uploader"
+            },
+            {
+              "id": "os",
+              "label": "Source Object Storage"
+            },
+            {
+              "id": "tc",
+              "label": "Transcoding Workers"
+            },
+            {
+              "id": "or",
+              "label": "Origin with Segments"
+            },
+            {
+              "id": "sh",
+              "label": "Origin Shield"
+            },
+            {
+              "id": "cdn",
+              "label": "CDN Edge"
+            },
+            {
+              "id": "pl",
+              "label": "Player"
+            },
+            {
+              "id": "cat",
+              "label": "Catalogue Service"
+            }
+          ],
+          "edges": [
+            {
+              "from": "up",
+              "to": "os"
+            },
+            {
+              "from": "os",
+              "to": "tc"
+            },
+            {
+              "from": "tc",
+              "to": "or"
+            },
+            {
+              "from": "or",
+              "to": "sh"
+            },
+            {
+              "from": "sh",
+              "to": "cdn"
+            },
+            {
+              "from": "cdn",
+              "to": "pl"
+            },
+            {
+              "from": "pl",
+              "to": "cat",
+              "label": "browse"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How does adaptive bitrate streaming choose a rendition?",
+        "What does an origin shield do?",
+        "How would you protect premium content?",
+        "How would you design the recommendation path so it cannot break playback?"
+      ],
+      "related": [
+        "design-live-streaming-huge-audience",
+        "design-for-high-availability-at-scale"
+      ]
+    },
+    {
+      "topic": "High-scale and low-latency systems",
+      "type": "design",
+      "sourceType": "new",
+      "sources": [],
+      "slug": "design-live-streaming-huge-audience",
+      "title": "Design live streaming for a huge concurrent audience, such as a major sports final.",
+      "difficulty": "advanced",
+      "tags": [
+        "live-streaming",
+        "cdn",
+        "hls",
+        "thundering-herd"
+      ],
+      "quick": "I would ingest redundant feeds, encode and package live segments, and distribute them through multiple CDNs. I would choose standard HLS or DASH for resilience, or a low-latency variant if the product needs it, accepting less buffer and less headroom. The real risks are CDN capacity and thundering herds on the live manifest, so I would pre-scale, use origin shielding, short manifest caching with request collapsing, and degrade quality gracefully. Entitlement checks, session limits, and chat and score as separate side channels complete it.",
+      "revision": "Redundant ingest, packaged segments via multi-CDN with shield, pre-scaled for the start time, collapse manifest herds, degrade quality gracefully, keep chat and scores on separate channels.",
+      "detailed": "Live streaming differs from on-demand: every viewer wants the **same newest segment at the same moment**, so demand is synchronised and unforgiving.\n\n## Clarify first\n\n- Peak concurrent viewers (use an estimate with generous headroom), regions and device mix.\n- Latency goal: standard HLS often means tens of seconds behind live, while low-latency modes aim for a few seconds with less buffer.\n- Entitlement model (free, subscription, pay per view) and concurrency limits per account.\n\n## Architecture\n\n{{diagram:live}}\n\n- **Contribution and ingest**: redundant encoders and network paths send the feed to two independent ingest sites.\n- **Origin processing**: transcode into a bitrate ladder, package short segments and a continuously updated manifest.\n- **Distribution**: multiple CDNs with an origin shield tier so that millions of players trigger few origin fetches.\n- **Playback control plane**: authenticates, checks entitlement, issues tokens and picks the CDN mix.\n- **Side channels**: chat, scores and stats use separate real-time infrastructure so they cannot disrupt video.\n\n## The herd problem\n\nPlayers poll the live manifest every segment duration. If cache entries expire at once, thousands of misses reach the origin simultaneously. Mitigations: short manifest TTL with **request coalescing** at shield and edge, stale-while-revalidate behaviour, jittered client polling, and keeping the origin's manifest generation cheap. Segments are immutable once published and cache well.\n\n## Capacity planning\n\nEstimate egress as concurrent viewers times average bitrate (illustrative arithmetic: a million viewers at a few megabits per second is terabits per second, which no single provider region should be assumed to supply). Reserve capacity contractually, **pre-scale** before kickoff, and test with synthetic load. Spread across CDNs and regions with weights adjustable in real time.\n\n## Graceful degradation\n\n- Remove the top bitrate rung to cut egress, or cap resolution by device.\n- Serve a slightly longer segment or increase latency to build buffer.\n- Disable non-essential features (rich stats overlays) first.\n- Players keep adaptive logic so brief congestion causes quality drops, not stalls.\n\n## Controls\n\nPer-account concurrency limits with heartbeat sessions curb credential sharing, but session stores must scale and fail open or closed by policy. Token expiry must be long enough for the whole event but renewable.\n\n## Failure modes\n\nEncoder or ingest loss (switch to the backup feed, aligned timestamps), CDN failure (shift traffic), origin overload (shield, serve stale manifest briefly), login storm before kickoff (waiting room, pre-issued tokens).\n\n## Observability\n\nReal-time dashboards for rebuffer ratio, startup failures, bitrate distribution and CDN error rate by region, with a prepared runbook and an incident room.\n\n## Common mistakes\n\n- Treating live like on-demand and relying on autoscaling.\n- Single CDN or single ingest path.\n- Chat traffic sharing the video path.\n- Login and entitlement checks that collapse at kickoff.",
+      "diagrams": [
+        {
+          "id": "live",
+          "title": "Live distribution path",
+          "alt": "Two redundant encoders feed an origin packager that creates segments and manifests. An origin shield sits in front of the packager and feeds two CDNs, which serve players. A control plane handles login and tokens for players, and a separate chat and score service also connects to players.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "enc",
+              "label": "Redundant Encoders"
+            },
+            {
+              "id": "pk",
+              "label": "Origin Packager"
+            },
+            {
+              "id": "sh",
+              "label": "Origin Shield"
+            },
+            {
+              "id": "c1",
+              "label": "CDN A"
+            },
+            {
+              "id": "c2",
+              "label": "CDN B"
+            },
+            {
+              "id": "pl",
+              "label": "Players"
+            },
+            {
+              "id": "cp",
+              "label": "Playback Control Plane"
+            },
+            {
+              "id": "ch",
+              "label": "Chat and Score Service"
+            }
+          ],
+          "edges": [
+            {
+              "from": "enc",
+              "to": "pk"
+            },
+            {
+              "from": "pk",
+              "to": "sh"
+            },
+            {
+              "from": "sh",
+              "to": "c1"
+            },
+            {
+              "from": "sh",
+              "to": "c2"
+            },
+            {
+              "from": "c1",
+              "to": "pl"
+            },
+            {
+              "from": "c2",
+              "to": "pl"
+            },
+            {
+              "from": "cp",
+              "to": "pl",
+              "label": "tokens"
+            },
+            {
+              "from": "ch",
+              "to": "pl"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Why does low-latency streaming reduce resilience?",
+        "How do you stop a manifest thundering herd?",
+        "How would you do capacity planning for a record audience?",
+        "How would you enforce concurrent stream limits?"
+      ],
+      "related": [
+        "design-video-streaming-platform"
+      ]
+    }
+  ]
+}

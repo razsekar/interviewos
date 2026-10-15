@@ -1,0 +1,506 @@
+{
+  "category": "architect-handbook",
+  "questions": [
+    {
+      "slug": "when-to-use-a-database-index",
+      "title": "When should you add a database index, and when should you not?",
+      "topic": "Data and APIs",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "database",
+        "index",
+        "performance",
+        "query-tuning"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            20
+          ]
+        }
+      ],
+      "quick": "I add an index when real query patterns and selectivity justify faster reads compared with the cost on writes, storage and maintenance. I look at the slow queries and their execution plans, then index the columns used in filters, joins and sorting, with column order chosen for the query. I avoid indexing low-selectivity columns, tiny tables or rarely used filters, and I remove unused indexes. Every index slows inserts and updates, so the decision is driven by measurement.",
+      "revision": "Index columns that real queries filter, join or sort on and that are selective enough; weigh read gains against write, storage and maintenance cost, and verify with execution plans.",
+      "detailed": "An index is a separate, ordered structure (commonly a B-tree) that lets the database find rows without scanning the whole table. It speeds reads at a cost: every insert, update and delete must also maintain the index, and it consumes storage and memory.\n\n## When an index helps\n\n- Filters (WHERE), joins and sort or group columns on **large tables**.\n- Columns with high **selectivity**: a filter that returns a small fraction of rows.\n- Uniqueness constraints and foreign keys that are joined often.\n- Queries that could be satisfied entirely from the index (a covering index).\n\n## When it does not\n\n| Situation | Why |\n|---|---|\n| Very small tables | A scan is as fast as an index lookup |\n| Low-selectivity column (a boolean flag, a status with two values) | The planner often ignores it |\n| Write-heavy tables with rarely run reads | Index maintenance outweighs benefit |\n| Functions on the column (WHERE lower(email) = ...) without a matching expression index | The index cannot be used |\n| Leading-wildcard patterns (LIKE '%term') | A B-tree cannot be used efficiently |\n\n## Composite indexes and order\n\nFor a composite index, column order matters: it serves queries that filter on the **leftmost prefix**. For a query filtering on tenant_id and status and sorting by created_at, an index on (tenant_id, status, created_at) is typically more useful than three separate ones.\n\n```sql\nCREATE INDEX idx_orders_tenant_status_created\n  ON orders (tenant_id, status, created_at DESC);\n\nEXPLAIN ANALYZE\nSELECT * FROM orders\nWHERE tenant_id = 42 AND status = 'open'\nORDER BY created_at DESC LIMIT 20;\n```\n\n## Practice\n\n1. Find slow queries from monitoring.\n2. Read the execution plan to confirm a scan or sort is the problem.\n3. Add the index, re-run the plan and measure with realistic data.\n4. Periodically drop unused or duplicate indexes.\n\nCommon mistakes: indexing every column \"just in case\", ignoring write overhead, testing on tiny data, and forgetting that a stale plan or statistics can make the planner pick a different path.",
+      "followUps": [
+        "How does column order in a composite index matter?",
+        "What is a covering index?",
+        "How do you find indexes that are not used?"
+      ],
+      "related": [
+        "expand-and-contract-migration",
+        "optimistic-locking-explained"
+      ]
+    },
+    {
+      "slug": "optimistic-locking-explained",
+      "title": "What is optimistic locking and when is it preferable to pessimistic locking?",
+      "topic": "Data and APIs",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "concurrency",
+        "optimistic-locking",
+        "database",
+        "versioning"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            20
+          ]
+        }
+      ],
+      "quick": "Optimistic locking assumes conflicts are rare. Instead of holding a lock while a user or process works, each record carries a version or condition, and the update succeeds only if the version is unchanged since it was read. If someone else changed it, the update affects zero rows and the caller reloads, merges or retries. It suits low-contention, read-heavy flows and long think times. Pessimistic locks fit high contention where retries would be wasteful.",
+      "revision": "Optimistic locking detects concurrent changes at write time using a version check, with no early lock. Best with low contention; use pessimistic locks when conflicts are frequent.",
+      "detailed": "**Optimistic locking** lets several actors read the same data without blocking, and detects a conflict **only when writing**. A version number (or timestamp or hash) stored with the row acts as the guard.\n\n## How it works\n\n```sql\n-- read\nSELECT id, price, version FROM products WHERE id = 7;   -- version = 3\n\n-- write only if nobody else changed it\nUPDATE products\nSET price = 120, version = version + 1\nWHERE id = 7 AND version = 3;\n```\n\nIf the statement reports **0 rows affected**, another transaction updated the row first. The application then reloads and retries, merges the changes, or tells the user. In APIs the version often travels as an ETag with an If-Match header, and a mismatch returns 412 Precondition Failed (or 409 Conflict).\n\n## Optimistic versus pessimistic\n\n| | Optimistic | Pessimistic |\n|---|---|---|\n| Mechanism | Version check at write | Lock held while working (SELECT ... FOR UPDATE) |\n| Blocking | None while reading and editing | Others wait or fail |\n| Best when | Conflicts are rare, long user think time, many readers | Conflicts frequent, short critical sections, retries expensive |\n| Failure mode | Retries or user-visible conflict | Waiting, deadlocks, lock contention |\n| Across HTTP requests | Works well (stateless) | Hard, locks would outlive requests |\n\n## Design points\n\n- Always **increment** the version in the same statement that checks it.\n- Decide the conflict policy: automatic retry for commutative changes, user merge for edits to the same field.\n- Limit retries and add backoff to avoid livelock under contention.\n- Be aware the check covers only the row (or aggregate) carrying the version; cross-row invariants may need stronger isolation or constraints.\n\nExample (hypothetical): two support agents open the same customer record. The second to save gets a conflict message with the changed fields rather than silently overwriting the first agent's edits.\n\nCommon mistakes: forgetting the version in some update paths, retrying non-idempotent side effects together with the write, and using optimistic locking on a hot row where nearly every attempt conflicts.",
+      "followUps": [
+        "How would you expose optimistic locking in a REST API?",
+        "What happens under heavy contention on a single row?",
+        "How does optimistic locking relate to isolation levels?"
+      ],
+      "related": [
+        "when-to-use-a-database-index",
+        "idempotency-and-idempotency-keys"
+      ]
+    },
+    {
+      "slug": "expand-and-contract-migration",
+      "title": "What is an expand-and-contract (parallel change) database migration?",
+      "topic": "Data and APIs",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "database",
+        "migration",
+        "zero-downtime",
+        "schema-evolution"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            20
+          ]
+        }
+      ],
+      "quick": "Expand and contract changes a schema or contract in backward-compatible steps so old and new application versions can run together. First expand: add the new column or structure without breaking existing readers. Then migrate data and update consumers to write and read the new shape, often writing to both for a while. Finally contract: remove the old structure in a later, separate release once nothing uses it. This enables zero-downtime deployments and safe rollback.",
+      "revision": "Expand with a backward-compatible addition, migrate data and consumers, then contract by removing the old shape later. Keeps old and new versions compatible and rollbacks safe.",
+      "detailed": "Rolling deployments mean old and new application versions run at the same time against one database, so a schema change must be compatible with both. **Expand and contract** (also called parallel change) achieves that by splitting a breaking change into safe steps.\n\n## The phases\n\n1. **Expand.** Add the new structure alongside the old one: a new nullable column, a new table, a new field. Nothing existing breaks.\n2. **Dual write / migrate.** Deploy code that writes both shapes (or use a trigger), and **backfill** existing rows in batches.\n3. **Switch reads.** Deploy code that reads the new shape. Verify with metrics or comparison queries.\n4. **Contract.** After all versions that need the old shape are gone, stop writing it and drop it in a later release.\n\n{{diagram:ec}}\n\n## Example: renaming a column (hypothetical)\n\nRenaming full_name to display_name directly would break running instances that still use the old name.\n\n```sql\n-- Release 1: expand\nALTER TABLE users ADD COLUMN display_name text;\n\n-- Release 2 code writes both columns; backfill in batches\nUPDATE users SET display_name = full_name\nWHERE display_name IS NULL AND id BETWEEN 1 AND 10000;\n\n-- Release 3 code reads display_name only\n\n-- Release 4: contract, once no running version reads full_name\nALTER TABLE users DROP COLUMN full_name;\n```\n\n## Practical rules\n\n- Never combine a breaking schema change and the code that depends on it in one deployment.\n- Keep new columns nullable or defaulted so old code can still insert.\n- Backfill in small batches to avoid long locks and replication lag.\n- Keep rollback possible until the contract step; after it, rollback needs a restore.\n- The same pattern applies to API fields, event schemas and message formats: add, migrate consumers, then remove.\n\nCommon mistakes: dropping the old column too early, forgetting a batch job or reporting query that still reads it, and running a locking ALTER on a very large table without checking the database's online-DDL behaviour.",
+      "diagrams": [
+        {
+          "id": "ec",
+          "title": "Expand and contract phases",
+          "alt": "Four phases in order: expand by adding the new structure, dual write and backfill, switch reads to the new structure, then contract by removing the old structure.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "a",
+              "label": "Expand: add new column"
+            },
+            {
+              "id": "b",
+              "label": "Dual write and backfill"
+            },
+            {
+              "id": "c",
+              "label": "Switch reads"
+            },
+            {
+              "id": "d",
+              "label": "Contract: drop old column"
+            }
+          ],
+          "edges": [
+            {
+              "from": "a",
+              "to": "b"
+            },
+            {
+              "from": "b",
+              "to": "c"
+            },
+            {
+              "from": "c",
+              "to": "d",
+              "label": "later release"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you backfill a very large table safely?",
+        "How does this apply to event or API schema changes?",
+        "What makes rollback harder after the contract phase?"
+      ],
+      "related": [
+        "when-to-use-a-database-index"
+      ]
+    },
+    {
+      "slug": "rest-vs-graphql",
+      "title": "REST versus GraphQL: how would an architect decide between them?",
+      "topic": "Data and APIs",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "rest",
+        "graphql",
+        "api-design",
+        "caching"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            20,
+            21
+          ]
+        }
+      ],
+      "quick": "REST exposes resource-oriented endpoints with fixed response shapes, and benefits from HTTP caching, simple tooling and clear per-endpoint governance. GraphQL gives clients a single schema-based endpoint where they request exactly the fields they need, which reduces over-fetching and round trips for varied clients such as several apps. The costs are caching, query-cost control, authorization per field and N+1 resolver problems. I choose by client diversity and data shape, not fashion.",
+      "revision": "REST: resource endpoints, strong HTTP caching and simplicity. GraphQL: client-shaped queries over one schema, fewer round trips, but harder caching, cost limits and authorization.",
+      "detailed": "Both are ways to expose data over HTTP. **REST** organises an API around resources and standard methods. **GraphQL** exposes a typed schema through (usually) one endpoint, and the client specifies the fields it wants.\n\n## Comparison\n\n| Aspect | REST | GraphQL |\n|---|---|---|\n| Response shape | Fixed by the server per endpoint | Chosen by the client per query |\n| Over- and under-fetching | Common, may need several calls or custom endpoints | Largely avoided |\n| Caching | HTTP caching and CDNs work naturally | Harder; needs persisted queries or client and server caches |\n| Versioning | URL or header versions | Schema evolution, deprecating fields |\n| Tooling | Ubiquitous, simple curl | Strong introspection, but needs GraphQL tooling |\n| Authorization | Per endpoint and resource | Per field and resolver, easy to miss |\n| Performance risk | Chatty clients | Expensive nested queries, N+1 resolvers |\n| Governance | Endpoint-level rate limits are easy | Needs query depth, complexity limits and cost analysis |\n\n## Example (hypothetical)\n\nA mobile app needs a product title and price; a web page needs descriptions, reviews and related items. With REST you might add several endpoints or send too much data to mobile. With GraphQL each client queries only what it needs:\n\n```graphql\nquery {\n  product(id: \"p-9\") {\n    title\n    price { amount currency }\n  }\n}\n```\n\n## When to choose which\n\n- **REST** for public and partner APIs, simple CRUD, cacheable content, and when HTTP semantics and caching are valuable.\n- **GraphQL** when many different clients need different slices of related data, or a backend-for-frontend aggregates several services.\n- They can coexist: GraphQL as an aggregation layer over REST or gRPC services.\n\n## Mitigations if you choose GraphQL\n\nUse depth and cost limits, persisted queries, dataloader-style batching to prevent N+1, per-field authorization, and caching by query hash or at the CDN for persisted queries.\n\nCommon mistakes: exposing the database schema directly through GraphQL, ignoring authorization on nested fields, and choosing it for a simple API with a single client.",
+      "followUps": [
+        "How do you prevent expensive GraphQL queries?",
+        "How would you cache GraphQL responses?",
+        "How do you version a REST API versus a GraphQL schema?"
+      ],
+      "related": [
+        "sse-vs-websockets",
+        "idempotency-and-idempotency-keys"
+      ]
+    },
+    {
+      "slug": "sse-vs-websockets",
+      "title": "Server-Sent Events versus WebSockets: when do you use each?",
+      "topic": "Data and APIs",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "sse",
+        "websockets",
+        "real-time",
+        "api"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            21
+          ]
+        }
+      ],
+      "quick": "Server-Sent Events provide one-way streaming from server to client over a plain HTTP connection, with automatic reconnection and event IDs built into the browser API. WebSockets give a persistent two-way channel, which suits chat, collaborative editing and games. I choose SSE for live feeds, notifications and progress updates where the client mostly listens, because it works well with HTTP infrastructure. I choose WebSockets when the client must also send frequent messages with low latency.",
+      "revision": "SSE: one-way server-to-client stream over HTTP with auto-reconnect. WebSockets: bidirectional persistent channel. Pick SSE for feeds and notifications, WebSockets for interactive two-way traffic.",
+      "detailed": "Both keep a connection open so the server can push data without polling, but they differ in direction, protocol and operational fit.\n\n## Comparison\n\n| Aspect | Server-Sent Events | WebSockets |\n|---|---|---|\n| Direction | Server to client only | Both ways |\n| Protocol | Regular HTTP, text/event-stream | Upgrades to the WebSocket protocol |\n| Reconnection | Built-in with Last-Event-ID for resuming | Must be implemented by the application |\n| Data format | Text (UTF-8), often JSON | Text or binary frames |\n| Proxies and load balancers | Generally friendly, behaves like HTTP | Needs upgrade support and sticky or long-lived connection handling |\n| Browser connection limits | Per-domain limits apply over HTTP/1.1 (HTTP/2 helps) | Not subject to the same limit |\n| Typical use | Live dashboards, notifications, progress, streaming logs | Chat, multiplayer, collaborative editing, trading UIs |\n\n{{diagram:rt}}\n\n## Minimal SSE example\n\n```js\n// browser\nconst es = new EventSource('/api/orders/stream');\nes.onmessage = (e) => console.log(JSON.parse(e.data));\n```\n\n```js\n// server response format (headers: Content-Type: text/event-stream)\n// id: 42\n// data: {\"orderId\":\"o-1\",\"status\":\"shipped\"}\n```\n\n## Decision guide\n\n- Does the client need to send frequent low-latency messages over the same channel? **WebSockets.**\n- Is it mostly the server telling the client things, and ordinary HTTP requests handle the rest? **SSE**, simpler to operate.\n- Binary data or custom protocol? **WebSockets.**\n\n## Operational points for both\n\n- Authenticate at connection time and re-check authorization for long-lived connections; tokens expire.\n- Send periodic heartbeats and handle reconnect with resume (event IDs or offsets).\n- Plan capacity for many concurrent open connections and apply backpressure.\n- Scaling out needs a pub/sub backplane so any server can push to any connected client.\n- Long polling remains a fallback where neither is available.",
+      "diagrams": [
+        {
+          "id": "rt",
+          "title": "Direction of traffic",
+          "alt": "With SSE, the server pushes events to the browser over one HTTP stream while the browser uses normal requests for input; with WebSockets, browser and server exchange messages in both directions on a single connection.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "b",
+              "label": "Browser"
+            },
+            {
+              "id": "s",
+              "label": "Server"
+            }
+          ],
+          "edges": [
+            {
+              "from": "s",
+              "to": "b",
+              "label": "SSE: events push"
+            },
+            {
+              "from": "b",
+              "to": "s",
+              "label": "HTTP requests"
+            },
+            {
+              "from": "b",
+              "to": "s",
+              "label": "WebSocket: messages both ways"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you scale WebSocket connections across several servers?",
+        "How does SSE resume after a dropped connection?",
+        "How do you secure long-lived connections?"
+      ],
+      "related": [
+        "rest-vs-graphql"
+      ]
+    },
+    {
+      "slug": "authentication-vs-authorization",
+      "title": "What is the difference between authentication and authorization?",
+      "topic": "Cloud, security and performance",
+      "difficulty": "beginner",
+      "type": "comparison",
+      "tags": [
+        "security",
+        "authentication",
+        "authorization",
+        "iam"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            21
+          ]
+        }
+      ],
+      "quick": "Authentication establishes who the caller is, for example by password, passkey, single sign-on or a signed token. Authorization decides what that identity is allowed to do on a particular resource. They are separate steps: a user can be authenticated and still be forbidden. I authenticate once at the edge, then authorize every request on the server against the specific action, resource and, in multi-tenant systems, tenant. Authentication failure is 401; an authorization failure is 403.",
+      "revision": "Authentication proves identity; authorization decides permitted actions for that identity on a resource. Never assume that being logged in means being allowed.",
+      "detailed": "**Authentication (authn)** answers \"who are you?\". **Authorization (authz)** answers \"what are you allowed to do?\". Confusing them is the root of many access-control vulnerabilities.\n\n## Comparison\n\n| | Authentication | Authorization |\n|---|---|---|\n| Question | Who is the caller? | May this caller perform this action on this resource? |\n| Mechanisms | Passwords, MFA, passkeys, OIDC/SSO, client certificates, API keys | Roles, attributes, policies, ACLs, ownership checks |\n| When | At login or connection, and token renewal | On every request or operation |\n| Failure response | 401 Unauthorized (really \"unauthenticated\") | 403 Forbidden |\n| Standards | OpenID Connect, SAML | OAuth 2.0 scopes (delegated access), policy engines |\n\n{{diagram:flow}}\n\n## Common pitfalls\n\n- **Broken object-level authorization.** The user is logged in and changes an ID in the URL (/orders/123) to read someone else's order. Always check ownership or permission for the specific resource.\n- Authorizing only in the frontend, which a caller can bypass.\n- Treating a valid token as permission without checking scopes, audience and tenant (see the JWT question).\n- Putting permission decisions only at the API gateway while internal services trust any request.\n- Letting stale permissions linger in long-lived tokens after a role is revoked.\n\n## Good practice\n\n- Centralise authorization logic (a policy layer or library) rather than scattering checks.\n- Apply **least privilege** and deny by default.\n- Log authorization decisions for sensitive actions.\n- Service-to-service calls need authentication and authorization too, using workload identity.\n\nExample (hypothetical): a user signs in with single sign-on (authentication). When they request an invoice, the service verifies they belong to the invoice's tenant and hold the billing-viewer role (authorization).",
+      "diagrams": [
+        {
+          "id": "flow",
+          "title": "Authentication then authorization",
+          "alt": "A request first goes through authentication to establish identity, then an authorization check against the action, resource and tenant, and only then reaches the business logic; failures return 401 or 403.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "r",
+              "label": "Request"
+            },
+            {
+              "id": "an",
+              "label": "Authenticate: who are you?"
+            },
+            {
+              "id": "az",
+              "label": "Authorize: may you do this?"
+            },
+            {
+              "id": "bl",
+              "label": "Business logic"
+            }
+          ],
+          "edges": [
+            {
+              "from": "r",
+              "to": "an"
+            },
+            {
+              "from": "an",
+              "to": "az",
+              "label": "identity"
+            },
+            {
+              "from": "az",
+              "to": "bl",
+              "label": "allowed"
+            },
+            {
+              "from": "an",
+              "to": "r",
+              "label": "401"
+            },
+            {
+              "from": "az",
+              "to": "r",
+              "label": "403"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "What is broken object-level authorization?",
+        "Where should authorization decisions be made in a microservice system?",
+        "What is the difference between OAuth 2.0 and OpenID Connect?"
+      ],
+      "related": [
+        "rbac-vs-abac",
+        "jwt-is-not-authorization"
+      ]
+    },
+    {
+      "slug": "rbac-vs-abac",
+      "title": "RBAC versus ABAC: how do you choose an authorization model?",
+      "topic": "Cloud, security and performance",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "rbac",
+        "abac",
+        "authorization",
+        "policy"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            21
+          ]
+        }
+      ],
+      "quick": "Role-based access control grants permissions through roles such as editor or billing admin, which is simple to understand, audit and administer. Attribute-based access control evaluates policies over attributes of the user, resource, action and context, such as department, data sensitivity, tenant or time, giving fine-grained, dynamic rules. I start with RBAC for coarse permissions and add attribute or relationship checks where rules depend on context, accepting extra policy complexity and testing effort.",
+      "revision": "RBAC assigns permissions via roles: simple and auditable. ABAC evaluates policies over user, resource and context attributes: flexible and fine-grained but harder to manage and test.",
+      "detailed": "Both are models for deciding whether a request is allowed. They are not mutually exclusive, and many systems combine them.\n\n## Role-based access control (RBAC)\n\nUsers are assigned **roles**, and roles carry **permissions**. An \"invoice-approver\" role may approve invoices. It is easy to reason about and review (\"who has this role?\"), and maps well to job functions.\n\nWeakness: **role explosion**. When rules depend on context (\"approve invoices only in my region, up to a limit\"), you create many narrow roles, and still cannot express everything.\n\n## Attribute-based access control (ABAC)\n\nA policy evaluates **attributes** of the subject (department, clearance), the resource (owner, classification, region), the action and the environment (time, device, location). Example: allow if user.department == resource.department and resource.classification <= user.clearance.\n\n```text\npermit(approve)\n  when subject.role == \"approver\"\n   and resource.region == subject.region\n   and resource.amount <= subject.approvalLimit\n```\n\n## Comparison\n\n| Aspect | RBAC | ABAC |\n|---|---|---|\n| Model | Subject to role to permission | Policy over attributes |\n| Granularity | Coarse to medium | Fine and contextual |\n| Administration | Easy, auditable | More complex, needs policy governance |\n| Dynamic rules | Weak | Strong |\n| Failure mode | Role explosion | Hard-to-predict policies, missing or untrusted attributes |\n| Typical fit | Admin consoles, internal tools, clear job functions | Multi-tenant data, regulated data, ownership and context rules |\n\n{{diagram:model}}\n\n## Practical advice\n\n- Start with RBAC for coarse capabilities; add attribute or relationship checks (ownership, tenant, region) for resource-level decisions.\n- Keep policy separate from code using a policy engine or a shared library, so it can be tested and audited.\n- Treat attributes as trusted input only if they come from a trusted source, not from the client.\n- Test policies with a matrix of allow and deny cases and log decisions.\n- Relationship-based models (for example \"owner of document\") are a third option often used for sharing features.",
+      "diagrams": [
+        {
+          "id": "model",
+          "title": "RBAC and ABAC decision inputs",
+          "alt": "RBAC decides from the user role alone, while ABAC decides in a policy engine from user, resource and context attributes; both end in allow or deny.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "u",
+              "label": "User"
+            },
+            {
+              "id": "ro",
+              "label": "Role"
+            },
+            {
+              "id": "at",
+              "label": "User, resource and context attributes"
+            },
+            {
+              "id": "pe",
+              "label": "Policy engine"
+            },
+            {
+              "id": "dc",
+              "label": "Allow or deny"
+            }
+          ],
+          "edges": [
+            {
+              "from": "u",
+              "to": "ro",
+              "label": "RBAC"
+            },
+            {
+              "from": "ro",
+              "to": "dc"
+            },
+            {
+              "from": "u",
+              "to": "at",
+              "label": "ABAC"
+            },
+            {
+              "from": "at",
+              "to": "pe"
+            },
+            {
+              "from": "pe",
+              "to": "dc"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "What is role explosion and how do you avoid it?",
+        "Where would you store and evaluate ABAC policies?",
+        "What is relationship-based access control?"
+      ],
+      "related": [
+        "authentication-vs-authorization",
+        "jwt-is-not-authorization"
+      ]
+    },
+    {
+      "slug": "jwt-is-not-authorization",
+      "title": "Why is a valid JWT not authorization by itself?",
+      "topic": "Cloud, security and performance",
+      "difficulty": "advanced",
+      "type": "conceptual",
+      "tags": [
+        "jwt",
+        "security",
+        "authorization",
+        "oauth"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            21
+          ]
+        }
+      ],
+      "quick": "A valid JWT only proves that a trusted issuer signed some claims and that the token has not expired. It does not say the caller may perform this specific action on this specific resource. The application must still validate issuer, audience, expiry and algorithm, check scopes or roles, and authorize against the requested resource and tenant. Claims may also be stale, since revoked permissions persist until expiry. So I treat a JWT as an authentication input, never a blanket permission.",
+      "revision": "A JWT proves signed claims, not permission. Validate issuer, audience, expiry and signature, then authorize the specific action, resource and tenant server-side; beware stale claims.",
+      "detailed": "A **JSON Web Token** is a signed container of claims (subject, issuer, audience, expiry, roles, scopes). Verifying the signature tells you the claims were issued by a party you trust and not altered. It tells you nothing about whether *this request* is allowed.\n\n## What validation must include\n\n| Check | Why |\n|---|---|\n| Signature and expected algorithm | Reject forged tokens and \"alg: none\" or algorithm-confusion tricks; pin allowed algorithms |\n| Issuer (iss) | Only accept tokens from your trusted identity provider |\n| Audience (aud) | A token issued for another API must not work here |\n| Expiry and not-before (exp, nbf) | Limits lifetime of a stolen token |\n| Token type and scopes | An access token's scope may not include the requested operation |\n\n## What validation does not give you\n\n- **Resource-level permission.** A token that says user 42 is an \"editor\" does not mean user 42 may edit order 9001. The service must check ownership or policy.\n- **Tenant boundaries.** In multi-tenant systems the tenant claim must be matched with the tenant of the resource being accessed.\n- **Fresh permissions.** If roles are embedded in the token, a revoked role stays effective until expiry. Use short lifetimes, refresh flows, or check live policy data for sensitive actions.\n- **Revocation.** Stateless tokens cannot be recalled unless you add deny lists or introspection.\n\n{{diagram:jwt}}\n\n## Common mistakes\n\n- Decoding a token without verifying the signature.\n- Skipping the audience check, so any token from the provider is accepted.\n- Trusting role claims supplied by the client in the request body rather than the verified token.\n- Storing long-lived tokens in places scripts can read.\n- Using the ID token (meant for the client) as an API access token.\n\nTreat the JWT as proof of authentication context and feed its verified claims into your authorization logic (RBAC, ABAC or ownership checks) for every request.",
+      "diagrams": [
+        {
+          "id": "jwt",
+          "title": "From verified token to authorization decision",
+          "alt": "A request with a JWT passes signature, issuer, audience and expiry validation, then verified claims feed an authorization check against the resource and tenant before the action is allowed.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "t",
+              "label": "Request with JWT"
+            },
+            {
+              "id": "v",
+              "label": "Validate signature, issuer, audience, expiry"
+            },
+            {
+              "id": "cl",
+              "label": "Verified claims"
+            },
+            {
+              "id": "az",
+              "label": "Authorize action, resource, tenant"
+            },
+            {
+              "id": "ok",
+              "label": "Allow or 403"
+            }
+          ],
+          "edges": [
+            {
+              "from": "t",
+              "to": "v"
+            },
+            {
+              "from": "v",
+              "to": "cl"
+            },
+            {
+              "from": "cl",
+              "to": "az"
+            },
+            {
+              "from": "az",
+              "to": "ok"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you revoke a JWT before it expires?",
+        "What is the difference between an ID token and an access token?",
+        "Where should a browser app store tokens?"
+      ],
+      "related": [
+        "authentication-vs-authorization",
+        "rbac-vs-abac"
+      ]
+    }
+  ]
+}

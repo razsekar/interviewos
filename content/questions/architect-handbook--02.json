@@ -1,0 +1,628 @@
+{
+  "category": "architect-handbook",
+  "questions": [
+    {
+      "slug": "identify-bounded-contexts",
+      "title": "How do you identify bounded contexts?",
+      "topic": "DDD and boundaries",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "ddd",
+        "bounded-context",
+        "context-map",
+        "microservices"
+      ],
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            8
+          ]
+        }
+      ],
+      "quick": "I look for areas with distinct business language, rules, data ownership and reasons to change. I talk with domain experts, map the business workflows, and note where the same word means different things, because that is usually a context boundary. Then I use a context map to describe how contexts relate. A bounded context is a model and ownership boundary, not automatically a microservice; deployment boundaries can follow later if independent operation is worthwhile.",
+      "revision": "Bounded contexts are boundaries of language, rules and ownership, found through domain conversations. Microservices are deployment boundaries, a separate decision.",
+      "detailed": "A **bounded context** is the boundary inside which a domain model and its language are consistent. Outside it, the same word may legitimately mean something else.\n\n## How to find them\n\n1. **Listen to the language.** If \"customer\" means a billing account to finance, a lead to sales and a ticket owner to support, those are probably separate contexts with separate models.\n2. **Map workflows** end to end (event storming or similar) and note where responsibility and vocabulary change hands.\n3. **Follow data ownership**: who is the authority for a fact and who may change it?\n4. **Watch change patterns**: parts that change for different reasons and at different speeds often belong apart.\n5. **Draw a context map** showing relationships: upstream/downstream, shared kernel, customer-supplier, conformist, or an anti-corruption layer.\n\n{{diagram:map}}\n\n## Context versus service\n\n| Concept | What it defines |\n|---|---|\n| Bounded context | Model, language and ownership boundary (logical) |\n| Module | Code boundary in a codebase |\n| Microservice | Deployable and runtime boundary |\n\nOne context can be a module in a monolith first. Several small services inside one context are possible, but usually a sign of over-splitting. Extract a context into its own service when independent release, scaling or isolation is genuinely needed.\n\n## Common mistakes\n\n- Drawing boundaries around technical layers or database tables instead of business capabilities.\n- Creating one shared \"customer\" model for every team, which becomes a lowest-common-denominator model that fits no one.\n- Assuming one context equals one service.\n- Doing it once on a whiteboard and never revisiting as understanding improves.\n\nExample (hypothetical): in an e-commerce domain, Catalogue, Ordering, Payments and Shipping each have their own model of \"product\" or \"order\", and exchange only the data the other side needs through contracts.",
+      "diagrams": [
+        {
+          "id": "map",
+          "title": "Example context map",
+          "alt": "Four bounded contexts for an e-commerce example: Catalogue feeds Ordering, Ordering sends payment requests to Payments and fulfilment requests to Shipping, each with its own model.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "c",
+              "label": "Catalogue context"
+            },
+            {
+              "id": "o",
+              "label": "Ordering context"
+            },
+            {
+              "id": "p",
+              "label": "Payments context"
+            },
+            {
+              "id": "s",
+              "label": "Shipping context"
+            }
+          ],
+          "edges": [
+            {
+              "from": "c",
+              "to": "o",
+              "label": "product data"
+            },
+            {
+              "from": "o",
+              "to": "p",
+              "label": "payment request"
+            },
+            {
+              "from": "o",
+              "to": "s",
+              "label": "fulfilment request"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you find aggregates inside a bounded context?",
+        "What is an anti-corruption layer and when do you need one?",
+        "When does a bounded context deserve its own microservice?"
+      ],
+      "related": [
+        "choose-an-aggregate-boundary",
+        "anti-corruption-layer",
+        "modular-monolith-vs-microservices"
+      ],
+      "sourceType": "enhanced"
+    },
+    {
+      "slug": "choose-an-aggregate-boundary",
+      "title": "How do you choose an aggregate boundary?",
+      "topic": "DDD and boundaries",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "ddd",
+        "aggregate",
+        "invariants",
+        "consistency"
+      ],
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            8
+          ]
+        }
+      ],
+      "quick": "I draw aggregates around business invariants that must be true within a single transaction, not around database tables or screens. I list the rules that must always hold, decide which data has to change atomically to protect them, and keep the aggregate as small as practical. Workflows that span aggregates use domain events or application-level orchestration with eventual consistency. If an aggregate becomes large or heavily contended, I revisit whether that invariant really needs immediate consistency.",
+      "revision": "Aggregate boundaries follow invariants that need transactional consistency. Keep them small, reference other aggregates by ID, and coordinate across them eventually.",
+      "detailed": "An **aggregate** is a cluster of objects treated as one unit for changes, with a single entry point, the aggregate root. Its boundary is the **consistency boundary**: inside it, invariants hold after every transaction.\n\n## A method\n\n1. **List invariants**: \"an order total equals the sum of its lines\", \"a seat cannot be sold twice\".\n2. **Decide which must be immediate** versus acceptable to settle shortly after (for example, loyalty points).\n3. **Group only the data needed** to enforce each immediate invariant in one aggregate.\n4. **Keep it small**: large aggregates cause lock contention, big loads and merge conflicts.\n5. **Reference other aggregates by identity**, not by holding the object.\n6. **Coordinate across aggregates** with domain events or an application service, accepting eventual consistency.\n\n{{diagram:agg}}\n\n## Example\n\n```ts\nclass Order {            // aggregate root\n  private lines: OrderLine[] = [];\n  addLine(sku: string, qty: number, price: Money) {\n    if (this.status !== 'DRAFT') throw new Error('Order is locked');\n    if (qty <= 0) throw new Error('Quantity must be positive');\n    this.lines.push(new OrderLine(sku, qty, price));\n  }\n  get total(): Money { /* sum of lines */ }\n}\n```\n\nThe Order protects \"no changes after submission\" and \"positive quantities\". It does **not** contain the Customer or the live stock level; it holds a `customerId`, and a stock reservation happens through an event or a separate aggregate.\n\n## Signals the boundary is wrong\n\n- Frequent concurrency conflicts on the same aggregate: it may be too large, or the invariant is stricter than the business needs.\n- Every operation loads huge graphs.\n- Transactions regularly modify several aggregates: the invariant may belong inside one, or consistency can be relaxed.\n- An **anemic model**: all rules live in services and the aggregate is just data, so nothing is actually protected.\n\n## Common mistakes\n\n- Making aggregates mirror the database schema or an entire screen.\n- Putting everything under one \"God\" root for convenience.\n- Ignoring the business: ask whether a few seconds of inconsistency is truly unacceptable.",
+      "diagrams": [
+        {
+          "id": "agg",
+          "title": "Aggregates and references",
+          "alt": "An Order aggregate with its root and order lines is one consistency boundary; it refers to a Customer aggregate and Stock aggregate only by ID, and coordination happens through domain events.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "r",
+              "label": "Order root + order lines (one transaction)"
+            },
+            {
+              "id": "c",
+              "label": "Customer aggregate"
+            },
+            {
+              "id": "s",
+              "label": "Stock aggregate"
+            },
+            {
+              "id": "e",
+              "label": "Domain event: OrderPlaced"
+            }
+          ],
+          "edges": [
+            {
+              "from": "r",
+              "to": "c",
+              "label": "customerId only"
+            },
+            {
+              "from": "r",
+              "to": "e",
+              "label": "publishes"
+            },
+            {
+              "from": "e",
+              "to": "s",
+              "label": "reserve stock (eventual)"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "When is eventual consistency between aggregates acceptable?",
+        "What is an anemic domain model and why is it a problem?",
+        "How would you diagnose an aggregate that is too large?"
+      ],
+      "related": [
+        "aggregate-root",
+        "identify-bounded-contexts",
+        "repository-pattern-when-useful"
+      ],
+      "sourceType": "enhanced"
+    },
+    {
+      "slug": "compare-architecture-options-without-false-precision",
+      "title": "How do you compare architecture options without false precision?",
+      "topic": "Decisions and ADRs",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "decision-matrix",
+        "trade-offs",
+        "sensitivity-analysis",
+        "poc"
+      ],
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            9
+          ]
+        }
+      ],
+      "quick": "I agree the decision criteria before scoring and separate hard constraints from preferences. Options that break a hard constraint are eliminated first. For the rest I compare with evidence and label assumptions. If I use a weighted matrix, weights are agreed beforehand and I run a sensitivity check to see whether small weight changes flip the result. If they do, the decision is sensitive, so I gather more evidence, perhaps with a proof of concept. A matrix structures discussion; it does not turn opinions into facts.",
+      "revision": "Fix criteria first, eliminate on hard constraints, score with cited evidence, then test sensitivity of weights. A matrix supports judgement, it does not replace evidence.",
+      "detailed": "Scores like \"Option B: 7.8 versus Option A: 7.4\" look scientific but usually hide subjective inputs. The goal is a **transparent, defensible comparison**, not a precise number.\n\n## Steps\n\n1. **Define criteria before looking at options**, tied to architecture drivers (latency, cost, team skills, compliance, operability, lock-in).\n2. **Split mandatory from preferred.** A hard constraint such as \"data must stay in region\" eliminates options outright; it should not be a weighted score that can be outvoted.\n3. **Include a simple baseline**, including \"do nothing\" or the existing approach.\n4. **Gather evidence**, not impressions: documentation, benchmarks on your workload, a small proof of concept, reference checks. Mark every score as measured, researched or assumed.\n5. **Agree weights in advance** with stakeholders, so they are not tuned to reach a favourite.\n6. **Run a sensitivity analysis**: nudge each weight and see whether the winner changes.\n\n## Example matrix (hypothetical, illustrative numbers)\n\n| Criterion | Weight | Option A | Option B |\n|---|---|---|---|\n| Operability | 3 | 4 | 3 |\n| Cost | 2 | 3 | 4 |\n| Team familiarity | 3 | 5 | 2 |\n| Scalability headroom | 2 | 3 | 5 |\n\nTotals: A = 12+6+15+6 = 39, B = 9+8+6+10 = 33. If the weights for operability and familiarity both drop to 1, A = 4+6+5+6 = 21 and B = 3+8+2+10 = 23, so B overtakes. That flip shows the decision depends on those two weights, so those are the ones to investigate before committing.\n\n{{diagram:flow}}\n\n## Common mistakes\n\n- Choosing the answer, then adjusting weights to justify it.\n- Treating a one-point score difference as meaningful.\n- Scoring unknowns as if known, rather than flagging them and proposing a spike.\n- Forgetting costs outside the build: operations, migration, training and lock-in.\n\nWhen missing evidence is the issue, a **time-boxed proof of concept** on the riskiest criterion is usually cheaper than debating.",
+      "diagrams": [
+        {
+          "id": "flow",
+          "title": "Comparison process",
+          "alt": "Steps from defining criteria, to eliminating options that break hard constraints, scoring the rest with evidence, testing weight sensitivity, and running a proof of concept if the result is sensitive.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "a",
+              "label": "Define criteria and weights"
+            },
+            {
+              "id": "b",
+              "label": "Eliminate on hard constraints"
+            },
+            {
+              "id": "c",
+              "label": "Score with evidence"
+            },
+            {
+              "id": "d",
+              "label": "Sensitivity check"
+            },
+            {
+              "id": "e",
+              "label": "Proof of concept if sensitive"
+            }
+          ],
+          "edges": [
+            {
+              "from": "a",
+              "to": "b"
+            },
+            {
+              "from": "b",
+              "to": "c"
+            },
+            {
+              "from": "c",
+              "to": "d"
+            },
+            {
+              "from": "d",
+              "to": "e",
+              "label": "result flips"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you handle missing evidence for an important criterion?",
+        "When is a proof of concept justified and when is it a delay tactic?",
+        "How do you stop stakeholders from tuning weights to their favourite?"
+      ],
+      "related": [
+        "what-goes-in-an-adr",
+        "postgresql-vs-mongodb",
+        "choose-kafka-rabbitmq-or-managed-queue"
+      ],
+      "sourceType": "enhanced"
+    },
+    {
+      "slug": "postgresql-vs-mongodb",
+      "title": "How do you decide between PostgreSQL and MongoDB?",
+      "topic": "Decisions and ADRs",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "postgresql",
+        "mongodb",
+        "databases",
+        "data-modeling"
+      ],
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            9
+          ]
+        }
+      ],
+      "quick": "I start from the data model and access patterns. PostgreSQL is a strong default for relational data, joins, constraints, transactions and reporting. MongoDB can suit document-shaped data accessed as whole aggregates, with structures that evolve. Both can handle many workloads, so I compare consistency needs, key queries, indexing, schema evolution, operations and team experience. I validate the critical queries and transaction patterns with realistic data instead of relying on generic scalability claims.",
+      "revision": "Choose by data relationships, access patterns, transaction needs and operational fit. Relational and constrained: PostgreSQL by default; document-shaped aggregate access: consider MongoDB.",
+      "detailed": "This is not a \"SQL versus NoSQL\" contest. Each database is a set of trade-offs, and both are mature. Decide from **how the data is shaped and accessed**.\n\n## Comparison\n\n| Aspect | PostgreSQL | MongoDB |\n|---|---|---|\n| Model | Tables, relations, constraints | Documents with nested structures |\n| Joins and ad-hoc queries | First-class, powerful SQL | Possible (lookup, aggregation pipeline) but less natural for many-to-many data |\n| Transactions | Mature multi-row ACID | Multi-document transactions supported, but data modelling usually aims to avoid needing them |\n| Schema | Enforced, migrations required | Flexible, with optional validation; discipline still needed |\n| Semi-structured data | JSON/JSONB columns available | Native |\n| Reporting and analytics | Strong fit | Needs more modelling effort |\n\nBoth can scale in different ways and both offer replication; \"MongoDB scales, PostgreSQL does not\" is not an accurate summary. Real limits depend on workload, schema, indexing and hosting.\n\n## Decision questions\n\n- Are entities highly related with integrity rules (billing, orders, inventory)? Lean **PostgreSQL**.\n- Is data read and written as a self-contained aggregate (a product document, content, a profile) with varying fields? **MongoDB** is a reasonable fit.\n- What consistency does the business need across records?\n- Which queries and reports are critical, and can they be served efficiently by the model?\n- What does the team operate well, and what is the managed-service story?\n\n## How to validate\n\nModel the three or four most important queries and the key transaction in each, load realistic volumes, and compare latency, index size and operational effort. Include migration cost.\n\n## Common mistakes\n\n- Choosing by popularity or by a vague \"we may need to scale\".\n- Using a document store for strongly relational data, then rebuilding joins in application code.\n- Using a relational database for highly variable documents without considering JSONB.\n- Adopting several databases (polyglot persistence) without a clear need that justifies the operational cost.",
+      "followUps": [
+        "What if the read volume is very high?",
+        "When would polyglot persistence be justified?",
+        "How would JSONB columns change your decision?"
+      ],
+      "related": [
+        "compare-architecture-options-without-false-precision",
+        "what-goes-in-an-adr",
+        "choose-an-aggregate-boundary"
+      ],
+      "sourceType": "enhanced"
+    },
+    {
+      "slug": "choose-kafka-rabbitmq-or-managed-queue",
+      "title": "How do you choose between Kafka, RabbitMQ and a managed queue?",
+      "topic": "Decisions and ADRs",
+      "difficulty": "advanced",
+      "type": "comparison",
+      "tags": [
+        "kafka",
+        "rabbitmq",
+        "messaging",
+        "queues"
+      ],
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            9
+          ]
+        }
+      ],
+      "quick": "I first decide the messaging model: a replayable event stream, flexible message routing, or a simple work queue. Then I compare ordering, retention and replay, delivery behaviour, consumer independence, throughput, ecosystem, operations and cost. Kafka suits durable event streams with replay and many independent consumers. RabbitMQ suits flexible routing and task queues. A managed queue reduces operational burden for decoupled work. I choose on required semantics and operating model, not just peak throughput.",
+      "revision": "Pick the messaging model first: log with replay (Kafka), routed task messages (RabbitMQ), or low-ops work queue (managed). Then compare ordering, retention, operations and cost.",
+      "detailed": "The question is not \"which broker is fastest\" but \"what messaging semantics does the system need, and who will run it?\"\n\n## Three models\n\n| Aspect | Kafka (distributed log) | RabbitMQ (message broker) | Managed queue (for example a cloud queue service) |\n|---|---|---|---|\n| Core idea | Append-only partitioned log; consumers track offsets | Exchanges route messages to queues; consumers acknowledge | Simple hosted queue or topic |\n| Retention and replay | Retained by policy; replay by resetting offsets | Messages normally removed after acknowledgement (a streams feature exists) | Typically removed after processing; retention is limited |\n| Multiple independent consumers | Natural (consumer groups) | Via separate queues bound to an exchange | Often via topics or fan-out add-ons |\n| Routing | Topic and partition key | Rich: direct, topic, headers, fanout | Basic |\n| Ordering | Per partition | Per queue, affected by competing consumers and retries | Depends on product; strict ordering is often a special queue type |\n| Operations | Significant unless managed | Moderate | Lowest |\n\nDetails vary by product, version and hosting, so verify against the specific service you would use.\n\n{{diagram:choice}}\n\n## Questions that drive the choice\n\n- Do consumers need to **replay history** or add new consumers later? Favours a log.\n- Is it mostly **task distribution** with routing rules, priorities or delays? Favours a broker or managed queue.\n- What ordering is required, and per which key?\n- How is **duplicate delivery** handled? Assume at-least-once everywhere and design idempotent consumers.\n- Does the team have the capacity to run a cluster, or should it use a managed offering?\n- Cost at the expected volume, retention and number of consumers.\n\n## Common mistakes\n\n- Picking Kafka for a few thousand background jobs a day because it is popular.\n- Expecting a queue to provide a replayable audit history.\n- Assuming ordering across all messages without choosing a partition or ordering key.\n- Ignoring dead-letter handling and consumer lag monitoring.",
+      "diagrams": [
+        {
+          "id": "choice",
+          "title": "Choosing the messaging model",
+          "alt": "Decision flow: if replay and many independent consumers are needed, choose a log such as Kafka; if rich routing is needed, choose a broker such as RabbitMQ; otherwise a managed queue is enough.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "q",
+              "label": "What do you need?"
+            },
+            {
+              "id": "k",
+              "label": "Replayable stream, many consumers: Kafka"
+            },
+            {
+              "id": "r",
+              "label": "Rich routing, task queues: RabbitMQ"
+            },
+            {
+              "id": "m",
+              "label": "Simple decoupled work, low ops: managed queue"
+            }
+          ],
+          "edges": [
+            {
+              "from": "q",
+              "to": "k",
+              "label": "replay"
+            },
+            {
+              "from": "q",
+              "to": "r",
+              "label": "routing"
+            },
+            {
+              "from": "q",
+              "to": "m",
+              "label": "simplicity"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you prevent duplicate processing with any of these?",
+        "When does message ordering matter and how do you preserve it?",
+        "How would you handle a growing consumer lag?"
+      ],
+      "related": [
+        "when-is-event-driven-appropriate",
+        "outbox-pattern-and-limitations",
+        "compare-architecture-options-without-false-precision"
+      ],
+      "sourceType": "enhanced"
+    },
+    {
+      "slug": "what-goes-in-an-adr",
+      "title": "What goes in an ADR and when do you revisit it?",
+      "topic": "Decisions and ADRs",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "adr",
+        "documentation",
+        "governance",
+        "decisions"
+      ],
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            8,
+            9,
+            20
+          ]
+        }
+      ],
+      "quick": "An ADR records one consequential decision: title and status, context and drivers, options considered including a simple baseline, the decision and rationale, and consequences covering benefits, costs and risks. I also add security and compliance implications, a rollout and rollback plan, how we will validate it, and explicit revisit conditions. I revisit it when those triggers occur, such as a threshold being crossed, an assumption proving false, or the context changing. Superseded ADRs stay, marked as such.",
+      "revision": "An ADR captures context, drivers, options, decision, consequences, validation and revisit triggers. Revisit on triggers, and supersede rather than delete old records.",
+      "detailed": "An **Architecture Decision Record** is a short document that captures *why* a significant decision was made, so future readers do not have to guess or reverse it blindly. One ADR, one decision.\n\n## Template\n\n| Section | Content |\n|---|---|\n| Title, ID, status | Short title; status is proposed, accepted, deprecated or superseded |\n| Context | Business outcome, constraints and architecture drivers |\n| Decision drivers | Mandatory requirements and weighted preferences |\n| Options considered | Include a simple baseline and \"do nothing\" where relevant |\n| Decision | The selected option and the rationale |\n| Consequences | Benefits, costs, risks and operational impact |\n| Security, privacy, compliance | Implications and required controls |\n| Migration and rollout | Rollout steps, rollback and compatibility plan |\n| Validation | Tests, metrics, evidence and success criteria |\n| Revisit conditions | Events or thresholds that should reopen the decision |\n\n{{diagram:life}}\n\n## When to revisit\n\nDecide the triggers up front, for example \"if peak volume exceeds N requests per second\", \"if the vendor changes pricing model\", \"if the team grows beyond three squads\", or \"if the validation metric is missed for two releases\". Also revisit when a key **assumption** turns out to be false or when the technology landscape changes materially.\n\n## Practices\n\n- Keep ADRs in the repository next to the code, reviewed through pull requests.\n- Never rewrite history: when a decision changes, add a new ADR that **supersedes** the old one and link both.\n- Write for a reader who joins in a year: explain the context, not just the outcome.\n- Reserve ADRs for architecturally significant decisions; use lightweight records for the rest.\n\n## Common mistakes\n\n- Recording only the decision, with no rejected options or reasons.\n- Writing it after the fact as justification.\n- Long documents nobody reads; two pages is plenty.\n- No revisit conditions, so a decision made for old constraints lives on unquestioned.",
+      "diagrams": [
+        {
+          "id": "life",
+          "title": "ADR lifecycle",
+          "alt": "An ADR moves from proposed to accepted, then is monitored against its revisit conditions; when a trigger fires it is marked superseded and a new ADR replaces it.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "p",
+              "label": "Proposed"
+            },
+            {
+              "id": "a",
+              "label": "Accepted"
+            },
+            {
+              "id": "m",
+              "label": "Monitor revisit conditions"
+            },
+            {
+              "id": "s",
+              "label": "Superseded by a new ADR"
+            }
+          ],
+          "edges": [
+            {
+              "from": "p",
+              "to": "a",
+              "label": "review"
+            },
+            {
+              "from": "a",
+              "to": "m"
+            },
+            {
+              "from": "m",
+              "to": "s",
+              "label": "trigger fires"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Which decisions deserve an ADR?",
+        "How do you keep ADRs from going stale?",
+        "How do you write revisit conditions that are actually testable?"
+      ],
+      "related": [
+        "is-it-an-architectural-decision",
+        "compare-architecture-options-without-false-precision",
+        "architecture-fitness-function"
+      ],
+      "sourceType": "enhanced"
+    },
+    {
+      "slug": "architecture-vs-design",
+      "title": "What is the difference between architecture and design?",
+      "topic": "Architecture fundamentals",
+      "difficulty": "beginner",
+      "type": "comparison",
+      "tags": [
+        "architecture",
+        "design",
+        "fundamentals"
+      ],
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            19
+          ]
+        }
+      ],
+      "quick": "Architecture covers the consequential structures and decisions: boundaries, data ownership, communication style, deployment and the quality attributes they enable. Design specifies local implementation: class structure inside a module, algorithms, method signatures. The boundary is not fixed. It depends on impact and the cost of change, so a choice that is design in one system may be architectural in another. A useful test is how expensive and how widely felt a wrong choice would be.",
+      "revision": "Architecture is the hard-to-change, wide-impact structure and decisions; design is local implementation. The line moves with impact and cost of change.",
+      "detailed": "There is no sharp line, and interviewers usually want to hear that. A practical distinction: **architecture is about decisions that are costly to change or that affect many parts; design is about decisions whose effects stay local**.\n\n## Comparison\n\n| Aspect | Architecture | Design |\n|---|---|---|\n| Scope | System or several components | One module, class or function |\n| Concerns | Boundaries, data ownership, communication, deployment, security, quality attributes | Algorithms, class structure, internal APIs |\n| Cost of change | High, affects several teams | Low to moderate, local |\n| Typical artefacts | Context and container views, ADRs, contracts | Class and sequence sketches, code |\n| Who decides | Architect with teams and stakeholders | Developers, often within guardrails |\n\n## Examples\n\n- **Architecture**: whether pricing is a separate service, whether the database is shared between modules, whether requests are synchronous or event-driven.\n- **Design**: how the pricing module splits into classes, whether to use a strategy or a simple function, what the internal method signatures are.\n- **Blurred**: choosing a caching library. For a small internal tool it is a design choice; if cache behaviour governs consistency and cost for the whole platform, it is architectural.\n\n## Why the distinction matters\n\nIt tells you where to spend review effort and where to trust teams. Architecture warrants shared decision-making, documentation and validation; design is better left to the people closest to the code, inside agreed principles.\n\n## Common mistakes\n\n- Treating architecture as the \"big picture\" drawn once, rather than the set of decisions that stay costly to change.\n- Architects dictating internal design, or developers making wide-impact choices without realising.\n- Debating the label instead of asking \"how expensive is it to undo, and who does it affect?\"",
+      "followUps": [
+        "Give an example of a decision that sits on the boundary and explain how you would classify it.",
+        "How do you decide how much design to do up front?",
+        "Who should own design decisions inside a module?"
+      ],
+      "related": [
+        "is-it-an-architectural-decision",
+        "architecture-driver",
+        "what-does-technical-architect-do"
+      ],
+      "sourceType": "enhanced"
+    },
+    {
+      "slug": "architecture-driver",
+      "title": "What is an architecture driver?",
+      "topic": "Architecture fundamentals",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "architecture-driver",
+        "requirements",
+        "constraints",
+        "quality-attributes"
+      ],
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            3,
+            19
+          ]
+        }
+      ],
+      "quick": "An architecture driver is a requirement or constraint that materially shapes the design, so that ignoring it would lead to a different structure. Examples are strict tenant data isolation, a very low latency target, high availability, regulatory limits on where data lives, or the need for teams to deploy independently. I identify the few drivers early by asking which requirement would change the design most, and then use them to evaluate every option.",
+      "revision": "A driver is a functional need, quality attribute or constraint strong enough to change the design. Find the top few early and judge every option against them.",
+      "detailed": "An **architecture driver** is any requirement, quality attribute or constraint that **significantly influences architectural decisions**. Most requirements do not change the structure of a system; drivers do.\n\n## Kinds of drivers\n\n| Kind | Examples |\n|---|---|\n| Functional | A capability that needs special handling, such as real-time collaboration |\n| Quality attributes | p99 latency under 200 ms, 99.95 percent availability, auditability |\n| Technical constraints | Must run on an existing platform, mandated database, legacy integration |\n| Business constraints | Launch date, budget, team size and skills |\n| Regulatory and organisational | Data residency, certification, independent release cadences |\n\n## How a driver changes the design (examples)\n\n- **Strict tenant isolation** pushes towards separate schemas or databases, shapes backup and migration, and affects cost.\n- **Aggressive deadline with a small team** pushes towards a modular monolith and managed services.\n- **Data residency** forces regional deployment and constrains replication and analytics.\n\n## Finding them\n\n1. Gather requirements, then ask for each: \"if this were different, would the design change?\"\n2. Keep only the top three to five; a list of twenty drivers means nothing is prioritised.\n3. Express quality-related drivers as measurable scenarios.\n4. Write them at the top of the architecture document and ADRs, and rank them. Conflicts between drivers are where the trade-offs live.\n\n## Common mistakes\n\n- Treating every requirement as equally architectural.\n- Leaving drivers implicit, so each person optimises for a different one.\n- Missing non-functional drivers because stakeholders only describe features.\n- Not revisiting drivers when the business changes.\n\nExample (hypothetical): for a payroll product, \"payslips must be reproducible exactly as issued for seven years\" is a driver that affects data versioning, storage and rule management.",
+      "followUps": [
+        "How do you prioritise when two drivers conflict?",
+        "How do you turn a vague quality requirement into something testable?",
+        "What happens to the design if a driver changes mid-project?"
+      ],
+      "related": [
+        "quality-attribute-scenario",
+        "architecture-vs-design",
+        "architecture-with-incomplete-requirements"
+      ],
+      "sourceType": "enhanced"
+    },
+    {
+      "slug": "quality-attribute-scenario",
+      "title": "What is a quality attribute scenario?",
+      "topic": "Architecture fundamentals",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "quality-attributes",
+        "scenarios",
+        "requirements",
+        "testability"
+      ],
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            3,
+            19
+          ]
+        }
+      ],
+      "quick": "A quality attribute scenario makes a vague requirement such as \"it should be fast\" testable. It has a source, a stimulus, an artifact, an environment, a response and a response measure. For example, under normal load a user submits an order and the system confirms it within 400 milliseconds at the 95th percentile. Scenarios let me compare options, design tests, set SLOs and notice trade-offs between attributes.",
+      "revision": "A scenario states stimulus, environment, response and a measurable response measure, turning \"fast\" or \"secure\" into something you can test and compare.",
+      "detailed": "Words like \"scalable\", \"secure\" or \"fast\" mean different things to different people. A **quality attribute scenario** is a short structured statement that makes the requirement concrete and testable.\n\n## Parts\n\n| Part | Meaning | Example (hypothetical order service) |\n|---|---|---|\n| Source | Who or what generates the stimulus | A customer in the web app |\n| Stimulus | The event to respond to | Submits an order |\n| Artifact | The part of the system affected | Order service and database |\n| Environment | Conditions at the time | Normal operation, 300 requests per second |\n| Response | What the system does | Persists the order and confirms |\n| Response measure | How success is judged | 95th percentile latency under 400 ms, no lost orders |\n\n{{diagram:parts}}\n\n## Examples across attributes\n\n- **Availability**: when a payment provider times out during peak, orders still queue and the user sees a pending state; 99.9 percent of orders are accepted over a month.\n- **Modifiability**: a developer adds a new payment method; it takes under two weeks with no changes to the order core.\n- **Security**: an authenticated user from tenant A requests tenant B's invoice; the request is denied and logged in every case.\n- **Recoverability**: after a database failure, service resumes within 15 minutes with at most 5 minutes of data loss.\n\n## Why it helps\n\n- Exposes conflicts between attributes (low latency versus strong consistency).\n- Gives acceptance criteria for load, failure and security tests.\n- Feeds SLOs and fitness functions.\n- Lets stakeholders say \"that number is too strict, it costs too much\".\n\n## Common mistakes\n\n- A response measure with no number or unit.\n- Writing dozens of scenarios; pick the ones that drive the design.\n- Setting thresholds with no baseline or business reason.\n- Writing scenarios once and never checking them in production.",
+      "diagrams": [
+        {
+          "id": "parts",
+          "title": "Anatomy of a scenario",
+          "alt": "A source produces a stimulus on an artifact in an environment; the system gives a response which is judged by a response measure.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "s",
+              "label": "Source"
+            },
+            {
+              "id": "t",
+              "label": "Stimulus"
+            },
+            {
+              "id": "a",
+              "label": "Artifact in an environment"
+            },
+            {
+              "id": "r",
+              "label": "Response"
+            },
+            {
+              "id": "m",
+              "label": "Response measure"
+            }
+          ],
+          "edges": [
+            {
+              "from": "s",
+              "to": "t"
+            },
+            {
+              "from": "t",
+              "to": "a"
+            },
+            {
+              "from": "a",
+              "to": "r"
+            },
+            {
+              "from": "r",
+              "to": "m"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Write a scenario for availability of a checkout flow.",
+        "How do quality attribute scenarios become SLOs or tests?",
+        "How do you choose a response measure when no baseline exists?"
+      ],
+      "related": [
+        "architecture-driver",
+        "architecture-fitness-function",
+        "measure-architecture-success"
+      ],
+      "sourceType": "enhanced"
+    },
+    {
+      "slug": "architecture-fitness-function",
+      "title": "What is an architecture fitness function?",
+      "topic": "Architecture fundamentals",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "fitness-function",
+        "governance",
+        "architecture-drift",
+        "ci"
+      ],
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            3,
+            18,
+            19
+          ]
+        }
+      ],
+      "quick": "A fitness function is an automated or repeatable check that verifies an architectural property over time, so drift is caught early. Examples are a CI test that forbids the domain module from importing infrastructure code, a contract-compatibility check on an API, a performance budget in a load test, or a rule that no service reads another's database. It turns architectural intent into something enforceable instead of a diagram that people forget.",
+      "revision": "A fitness function automatically checks an architectural property, such as dependency rules or latency budgets, so drift from the intended design is detected early.",
+      "detailed": "Architectures decay slowly: a shortcut here, an extra dependency there. A **fitness function** is a check, ideally automated, that tells you whether the system still has a property you care about. It is the architectural equivalent of a unit test.\n\n## Examples\n\n| Property | Fitness function |\n|---|---|\n| Modularity | A dependency-rule test fails the build if the `billing` module imports from `orders` internals |\n| Layering | The domain package must not depend on web or database packages |\n| API compatibility | Contract tests or schema diff fail on a breaking change |\n| Performance | Load test fails if p95 exceeds the budget on a standard scenario |\n| Security | Scan fails the build on a high-severity dependency; every endpoint must declare authorization |\n| Operability | A deployment check requires health endpoints and dashboards |\n| Cost | Alert when cost per transaction rises above a threshold |\n\n## A small example\n\n```ts\n// Example dependency rule in a test (tool-agnostic pseudocode)\ntest('domain does not depend on infrastructure', () => {\n  const violations = findImports('src/domain').filter(i => i.startsWith('src/infrastructure'));\n  expect(violations).toEqual([]);\n});\n```\n\nReal projects commonly use dedicated tools for dependency rules (for example architecture-testing libraries for their language) rather than hand-written scans.\n\n## Types\n\n- **Atomic** (one property, such as dependency direction) versus **holistic** (several properties, such as end-to-end performance and security).\n- **Triggered** (on commit or pipeline run) versus **continuous** (monitoring in production, such as SLO alerts).\n\n## Common mistakes\n\n- Writing too many; each should protect a driver that really matters.\n- Brittle checks that teams learn to disable.\n- Failing builds on a metric with no agreed threshold or owner.\n- Checking only in CI, not in production where the real workload shows up.\n\nThey also support governance without a bottleneck: guardrails run automatically, so reviewers focus on genuinely new decisions.",
+      "followUps": [
+        "Give an example of a fitness function that protects modular monolith boundaries.",
+        "How do you decide the threshold for a performance fitness function?",
+        "How do fitness functions reduce the need for architecture review boards?"
+      ],
+      "related": [
+        "quality-attribute-scenario",
+        "modular-monolith-vs-microservices",
+        "measure-architecture-success"
+      ],
+      "sourceType": "enhanced"
+    }
+  ]
+}

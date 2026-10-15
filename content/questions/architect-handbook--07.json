@@ -1,0 +1,343 @@
+{
+  "category": "architect-handbook",
+  "questions": [
+    {
+      "slug": "rto-vs-rpo",
+      "title": "What is the difference between RTO and RPO?",
+      "topic": "Reliability and operations",
+      "difficulty": "beginner",
+      "type": "comparison",
+      "tags": [
+        "rto",
+        "rpo",
+        "disaster-recovery",
+        "reliability"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            21
+          ]
+        }
+      ],
+      "quick": "RTO, the recovery time objective, is the target time within which service must be restored after an outage. RPO, the recovery point objective, is the maximum acceptable window of data loss, measured back from the failure. A system with an RPO of five minutes needs backups or replication at least that frequent. I set both with the business based on the cost of downtime and data loss, then choose backup, replication and failover designs to meet them and test regularly.",
+      "revision": "RTO is how long you can be down; RPO is how much recent data you can lose. Set them from business impact, design to meet them, and rehearse recovery.",
+      "detailed": "Two numbers define a disaster-recovery requirement: **how long** recovery may take and **how much data** may be lost.\n\n- **RTO (Recovery Time Objective):** the maximum acceptable time from failure until service is restored.\n- **RPO (Recovery Point Objective):** the maximum acceptable age of data that can be lost, i.e. the gap between the last recoverable state and the moment of failure.\n\n{{diagram:rto}}\n\n## What each drives\n\n| Target | Drives |\n|---|---|\n| Short RTO | Standby capacity, automation, tested failover, pre-provisioned infrastructure |\n| Short RPO | Frequent backups, continuous replication, synchronous or near-synchronous copies |\n\n## Typical strategies (rough ordering by cost)\n\n| Strategy | RTO | RPO | Cost |\n|---|---|---|---|\n| Backup and restore | Hours | Hours (since last backup) | Lowest |\n| Pilot light (minimal core running elsewhere) | Tens of minutes to hours | Minutes | Low to moderate |\n| Warm standby (scaled-down copy running) | Minutes | Seconds to minutes | Moderate |\n| Active-active across regions | Near zero | Near zero, with consistency trade-offs | Highest |\n\nValues are indicative; real numbers depend on your tooling and testing.\n\n## Setting them sensibly\n\n1. Estimate the business cost per hour of downtime and per unit of lost data, by system tier.\n2. Agree targets per system, not one number for everything; a reporting job and a payment path differ.\n3. Check that dependencies meet them too; the system is only as recoverable as its slowest dependency.\n4. Compare targets with **measured** recovery in drills.\n\n## Common mistakes\n\n- Confusing RPO with RTO.\n- Stating targets that backups cannot meet, such as an RPO of one minute with nightly backups.\n- Never testing restores, so the real RTO is unknown.\n- Forgetting that replication copies corruption and deletes, so point-in-time backups are still needed.\n\nExample (hypothetical): an order system sets RTO of 30 minutes and RPO of 1 minute, which implies continuous replication to a warm standby and a rehearsed failover runbook.",
+      "diagrams": [
+        {
+          "id": "rto",
+          "title": "RPO and RTO on a timeline",
+          "alt": "A timeline: the last recoverable data point, then the failure, then service restored. The gap before the failure is the RPO and the gap after is the RTO.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "lp",
+              "label": "Last recoverable data point"
+            },
+            {
+              "id": "f",
+              "label": "Failure"
+            },
+            {
+              "id": "r",
+              "label": "Service restored"
+            }
+          ],
+          "edges": [
+            {
+              "from": "lp",
+              "to": "f",
+              "label": "RPO: data lost"
+            },
+            {
+              "from": "f",
+              "to": "r",
+              "label": "RTO: time down"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you meet an RPO of one minute?",
+        "How do you decide RTO and RPO with the business?",
+        "Why are replicas not a substitute for backups?"
+      ],
+      "related": [
+        "design-for-high-availability",
+        "sli-vs-slo-vs-sla"
+      ]
+    },
+    {
+      "slug": "sli-vs-slo-vs-sla",
+      "title": "What are SLI, SLO and SLA, and how are they related?",
+      "topic": "Reliability and operations",
+      "difficulty": "beginner",
+      "type": "comparison",
+      "tags": [
+        "sli",
+        "slo",
+        "sla",
+        "error-budget",
+        "observability"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            21
+          ]
+        }
+      ],
+      "quick": "An SLI, service level indicator, is a measurement of behaviour, such as the proportion of requests that succeed within 300 milliseconds. An SLO, service level objective, is the internal target for that indicator, such as 99.9 percent over 30 days. An SLA, service level agreement, is a contract with customers that specifies consequences, such as credits, if the commitment is missed. The SLO is set stricter than the SLA, and the gap becomes the error budget that guides release and reliability decisions.",
+      "revision": "SLI is the measured metric; SLO is the internal target for it; SLA is the customer contract with consequences. Keep SLOs stricter than SLAs and use the error budget.",
+      "detailed": "These three terms form a chain from measurement to promise.\n\n| Term | What it is | Example |\n|---|---|---|\n| **SLI** (indicator) | A quantitative measure of user-visible behaviour | Fraction of checkout requests returning success in under 400 ms |\n| **SLO** (objective) | The target for an SLI over a window | 99.9% of requests meet the SLI over 30 days |\n| **SLA** (agreement) | A contractual commitment with penalties | 99.5% monthly availability, otherwise service credits |\n\n{{diagram:chain}}\n\n## Choosing good SLIs\n\nMeasure what users experience: availability (successful responses), latency (percentile thresholds, not averages), correctness and freshness for data pipelines. Measure close to the user (at the load balancer or client), and define \"good event\" and \"valid event\" precisely.\n\n## Error budgets\n\nAn SLO of 99.9% over 30 days allows about 43 minutes of failure (0.1% of 43,200 minutes). That allowance is the **error budget**:\n\n- Budget remaining: ship features, take reasonable risks.\n- Budget burning fast or exhausted: slow releases, prioritise reliability work.\n\nThis turns the argument between speed and stability into a shared, data-driven rule.\n\n## Practical guidance\n\n- Set the SLO tighter than the SLA so you notice and fix problems before breaching the contract.\n- Alert on **burn rate** of the error budget rather than on every blip.\n- Not every service needs an SLA, but every important service benefits from SLOs.\n- Fewer, meaningful SLOs beat dozens of vanity metrics.\n- Aim for the realistic level; 100% is neither achievable nor economical, and each extra nine costs more.\n\nCommon mistakes: using averages as SLIs, copying an SLA number as the SLO with no margin, and measuring only server-side health while users see failures through a broken edge.",
+      "diagrams": [
+        {
+          "id": "chain",
+          "title": "From SLI to SLA",
+          "alt": "Measured SLI data is compared against an internal SLO target, whose slack forms the error budget, while the looser customer SLA is the contractual commitment with penalties.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "sli",
+              "label": "SLI: measured metric"
+            },
+            {
+              "id": "slo",
+              "label": "SLO: internal target"
+            },
+            {
+              "id": "eb",
+              "label": "Error budget"
+            },
+            {
+              "id": "sla",
+              "label": "SLA: customer contract"
+            }
+          ],
+          "edges": [
+            {
+              "from": "sli",
+              "to": "slo",
+              "label": "compared with"
+            },
+            {
+              "from": "slo",
+              "to": "eb",
+              "label": "allowed failure"
+            },
+            {
+              "from": "slo",
+              "to": "sla",
+              "label": "stricter than"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "What is an error budget policy?",
+        "Why use percentiles for latency SLIs?",
+        "How do you pick SLO targets for a new service?"
+      ],
+      "related": [
+        "rto-vs-rpo",
+        "p95-vs-average-latency"
+      ]
+    },
+    {
+      "slug": "multi-az-vs-multi-region",
+      "title": "Multi-AZ versus multi-region: what does each protect against?",
+      "topic": "Reliability and operations",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "multi-az",
+        "multi-region",
+        "availability",
+        "disaster-recovery"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            21
+          ]
+        }
+      ],
+      "quick": "Multi-AZ spreads a workload across separate availability zones within one region, protecting against a data-centre or zone failure with low latency between zones, so synchronous replication is practical. Multi-region protects against a whole-region outage, supports data residency and users in distant locations, but adds replication lag, data-consistency choices, routing complexity and cost. I use multi-AZ as the default for production and add multi-region only when the RTO, RPO or compliance requirement justifies it.",
+      "revision": "Multi-AZ survives a zone failure within a region at modest cost; multi-region survives regional loss but adds data consistency, routing and cost complexity. Choose by RTO, RPO and need.",
+      "detailed": "An **availability zone (AZ)** is an isolated location within a cloud region, with independent power, cooling and networking, connected to its sibling zones by fast, low-latency links. A **region** is a geographic area containing several AZs.\n\n## Comparison\n\n| Aspect | Multi-AZ | Multi-region |\n|---|---|---|\n| Protects against | Zone or data-centre failure, many infrastructure faults | Regional outage, regional service failure, large-scale disaster |\n| Latency between sites | Typically low (single-digit milliseconds) | Tens to hundreds of milliseconds |\n| Data replication | Often synchronous, can be automatic and managed | Usually asynchronous, with replication lag and conflict decisions |\n| Complexity | Low to moderate | High: routing, data consistency, deployment, testing |\n| Cost | Moderate | Substantially higher |\n| Other benefits | Rolling maintenance without downtime | Lower latency to distant users, data residency |\n\n{{diagram:az}}\n\n## Modes of multi-region\n\n- **Backup and restore or pilot light:** cheaper, longer RTO.\n- **Active-passive (warm standby):** a standby region takes over on failure.\n- **Active-active:** both regions serve traffic. Needs conflict handling, global routing and careful data design, and raises the CAP-style consistency trade-offs.\n\n## What neither protects against\n\nApplication bugs, bad releases, expired shared certificates, misconfiguration replicated everywhere and data corruption. Multi-region adds more places for configuration drift to hide.\n\n## How to decide\n\n1. Start from the business RTO and RPO and from compliance requirements.\n2. Use **multi-AZ** by default for production services; it covers most common failures.\n3. Add **multi-region** if a regional outage would be unacceptable, for residency, or for global latency.\n4. Check dependencies: a multi-region app that depends on a single-region service is not multi-region.\n5. Rehearse failover; untested multi-region setups commonly fail when needed.",
+      "diagrams": [
+        {
+          "id": "az",
+          "title": "Zones inside regions",
+          "alt": "Two regions each contain two availability zones with application instances; a database replicates synchronously across zones inside a region and asynchronously between the regions.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "za1",
+              "label": "Region 1, zone A"
+            },
+            {
+              "id": "za2",
+              "label": "Region 1, zone B"
+            },
+            {
+              "id": "zb1",
+              "label": "Region 2, zone A"
+            },
+            {
+              "id": "zb2",
+              "label": "Region 2, zone B"
+            }
+          ],
+          "edges": [
+            {
+              "from": "za1",
+              "to": "za2",
+              "label": "synchronous, low latency"
+            },
+            {
+              "from": "za1",
+              "to": "zb1",
+              "label": "asynchronous, higher latency"
+            },
+            {
+              "from": "zb1",
+              "to": "zb2",
+              "label": "synchronous"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "What makes active-active across regions hard?",
+        "How do you route users to a healthy region?",
+        "Which requirement would make you add a second region?"
+      ],
+      "related": [
+        "design-for-high-availability",
+        "rto-vs-rpo"
+      ]
+    },
+    {
+      "slug": "p95-vs-average-latency",
+      "title": "Why use p95 latency instead of average latency?",
+      "topic": "Cloud, security and performance",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "latency",
+        "percentiles",
+        "performance",
+        "slo"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            21
+          ]
+        }
+      ],
+      "quick": "The p95 latency is the value that 95 percent of requests are faster than, so it shows tail behaviour that an average hides. Latency distributions are skewed: a few very slow requests barely move the mean but are what users notice, and with many calls per page the tail dominates. I track p50, p95 and p99, set SLOs on percentiles, and look at histograms. I never average percentiles across servers; I aggregate histograms instead.",
+      "revision": "p95 is the latency below which 95% of requests fall, exposing the slow tail that averages hide. Track p50, p95 and p99, and aggregate histograms, not averages of percentiles.",
+      "detailed": "The **average** (mean) latency adds all response times and divides by the count. Latency distributions are usually long-tailed, so the mean is dominated by the bulk of fast requests and says little about the slow ones.\n\n## Example (hypothetical)\n\n100 requests: 95 take 100 ms and 5 take 3000 ms.\n\n| Statistic | Value |\n|---|---|\n| Mean | (95 x 100 + 5 x 3000) / 100 = 245 ms |\n| p50 (median) | 100 ms |\n| p95 | about 100 ms to 3000 ms, at the boundary |\n| p99 | 3000 ms |\n\nThe mean of 245 ms suggests a healthy service, yet 5 percent of users wait three seconds. The p99 exposes it.\n\n## Why tails matter\n\n- Users remember the slow experience, and heavy users (who make more requests) hit the tail more often.\n- **Fan-out amplifies the tail.** If a page makes 20 backend calls and each has a 1% chance of being slow, about 18% of pages will include a slow call (1 - 0.99^20).\n- Slow requests often indicate saturation, lock contention, garbage collection pauses or cold caches before averages move.\n\n## How to use percentiles correctly\n\n- Report **p50, p95 and p99** (and sometimes p99.9) together.\n- Define SLOs on percentiles: \"95% of requests complete within 300 ms\".\n- **Never average percentiles** across instances or time windows; merge histograms (or use a mergeable sketch) and compute the percentile on the merged data.\n- Use enough samples; p99 from 50 requests is noise.\n- Watch for **coordinated omission** in load tests, where a stalled test client under-reports slow responses.\n- Segment by endpoint, region and customer tier, because an aggregate percentile can hide one bad path.\n\nCommon mistakes: alerting on averages, plotting only the mean on dashboards, and optimising p50 while the tail grows.",
+      "followUps": [
+        "What is tail latency amplification in fan-out calls?",
+        "Why can you not average percentiles across servers?",
+        "Which percentile would you set an SLO on and why?"
+      ],
+      "related": [
+        "improve-a-slow-api",
+        "sli-vs-slo-vs-sla"
+      ]
+    },
+    {
+      "slug": "caching-can-make-things-worse",
+      "title": "When can caching make performance or correctness worse?",
+      "topic": "Cloud, security and performance",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "caching",
+        "performance",
+        "cache-stampede",
+        "invalidation"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            21
+          ]
+        }
+      ],
+      "quick": "Caching helps when reads are repeated and data tolerates staleness, but it can backfire. It can serve stale or wrongly shared data, make invalidation complex, use memory that causes evictions, and add another failure path. A cache stampede, where many requests miss at once and hit the database, can cause an outage. Low hit rates add latency for nothing. I cache only measured hot paths, set TTLs and keys deliberately, protect against stampedes, and monitor hit rate.",
+      "revision": "Caching can add staleness, invalidation bugs, memory pressure, stampedes and extra failure paths. Measure first, choose TTL and keys deliberately, protect against stampedes, monitor hit ratio.",
+      "detailed": "A cache trades freshness and simplicity for speed. When the trade is wrong, the cache hurts. Know the failure modes before adding one.\n\n## Ways caching goes wrong\n\n| Problem | What happens |\n|---|---|\n| Stale data | Users see old prices, permissions or balances; a revoked permission still works |\n| Invalidation complexity | Many writers and derived values make \"when to evict\" hard; bugs are subtle and intermittent |\n| Cache stampede (thundering herd) | A popular key expires and hundreds of requests hit the database together |\n| Cold start | After a deploy or restart, an empty cache sends full load to the origin |\n| Low hit ratio | Every request pays the cache lookup plus the origin call |\n| Memory pressure and eviction | Large or unbounded entries evict useful ones, causing churn |\n| Cross-tenant or cross-user leakage | A key missing the tenant or user dimension serves one person's data to another |\n| Hidden dependency | The system silently relies on the cache to meet load and falls over when it fails |\n| Negative or error caching | A transient error cached for too long becomes a long outage |\n\n{{diagram:stampede}}\n\n## Mitigations\n\n- **Prove the need:** measure the bottleneck and expected hit ratio first.\n- **Define freshness:** choose TTL by the business tolerance for staleness, and add jitter to TTLs so keys do not expire together.\n- **Stampede protection:** request coalescing (single-flight), a lock on refresh, serve-stale-while-revalidate, or probabilistic early refresh.\n- **Correct keys:** include tenant, user, locale and version where the content varies.\n- **Bound size** and set eviction policy deliberately.\n- **Plan for failure:** the system should degrade gracefully or protect the origin (rate limits) if the cache is cold or down.\n- **Observe:** hit ratio, eviction rate, latency and origin load.\n\n## Example (hypothetical)\n\nA product page caches a price for 24 hours. A promotion changes the price, but customers still see and are charged the old one. Shorter TTLs plus explicit invalidation on price change, with the final price always read from the source at checkout, fixes the correctness issue.\n\nCaching should never be the first response to a slow endpoint; it is an optimisation to apply after a measured diagnosis.",
+      "diagrams": [
+        {
+          "id": "stampede",
+          "title": "Cache stampede on expiry",
+          "alt": "A popular cached key expires, many concurrent requests miss the cache at once and all query the database, which becomes overloaded; request coalescing sends only one refresh.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "cl",
+              "label": "Many concurrent requests"
+            },
+            {
+              "id": "ca",
+              "label": "Cache, key expired"
+            },
+            {
+              "id": "co",
+              "label": "Request coalescing"
+            },
+            {
+              "id": "db",
+              "label": "Database"
+            }
+          ],
+          "edges": [
+            {
+              "from": "cl",
+              "to": "ca"
+            },
+            {
+              "from": "ca",
+              "to": "db",
+              "label": "all miss, overload"
+            },
+            {
+              "from": "ca",
+              "to": "co",
+              "label": "with protection"
+            },
+            {
+              "from": "co",
+              "to": "db",
+              "label": "one refresh"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you prevent a cache stampede?",
+        "How do you choose a TTL?",
+        "What should the system do when the cache is unavailable?"
+      ],
+      "related": [
+        "improve-a-slow-api",
+        "p95-vs-average-latency"
+      ]
+    }
+  ]
+}

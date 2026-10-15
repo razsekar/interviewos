@@ -1,0 +1,1024 @@
+{
+  "category": "architect-handbook",
+  "questions": [
+    {
+      "slug": "which-architecture-diagram-and-when",
+      "title": "Which architecture diagram would you use for which situation?",
+      "topic": "Diagrams and documentation",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "diagrams",
+        "c4",
+        "uml",
+        "documentation"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            9,
+            10
+          ]
+        }
+      ],
+      "quick": "I start from the question being asked and the audience, then pick the highest level of abstraction that answers it. A context or conceptual view suits executives, C4 container and component views suit engineers, a sequence diagram shows a request crossing services, an ERD shows data relationships, and a deployment diagram shows runtime placement and trust zones. Each type answers a different question, so they complement rather than replace each other. I add detail only when it resolves a decision or risk.",
+      "revision": "Pick the diagram from the question and audience: context for stakeholders, containers for structure, sequence for flows, ERD for data, state machine for lifecycle, deployment for runtime. Use the highest useful abstraction.",
+      "detailed": "Diagrams are tools for answering specific questions, not decoration. The rule of thumb: **start with the question and the audience, use the highest level of abstraction that answers it, and add detail only when it settles a decision or exposes a risk.**\n\n## Situation to diagram\n\n| Situation | Diagram | Typical audience | Common mistake |\n|---|---|---|---|\n| Explain the system to executives | Context or conceptual view | Business, leadership | Showing every class or cloud resource |\n| Show applications and data stores | C4 container | Engineers, product | Confusing a C4 \"container\" with a Docker container |\n| Explain a module's internals | C4 component or UML component | Engineers | Using it for every tiny detail |\n| Show a request across services | Sequence diagram | Developers, reviewers | Leaving out timeouts and error paths |\n| Show a business lifecycle (order, claim) | State machine | Domain and engineering | Drawing a flowchart when state invariants matter |\n| Show a workflow with decisions | Activity diagram or BPMN | Business and engineering | Ignoring exception paths |\n| Show data relationships | ERD or logical data model | Data and backend | Mixing logical entities with physical indexes |\n| Show data movement source to target | Data-flow or lineage diagram | Data, security | Omitting trust boundaries and data classification |\n| Show cloud networks and trust zones | Deployment or network topology | Cloud, DevOps, security | Generic boxes with no routes or boundaries |\n| Show events between services | Event-flow diagram plus sequence | Distributed systems team | Ignoring duplicates, ordering and replay |\n| Show current-to-target migration | Transition architecture or roadmap | Executives, delivery | Showing only the target and hiding transition risk |\n\n## How the views relate\n\nC4 gives a consistent zoom model (context, container, component, code). UML covers particular structures and behaviours, ERDs focus on data, BPMN on business process, and deployment diagrams on where things run. Treat them as lenses on one design.\n\n{{diagram:zoom}}\n\n## Habits that keep diagrams useful\n\n- Give every box an owner or responsibility; \"vague boxes\" invite arguments.\n- Label arrows with protocol, direction and sync/async nature.\n- Show failure paths and boundaries (trust, network, ownership) in the views where they matter.\n- Version diagrams with the code, ideally as text (for example Mermaid or PlantUML) so reviews can diff them.",
+      "diagrams": [
+        {
+          "id": "zoom",
+          "title": "Choosing the zoom level",
+          "alt": "A flow from system context down to containers, then to either component detail or a runtime view such as a sequence or deployment diagram, depending on the question.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "q",
+              "label": "Question and audience"
+            },
+            {
+              "id": "ctx",
+              "label": "Context view"
+            },
+            {
+              "id": "con",
+              "label": "Container view"
+            },
+            {
+              "id": "cmp",
+              "label": "Component view"
+            },
+            {
+              "id": "seq",
+              "label": "Sequence or deployment view"
+            }
+          ],
+          "edges": [
+            {
+              "from": "q",
+              "to": "ctx"
+            },
+            {
+              "from": "ctx",
+              "to": "con",
+              "label": "zoom in"
+            },
+            {
+              "from": "con",
+              "to": "cmp",
+              "label": "module detail"
+            },
+            {
+              "from": "con",
+              "to": "seq",
+              "label": "runtime detail"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "What should a diagram for a non-technical executive leave out?",
+        "When is a sequence diagram better than a flowchart?",
+        "How do you keep diagrams from going stale?"
+      ],
+      "related": [
+        "whiteboard-which-diagram-first",
+        "what-belongs-in-architecture-document"
+      ]
+    },
+    {
+      "slug": "whiteboard-which-diagram-first",
+      "title": "In a whiteboard interview, which diagram do you draw first and why?",
+      "topic": "Diagrams and documentation",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "whiteboard",
+        "c4",
+        "system-design",
+        "diagrams"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            10
+          ]
+        }
+      ],
+      "quick": "I begin with the system boundary and the business problem, so I draw a context diagram showing users and external dependencies. Next comes a container view with the main applications, services and data stores. Then I draw a sequence for the most critical flow. I only add a data model, deployment view or trust-boundary view when integrity, infrastructure or security is central to the question. Drawing every view wastes time; each diagram should answer a question the interviewer has.",
+      "revision": "Context first, containers second, then the critical runtime flow. Add data, deployment or security views only when they clarify a decision or risk.",
+      "detailed": "In a whiteboard setting the goal is shared understanding quickly, so the order of diagrams matters as much as their content. A reliable sequence is **context, containers, critical flow, then risk-driven views**.\n\n## The order\n\n1. **Clarify and bound the problem.** Ask about users, scale, constraints and success criteria. Write two or three of them in a corner of the board.\n2. **Context diagram.** The system as one box, the people who use it, and the external systems it depends on. This agrees the boundary and surfaces integrations early.\n3. **Container diagram.** The main deployable parts: web or mobile clients, APIs, background workers, databases, queues, caches. Label each arrow with protocol and sync/async.\n4. **Critical-flow sequence.** Pick the one scenario that carries the most risk or value (for example placing an order or processing a payment) and walk it step by step, including a failure path.\n5. **Risk-driven views.** Add only what the conversation needs:\n   - a data model when integrity or ownership is central,\n   - a deployment or network view when availability, regions or isolation matter,\n   - a trust-boundary and data-flow view when security or compliance is the question.\n\n{{diagram:order}}\n\n## Why this works\n\n- It uses the highest abstraction first, so a wrong assumption is caught while it is cheap to fix.\n- It gives the interviewer natural places to probe, and you can zoom in where they point.\n- It shows you decide what to draw from the question, not from habit.\n\n## Common mistakes\n\n- Jumping straight into a database schema or a cloud resource list before the boundary is agreed.\n- Drawing boxes with no labelled arrows, so nobody can tell what talks to what.\n- Showing only the happy path.\n- Spending the whole time on one diagram and never reaching the failure or scaling discussion.\n\nExample (hypothetical): asked to design a ticket-booking site, you would draw users, payment provider and notification service around one box, then the web app, booking API, inventory store and queue, then walk the \"reserve seat\" flow including a payment timeout.",
+      "diagrams": [
+        {
+          "id": "order",
+          "title": "Diagram order on a whiteboard",
+          "alt": "Four steps in sequence: context diagram, container diagram, critical-flow sequence, then optional data, deployment or security views chosen by risk.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "a",
+              "label": "Context"
+            },
+            {
+              "id": "b",
+              "label": "Containers"
+            },
+            {
+              "id": "c",
+              "label": "Critical flow sequence"
+            },
+            {
+              "id": "d",
+              "label": "Data, deployment or security view"
+            }
+          ],
+          "edges": [
+            {
+              "from": "a",
+              "to": "b"
+            },
+            {
+              "from": "b",
+              "to": "c"
+            },
+            {
+              "from": "c",
+              "to": "d",
+              "label": "only if needed"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "When is a sequence diagram better than a flowchart?",
+        "What should an executive-level diagram omit?",
+        "How do you show a failure path without cluttering the board?"
+      ],
+      "related": [
+        "which-architecture-diagram-and-when",
+        "explain-architecture-to-cto-and-developer"
+      ]
+    },
+    {
+      "slug": "what-belongs-in-architecture-document",
+      "title": "What belongs in an architecture document?",
+      "topic": "Diagrams and documentation",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "documentation",
+        "adr",
+        "architecture-document"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            10
+          ]
+        }
+      ],
+      "quick": "I document what people need to understand, change, operate or audit the system. That means context and goals, drivers and constraints, boundaries, key runtime flows, data and API contracts, security, deployment, failure handling, observability, risks and the key decisions as ADRs. I layer it: a short overview for decision-makers and deeper views for implementers. Diagrams and contracts live in the repository next to the code so they are reviewed and updated with changes.",
+      "revision": "Document decisions and behaviour people must understand, change, operate or audit. Layer it by audience and keep it versioned beside the code.",
+      "detailed": "An architecture document is not a catalogue of everything; it records the **decisions and behaviour that people need to understand, change, operate or audit**. A useful way to scope it is to ask what a new engineer, an operator and a reviewer would each want to know.\n\n## Core contents\n\n| Section | What it answers |\n|---|---|\n| Context and goals | Why the system exists, who it serves, what success means |\n| Stakeholders and scope | Who cares, what is in and out |\n| Drivers and constraints | Quality attributes, regulations, budgets, deadlines, mandated technology |\n| System boundary and containers | The major parts and the external systems around them |\n| Runtime flows | Key scenarios, including failure paths |\n| Data and integration contracts | Data ownership, schemas, API and event contracts, versioning |\n| Deployment and infrastructure | Environments, networks, scaling and rollout |\n| Security | Trust boundaries, identity, data classification, audit |\n| Reliability and observability | Failure modes, SLOs, monitoring, runbooks |\n| Decisions (ADRs) | What was chosen, alternatives rejected, consequences |\n| Risks, migration, open questions | What is uncertain and how it will be resolved |\n\n## Make it layered\n\nProvide a one- or two-page overview for decision-makers, then deeper views (container, component, sequence, data) for implementers. Readers should be able to stop at the depth they need.\n\n## Keep it alive\n\n- Store it in the repository (docs-as-code) so changes are reviewed with the code.\n- Prefer text-based diagrams that can be diffed.\n- Link ADRs rather than restating them.\n- Assign an owner and review it at milestones or when a revisit condition fires.\n- Generate what can be generated (API reference from OpenAPI, schema docs from migrations).\n\n## Common mistakes\n\n- A single huge document that nobody reads, or one written once and never updated.\n- Describing only the target state and omitting migration.\n- Documenting how code works line by line instead of why the design is shaped this way.\n- Leaving out operations: who is paged, how to roll back, how to recover.",
+      "followUps": [
+        "How do you prevent architecture documentation from going stale?",
+        "When should an ADR be revisited?",
+        "How would the document differ for a regulated system?"
+      ],
+      "related": [
+        "which-architecture-diagram-and-when",
+        "govern-architecture-without-bottleneck"
+      ]
+    },
+    {
+      "slug": "govern-architecture-without-bottleneck",
+      "title": "How do you govern architecture without becoming a bottleneck?",
+      "topic": "Diagrams and documentation",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "governance",
+        "guardrails",
+        "adr",
+        "leadership"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            10,
+            11
+          ]
+        }
+      ],
+      "quick": "I prefer guardrails and automation over central approval for every decision. I publish clear principles, paved roads and templates, add automated conformance checks to the pipeline, and keep ADRs lightweight. I reserve deep review for high-impact choices such as trust boundaries, data ownership, regulated data or hard-to-reverse platform decisions. Teams decide locally inside those guardrails, and I track exceptions and revisit them instead of running a board that every small change must pass.",
+      "revision": "Govern by risk and guardrails, not universal approval: paved roads, automated checks, light ADRs, deep review only for high-impact or irreversible decisions.",
+      "detailed": "Architecture governance fails when it becomes a queue. The aim is to keep the system coherent and safe while letting teams move independently, so **scale the scrutiny to the risk and replace manual gates with guardrails.**\n\n## Building blocks\n\n- **Principles and paved roads.** A short set of principles plus ready-to-use templates, libraries and reference implementations so the compliant path is also the easiest.\n- **Automated conformance.** Linting, dependency and policy checks, infrastructure-as-code scanning, API contract checks and architecture tests in CI catch drift without a meeting.\n- **Lightweight ADRs.** A short record of context, options, decision and consequences, reviewed asynchronously.\n- **Risk-based review.** Mandatory deeper review only where the cost of error is high.\n- **Exception handling.** A visible, time-boxed way to deviate with an owner and an expiry.\n\n## What deserves mandatory review\n\n| Trigger | Why |\n|---|---|\n| New trust boundary or identity model | Security impact spans teams |\n| Data ownership or regulated data | Compliance and long-term coupling |\n| Hard-to-reverse platform choices | Switching costs are high |\n| Cross-team contracts | Many consumers depend on them |\n| Large cost or availability impact | Business exposure |\n\nEverything else (internal library choice, local refactoring, a new endpoint within the standards) should be the team's decision.\n\n{{diagram:risk}}\n\n## Making it work\n\n- Publish decision rights: who decides what, and the expected review turnaround.\n- Offer office hours or an advisory role rather than approval-by-default.\n- Measure the process: review lead time, number of exceptions, and recurring violations, which often reveal a standard that needs fixing.\n\n## Common mistakes\n\n- An architecture board that reviews everything, making teams route around it.\n- Standards with no automation, so compliance depends on reviewers' memory.\n- Exceptions granted informally and never revisited.",
+      "diagrams": [
+        {
+          "id": "risk",
+          "title": "Risk-based routing of decisions",
+          "alt": "A proposed change is checked against guardrails; low-risk changes proceed automatically, while high-impact ones go to architecture review and record an ADR.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "p",
+              "label": "Proposed change"
+            },
+            {
+              "id": "g",
+              "label": "Automated guardrails"
+            },
+            {
+              "id": "t",
+              "label": "Team decides"
+            },
+            {
+              "id": "r",
+              "label": "Architecture review"
+            },
+            {
+              "id": "a",
+              "label": "ADR recorded"
+            }
+          ],
+          "edges": [
+            {
+              "from": "p",
+              "to": "g"
+            },
+            {
+              "from": "g",
+              "to": "t",
+              "label": "low risk"
+            },
+            {
+              "from": "g",
+              "to": "r",
+              "label": "high impact"
+            },
+            {
+              "from": "r",
+              "to": "a"
+            },
+            {
+              "from": "t",
+              "to": "a",
+              "label": "brief note"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "What decisions need mandatory review?",
+        "How do you handle an exception request?",
+        "How do you know governance is slowing teams down?"
+      ],
+      "related": [
+        "what-belongs-in-architecture-document",
+        "engineer-repeatedly-bypasses-architecture"
+      ]
+    },
+    {
+      "slug": "saga-vs-two-phase-commit",
+      "title": "What is the difference between a Saga and two-phase commit?",
+      "topic": "Distributed systems",
+      "difficulty": "advanced",
+      "type": "comparison",
+      "tags": [
+        "saga",
+        "2pc",
+        "distributed-transactions",
+        "consistency"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            11
+          ]
+        }
+      ],
+      "quick": "Two-phase commit coordinates one atomic distributed transaction: a prepare phase, then commit or rollback everywhere. It gives strong atomicity but needs compatible participants and holds locks while the coordinator decides. A Saga splits a long business transaction into local transactions, each committed independently, and handles failure with compensating actions or explicit recovery. A Saga is eventually consistent and compensation is a new business action, not a perfect undo. I choose by consistency need, participant capabilities and availability constraints.",
+      "revision": "2PC gives atomic commit across participants at the cost of locks and coordination. Saga chains local transactions with compensation, giving eventual consistency, not automatic rollback.",
+      "detailed": "Both address a business operation that spans more than one data store or service, but they make opposite trade-offs.\n\n## Two-phase commit (2PC)\n\nA coordinator asks every participant to **prepare** (promise it can commit and hold its locks), then, if all agree, tells them to **commit**; otherwise it tells them to roll back. Participants must support the protocol (for example XA-style resource managers). The result is atomic, but:\n\n- locks stay held across the network round trips,\n- the coordinator is a critical component; a failure in the window between prepare and commit can leave participants blocked \"in doubt\",\n- availability drops because every participant must be reachable,\n- it is rarely supported by SaaS APIs, message brokers and many NoSQL stores.\n\n## Saga\n\nA Saga breaks the workflow into local transactions, each commits immediately. If a later step fails, earlier steps are undone with **compensating actions** (for example refund a payment, release a reservation) or the workflow is driven forward by retries and manual recovery. Coordination is either **orchestrated** by a central workflow component or **choreographed** through events.\n\n{{diagram:saga}}\n\n| Aspect | 2PC | Saga |\n|---|---|---|\n| Atomicity | All or nothing | Eventually consistent, intermediate states are visible |\n| Isolation | Locks held until commit | None by default; needs countermeasures |\n| Failure handling | Rollback | Compensation or forward recovery |\n| Availability | Lower | Higher |\n| Fit | Few homogeneous resources, short transactions | Long-running, cross-service, heterogeneous participants |\n\n## Practical points\n\n- Compensation is a **new business action**, and it may not perfectly reverse the original (an email already sent, a shipment already picked).\n- Steps and compensations must be idempotent and retryable.\n- Because intermediate states are visible, model them explicitly (\"payment pending\") and use semantic locks or reservations where needed.\n- If one service and one database can own the whole operation, a plain local transaction beats both. Redraw the boundary before reaching for either.\n\nExample (hypothetical): order placement reserves stock, charges the card and books shipping. If shipping fails, the Saga refunds the charge and releases the stock.",
+      "diagrams": [
+        {
+          "id": "saga",
+          "title": "Orchestrated Saga with compensation",
+          "alt": "An orchestrator calls reserve stock, charge payment and book shipping in order; if shipping fails it triggers refund payment and release stock as compensations.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "o",
+              "label": "Saga orchestrator"
+            },
+            {
+              "id": "s",
+              "label": "Reserve stock"
+            },
+            {
+              "id": "p",
+              "label": "Charge payment"
+            },
+            {
+              "id": "h",
+              "label": "Book shipping"
+            },
+            {
+              "id": "c1",
+              "label": "Refund payment"
+            },
+            {
+              "id": "c2",
+              "label": "Release stock"
+            }
+          ],
+          "edges": [
+            {
+              "from": "o",
+              "to": "s",
+              "label": "1"
+            },
+            {
+              "from": "s",
+              "to": "p",
+              "label": "2"
+            },
+            {
+              "from": "p",
+              "to": "h",
+              "label": "3"
+            },
+            {
+              "from": "h",
+              "to": "c1",
+              "label": "on failure"
+            },
+            {
+              "from": "c1",
+              "to": "c2"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "What happens if a compensating action itself fails?",
+        "Orchestration or choreography: how do you choose?",
+        "When is a local transaction enough?"
+      ],
+      "related": [
+        "duplicate-and-out-of-order-events",
+        "practical-meaning-of-cap"
+      ]
+    },
+    {
+      "slug": "duplicate-and-out-of-order-events",
+      "title": "How do you handle duplicate and out-of-order events?",
+      "topic": "Distributed systems",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "events",
+        "idempotency",
+        "ordering",
+        "messaging"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            11
+          ]
+        }
+      ],
+      "quick": "I assume delivery can repeat and arrive out of order. Each event gets a stable identifier, and where order matters a version or sequence number per entity. Consumers record processed IDs or use idempotent state transitions in the same transaction as the business effect. For ordering I define the partition key, then validate the sequence at the consumer and either buffer, retry later, or ignore stale events depending on the domain. I monitor duplicate rate, lag, poison messages and replay results.",
+      "revision": "Assume at-least-once delivery. Use event IDs plus idempotent handling in the same transaction as the effect, and version or sequence checks where order matters.",
+      "detailed": "Most brokers give **at-least-once** delivery, and ordering is usually guaranteed only within a partition or queue key. So consumers must be correct under duplicates and reordering by design.\n\n## Duplicates\n\n- Give every event a stable **event ID** (generated once by the producer, not per retry).\n- Make the handler idempotent. Two common ways: record processed IDs in a table, or express the effect as a state transition that is naturally repeatable (\"set status to shipped\").\n- Write the dedup record and the business change in the **same local transaction**; otherwise a crash between them recreates the problem.\n\n```sql\nBEGIN;\nINSERT INTO processed_events(event_id) VALUES ($1);  -- unique key; conflict means duplicate\nUPDATE accounts SET balance = balance + $2 WHERE id = $3;\nCOMMIT;\n```\n\n## Out-of-order events\n\n1. Choose an **ordering key** (for example the order ID) and route all events for that key to the same partition.\n2. Attach a **version or sequence number** per entity.\n3. At the consumer, compare against the stored version and decide:\n\n| Situation | Typical action |\n|---|---|\n| Event is the next expected version | Apply |\n| Version already applied or older | Ignore (stale) |\n| Gap detected | Buffer briefly, retry later, or fetch current state from the source |\n\nSome domains use \"last write wins\" by timestamp, but clocks drift, so sequence numbers are safer than wall-clock time.\n\n{{diagram:dedup}}\n\n## Operational safeguards\n\n- Bounded retries with backoff, then a dead-letter queue for poison events, so one bad message does not loop forever.\n- Retention for dedup records that matches the broker's replay window.\n- Metrics: duplicate rate, consumer lag, DLQ depth, replay outcome.\n- Test replays and reordering explicitly, not only the happy path.\n\nEvents can be safely discarded when they are stale relative to a newer state or when the consumer's view is fully rebuildable from a later snapshot. Decide this per domain, not globally.",
+      "diagrams": [
+        {
+          "id": "dedup",
+          "title": "Consumer deduplication and version check",
+          "alt": "An incoming event goes to the consumer, which checks processed IDs and the entity version; new in-order events are applied with the dedup record in one transaction, duplicates and stale events are ignored, and gaps are retried.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "e",
+              "label": "Incoming event"
+            },
+            {
+              "id": "c",
+              "label": "Consumer"
+            },
+            {
+              "id": "chk",
+              "label": "Check ID and version"
+            },
+            {
+              "id": "ap",
+              "label": "Apply and record in one transaction"
+            },
+            {
+              "id": "ig",
+              "label": "Ignore duplicate or stale"
+            },
+            {
+              "id": "rt",
+              "label": "Retry later or dead-letter"
+            }
+          ],
+          "edges": [
+            {
+              "from": "e",
+              "to": "c"
+            },
+            {
+              "from": "c",
+              "to": "chk"
+            },
+            {
+              "from": "chk",
+              "to": "ap",
+              "label": "next version"
+            },
+            {
+              "from": "chk",
+              "to": "ig",
+              "label": "seen or old"
+            },
+            {
+              "from": "chk",
+              "to": "rt",
+              "label": "gap or failure"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you avoid an infinite retry loop?",
+        "When can events be safely discarded?",
+        "How long should deduplication records be kept?"
+      ],
+      "related": [
+        "saga-vs-two-phase-commit",
+        "idempotency-and-idempotency-keys"
+      ]
+    },
+    {
+      "slug": "practical-meaning-of-cap",
+      "title": "What is the practical meaning of the CAP theorem?",
+      "topic": "Distributed systems",
+      "difficulty": "advanced",
+      "type": "conceptual",
+      "tags": [
+        "cap",
+        "consistency",
+        "availability",
+        "partition-tolerance"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            12
+          ]
+        }
+      ],
+      "quick": "CAP says that during a network partition a system cannot give every request both a strongly consistent answer and a response. I use it to reason about behaviour under failure, not to label a database as simply CP or AP. Real systems choose per operation, topology and configuration. So I ask what consistency each business operation needs, such as billing versus a product listing, and what the system should do when nodes cannot coordinate: reject, serve stale data, or queue the work.",
+      "revision": "CAP is about the trade-off during partitions: consistency or availability for a request. Decide per operation what behaviour is acceptable, rather than labelling whole databases.",
+      "detailed": "The CAP theorem states that when a **network partition** occurs, a distributed data system must choose between **consistency** (every read sees the latest write, in the linearizable sense) and **availability** (every non-failing node answers). Partition tolerance is not optional in a real network, so the practical question is: *what do we do when the partition happens?*\n\n## Common misreadings\n\n- \"Pick two of three\" at design time. Partitions are events you must survive, not a feature you opt out of.\n- \"This database is CP, that one is AP.\" Many systems let you tune behaviour per query, per consistency level or per region, and they behave differently with and without a partition.\n- CAP's \"consistency\" is not the same as ACID consistency, and its \"availability\" requires a response from every non-failing node, which is stricter than \"mostly up\".\n\n## Using it practically\n\nAsk per operation:\n\n| Operation | Needs | If partitioned |\n|---|---|---|\n| Debit an account, allocate the last seat | Strong consistency | Refuse or delay the request |\n| Show a product page, read a feed | Availability | Serve possibly stale data |\n| Add to cart | Either, with merge rules | Accept locally and reconcile |\n\n{{diagram:cap}}\n\n## Beyond CAP\n\nCAP says nothing about the normal, healthy case. **PACELC** extends it: if there is a **P**artition choose **A** or **C**; **E**lse (no partition) choose between **L**atency and **C**onsistency. This is why replicas that read locally are fast but may be stale even when nothing is broken.\n\n## Design implications\n\n- Define the consistency model per use case (strong, read-your-writes, eventual) and write it down.\n- Use quorum reads and writes, leader-based writes or consensus where the operation demands correctness.\n- Use idempotent writes, conflict resolution (versions, CRDTs, merge rules) and reconciliation where availability wins.\n- Communicate the user-visible behaviour: a clear error for a refused write is better than silent divergence.",
+      "diagrams": [
+        {
+          "id": "cap",
+          "title": "Decision during a partition",
+          "alt": "When a partition separates two nodes, an operation that needs strong consistency refuses or delays the request, while an operation that tolerates staleness serves local data and reconciles later.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "p",
+              "label": "Network partition"
+            },
+            {
+              "id": "d",
+              "label": "What does this operation need?"
+            },
+            {
+              "id": "c",
+              "label": "Refuse or delay request"
+            },
+            {
+              "id": "a",
+              "label": "Serve local data, reconcile later"
+            }
+          ],
+          "edges": [
+            {
+              "from": "p",
+              "to": "d"
+            },
+            {
+              "from": "d",
+              "to": "c",
+              "label": "strong consistency"
+            },
+            {
+              "from": "d",
+              "to": "a",
+              "label": "availability"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How does PACELC extend the discussion?",
+        "What consistency does billing require?",
+        "Where would eventual consistency be acceptable in an e-commerce system?"
+      ],
+      "related": [
+        "eventual-consistency-explained",
+        "saga-vs-two-phase-commit"
+      ]
+    },
+    {
+      "slug": "design-for-high-availability",
+      "title": "How do you design for high availability, and how does it differ from disaster recovery?",
+      "topic": "Reliability and operations",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "high-availability",
+        "disaster-recovery",
+        "rto",
+        "rpo",
+        "multi-az"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            12
+          ]
+        }
+      ],
+      "quick": "I start with an explicit availability target, measurement window, user-visible failure definition, RTO and RPO. Then I identify failure domains and single points of failure, and add redundancy, health checks, failover and dependency protections to match the target. Multi-AZ helps with infrastructure failures but not bad releases, shared credentials or data corruption, so I also use safe rollouts and backups. High availability keeps service running through small failures; disaster recovery restores service after a large loss. I test both.",
+      "revision": "HA keeps serving through component failures via redundancy and failover; DR restores after major loss within RTO and RPO. Define targets, remove single points of failure, and test recovery.",
+      "detailed": "High availability (HA) means the system keeps meeting its target despite failures of individual components. It starts with numbers, not technology.\n\n## Step 1: define the target and failure model\n\n- Availability target (for example 99.9%) and the window it is measured over.\n- What counts as \"down\" for a user (errors, latency beyond a threshold, degraded features).\n- **RTO** (how fast service must be restored) and **RPO** (how much recent data may be lost).\n- The failure domains you intend to survive: process, host, availability zone, region, dependency, bad deployment.\n\n## Step 2: remove single points of failure\n\n| Layer | Typical measures |\n|---|---|\n| Edge | Redundant load balancers, health checks, DNS or anycast failover |\n| Compute | Multiple instances across zones, autoscaling, stateless services |\n| Data | Replication with automated failover, tested backups, defined RPO |\n| Dependencies | Timeouts, retries with jitter, circuit breakers, bulkheads, graceful degradation |\n| Delivery | Canary or blue-green rollout, health gates, quick rollback |\n\n{{diagram:ha}}\n\n## What redundancy does not cover\n\nA multi-AZ setup does not protect against application bugs, a bad release, a shared expired certificate or credential, or data corruption that replication faithfully copies. Those need safe delivery practices, point-in-time backups and operational discipline.\n\n## HA versus DR\n\n| | High availability | Disaster recovery |\n|---|---|---|\n| Goal | Continue serving through component or zone failures | Restore service after a major loss (region outage, corruption, ransomware) |\n| Mechanism | Redundancy and automatic failover | Backups, replicas elsewhere, runbooks, rebuild |\n| Typical recovery | Seconds to minutes, often automatic | Minutes to hours, often with human decisions |\n| Cost | Ongoing capacity | Ongoing replication plus rehearsals |\n\n## Validate it\n\nMeasure real SLIs, run game days and failover drills, and test restores. A recovery procedure that has never been exercised is an assumption. Set RTO and RPO with the business: tighter targets cost more, so tie them to the cost of downtime.",
+      "diagrams": [
+        {
+          "id": "ha",
+          "title": "Failure domains in a highly available service",
+          "alt": "Traffic enters a load balancer that spreads requests across application instances in two availability zones, both using a replicated database with a primary and standby in different zones.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "u",
+              "label": "Users"
+            },
+            {
+              "id": "lb",
+              "label": "Load balancer with health checks"
+            },
+            {
+              "id": "a1",
+              "label": "App instances, zone A"
+            },
+            {
+              "id": "a2",
+              "label": "App instances, zone B"
+            },
+            {
+              "id": "pr",
+              "label": "Database primary, zone A"
+            },
+            {
+              "id": "st",
+              "label": "Standby replica, zone B"
+            }
+          ],
+          "edges": [
+            {
+              "from": "u",
+              "to": "lb"
+            },
+            {
+              "from": "lb",
+              "to": "a1"
+            },
+            {
+              "from": "lb",
+              "to": "a2"
+            },
+            {
+              "from": "a1",
+              "to": "pr"
+            },
+            {
+              "from": "a2",
+              "to": "pr"
+            },
+            {
+              "from": "pr",
+              "to": "st",
+              "label": "replication"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you set RTO and RPO with the business?",
+        "Why is multi-AZ not enough on its own?",
+        "How would you test that failover works?"
+      ],
+      "related": [
+        "rto-vs-rpo",
+        "multi-az-vs-multi-region"
+      ]
+    },
+    {
+      "slug": "improve-a-slow-api",
+      "title": "How do you diagnose and improve a slow API?",
+      "topic": "Cloud, security and performance",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "performance",
+        "latency",
+        "profiling",
+        "api"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            12,
+            13
+          ]
+        }
+      ],
+      "quick": "I measure first: latency percentiles, request rate, error rate, traces and resource saturation. Then I trace a slow request to see where the time goes, whether network calls, database queries, serialization, CPU, locks or queueing. I make one targeted change, such as fixing a query or index, reducing chatty calls, paginating or caching, and verify it under representative load. I avoid adding caches or infrastructure before the bottleneck is proven.",
+      "revision": "Measure, trace, find the bottleneck, change one thing, load-test, monitor. Never optimise or add caching before proving where the time goes.",
+      "detailed": "Improving performance is a diagnostic discipline: guessing wastes effort and often makes things worse.\n\n## 1. Establish the symptom and baseline\n\nWhich endpoint, for whom, since when? Capture **p50/p95/p99 latency**, throughput, error rate and saturation (CPU, memory, connections, queue depth). Compare with the SLO. Check recent deployments or traffic changes.\n\n## 2. Find where time goes\n\nUse distributed traces and profiling to split a slow request into spans.\n\n| Where time goes | Typical cause | Typical fix |\n|---|---|---|\n| Database | Missing index, N+1 queries, large scans, lock waits | Add or fix indexes, batch queries, narrow selects |\n| Network calls | Chatty or serial downstream calls, no timeouts | Parallelise, batch, aggregate, add deadlines |\n| Serialization | Huge payloads | Pagination, field selection, compression |\n| CPU | Heavy computation, inefficient loops | Optimise, move to background workers |\n| Runtime blocking | Synchronous work on a single-threaded loop (for example Node.js) | Offload CPU-bound work to worker threads or a queue |\n| Queueing | Thread or connection pool exhausted, saturation | Right-size pools, apply backpressure, scale out |\n\n{{diagram:slow}}\n\n## 3. Change one thing and verify\n\nApply a single targeted change, then re-measure with a **representative load test** (realistic data volume, concurrency and mix). Check that correctness, error rates and cost did not regress.\n\n## 4. Options once the bottleneck is known\n\n- Query tuning, indexing, read replicas.\n- Caching, with a clear invalidation and freshness story (it can also hurt, see the caching question).\n- Asynchronous processing: accept the request, return quickly, finish in the background.\n- Reducing payloads and round trips; HTTP compression and connection reuse.\n\n## Common mistakes\n\n- Looking only at average latency; tail latency is what users feel.\n- Optimising code that is not on the critical path.\n- Load testing with tiny, unrealistic data.\n- Scaling out an application whose bottleneck is a single database.\n\nKeep dashboards and alerts after the fix so regressions are seen early.",
+      "diagrams": [
+        {
+          "id": "slow",
+          "title": "Slow API investigation loop",
+          "alt": "A loop of measure baseline, trace the request, isolate the bottleneck, apply one change, load-test, and monitor, returning to measurement if the target is not met.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "m",
+              "label": "Measure baseline"
+            },
+            {
+              "id": "t",
+              "label": "Trace request"
+            },
+            {
+              "id": "i",
+              "label": "Isolate bottleneck"
+            },
+            {
+              "id": "c",
+              "label": "Change one thing"
+            },
+            {
+              "id": "l",
+              "label": "Load-test"
+            },
+            {
+              "id": "o",
+              "label": "Monitor"
+            }
+          ],
+          "edges": [
+            {
+              "from": "m",
+              "to": "t"
+            },
+            {
+              "from": "t",
+              "to": "i"
+            },
+            {
+              "from": "i",
+              "to": "c"
+            },
+            {
+              "from": "c",
+              "to": "l"
+            },
+            {
+              "from": "l",
+              "to": "o"
+            },
+            {
+              "from": "l",
+              "to": "m",
+              "label": "target missed"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you diagnose event-loop blocking in Node.js?",
+        "When can caching make performance worse?",
+        "How would you find an N+1 query problem?"
+      ],
+      "related": [
+        "p95-vs-average-latency",
+        "caching-can-make-things-worse"
+      ]
+    },
+    {
+      "slug": "secure-multi-tenant-saas-platform",
+      "title": "How do you secure a multi-tenant SaaS platform?",
+      "topic": "Cloud, security and performance",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "multi-tenancy",
+        "security",
+        "isolation",
+        "saas"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            13
+          ]
+        }
+      ],
+      "quick": "I treat tenant isolation as an end-to-end invariant. I authenticate every identity, authorize each action against tenant and resource context on the server, and enforce tenant scoping in data access, with database-level controls such as row-level security or separate databases where the risk model needs them. Caches, search indexes, exports, background jobs and logs must keep tenant boundaries too. I add least privilege, audit trails, and automated cross-tenant negative tests.",
+      "revision": "Tenant isolation must hold on every data path: API, database, cache, search, jobs, exports and logs. Enforce server-side, add least privilege, audit, and cross-tenant tests.",
+      "detailed": "In a multi-tenant system the worst failure is one customer seeing another's data. Use **defence in depth** so that no single mistake breaks isolation.\n\n## Layers of control\n\n1. **Identity.** Authenticate users and services; carry a tenant identifier in a verified token or session, never from a client-editable field.\n2. **Authorization.** On every request, check the actor's permissions against the specific tenant and resource. A valid login is not enough.\n3. **Data access.** Enforce tenant scoping centrally (a repository layer or query filter that always adds the tenant condition) rather than relying on each developer to remember it.\n4. **Database isolation.** Choose by risk: shared tables with a tenant column plus row-level security, schema per tenant, or database per tenant.\n5. **Secrets and encryption.** Encrypt at rest and in transit; consider per-tenant keys for sensitive tiers.\n6. **Auditing and limits.** Log sensitive operations with tenant context, and apply per-tenant rate limits and quotas to contain noisy neighbours.\n\n## Every data path, not just the API\n\n{{diagram:tenant}}\n\n| Path | Typical leak |\n|---|---|\n| Cache | Keys without a tenant prefix |\n| Search index | Missing tenant filter or shared index without scoping |\n| Exports and reports | Jobs run with broad service credentials |\n| Background jobs and queues | Payload lacks tenant context, job runs unscoped |\n| Logs and analytics | Sensitive data from several tenants mixed and widely readable |\n| File storage | Predictable object paths without access checks |\n\n## Isolation models\n\n| Model | Isolation | Cost and operations |\n|---|---|---|\n| Shared database and tables | Logical, relies on correct scoping and RLS | Cheapest, simplest to run |\n| Schema per tenant | Stronger, per-tenant migrations | Moderate |\n| Database or account per tenant | Strongest, easiest to prove to auditors | Highest cost and operational overhead |\n\n## Testing\n\nWrite automated **negative tests**: authenticate as tenant A and try to read, update and export tenant B's resources through every endpoint, queue and cache. Add them to CI, and include isolation in threat modelling and penetration testing.\n\nFiltering in the frontend is never a control; enforcement must be server-side.",
+      "diagrams": [
+        {
+          "id": "tenant",
+          "title": "Tenant isolation across data paths",
+          "alt": "A request carries a verified tenant identity through the API authorization layer, a tenant-scoped data access layer to the database, and also through cache, search and background jobs, each of which enforce the same tenant scope.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "r",
+              "label": "Request with verified tenant"
+            },
+            {
+              "id": "az",
+              "label": "API authorization"
+            },
+            {
+              "id": "da",
+              "label": "Tenant-scoped data access"
+            },
+            {
+              "id": "db",
+              "label": "Database"
+            },
+            {
+              "id": "ca",
+              "label": "Cache and search"
+            },
+            {
+              "id": "jb",
+              "label": "Background jobs and exports"
+            }
+          ],
+          "edges": [
+            {
+              "from": "r",
+              "to": "az"
+            },
+            {
+              "from": "az",
+              "to": "da"
+            },
+            {
+              "from": "da",
+              "to": "db"
+            },
+            {
+              "from": "az",
+              "to": "ca",
+              "label": "tenant key"
+            },
+            {
+              "from": "az",
+              "to": "jb",
+              "label": "tenant context"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Shared database versus dedicated database per tenant: how do you decide?",
+        "How do you test tenant isolation?",
+        "How do you handle a noisy-neighbour tenant?"
+      ],
+      "related": [
+        "authentication-vs-authorization",
+        "jwt-is-not-authorization"
+      ]
+    },
+    {
+      "slug": "cloud-architecture-review-checklist",
+      "title": "What do you check when reviewing a cloud architecture?",
+      "topic": "Cloud, security and performance",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "cloud",
+        "checklist",
+        "review",
+        "well-architected"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            12
+          ]
+        }
+      ],
+      "quick": "I walk a checklist. Network: private and public subnets, routing, security groups, egress and trust boundaries. Identity: least-privilege roles, workload identities and secret rotation. Compute fit, data backups with tested recovery, reliability measures like multi-AZ, timeouts and graceful degradation, delivery through infrastructure as code with safe rollback, observability with SLOs and runbooks, and cost controls such as tagging and cost per transaction. Then I tie each finding back to the requirements.",
+      "revision": "Review network, identity, compute, data, reliability, delivery, observability and cost, and tie every finding to the stated requirements and risks.",
+      "detailed": "A cloud architecture review is a structured walk through the areas where designs commonly fail. A checklist keeps it consistent, but findings should always be tied to the system's actual requirements, not generic ideals.\n\n| Area | What to check |\n|---|---|\n| Network | VPC layout, public versus private subnets, routing, security groups and network ACLs, egress controls, DNS, and where trust boundaries sit |\n| Identity | Least-privilege IAM, workload identities instead of long-lived keys, secret storage and rotation, separation of environments and accounts |\n| Compute | Managed containers, virtual machines or functions chosen for runtime, scaling, control and operational burden |\n| Data | Backups, encryption at rest and in transit, access control, replication, retention, and **tested** restores |\n| Reliability | Multi-AZ where justified, health checks, timeouts, retries with jitter, bulkheads, graceful degradation, defined RTO and RPO |\n| Delivery | Infrastructure as code, immutable artifacts, safe rollout with health gates, rollback, configuration management |\n| Observability | Correlated logs, metrics and traces, SLOs, actionable alerts, runbooks |\n| Cost | Budgets, tagging, right-sizing, utilisation, data-transfer charges, idle resources, cost per business transaction |\n\n{{diagram:review}}\n\n## How to run the review\n\n1. Start with requirements: availability, latency, data sensitivity, compliance, growth, budget.\n2. Walk one critical request from the edge to the data store and back, asking at each hop what fails and who is notified.\n3. Walk the deployment path: how a change reaches production and how it is undone.\n4. Rank findings by risk and effort, and record owners and dates.\n\n## Frequent findings\n\n- Databases or admin ports reachable from the internet.\n- Overly broad IAM policies and shared long-lived credentials.\n- Backups taken but never restored in a drill.\n- Single-AZ components hiding behind a \"highly available\" label.\n- No budget alerts, and untagged resources that nobody owns.\n- Alerts that page for causes instead of user-facing symptoms.",
+      "diagrams": [
+        {
+          "id": "review",
+          "title": "Cloud review lenses",
+          "alt": "Requirements feed a review of eight lenses: network, identity, compute, data, reliability, delivery, observability and cost, producing a ranked list of findings.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "rq",
+              "label": "Requirements and risks"
+            },
+            {
+              "id": "n",
+              "label": "Network and identity"
+            },
+            {
+              "id": "cd",
+              "label": "Compute and data"
+            },
+            {
+              "id": "rd",
+              "label": "Reliability and delivery"
+            },
+            {
+              "id": "oc",
+              "label": "Observability and cost"
+            },
+            {
+              "id": "f",
+              "label": "Ranked findings"
+            }
+          ],
+          "edges": [
+            {
+              "from": "rq",
+              "to": "n"
+            },
+            {
+              "from": "rq",
+              "to": "cd"
+            },
+            {
+              "from": "rq",
+              "to": "rd"
+            },
+            {
+              "from": "rq",
+              "to": "oc"
+            },
+            {
+              "from": "n",
+              "to": "f"
+            },
+            {
+              "from": "cd",
+              "to": "f"
+            },
+            {
+              "from": "rd",
+              "to": "f"
+            },
+            {
+              "from": "oc",
+              "to": "f"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Which finding would you treat as a release blocker?",
+        "How do you review cost without hurting reliability?",
+        "How do you verify that backups actually work?"
+      ],
+      "related": [
+        "design-for-high-availability",
+        "multi-az-vs-multi-region"
+      ]
+    },
+    {
+      "slug": "explain-architecture-to-cto-and-developer",
+      "title": "How do you explain the same architecture to a CTO and to a developer?",
+      "topic": "Stakeholders and leadership",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "communication",
+        "stakeholders",
+        "diagrams",
+        "leadership"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            13
+          ]
+        }
+      ],
+      "quick": "I tailor the level of abstraction, not the truth. A CTO needs business capability, investment, risk, cost and strategic flexibility, so I use a conceptual view, roadmap and ADR summary. A developer needs module boundaries, interfaces, data ownership, error behaviour and deployment responsibilities, so I use C4 views, sequence and data models. I choose the simplest diagram that answers that audience's decision, and keep detailed views ready for follow-up questions.",
+      "revision": "Same architecture, different decision lens: executives get outcomes, risk and cost at a high level; developers get contracts, boundaries and failure behaviour.",
+      "detailed": "The design does not change with the audience; the **level of abstraction and the decision being supported do.** Ask: what decision does this person need to make, and what would make them confident or concerned?\n\n## Audience map\n\n| Audience | Lead with | Useful artifact | Avoid |\n|---|---|---|---|\n| CTO or CIO | Business outcomes, risk, cost, flexibility | Conceptual architecture, roadmap, ADR summary | Class diagrams, implementation trivia |\n| Product or business analyst | Capabilities, user journeys, constraints, delivery impact | Context, process flow, sequence for key flow | Unexplained infrastructure jargon |\n| Engineering team | Boundaries, contracts, dependencies, failure paths | C4 container and component, sequence, data model | Vague boxes with no ownership |\n| SRE or DevOps | Runtime, deployment, failure, observability, recovery | Deployment, network, rollout, telemetry views | Happy path only |\n| Security or compliance | Trust boundaries, data classification, identity, audit | Threat model, data-flow with boundaries | Assuming authentication equals authorization |\n| External partner | Contracts, compatibility, failure behaviour | Integration context, API or event contract | Internal implementation detail |\n| Non-technical executive | Customer impact, risk, investment, options | Simple conceptual view, decision summary | Acronym overload |\n\n{{diagram:audience}}\n\n## Example (hypothetical)\n\nAn order platform moving to an event-driven design:\n\n- **To the CTO:** \"Checkout stays up even if the notification provider is down, we can add new channels without touching checkout, and the main risk is operating a message broker, which we mitigate with a managed service. Cost rises modestly, delivery takes two quarters.\"\n- **To a developer:** \"Checkout publishes an OrderPlaced event after the local commit; the notification service consumes it idempotently by event ID, retries with backoff, and dead-letters poison messages. Here is the schema and the sequence diagram.\"\n\n## Tips\n\n- Check understanding by asking what decision they feel they can now make.\n- Keep a consistent vocabulary so both conversations refer to the same named components.\n- If a CTO asks for detail, zoom in using the same diagrams rather than switching to a different story.\n- Never hide material risks at the higher level; summarise them.",
+      "diagrams": [
+        {
+          "id": "audience",
+          "title": "One architecture, several views",
+          "alt": "A single architecture model feeds a conceptual view for executives, a sequence and container view for developers, a deployment view for operations and a trust-boundary view for security.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "m",
+              "label": "One architecture model"
+            },
+            {
+              "id": "ex",
+              "label": "Conceptual view and roadmap"
+            },
+            {
+              "id": "dv",
+              "label": "Container and sequence views"
+            },
+            {
+              "id": "op",
+              "label": "Deployment view"
+            },
+            {
+              "id": "sc",
+              "label": "Trust-boundary view"
+            }
+          ],
+          "edges": [
+            {
+              "from": "m",
+              "to": "ex",
+              "label": "CTO"
+            },
+            {
+              "from": "m",
+              "to": "dv",
+              "label": "developers"
+            },
+            {
+              "from": "m",
+              "to": "op",
+              "label": "SRE"
+            },
+            {
+              "from": "m",
+              "to": "sc",
+              "label": "security"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you handle a non-technical objection?",
+        "What do you do if the CTO asks for implementation detail?",
+        "How do you present risk without alarming stakeholders?"
+      ],
+      "related": [
+        "which-architecture-diagram-and-when",
+        "whiteboard-which-diagram-first"
+      ]
+    }
+  ]
+}

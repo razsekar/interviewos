@@ -1,0 +1,668 @@
+{
+  "category": "architect-handbook",
+  "questions": [
+    {
+      "slug": "disagree-with-ai-architecture-recommendation",
+      "title": "How do you disagree with an AI architecture recommendation?",
+      "topic": "AI-assisted architecture",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "ai",
+        "decision-making",
+        "architecture-review"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            15
+          ]
+        }
+      ],
+      "quick": "I treat an AI recommendation as a hypothesis, not a verdict. I check which requirements and constraints it assumed, verify its technical claims against documentation, and test it against failure modes, operating burden and cost. If it proposes something heavy, I ask what real requirement justifies each piece and request a simpler alternative. I disagree with evidence, not instinct, and I stay open to being wrong: if the evidence shows the AI's option is stronger than my preference, I change my decision.",
+      "revision": "Treat AI output as a hypothesis. Challenge its assumptions, verify claims, test failure modes and cost, and change your mind when evidence says so.",
+      "detailed": "Disagreeing well means **arguing from evidence, in both directions**. The recommendation is an input to the decision, not the decision itself, and your own first preference deserves the same scrutiny.\n\n## A repeatable way to push back\n\n1. **Surface the assumptions.** Ask the model to restate the problem and list what it assumed about load, team size, consistency needs, compliance and budget. Most bad recommendations come from an assumption nobody stated.\n2. **Check the hard constraints.** Does the option satisfy mandatory requirements such as data residency, availability targets or the existing platform?\n3. **Verify the claims.** Product limits, pricing and feature behaviour change between versions. Confirm them in official documentation or a small experiment.\n4. **Probe failure modes and operations.** Who is on call for it, how does it fail, how is it upgraded, how is it rolled back?\n5. **Ask for the strongest counter-argument**, and for the simplest option that could still meet the requirements.\n6. **Decide and record it.** Write the rationale, rejected options and review conditions in an ADR.\n\n## Example (hypothetical)\n\nAn assistant recommends an event-streaming platform for a nightly report-generation job. The useful questions are: do we need replayable history, several independent consumers, or very high retention? If the answer is no, a managed queue or a scheduled job is far cheaper to run. If one of those needs is real, the streaming platform may be justified, and the disagreement dissolves.\n\n{{diagram:challenge-loop}}\n\n## Common mistakes\n\n- Rejecting the output because it came from AI, which is as lazy as accepting it for the same reason.\n- Arguing from taste (\"I prefer X\") rather than from a named requirement or measurement.\n- Confirmation bias: only asking questions that support your original choice. Ask the model to argue against both options.\n- Skipping documentation of why the AI's option was rejected, so the debate repeats in six months.",
+      "diagrams": [
+        {
+          "id": "challenge-loop",
+          "title": "Challenging an AI recommendation",
+          "alt": "Flow from an AI recommendation through surfacing assumptions, verifying claims and testing failure modes to a human decision recorded in an ADR, with a loop back if evidence changes.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "rec",
+              "label": "AI recommendation"
+            },
+            {
+              "id": "asm",
+              "label": "Surface assumptions"
+            },
+            {
+              "id": "ver",
+              "label": "Verify claims"
+            },
+            {
+              "id": "test",
+              "label": "Test failure modes and cost"
+            },
+            {
+              "id": "dec",
+              "label": "Human decision"
+            },
+            {
+              "id": "adr",
+              "label": "Record in ADR"
+            }
+          ],
+          "edges": [
+            {
+              "from": "rec",
+              "to": "asm"
+            },
+            {
+              "from": "asm",
+              "to": "ver"
+            },
+            {
+              "from": "ver",
+              "to": "test"
+            },
+            {
+              "from": "test",
+              "to": "dec"
+            },
+            {
+              "from": "dec",
+              "to": "adr"
+            },
+            {
+              "from": "test",
+              "to": "asm",
+              "label": "new evidence"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you avoid confirmation bias when you review AI output?",
+        "Would two AI models agreeing prove a design is correct?",
+        "Give an example where you would accept the AI recommendation over your own."
+      ],
+      "related": [
+        "choose-between-conflicting-ai-recommendations",
+        "verify-ai-architecture-claim"
+      ]
+    },
+    {
+      "slug": "choose-between-conflicting-ai-recommendations",
+      "title": "How do you choose between conflicting AI architecture recommendations?",
+      "topic": "AI-assisted architecture",
+      "difficulty": "advanced",
+      "type": "comparison",
+      "tags": [
+        "ai",
+        "decision-making",
+        "trade-offs"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            15
+          ]
+        }
+      ],
+      "quick": "I compare the assumptions behind each recommendation, not just the conclusions. I restate the problem and the decision criteria myself, check each option against the hard constraints, and then verify the disputed facts in documentation or with a small experiment. I never count model votes, because models can share the same blind spots. If uncertainty remains, I pick the option whose risks are acceptable and easiest to reverse, and I document what is still unknown and when I will revisit it.",
+      "revision": "Normalize assumptions, score options against agreed criteria and hard constraints, verify disputed facts independently, prefer reversible choices, and document remaining uncertainty.",
+      "detailed": "Two assistants disagree because they started from different assumptions, weighted qualities differently, or one of them is simply wrong about a fact. Your job is to find out which, not to pick the more eloquent answer.\n\n## Steps\n\n1. **Fix the problem statement.** Write the requirements, constraints and quality targets yourself. Feed the *same* statement to both models, otherwise you are comparing answers to different questions.\n2. **Extract each model's assumptions** about scale, team skills, data consistency, budget and timeline. Place them side by side.\n3. **Apply hard constraints first.** Any option that violates a mandatory requirement (regulation, SLA, existing platform) is out, however well argued.\n4. **Define criteria before scoring.** Agree weights with stakeholders, then use a decision matrix as a discussion aid. It exposes disagreement; it does not produce mathematical truth.\n5. **Verify the disputed claims.** Each factual disagreement becomes a task: read the official documentation, inspect the real contract, or run a small proof of concept or load test.\n6. **Weigh reversibility.** When evidence is thin, choose the option that is cheaper to change later, or run a time-boxed spike.\n7. **Record the outcome**: chosen option, rejected options, accepted risks, open questions and review trigger.\n\n| Dispute type | How to resolve it |\n|---|---|\n| Different assumptions | Align assumptions with stakeholders, rerun the comparison |\n| Different factual claims | Check documentation, contracts, or experiment |\n| Different priorities | Escalate the trade-off to the decision owner |\n| Genuine uncertainty | Prefer the reversible option, add a spike |\n\n## Common mistakes\n\n- Majority voting across models. Agreement is not independent evidence.\n- Letting the more detailed answer win, since detail is not correctness.\n- Skipping the criteria step, so the matrix just reflects the loudest preference.",
+      "followUps": [
+        "Why is agreement between several AI models weak evidence?",
+        "How would you design a time-boxed spike to settle a disputed claim?",
+        "Who should own the final decision, and how do you record it?"
+      ],
+      "related": [
+        "disagree-with-ai-architecture-recommendation",
+        "why-not-trust-ai-consensus"
+      ]
+    },
+    {
+      "slug": "can-ai-replace-a-technical-architect",
+      "title": "Can AI replace a Technical Architect?",
+      "topic": "AI-assisted architecture",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "ai",
+        "architect-role",
+        "accountability"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            15,
+            16
+          ]
+        }
+      ],
+      "quick": "I do not think so, but it changes how an architect works. AI is very good at generating options, drafting documents, reviewing code and challenging assumptions. It does not know unstated organisational constraints, negotiate between stakeholders, validate real production behaviour, or carry accountability when a decision fails. I use it as a fast reviewer and reasoning partner while I keep ownership of decisions, security and delivery. The skill that matters more is judging and verifying its output.",
+      "revision": "AI widens analysis and speeds drafting, but context, stakeholder alignment, empirical validation and accountability stay with the human architect.",
+      "detailed": "AI can replace *tasks* inside architecture work, but the role is defined by judgment and accountability, which do not transfer to a tool.\n\n## Where AI genuinely helps\n\n- Generating several design options and the questions each one raises.\n- Drafting ADRs, diagrams-as-code, runbooks and review checklists.\n- Explaining unfamiliar code or legacy systems, and finding inconsistencies.\n- Playing devil's advocate against a proposed design.\n\n## Where a human architect remains necessary\n\n| Responsibility | Why AI alone falls short |\n|---|---|\n| Organisational context | Politics, skills, budgets and history are rarely in the prompt |\n| Stakeholder negotiation | Competing goals need trust, persuasion and a fair process |\n| Validation | Real behaviour needs load tests, threat models and production data |\n| Accountability | A model cannot be on call, sign off a risk or answer to an auditor |\n| Taste and restraint | Models tend toward plausible, elaborate designs; simplifying takes judgment |\n\n## Practical stance\n\nUse AI to widen the option space and speed up documentation, then apply the same rigour you would to a junior colleague's proposal: verify, test, and decide. Be explicit about which tasks you do not delegate: final decisions on security-sensitive designs, risk acceptance, and anything involving confidential data in unapproved tools.\n\n## Measuring value\n\nTrack concrete outcomes rather than impressions: time to produce a reviewed design draft, number of defects or missed requirements found in review, and rework caused by AI-suggested designs that failed verification. If the tool adds reading and rework without catching issues, its value is lower than it feels.\n\n## Common mistakes\n\n- Treating fluent output as expertise.\n- Delegating the decision and keeping only the signature.\n- Assuming the model sees constraints that were never written down.",
+      "followUps": [
+        "How would you measure the value AI adds to your architecture work?",
+        "Which architecture tasks would you never delegate to an AI tool?",
+        "How should an architect change their review process now that designs can be generated quickly?"
+      ],
+      "related": [
+        "use-ai-safely-for-architecture-work",
+        "disagree-with-ai-architecture-recommendation"
+      ]
+    },
+    {
+      "slug": "use-ai-safely-for-architecture-work",
+      "title": "How do you use AI safely for architecture work?",
+      "topic": "AI-assisted architecture",
+      "difficulty": "advanced",
+      "type": "conceptual",
+      "tags": [
+        "ai",
+        "security",
+        "prompting",
+        "governance"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            15,
+            16,
+            21
+          ]
+        }
+      ],
+      "quick": "I use only approved tools and send the minimum context, never credentials, tokens, customer records or confidential designs to an unapproved service. I give the model a structured prompt covering context, constraints, quality attributes and alternatives, and ask it to challenge itself. I treat generated designs, code and retrieved documents as untrusted until verified against source-of-truth artifacts. Security-sensitive and business-critical decisions get human approval, and I record the rationale so the decision is reproducible.",
+      "revision": "Approved tools, minimal data, structured prompts, verify against source of truth, human approval for critical decisions, and a recorded rationale.",
+      "detailed": "Safe use has two halves: **protect what you send** and **do not trust what comes back**. Then wrap the work in a decision process that keeps a human accountable.\n\n## Guardrails\n\n- Never paste credentials, tokens, customer data or confidential architecture into an unapproved tool.\n- Check the tool's enterprise policy: data retention, training use, access controls and logging.\n- Treat generated code, diagrams and retrieved documents as untrusted input until reviewed. Retrieved text can contain instructions that try to steer the model.\n- Validate claims against sources of truth: real contracts, configuration, and official documentation.\n- Require human approval for security-sensitive and business-critical decisions.\n- Record AI assistance where policy requires and keep the rationale reproducible.\n\n## Decision process\n\n1. Ask the model to clarify the problem and list missing information first.\n2. Request alternatives that differ materially (not merely by vendor), including the simplest viable one.\n3. Agree decision criteria and mandatory constraints before recommending anything.\n4. Ask for assumptions, failure modes, costs and the strongest counter-argument.\n5. Verify technical claims with documentation and experiments.\n6. Use a decision matrix as a discussion aid, then document the human decision, rejected options, accepted risks and review conditions.\n\n{{diagram:safe-ai-flow}}\n\n## Reusable prompt (example template)\n\n```text\nAct as a principal software architect. First restate the business\nproblem and list missing requirements, assumptions and constraints.\nPropose at least three materially different designs, including the\nsimplest viable option. Compare domain boundaries, data ownership,\nAPI/event flows, security, consistency, reliability, scalability,\noperations, cost, migration and reversibility. Define decision\ncriteria before recommending. Label unsupported claims and say what\nmust be verified (documentation, prototype, threat model, load test,\ncost estimate). Finally argue strongly against your preferred option\nand state what evidence would change your recommendation.\n```\n\nReplace real names, hostnames and data with neutral placeholders before sending context.\n\n## Common mistakes\n\n- Pasting a full repository or incident log with secrets in it.\n- Using the model's confidence as evidence.\n- Skipping the record, so nobody can explain later why a design was chosen.",
+      "diagrams": [
+        {
+          "id": "safe-ai-flow",
+          "title": "Safe AI-assisted decision flow",
+          "alt": "Flow showing sanitised context sent to an approved AI tool, producing options that are verified against documentation and experiments, then reviewed by a human and recorded in an ADR.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "ctx",
+              "label": "Sanitised context"
+            },
+            {
+              "id": "tool",
+              "label": "Approved AI tool"
+            },
+            {
+              "id": "opt",
+              "label": "Options and risks"
+            },
+            {
+              "id": "ver",
+              "label": "Verify with docs and tests"
+            },
+            {
+              "id": "hum",
+              "label": "Human review and approval"
+            },
+            {
+              "id": "adr",
+              "label": "ADR with rationale"
+            }
+          ],
+          "edges": [
+            {
+              "from": "ctx",
+              "to": "tool"
+            },
+            {
+              "from": "tool",
+              "to": "opt"
+            },
+            {
+              "from": "opt",
+              "to": "ver"
+            },
+            {
+              "from": "ver",
+              "to": "hum"
+            },
+            {
+              "from": "hum",
+              "to": "adr"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "What data should never be shared with an external AI tool?",
+        "How would you validate a generated architecture diagram?",
+        "How do retrieved documents become a prompt-injection risk?",
+        "What would you record about AI assistance in an ADR?"
+      ],
+      "related": [
+        "verify-ai-architecture-claim",
+        "can-ai-replace-a-technical-architect"
+      ]
+    },
+    {
+      "slug": "verify-ai-architecture-claim",
+      "title": "How do you verify a claim an AI makes about an architecture or a product?",
+      "topic": "AI-assisted architecture",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "ai",
+        "verification",
+        "documentation"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            21
+          ]
+        }
+      ],
+      "quick": "I split the claim into something checkable and find the source of truth. For product behaviour I read the official documentation for the exact version. For our own system I inspect the real contract, configuration or code instead of trusting the description. For anything critical to the design, such as latency, throughput or failure behaviour, I run a small test in a representative environment. Claims I cannot verify get labelled as assumptions in the decision record.",
+      "revision": "Turn the claim into a testable statement, then check official docs, inspect real contracts and configuration, and test critical behaviour in a representative environment.",
+      "detailed": "A fluent paragraph can contain a confident error, so verification has to be a habit with a cheap, defined routine.\n\n## Three kinds of evidence\n\n| Claim about | Source of truth | Example check |\n|---|---|---|\n| A product or cloud service | Official documentation for the relevant version, release notes | Does the service really support this feature and limit? |\n| Our own system | Actual contracts, schemas, configuration, code | Does the API really return that field? Is the setting really enabled? |\n| Behaviour under load or failure | An experiment in a representative environment | Does the design meet the latency target with realistic data volume? |\n\n## Practical routine\n\n1. **Rewrite the claim** as a falsifiable statement (\"this queue guarantees ordering per key\") instead of a vague impression.\n2. **Rank by impact.** Spend effort on claims that the decision depends on; do not benchmark trivia.\n3. **Check the primary source**, not a blog summary or the model's own explanation of itself. Note the version, since limits and defaults change.\n4. **Test what matters.** A throwaway proof of concept, a load test with production-like data, or a failure-injection run beats opinion.\n5. **Record the result**: verified, refuted, or assumed. Unverified claims stay visibly labelled as assumptions with an owner and a review date.\n\n## Warning signs of an unreliable claim\n\n- Specific numbers or limits with no source.\n- Descriptions of product features that sound plausible but cannot be found in the documentation.\n- Code or configuration that references options you cannot locate.\n- Diagrams that disagree with the contracts they depict.\n\n## Common mistakes\n\n- Asking the same model to verify itself and treating agreement as proof.\n- Checking documentation for the wrong version.\n- Verifying easy claims while the decisive one goes untested.",
+      "followUps": [
+        "How would you test a claim about throughput or latency before committing to a design?",
+        "What do you do when the documentation is ambiguous?",
+        "How do you keep unverified assumptions visible in an ADR?"
+      ],
+      "related": [
+        "why-not-trust-ai-consensus",
+        "use-ai-safely-for-architecture-work"
+      ]
+    },
+    {
+      "slug": "why-not-trust-ai-consensus",
+      "title": "Why is agreement between several AI models not proof that a design is right?",
+      "topic": "AI-assisted architecture",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "ai",
+        "bias",
+        "evidence"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            21
+          ]
+        }
+      ],
+      "quick": "Because agreement between models is not independent evidence. They are often trained on overlapping material, share similar biases toward popular patterns, and can repeat the same outdated or mistaken claim. Several assistants confidently recommending the fashionable option tells me about what is common, not what fits our constraints. I use consensus as a prompt to check, then rely on documentation, prototypes, threat models and load tests, which are independent of the models.",
+      "revision": "Models share data and biases, so agreement is correlated, not independent. Trust evidence from docs, prototypes and tests, not the number of models agreeing.",
+      "detailed": "Independent evidence means errors that are *uncorrelated*: two separate measurements, or two experts who learned from different sources. Language models fail this test in several ways.\n\n## Why consensus misleads\n\n- **Shared training signal.** Models learn from heavily overlapping public text, so a popular but context-blind pattern (for example \"use microservices and an event bus\") appears in all of them.\n- **Common blind spots.** None of them sees your unstated constraints, team skills or budget.\n- **Prompt-induced agreement.** If you give each the same leading prompt, the same framing yields the same answer. Asking \"why is X the best choice?\" nearly guarantees a justification of X.\n- **Fluent confidence.** Every model writes persuasively, so agreement feels stronger than it is.\n- **Stale knowledge.** A shared outdated fact is repeated everywhere.\n\n## What to do instead\n\n1. Neutral prompts: ask for options, not a defence of one.\n2. Ask a model to attack the leading option and to say what evidence would change its mind.\n3. Convert disagreement *and* agreement into checks: documentation lookups, prototypes, threat models, cost estimates, load tests.\n4. Seek genuinely independent input: a colleague review, an incident history, production metrics.\n\n| Signal | Strength as evidence |\n|---|---|\n| Three models agree | Weak, correlated |\n| Official documentation confirms a limit | Strong for that fact and version |\n| A load test on realistic data | Strong for that workload |\n| Review by someone who operates the system | Strong for context |\n\n## Common mistakes\n\n- Using a second model as a rubber stamp.\n- Treating a lack of disagreement as safety.\n- Forgetting that the decisive facts are usually specific to your system, which no model has seen.",
+      "followUps": [
+        "How would you phrase a prompt so the model does not simply justify your preferred option?",
+        "What independent evidence would you gather before committing to a recommended design?",
+        "When is a model-generated recommendation good enough to adopt quickly?"
+      ],
+      "related": [
+        "choose-between-conflicting-ai-recommendations",
+        "verify-ai-architecture-claim"
+      ]
+    },
+    {
+      "slug": "design-multi-tenant-crm-saas",
+      "title": "Design a multi-tenant CRM SaaS platform",
+      "topic": "System design case studies",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "multi-tenancy",
+        "saas",
+        "system-design",
+        "security"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            16
+          ]
+        }
+      ],
+      "quick": "I would start from requirements: tenant isolation, role-based access, workflows, search, integrations, auditability and response times. My baseline is a modular monolith with explicit domain modules, PostgreSQL for transactional data, a tenant-aware authorisation layer and a carefully scoped cache, with queues for asynchronous work. I choose shared, schema-per-tenant or dedicated storage based on isolation, compliance and scale needs. Biggest risks are cross-tenant leakage and noisy neighbours, so I test isolation explicitly and rate-limit per tenant.",
+      "revision": "Modular monolith plus tenant-aware authorisation and data model; pick pooled or dedicated storage by isolation and compliance; test cross-tenant leakage and noisy neighbours explicitly.",
+      "detailed": "## Requirements to clarify\n\nTenant isolation level, role and permission model, core workflows (leads, accounts, activities), search needs, integrations (email, messaging, payments), audit trail, data residency, expected tenant count and size distribution, and latency targets.\n\n## Baseline architecture\n\nA **modular monolith** is the sensible starting point: explicit domain modules (accounts, contacts, pipeline, activity), one deployable, PostgreSQL for transactional data, an API layer with tenant-aware authorisation, a scoped cache, a worker for asynchronous jobs, and a search index fed from the database.\n\n{{diagram:crm-containers}}\n\n## Tenancy model\n\n| Model | Isolation | Cost and ops | Fits |\n|---|---|---|---|\n| Shared tables with tenant_id | Logical, relies on correct filters (row-level security helps) | Cheapest, simplest | Many small tenants |\n| Schema or database per tenant | Stronger, per-tenant backup and restore | More migrations to manage | Mid-size tenants, stricter needs |\n| Dedicated stack | Strongest | Highest | Regulated or very large tenants |\n\nA hybrid is common: pooled by default, dedicated for tenants that need it. Keep the tenant resolution logic in one place so tenants can move between tiers.\n\n## Critical flow\n\nAuthenticate, resolve tenant from the identity, authorise the user against the resource *within that tenant*, validate, write in a transaction, write an outbox record if an event must be published, respond. Workers then update search and call integrations.\n\n## Risks and mitigations\n\n- **Cross-tenant leakage**: enforce tenant scoping centrally (row-level security or a mandatory query layer), never trust a tenant id from the client.\n- **Cache-key omissions**: include tenant in every key.\n- **Noisy neighbours**: per-tenant rate limits, quotas, and fair job scheduling.\n- **Search index drift**: use the outbox and a rebuild procedure.\n- **Migration complexity**: backward-compatible, tested schema changes.\n\n## Validation\n\nAutomated tenant-isolation tests (tenant A must never read tenant B), query-plan reviews with realistic tenant skew, load tests including one very large tenant, audit-log review, and backup and restore drills including single-tenant restore.",
+      "diagrams": [
+        {
+          "id": "crm-containers",
+          "title": "Multi-tenant CRM container view",
+          "alt": "Container diagram: web frontend calls an API that uses a tenant-aware authorisation layer, PostgreSQL, a cache and a queue consumed by workers that update a search index and call external integrations; an identity provider authenticates users.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "web",
+              "label": "Web frontend"
+            },
+            {
+              "id": "idp",
+              "label": "Identity provider"
+            },
+            {
+              "id": "api",
+              "label": "API with tenant-aware authz"
+            },
+            {
+              "id": "db",
+              "label": "PostgreSQL"
+            },
+            {
+              "id": "cache",
+              "label": "Cache"
+            },
+            {
+              "id": "q",
+              "label": "Queue"
+            },
+            {
+              "id": "wk",
+              "label": "Workers"
+            },
+            {
+              "id": "srch",
+              "label": "Search index"
+            },
+            {
+              "id": "ext",
+              "label": "External integrations"
+            }
+          ],
+          "edges": [
+            {
+              "from": "web",
+              "to": "idp",
+              "label": "login"
+            },
+            {
+              "from": "web",
+              "to": "api"
+            },
+            {
+              "from": "api",
+              "to": "db"
+            },
+            {
+              "from": "api",
+              "to": "cache"
+            },
+            {
+              "from": "api",
+              "to": "q"
+            },
+            {
+              "from": "q",
+              "to": "wk"
+            },
+            {
+              "from": "wk",
+              "to": "srch"
+            },
+            {
+              "from": "wk",
+              "to": "ext"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you enforce tenant isolation in the database layer?",
+        "How do you handle one tenant that is far larger than the rest?",
+        "How would you let a tenant restore only its own data from backup?",
+        "When would you move a tenant to dedicated infrastructure?"
+      ],
+      "related": [
+        "design-billing-system-for-correctness-and-auditability",
+        "design-real-time-healthcare-analytics-dashboard"
+      ]
+    },
+    {
+      "slug": "design-billing-system-for-correctness-and-auditability",
+      "title": "Design a billing system where correctness and auditability matter most",
+      "topic": "System design case studies",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "billing",
+        "idempotency",
+        "outbox",
+        "audit",
+        "consistency"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            16
+          ]
+        }
+      ],
+      "quick": "I prioritise correctness, auditability, idempotency and reconciliation over raw speed. I draw the transaction boundary around the business invariants, use database constraints, explicit workflow states and idempotency keys for retried requests, and optimistic concurrency where updates compete. For cross-system effects I use a transactional outbox and idempotent consumers. I use Saga-style compensation only when the workflow truly spans independent transactions. Money movements are append-only ledger entries, and reconciliation against external statements catches anything missed.",
+      "revision": "Strong local transactions, idempotency keys, explicit states, append-only ledger, outbox with idempotent consumers, and reconciliation. Saga only across truly independent transactions.",
+      "detailed": "## Requirements\n\nInvoices must be correct to the cent, every change must be traceable, retried requests must not double charge, and totals must reconcile with external systems (payment providers, accounting). Availability matters, but correctness wins any conflict.\n\n## Baseline\n\nKeep invoice creation, line items, taxes and ledger entries in **one relational database** so a single ACID transaction protects the invariants (for example, invoice total equals the sum of its lines, and a ledger always balances). Use exact decimal types or integer minor units, never floating point.\n\n{{diagram:billing-flow}}\n\n## Key mechanisms\n\n- **Idempotency keys**: the client sends a key with each request; a unique constraint stores the key and the result, so a retry returns the original outcome.\n- **Explicit states**: draft, issued, paid, void, refunded, with allowed transitions enforced in code and, where practical, by constraints.\n- **Append-only ledger**: corrections are new compensating entries, never edits, which gives an audit trail by construction.\n- **Optimistic concurrency**: a version column prevents two writers from silently overwriting each other.\n- **Outbox**: events such as invoice-issued are written in the same transaction and published afterwards; consumers deduplicate by event id.\n- **Saga**: only when a business process spans independent services each with its own transaction; define compensation per step.\n\n## Critical flow\n\nReceive request with idempotency key, begin transaction, check key, validate state transition, write ledger and invoice rows plus outbox record, commit, respond. A relay publishes the event; downstream consumers apply it idempotently.\n\n## Risks\n\nDouble processing on retry, partial failure across systems, rounding rules, time zone and currency handling, clock-based ordering, silent manual database fixes.\n\n## Validation\n\nProperty tests that ledger totals balance, concurrency tests with duplicate requests, replay tests of events, daily reconciliation against provider and accounting records with exception queues, restore drills, and access reviews of audit data.",
+      "diagrams": [
+        {
+          "id": "billing-flow",
+          "title": "Billing write path with outbox and reconciliation",
+          "alt": "Billing service checks an idempotency key, writes invoice and ledger rows plus an outbox record in one database transaction; a relay publishes events to idempotent consumers, and a reconciliation job compares the ledger with external statements.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "api",
+              "label": "Billing API"
+            },
+            {
+              "id": "idem",
+              "label": "Idempotency check"
+            },
+            {
+              "id": "db",
+              "label": "Invoice, ledger and outbox in one transaction"
+            },
+            {
+              "id": "relay",
+              "label": "Outbox relay"
+            },
+            {
+              "id": "bus",
+              "label": "Event bus"
+            },
+            {
+              "id": "cons",
+              "label": "Idempotent consumers"
+            },
+            {
+              "id": "rec",
+              "label": "Reconciliation job"
+            },
+            {
+              "id": "ext",
+              "label": "Provider statements"
+            }
+          ],
+          "edges": [
+            {
+              "from": "api",
+              "to": "idem"
+            },
+            {
+              "from": "idem",
+              "to": "db"
+            },
+            {
+              "from": "db",
+              "to": "relay"
+            },
+            {
+              "from": "relay",
+              "to": "bus"
+            },
+            {
+              "from": "bus",
+              "to": "cons"
+            },
+            {
+              "from": "db",
+              "to": "rec"
+            },
+            {
+              "from": "ext",
+              "to": "rec"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you make a retried charge request safe?",
+        "Why prefer an append-only ledger to updating balances in place?",
+        "When would a Saga be justified for a billing workflow?",
+        "How would you design the reconciliation process and handle exceptions?"
+      ],
+      "related": [
+        "design-multi-tenant-crm-saas",
+        "design-real-time-healthcare-analytics-dashboard"
+      ]
+    },
+    {
+      "slug": "design-real-time-healthcare-analytics-dashboard",
+      "title": "Design a real-time analytics dashboard fed by many differing data sources",
+      "topic": "System design case studies",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "analytics",
+        "streaming",
+        "data-quality",
+        "privacy",
+        "read-models"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            16
+          ]
+        }
+      ],
+      "quick": "I separate source integration from a canonical data contract. Adapters normalise each source's semantics into one model; queues or streams decouple ingestion where freshness and resilience justify them. Dashboards read from materialised views or pre-aggregated read models, not the raw stores. I make freshness, source lag and failed records visible to users. For sensitive domains such as healthcare, I define privacy, access, audit and retention controls before widening access to the data.",
+      "revision": "Adapters to a canonical contract, streams where decoupling pays off, pre-aggregated read models for dashboards, visible freshness and data quality, and privacy controls first.",
+      "detailed": "This is a hypothetical example of a dashboard for a healthcare-style organisation, where sources (clinic systems, devices, labs) differ in format, timing and quality.\n\n## Requirements to clarify\n\nWhich metrics and how fresh (seconds or minutes), number of sources and their reliability, who may see which data, retention and audit duties, and acceptable behaviour when a source is late.\n\n## Architecture\n\n{{diagram:analytics-pipeline}}\n\n- **Adapters** translate each source's format and semantics into a **canonical event contract** with explicit versioning. Source quirks stay in the adapter, so the rest of the system sees one shape.\n- **Ingestion queue or stream** buffers bursts, isolates a slow source, and allows replay after a bug fix. Use it where decoupling and freshness justify the operational cost; batch pulls are fine for slow-changing sources.\n- **Validation and quarantine**: malformed or suspicious records go to a dead-letter store with reasons, never silently dropped.\n- **Processing** deduplicates, enriches and computes aggregates, handling late and out-of-order events with defined windows.\n- **Read models**: materialised views or pre-aggregated tables answer dashboard queries in milliseconds without scanning raw data.\n- **Delivery**: polling, server-sent events or WebSockets depending on freshness needs; SSE is often enough for one-way updates.\n\n## Make quality visible\n\nShow \"data as of\" timestamps per source, source lag, count of rejected records and completeness indicators. A dashboard that looks fresh while a source is silently down is worse than one that says so.\n\n## Privacy and access\n\nClassify data, apply least privilege and attribute-based rules (for example, restrict by facility or role), mask or aggregate where individual records are unnecessary, audit every access, and define retention before broadening access. Follow the applicable regulations of your jurisdiction.\n\n## Risks and validation\n\nSource schema drift (contract tests), late data (replay tests), hot partitions, expensive ad-hoc queries (query budgets), and leakage (access tests). Validate with synthetic data, failure injection on one source, and end-to-end freshness measurements against the target.",
+      "diagrams": [
+        {
+          "id": "analytics-pipeline",
+          "title": "Real-time analytics pipeline",
+          "alt": "Several data sources feed adapters that emit canonical events to a stream; a validator quarantines bad records to a dead-letter store, a processor builds read models in a serving store that the dashboard API reads, and an audit log records access.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "src",
+              "label": "Data sources"
+            },
+            {
+              "id": "ad",
+              "label": "Source adapters"
+            },
+            {
+              "id": "str",
+              "label": "Event stream"
+            },
+            {
+              "id": "val",
+              "label": "Validation"
+            },
+            {
+              "id": "dlq",
+              "label": "Quarantine store"
+            },
+            {
+              "id": "proc",
+              "label": "Processor and aggregator"
+            },
+            {
+              "id": "rm",
+              "label": "Read models"
+            },
+            {
+              "id": "api",
+              "label": "Dashboard API"
+            },
+            {
+              "id": "aud",
+              "label": "Access audit log"
+            }
+          ],
+          "edges": [
+            {
+              "from": "src",
+              "to": "ad"
+            },
+            {
+              "from": "ad",
+              "to": "str",
+              "label": "canonical events"
+            },
+            {
+              "from": "str",
+              "to": "val"
+            },
+            {
+              "from": "val",
+              "to": "dlq",
+              "label": "rejected"
+            },
+            {
+              "from": "val",
+              "to": "proc",
+              "label": "valid"
+            },
+            {
+              "from": "proc",
+              "to": "rm"
+            },
+            {
+              "from": "rm",
+              "to": "api"
+            },
+            {
+              "from": "api",
+              "to": "aud"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you handle late or out-of-order events?",
+        "How would you show users that a source is behind or failing?",
+        "How would you restrict access so users only see their own facility data?",
+        "When would you choose batch ingestion over streaming?"
+      ],
+      "related": [
+        "design-multi-tenant-crm-saas",
+        "design-billing-system-for-correctness-and-auditability"
+      ]
+    }
+  ]
+}

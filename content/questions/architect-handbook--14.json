@@ -1,0 +1,661 @@
+{
+  "category": "architect-handbook",
+  "questions": [
+    {
+      "topic": "High-scale and low-latency systems",
+      "type": "scenario",
+      "sourceType": "new",
+      "sources": [],
+      "slug": "handle-sudden-50x-traffic-spike",
+      "title": "How would you handle a sudden 50x traffic spike?",
+      "difficulty": "advanced",
+      "tags": [
+        "traffic-spike",
+        "autoscaling",
+        "backpressure",
+        "load-shedding"
+      ],
+      "quick": "First I protect the core: shed or degrade non-essential features and rate limit abusive traffic. I serve as much as possible from CDN and caches with request coalescing. Autoscaling helps but is slow and bounded by warm-up time and downstream limits, so for known events I pre-scale. I put queues and backpressure between tiers, protect the database with connection limits and read offload, and prioritise critical requests. Afterwards I load test the same shape and rehearse it in game days.",
+      "revision": "Shed and degrade first, absorb with CDN, cache and queues, pre-scale because autoscaling lags, protect the database, then rehearse with load tests and game days.",
+      "detailed": "A 50x spike (the multiple is an example) breaks designs sized for gradual growth. The goal is to **stay up for what matters** rather than serve everything.\n\n## Clarify first\n\n- Is the spike predictable (a launch, a broadcast) or surprise (viral link, retry storm, attack)?\n- Which journeys are critical, and how long does the spike last?\n- Where is the true bottleneck: database, third-party API, a shared lock, network?\n\n## Response layers\n\n{{diagram:spike}}\n\n1. **Edge absorption**: cache static and semi-static responses at the CDN, even for a few seconds. Micro-caching a hot API response for one to five seconds can collapse thousands of requests into one.\n2. **Admission control**: rate limit per client, prioritise authenticated and critical traffic, and use a waiting room for expensive flows.\n3. **Request coalescing**: when many requests miss for the same key, only one goes to the origin and the rest wait for it.\n4. **Degradation**: switch off recommendations, personalisation, heavy search facets and reports; serve static fallbacks; switch to read-only for some features.\n5. **Queues and backpressure**: accept writes into a durable queue and process at a sustainable rate; bounded queues and timeouts prevent unbounded memory growth. Tell producers to slow down rather than drop silently.\n6. **Database protection**: connection pools with hard limits, read replicas or caches for reads, fewer expensive queries, circuit breakers on slow queries.\n\n## Autoscaling limits\n\nAutoscaling reacts to metrics with delay, then needs instances to start, warm caches and connection pools, and pass health checks. Quotas, IP address limits and downstream databases also cap scale-out. A 50x jump in seconds usually outruns reactive scaling, so **pre-scale** for known events and keep headroom. Scale on leading indicators such as request rate or queue depth, not only CPU.\n\n## Failure modes\n\n- Retry storms: clients and services retry on timeout and multiply load; use jittered backoff and retry budgets.\n- Cache stampede after eviction or deploy.\n- Scaling the web tier just moves the bottleneck to the database.\n- Health checks failing under load and removing healthy instances.\n\n## Capacity planning and testing\n\nFind the system's saturation point by load testing with realistic shapes (a sharp ramp, not a gentle one). Know the limiting resource and the headroom. Run game days where operators practise toggling degradation switches, and keep those switches pre-built and documented.\n\n## Observability\n\nPer-tier rate, errors, latency percentiles, saturation, queue depth, cache hit ratio, and a dashboard that shows which degradation levels are active.\n\n## Common mistakes\n\n- Relying on autoscaling alone.\n- No kill switches for optional features.\n- Unbounded queues that turn overload into very long latency.\n- Testing only average load.",
+      "diagrams": [
+        {
+          "id": "spike",
+          "title": "Defence layers against a spike",
+          "alt": "Traffic passes through a CDN and rate limiter, then a gateway that can shed or degrade features. Requests then go to application services, which read from a cache and send writes to a queue. The queue feeds workers that write to the database at a controlled rate.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "cdn",
+              "label": "CDN and Edge Cache"
+            },
+            {
+              "id": "rl",
+              "label": "Rate Limiter"
+            },
+            {
+              "id": "gw",
+              "label": "Gateway with Load Shedding"
+            },
+            {
+              "id": "app",
+              "label": "Application Services"
+            },
+            {
+              "id": "ca",
+              "label": "Cache"
+            },
+            {
+              "id": "q",
+              "label": "Write Queue"
+            },
+            {
+              "id": "wk",
+              "label": "Workers"
+            },
+            {
+              "id": "db",
+              "label": "Database"
+            }
+          ],
+          "edges": [
+            {
+              "from": "cdn",
+              "to": "rl"
+            },
+            {
+              "from": "rl",
+              "to": "gw"
+            },
+            {
+              "from": "gw",
+              "to": "app"
+            },
+            {
+              "from": "app",
+              "to": "ca",
+              "label": "reads"
+            },
+            {
+              "from": "app",
+              "to": "q",
+              "label": "writes"
+            },
+            {
+              "from": "q",
+              "to": "wk"
+            },
+            {
+              "from": "wk",
+              "to": "db"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Why does autoscaling not save you from a sudden spike?",
+        "How do you prevent retry storms?",
+        "What do you degrade first and who decides?",
+        "How would you rehearse this before it happens?"
+      ],
+      "related": [
+        "cache-and-read-scaling-strategy",
+        "rate-limiting-admission-control-waiting-room",
+        "slos-error-budgets-load-testing"
+      ]
+    },
+    {
+      "topic": "High-scale and low-latency systems",
+      "type": "design",
+      "sourceType": "new",
+      "sources": [],
+      "slug": "cache-and-read-scaling-strategy",
+      "title": "What cache and read-scaling strategy would you use for read-heavy, high-volume traffic?",
+      "difficulty": "advanced",
+      "tags": [
+        "caching",
+        "hot-keys",
+        "stampede",
+        "read-replicas"
+      ],
+      "quick": "I would layer caches: browser and CDN, then an in-process cache, then a shared distributed cache, then the database with read replicas. I handle hot keys with local caching or key replication, and stampedes with request coalescing, jittered TTLs and stale-while-revalidate. Replica reads are only used where replication lag is acceptable. For heavy reads I build denormalised read models, updated from change events, so queries do not join across tables at request time.",
+      "revision": "Tier caches from edge to database, protect against hot keys and stampedes, accept replica lag only where safe, and precompute denormalised read models.",
+      "detailed": "Read scaling is mostly about **not touching the database** for repeat questions, while staying honest about staleness.\n\n## Clarify first\n\n- Read-to-write ratio, request rate, and object size.\n- How stale is acceptable per data type (price versus profile photo)?\n- Is access skewed, with a few very popular keys?\n\n## Cache tiers\n\n{{diagram:cache}}\n\n| Tier | Good for | Watch out |\n|---|---|---|\n| Browser and CDN | Static and public responses | Invalidation, personalisation |\n| In-process cache | Tiny hot data, ultra-low latency | Per-instance inconsistency, memory |\n| Distributed cache | Shared hot objects and query results | Network hop, cold start, single hot node |\n| Read replicas | Offloading read queries | Replication lag, failover |\n\n## Patterns\n\n- **Cache-aside**: read cache, on miss load from the database and populate. Simple, tolerant to cache loss.\n- **Write-through or invalidate-on-write**: update or delete the entry when data changes; deleting is usually safer than updating in place.\n- **Denormalised read models**: precompute view-shaped documents (for example a product detail page) from change events, stored in a key-value or search store. Reads become one lookup, at the price of eventual consistency and rebuild logic.\n\n## Hot keys\n\nA single very popular key can overload one cache node even if the cluster is large. Mitigate with a short-lived local copy in each app instance, replicating the key under several suffixes and picking one at random, or serving it from the CDN.\n\n## Stampede protection\n\nWhen a popular entry expires, many requests miss together. Use request coalescing (one loader per key), add jitter to TTLs, refresh before expiry in the background, and serve stale data while revalidating. Negative caching with a short TTL stops repeated lookups for missing items.\n\n## Replica lag\n\nReplicas apply changes asynchronously, so a user can write and then read old data. Route read-your-own-writes traffic to the primary for a short window, or use session stickiness or version tokens. Monitor lag and remove lagging replicas from rotation.\n\n## Failure modes\n\nCache outage sends full load to the database, so protect it with limits and a warm standby cache, and degrade rather than collapse. Poisoned or wrongly cached entries need a way to purge quickly.\n\n## Observability\n\nHit ratio per tier, miss latency, evictions, hot-key top lists, replica lag, and database load.\n\n## Common mistakes\n\n- Caching without a clear invalidation or TTL policy.\n- Identical TTLs causing synchronised expiry.\n- Treating the cache as a source of truth.\n- Reading from replicas for flows that need fresh data.\n- Caching user-specific data in a shared public cache.",
+      "diagrams": [
+        {
+          "id": "cache",
+          "title": "Read path through cache tiers",
+          "alt": "A request passes the CDN, then an in-process cache in the application, then a distributed cache. On a miss it reads a replica of the database, and a denormalised read model can serve view-shaped data. Writes go to the primary database, which replicates to the replica and publishes change events that update the read model.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "cdn",
+              "label": "CDN"
+            },
+            {
+              "id": "app",
+              "label": "App with Local Cache"
+            },
+            {
+              "id": "dc",
+              "label": "Distributed Cache"
+            },
+            {
+              "id": "rep",
+              "label": "Read Replica"
+            },
+            {
+              "id": "rm",
+              "label": "Read Model Store"
+            },
+            {
+              "id": "pr",
+              "label": "Primary Database"
+            }
+          ],
+          "edges": [
+            {
+              "from": "cdn",
+              "to": "app",
+              "label": "miss"
+            },
+            {
+              "from": "app",
+              "to": "dc",
+              "label": "miss"
+            },
+            {
+              "from": "dc",
+              "to": "rep",
+              "label": "miss"
+            },
+            {
+              "from": "dc",
+              "to": "rm"
+            },
+            {
+              "from": "pr",
+              "to": "rep",
+              "label": "replicates"
+            },
+            {
+              "from": "pr",
+              "to": "rm",
+              "label": "change events"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you prevent a cache stampede?",
+        "How would you handle a single hot key?",
+        "How do you give users read-your-own-writes with replicas?",
+        "When is a denormalised read model better than a cache?"
+      ],
+      "related": [
+        "handle-sudden-50x-traffic-spike",
+        "database-design-high-write-throughput-hot-rows"
+      ]
+    },
+    {
+      "topic": "High-scale and low-latency systems",
+      "type": "design",
+      "sourceType": "new",
+      "sources": [],
+      "slug": "rate-limiting-admission-control-waiting-room",
+      "title": "Design rate limiting, admission control and a virtual waiting room.",
+      "difficulty": "advanced",
+      "tags": [
+        "rate-limiting",
+        "token-bucket",
+        "waiting-room",
+        "bot-protection"
+      ],
+      "quick": "Rate limiting caps requests per client; admission control protects the system by limiting total work in flight; a waiting room queues users and admits them at a sustainable rate. For limits I would use a token bucket or sliding window counter, keyed by user, API key or IP, with shared counters in a fast store or local approximate counters for scale. Admission uses signed tokens and fair ordering. Bot protection uses behavioural signals, challenges and device reputation, and I return clear 429 responses with retry hints.",
+      "revision": "Rate limits cap per client, admission control caps total load, waiting rooms queue and admit fairly; use token bucket or sliding window, shared counters, signed tokens, and bot defences.",
+      "detailed": "These three tools solve related but different problems: **fairness per client**, **protection of the whole system**, and **orderly access to a scarce flow**.\n\n## Clarify first\n\n- What is being protected: an API, login, checkout, a third party?\n- Limit dimensions: per user, API key, IP, endpoint, tenant.\n- Hard rejection versus queueing, and the acceptable accuracy of limits.\n\n## Algorithms\n\n| Algorithm | Behaviour | Notes |\n|---|---|---|\n| Fixed window counter | Count per time window | Simple but allows bursts at window edges |\n| Sliding window log | Exact, stores timestamps | Memory heavy |\n| Sliding window counter | Weighted blend of two windows | Good accuracy for low cost |\n| Token bucket | Refills at a rate, allows bursts up to capacity | Common default |\n| Leaky bucket | Smooths output rate | Good for protecting a downstream |\n\n## Architecture\n\n{{diagram:rl}}\n\nEnforce limits at the edge or gateway, before expensive work. Counters live in a fast shared store using atomic operations (a script or atomic increment with expiry) so concurrent requests cannot both pass. At very high scale, use per-node local buckets with periodic synchronisation, accepting small overshoot, or shard counters by key. Decide **fail open or fail closed** if the counter store is down: fail open protects availability, fail closed protects the backend; many systems choose by endpoint criticality.\n\n## Admission control\n\nLimit concurrency and queue length, not only request rate. When latency rises, reduce admitted work (adaptive limits) and reject excess early with a cheap response, preferably prioritising critical traffic classes.\n\n## Virtual waiting room\n\nUsers arriving beyond capacity get a queue page with a position or estimate. The system admits batches at a configured rate, issuing a signed, time-limited token the protected service verifies. Ordering can be first come first served with a randomised arrival window at the start, so that users who refresh quickest do not win unfairly. Keep the waiting-room page static or edge-hosted, so the queue itself cannot be overwhelmed.\n\n## Bot protection\n\nCombine rate limits with behavioural signals, proof-of-work or challenge pages, device and account reputation, and limits per account rather than only per IP (shared addresses punish legitimate users). Do not rely on IP alone.\n\n## Responses\n\nReturn HTTP 429 with a retry-after hint, and make clients back off with jitter.\n\n## Failure modes\n\nCounter store outage, clock skew between nodes, token replay or sharing, and legitimate users behind one shared address being blocked.\n\n## Observability\n\nRejection rate by rule, queue length, admission rate, wait time, and false-positive reports.\n\n## Common mistakes\n\n- Limits only by IP.\n- Non-atomic check-then-increment.\n- Rejecting after expensive work was done.\n- Waiting rooms that can be bypassed by calling the API directly.",
+      "diagrams": [
+        {
+          "id": "rl",
+          "title": "Admission layers at the edge",
+          "alt": "Clients go through bot protection and a rate limiter that consults a shared counter store. Requests over the limit are rejected, others reach a waiting room that issues admission tokens. The protected service verifies the token before processing.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "c",
+              "label": "Clients"
+            },
+            {
+              "id": "b",
+              "label": "Bot Protection"
+            },
+            {
+              "id": "rl",
+              "label": "Rate Limiter"
+            },
+            {
+              "id": "cs",
+              "label": "Counter Store"
+            },
+            {
+              "id": "w",
+              "label": "Waiting Room"
+            },
+            {
+              "id": "t",
+              "label": "Token Check"
+            },
+            {
+              "id": "s",
+              "label": "Protected Service"
+            }
+          ],
+          "edges": [
+            {
+              "from": "c",
+              "to": "b"
+            },
+            {
+              "from": "b",
+              "to": "rl"
+            },
+            {
+              "from": "rl",
+              "to": "cs",
+              "label": "atomic count"
+            },
+            {
+              "from": "rl",
+              "to": "w"
+            },
+            {
+              "from": "w",
+              "to": "t",
+              "label": "signed token"
+            },
+            {
+              "from": "t",
+              "to": "s"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Token bucket versus sliding window: when would you pick each?",
+        "How do you keep counters correct across many gateway nodes?",
+        "Should the limiter fail open or closed?",
+        "How do you make a waiting room fair?"
+      ],
+      "related": [
+        "handle-sudden-50x-traffic-spike"
+      ]
+    },
+    {
+      "topic": "High-scale and low-latency systems",
+      "type": "design",
+      "sourceType": "new",
+      "sources": [],
+      "slug": "realtime-notification-fanout-live-scores",
+      "title": "Design real-time notifications and live-score fan-out to millions of users.",
+      "difficulty": "advanced",
+      "tags": [
+        "websocket",
+        "sse",
+        "pub-sub",
+        "fan-out"
+      ],
+      "quick": "I would pick the transport by need: WebSocket for two-way, SSE for one-way server push, long polling or short polling as fallbacks. Updates flow from a producer into a pub/sub backbone, then through tiers of fan-out nodes that hold client connections, grouped by topic such as a match. Clients reconnect with exponential backoff and a last-seen version so they can catch up. Messages carry sequence numbers for ordering and a timestamp so the UI can show stale data. Conflation protects slow clients.",
+      "revision": "Choose WebSocket, SSE or polling by need, fan out through pub/sub tiers grouped by topic, reconnect with backoff and catch-up by sequence number, conflate for slow clients.",
+      "detailed": "Fan-out to millions is a **connection-management and amplification** problem: one event becomes millions of deliveries.\n\n## Clarify first\n\n- Update rate per topic and acceptable delay (a second or a few seconds?).\n- One-way or two-way messaging; number of concurrent connections.\n- Delivery guarantees: best-effort latest value (scores) versus must-deliver notifications.\n\n## Transport choices\n\n| Option | Strength | Weakness |\n|---|---|---|\n| Short polling | Simple, cache-friendly via CDN | Wasteful, higher delay |\n| Long polling | Works through most proxies | Connection churn |\n| SSE | One-way, automatic reconnect, simple | One direction, per-connection cost |\n| WebSocket | Two-way, low overhead | Stateful connections, load balancer care |\n\nFor scores, polling a CDN-cached snapshot every few seconds can be surprisingly cost-effective and very robust. Push suits lower delay and chat-like needs.\n\n## Architecture\n\n{{diagram:fan}}\n\n- **Producer** (score feed, notification service) publishes events to a topic in a pub/sub backbone.\n- **Fan-out tier**: stateless-ish gateway nodes keep connections and subscribe to the topics their clients care about. A node subscribes once per topic and writes to all its local clients, so backbone load grows with nodes, not users.\n- **Connection registry** tracks which node holds which user, used for targeted notifications.\n- **Snapshot store** holds the latest state per topic for new or reconnecting clients.\n\n## Ordering and staleness\n\nAttach a monotonically increasing sequence number per topic. Clients detect gaps and fetch missing events or the latest snapshot. Include a server timestamp so the UI can mark data as stale when updates stop arriving, instead of silently showing an old score.\n\n## Reconnect and catch-up\n\nMass disconnects (deploy, network blip) cause reconnect storms. Use exponential backoff with jitter, connection rate limits at the gateway, and a cheap snapshot endpoint for catch-up. Roll out gateway deploys gradually and drain connections.\n\n## Slow clients\n\nBound the per-connection buffer. For state-like data, **conflate**: drop intermediate updates and send the latest. For must-deliver notifications, persist and redeliver after reconnect, and use idempotent client handling.\n\n## Failure modes\n\nGateway node loss (clients reconnect elsewhere), backbone partition (snapshots fill gaps), duplicate delivery (sequence numbers dedupe), mobile push dependency on third-party providers.\n\n## Observability\n\nConcurrent connections, connect and disconnect rate, fan-out latency from publish to delivery, buffer drops, and reconnect rate.\n\n## Common mistakes\n\n- One backbone subscription per user.\n- No catch-up path.\n- Unbounded queues per client.\n- Sharing the real-time path with critical APIs.",
+      "diagrams": [
+        {
+          "id": "fan",
+          "title": "Tiered fan-out",
+          "alt": "A score producer publishes events to a pub/sub backbone. Several fan-out gateway nodes subscribe to the topics and hold the connections of millions of clients. A snapshot store lets reconnecting clients fetch the latest state.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "p",
+              "label": "Score Producer"
+            },
+            {
+              "id": "ps",
+              "label": "Pub/Sub Backbone"
+            },
+            {
+              "id": "g1",
+              "label": "Fan-out Node 1"
+            },
+            {
+              "id": "g2",
+              "label": "Fan-out Node 2"
+            },
+            {
+              "id": "cl",
+              "label": "Client Connections"
+            },
+            {
+              "id": "sn",
+              "label": "Snapshot Store"
+            }
+          ],
+          "edges": [
+            {
+              "from": "p",
+              "to": "ps"
+            },
+            {
+              "from": "ps",
+              "to": "g1"
+            },
+            {
+              "from": "ps",
+              "to": "g2"
+            },
+            {
+              "from": "g1",
+              "to": "cl"
+            },
+            {
+              "from": "g2",
+              "to": "cl"
+            },
+            {
+              "from": "p",
+              "to": "sn",
+              "label": "latest state"
+            },
+            {
+              "from": "cl",
+              "to": "sn",
+              "label": "catch-up"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "When would you choose polling over WebSockets?",
+        "How do you avoid a reconnect storm after a deploy?",
+        "How do you keep ordering across fan-out nodes?",
+        "How do you handle slow clients?"
+      ],
+      "related": [
+        "handle-sudden-50x-traffic-spike",
+        "cache-and-read-scaling-strategy"
+      ]
+    },
+    {
+      "topic": "High-scale and low-latency systems",
+      "type": "design",
+      "sourceType": "new",
+      "sources": [],
+      "slug": "database-design-high-write-throughput-hot-rows",
+      "title": "How do you design a database for high write throughput and hot rows?",
+      "difficulty": "advanced",
+      "tags": [
+        "sharding",
+        "hot-partition",
+        "counters",
+        "idempotency"
+      ],
+      "quick": "I would pick a shard key with high cardinality and even access, avoid monotonically increasing keys that pile onto one partition, and design around access patterns. For hot rows such as counters or inventory, I split them into sub-counters, aggregate asynchronously, or serialise updates through a queue. I smooth bursts with a write-behind queue, batch writes, and make every write idempotent with a unique request key so retries are safe. I monitor partition skew and plan resharding.",
+      "revision": "Choose high-cardinality shard keys, avoid hot partitions, split or serialise hot rows, smooth with queues and batches, and make writes idempotent.",
+      "detailed": "Write scaling fails in two ways: **too much total write volume**, or **too much contention on a few keys**. The cures differ.\n\n## Clarify first\n\n- Write rate (peak and sustained), record size, and required durability.\n- Read patterns that the shard key must also serve.\n- Consistency needs: must a counter be exact, or is approximate fine?\n\n## Architecture\n\n{{diagram:write}}\n\nWriters send to an ingestion layer that validates and deduplicates, optionally buffers in a durable queue, and writes to a sharded store through a router.\n\n## Shard key selection\n\n- **High cardinality and even distribution**: user or order ID hashes spread load.\n- **Avoid monotonic keys** (timestamps, sequences) as the only partition key; they send all current writes to the newest partition. Combine with a hash prefix or bucket.\n- **Align with access**: queries that need all rows of one entity should hit one shard. Cross-shard transactions and joins are expensive.\n- Some stores use consistent hashing or ranges; ranges allow scans but risk hot ranges, hashing spreads load but loses ordering.\n\n## Hot rows and counters\n\n| Technique | Idea | Trade-off |\n|---|---|---|\n| Sub-counters (sharded counter) | Split one counter into N rows, sum on read | Read cost, approximate until summed |\n| Async aggregation | Append events, aggregate periodically | Delay |\n| Single-writer queue per key | Serialise updates for exactness | Throughput limited per key |\n| In-memory increment, periodic flush | Very fast | Risk of loss on crash |\n| Conditional atomic update | Correctness for stock limits | Contention on very hot items |\n\n## Write smoothing\n\nPut a durable queue or log between producers and the database so bursts become a steady stream. Batch inserts, use append-friendly storage structures, and keep indexes few since each index multiplies write cost. Accept that the user may see an accepted-but-pending state.\n\n## Idempotent writes\n\nRetries and at-least-once delivery produce duplicates. Give each logical write a unique key (request ID, event ID) with a unique constraint or conditional put, so repeated attempts have no extra effect. Prefer upserts and operations that are naturally safe to repeat.\n\n## Failure modes\n\nPartition split under load, a replica falling behind, failover losing recent writes with asynchronous replication, queue backlog growing without bound.\n\n## Scaling and operations\n\nMonitor per-shard throughput and latency to catch skew early. Plan online resharding (virtual shards or many small partitions mapped to nodes make rebalancing easier). Archive or tier cold data.\n\n## Common mistakes\n\n- Sharding by a low-cardinality field such as country or status.\n- Updating one aggregate row on every event.\n- Retries without idempotency.\n- Over-indexing a write-heavy table.",
+      "diagrams": [
+        {
+          "id": "write",
+          "title": "Write path with smoothing and sharding",
+          "alt": "Producers send writes to an ingestion API that deduplicates by request key and places them on a durable queue. Workers batch the writes and a shard router sends them to several database shards. Hot counters are split into sub-counters and aggregated asynchronously.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "pr",
+              "label": "Producers"
+            },
+            {
+              "id": "api",
+              "label": "Ingestion API with Dedup"
+            },
+            {
+              "id": "q",
+              "label": "Durable Queue"
+            },
+            {
+              "id": "w",
+              "label": "Batch Workers"
+            },
+            {
+              "id": "r",
+              "label": "Shard Router"
+            },
+            {
+              "id": "s1",
+              "label": "Shard 1"
+            },
+            {
+              "id": "s2",
+              "label": "Shard 2"
+            }
+          ],
+          "edges": [
+            {
+              "from": "pr",
+              "to": "api"
+            },
+            {
+              "from": "api",
+              "to": "q"
+            },
+            {
+              "from": "q",
+              "to": "w"
+            },
+            {
+              "from": "w",
+              "to": "r"
+            },
+            {
+              "from": "r",
+              "to": "s1"
+            },
+            {
+              "from": "r",
+              "to": "s2"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you pick a shard key for an orders table?",
+        "How do you implement a very hot counter?",
+        "How do you make a consumer idempotent?",
+        "How would you reshard without downtime?"
+      ],
+      "related": [
+        "cache-and-read-scaling-strategy"
+      ]
+    },
+    {
+      "topic": "High-scale and low-latency systems",
+      "type": "design",
+      "sourceType": "new",
+      "sources": [],
+      "slug": "multi-region-architecture-design",
+      "title": "Design a multi-region architecture: replication, consistency, failover, RTO and RPO.",
+      "difficulty": "advanced",
+      "tags": [
+        "multi-region",
+        "replication",
+        "rto",
+        "rpo",
+        "failover"
+      ],
+      "quick": "I would begin from RTO and RPO and the real need: lower latency, resilience, or data residency. Then I choose per data type: strongly consistent single-writer data with a home region and asynchronous or synchronous replication, and eventually consistent or conflict-resolved data for active-active. Global routing sends users to a healthy nearby region with health-based failover. I keep regions independent in their control plane, and I test failover regularly, because an untested plan usually fails.",
+      "revision": "Start from RTO and RPO, choose consistency per operation, replicate by data type, route with health-aware global traffic management, keep regions independent, and rehearse failover.",
+      "detailed": "Multi-region adds resilience to a whole-region outage and lower latency for distant users, but it adds cost, consistency complexity and operational risk. First ask whether the **business need** justifies it.\n\n## Clarify first\n\n- **RTO** (how fast we must recover) and **RPO** (how much recent data we may lose) per system.\n- Drivers: region-failure tolerance, user latency, data residency laws.\n- Which operations need strong consistency (payments, inventory) and which tolerate staleness (profile, feed).\n\n## Deployment patterns\n\n| Pattern | RTO / RPO | Notes |\n|---|---|---|\n| Backup and restore | Slowest, larger loss | Cheapest |\n| Pilot light or warm standby | Medium | Data replicated, compute scaled up on failover |\n| Active-passive | Fast | One writer region, standby ready |\n| Active-active | Fastest | Hardest data problems |\n\n## Architecture\n\n{{diagram:region}}\n\nGlobal traffic management (DNS or anycast steering) routes users to the nearest healthy region. Each region runs a full stack with its own load balancers, services and caches, so a regional failure does not need the other region's control plane.\n\n## Data and consistency choices\n\n- **Single home region per record** (for example by customer): writes go to the home region, others may read replicas. Simple and consistent, failover means re-homing.\n- **Synchronous cross-region replication**: RPO near zero, but every write pays inter-region latency and can block if the link fails.\n- **Asynchronous replication**: low write latency, but RPO is the replication lag, and failover can lose recent writes.\n- **Multi-writer with conflict resolution**: last-writer-wins, merge types (counters, sets) or application rules. Suitable for data like preferences, wrong for balances.\n\nChoose per operation rather than per system: a payment may use a single writer with careful failover, while a shopping cart can accept writes anywhere.\n\n## Routing and failover\n\nHealth checks should reflect real user paths, with hysteresis to avoid flapping. DNS caching delays failover, so use short TTLs and clients that retry other endpoints. Failover must fence the old primary to avoid split brain. Failing back needs a deliberate resynchronisation, not an automatic flip.\n\n## Failure modes\n\nReplication lag at failover, a partial region failure (some services fail while health checks pass), capacity shortfall in the surviving region, shared global dependencies such as identity or configuration.\n\n## Testing\n\nRun scheduled failover exercises, including data validation and failback, and test the surviving region at expected load. Measure achieved RTO and RPO against the targets.\n\n## Common mistakes\n\n- Assuming the standby works without ever using it.\n- Active-active with data models that cannot merge.\n- Hidden single-region dependencies.\n- Ignoring the traffic spike on the surviving region.",
+      "diagrams": [
+        {
+          "id": "region",
+          "title": "Two-region active-active layout",
+          "alt": "A global traffic manager routes users to Region A or Region B. Each region has its own application stack and database. The databases replicate to each other, and health checks from the traffic manager decide whether a region receives traffic.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "u",
+              "label": "Users"
+            },
+            {
+              "id": "g",
+              "label": "Global Traffic Manager"
+            },
+            {
+              "id": "a",
+              "label": "Region A Stack"
+            },
+            {
+              "id": "b",
+              "label": "Region B Stack"
+            },
+            {
+              "id": "da",
+              "label": "Database A"
+            },
+            {
+              "id": "db",
+              "label": "Database B"
+            }
+          ],
+          "edges": [
+            {
+              "from": "u",
+              "to": "g"
+            },
+            {
+              "from": "g",
+              "to": "a",
+              "label": "health-checked"
+            },
+            {
+              "from": "g",
+              "to": "b",
+              "label": "health-checked"
+            },
+            {
+              "from": "a",
+              "to": "da"
+            },
+            {
+              "from": "b",
+              "to": "db"
+            },
+            {
+              "from": "da",
+              "to": "db",
+              "label": "replication"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you choose between synchronous and asynchronous replication?",
+        "How do you avoid split brain on failover?",
+        "How would you design the cart versus the payment for two regions?",
+        "How often and how would you test regional failover?"
+      ],
+      "related": [
+        "slos-error-budgets-load-testing",
+        "database-design-high-write-throughput-hot-rows"
+      ]
+    },
+    {
+      "topic": "High-scale and low-latency systems",
+      "type": "design",
+      "sourceType": "new",
+      "sources": [],
+      "slug": "slos-error-budgets-load-testing",
+      "title": "How do you use SLOs, error budgets, load testing and chaos exercises to prove a high-scale design works?",
+      "difficulty": "advanced",
+      "tags": [
+        "slo",
+        "error-budget",
+        "load-testing",
+        "chaos",
+        "observability"
+      ],
+      "quick": "I would define SLIs users care about, such as availability and latency percentiles per journey, set SLOs, and track the error budget to balance feature work and reliability. I prove the design with load tests shaped like real traffic: ramp, spike, soak and breakpoint. Chaos experiments and game days remove instances, zones and dependencies to check failover and runbooks. I monitor the golden signals, latency, traffic, errors and saturation, and alert on budget burn rate rather than every blip.",
+      "revision": "Set SLIs and SLOs per journey, manage error budgets and burn-rate alerts, validate with spike, soak and breakpoint load tests, chaos and game days, watching the four golden signals.",
+      "detailed": "A design is only credible if you can **measure** it and **break it on purpose**. SLOs define success; tests and exercises show whether the system meets it.\n\n## Clarify first\n\n- The critical user journeys (search, checkout, playback start).\n- What users feel: availability, latency at p99, correctness, freshness.\n- Business tolerance for downtime and slow responses.\n\n## SLIs, SLOs and error budgets\n\nAn **SLI** is a measured indicator (for example the fraction of successful requests faster than a threshold). An **SLO** is the target over a window. The **error budget** is the allowed shortfall: with a 99.9 percent target over a month, a small and finite amount of failure is permitted. When the budget is healthy, ship faster; when it is burning, prioritise reliability. Alert on **burn rate** across short and long windows, which pages for fast burns and tickets for slow ones, instead of alerting on single errors.\n\n## Observability: the golden signals\n\n{{diagram:slo}}\n\nTrack **latency** (percentiles, success and failure separately), **traffic**, **errors** and **saturation** per service and per dependency, plus synthetic probes of whole journeys and distributed traces to locate the slow hop. Dashboards should map to SLOs, not just to infrastructure.\n\n## Load test shapes\n\n| Shape | Question it answers |\n|---|---|\n| Baseline | Does normal load meet the SLO? |\n| Ramp | Where does latency start to climb? |\n| Spike | Can it absorb a sudden jump and recover? |\n| Soak | Do leaks or slow drift appear over hours? |\n| Breakpoint | What fails first, and how gracefully? |\n\nUse production-like data volume and mix, including cache-cold starts and realistic think times. Avoid load generators becoming the bottleneck, and avoid coordinated omission, where a stalled test client under-reports slow requests. Include third-party stubs with realistic latency and failure.\n\n## Chaos and game days\n\nStart with a hypothesis (\"losing one zone keeps error rate within the SLO\"), limit the blast radius, and inject failures: kill instances, add network latency, fail a dependency, exhaust a connection pool, fail over a database. Run game days with operators using the real runbooks, and record gaps. Begin in staging, progress carefully to production with abort conditions.\n\n## Capacity planning\n\nMeasure the per-instance saturation point, plan headroom for peak plus failure of a zone, and repeat tests after significant changes. Track cost per request alongside capacity.\n\n## Common mistakes\n\n- SLOs on averages or on infrastructure rather than user journeys.\n- Load tests with unrealistic traffic or tiny data.\n- Chaos without a hypothesis or abort plan.\n- Alerting on causes instead of symptoms, leading to noise.\n- Tests run once and never repeated.",
+      "diagrams": [
+        {
+          "id": "slo",
+          "title": "Proving the design",
+          "alt": "Load tests and chaos experiments act on the system under test. Telemetry from the system feeds dashboards that show the golden signals, which are compared with SLOs. Error budget burn alerts guide releases and drive findings back into design changes.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "lt",
+              "label": "Load Tests"
+            },
+            {
+              "id": "ch",
+              "label": "Chaos Experiments"
+            },
+            {
+              "id": "sys",
+              "label": "System Under Test"
+            },
+            {
+              "id": "tel",
+              "label": "Telemetry and Golden Signals"
+            },
+            {
+              "id": "slo",
+              "label": "SLOs and Error Budget"
+            },
+            {
+              "id": "fix",
+              "label": "Design Fixes"
+            }
+          ],
+          "edges": [
+            {
+              "from": "lt",
+              "to": "sys"
+            },
+            {
+              "from": "ch",
+              "to": "sys"
+            },
+            {
+              "from": "sys",
+              "to": "tel"
+            },
+            {
+              "from": "tel",
+              "to": "slo"
+            },
+            {
+              "from": "slo",
+              "to": "fix",
+              "label": "burn alerts"
+            },
+            {
+              "from": "fix",
+              "to": "sys"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "What is burn-rate alerting and why is it better than threshold alerts?",
+        "What is coordinated omission in load testing?",
+        "How would you design a game day for a zone failure?",
+        "How do you choose an SLO target?"
+      ],
+      "related": [
+        "handle-sudden-50x-traffic-spike",
+        "multi-region-architecture-design"
+      ]
+    }
+  ]
+}

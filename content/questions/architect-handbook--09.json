@@ -1,0 +1,613 @@
+{
+  "category": "architect-handbook",
+  "questions": [
+    {
+      "slug": "design-live-tournament-platform",
+      "title": "Design a live tournament platform that handles traffic spikes",
+      "topic": "System design case studies",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "real-time",
+        "load-leveling",
+        "rate-limiting",
+        "system-design"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            17
+          ]
+        }
+      ],
+      "quick": "I model the tournament lifecycle and scoring rules explicitly and keep the authoritative result in a durable, versioned store protected by authorisation. Real-time delivery and notifications are asynchronous fan-out on top of that. During spikes I use queue-based load levelling, caching of read-heavy views and rate limits. I define reconnect behaviour, stale-data indicators and a way to recover missed updates, so a dropped client can always catch up from a sequence number.",
+      "revision": "Durable versioned source of truth, asynchronous real-time fan-out, queue-based load levelling and rate limits for spikes, plus sequence-based catch-up for reconnecting clients.",
+      "detailed": "A hypothetical example: a live event platform where scores change every few seconds and millions of viewers arrive when a match starts.\n\n## Requirements\n\nResult integrity (only authorised officials change scores), low-latency updates to viewers, tolerance of bursts at match start and end, clear behaviour for flaky mobile connections, and an audit trail for disputed results.\n\n## Architecture\n\n{{diagram:tournament-flow}}\n\n- **Write path**: officials submit scores through an authenticated API. A domain model enforces rules (valid state transitions, scoring constraints). Each accepted change gets a **monotonic sequence number** and is stored durably, ideally in an append-only event log plus current-state table.\n- **Fan-out**: the change is published to a broker; a push gateway (WebSockets or server-sent events) delivers it to connected viewers. Gateways are stateless apart from connection state and scale horizontally.\n- **Read path**: viewers loading a page get a snapshot from a cache or CDN with a short expiry, not from the primary database.\n- **Spike handling**: queue-based load levelling smooths bursts of writes such as registrations or notifications; per-client and per-IP rate limits protect the API; autoscaling gateways before known start times beats reacting afterwards.\n\n## Reconnect and consistency\n\nClients remember the last sequence number. On reconnect they request everything after it; if the gap is too large, they fetch a fresh snapshot. The UI shows a \"last updated\" indicator and a clear banner when the connection is degraded, so stale scores are never presented as live.\n\n## Risks\n\nFan-out amplification (one update to millions), thundering herd on reconnect after an outage (use jittered backoff), result tampering, and notification floods. Mitigate with batching, jitter, signed or authorised score writes, and dedicated worker pools for notifications.\n\n## Validation\n\nLoad tests that model the start-of-match burst and mass reconnect, chaos tests killing gateway nodes, correctness tests for sequence replay, and dispute drills reconstructing a result from the log.",
+      "diagrams": [
+        {
+          "id": "tournament-flow",
+          "title": "Live tournament update flow",
+          "alt": "Officials write scores through an authorised API to a durable event log with sequence numbers; a broker feeds push gateways that deliver updates to viewers, while a cache or CDN serves snapshots and clients catch up from their last sequence number.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "off",
+              "label": "Officials"
+            },
+            {
+              "id": "api",
+              "label": "Scoring API"
+            },
+            {
+              "id": "log",
+              "label": "Durable event log"
+            },
+            {
+              "id": "brk",
+              "label": "Broker"
+            },
+            {
+              "id": "gw",
+              "label": "Push gateways"
+            },
+            {
+              "id": "view",
+              "label": "Viewers"
+            },
+            {
+              "id": "cdn",
+              "label": "Cache or CDN snapshot"
+            }
+          ],
+          "edges": [
+            {
+              "from": "off",
+              "to": "api",
+              "label": "authorised"
+            },
+            {
+              "from": "api",
+              "to": "log",
+              "label": "sequence number"
+            },
+            {
+              "from": "log",
+              "to": "brk"
+            },
+            {
+              "from": "brk",
+              "to": "gw"
+            },
+            {
+              "from": "gw",
+              "to": "view"
+            },
+            {
+              "from": "log",
+              "to": "cdn"
+            },
+            {
+              "from": "cdn",
+              "to": "view",
+              "label": "snapshot"
+            },
+            {
+              "from": "view",
+              "to": "gw",
+              "label": "catch up from last sequence"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How does a client recover updates it missed while disconnected?",
+        "How would you prevent a reconnect storm after an outage?",
+        "Why keep the authoritative result separate from the real-time delivery channel?",
+        "How would you protect scoring integrity against tampering?"
+      ],
+      "related": [
+        "design-enterprise-ai-platform",
+        "traffic-grows-10x-scenario"
+      ]
+    },
+    {
+      "slug": "design-enterprise-ai-platform",
+      "title": "Design an enterprise AI platform shared by several product teams",
+      "topic": "System design case studies",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "ai",
+        "platform",
+        "governance",
+        "security",
+        "llm"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            17
+          ]
+        }
+      ],
+      "quick": "I separate shared platform services from product-specific domain logic. The platform offers provider adapters, a policy layer for model access, identity and authorisation, workflow orchestration for long-running tasks, and audit and cost telemetry. Guardrails treat external input as untrusted. The key rule is that model output never bypasses domain validation, permissions or transactional controls: the model proposes, the domain system disposes. Quality is tracked with evaluation datasets, not impressions.",
+      "revision": "Shared gateway with adapters, policy, identity, orchestration and telemetry; products own domain logic; model output is untrusted input that still passes validation, permissions and transactions.",
+      "detailed": "A hypothetical example: several product teams want language-model features, and the company wants consistency, safety and cost control without blocking teams.\n\n## Requirements\n\nConsistent access control, data protection, cost visibility per team, ability to change model providers, evaluation of quality, and safe handling of long-running or tool-using workflows.\n\n## Architecture\n\n{{diagram:ai-platform}}\n\n- **AI gateway**: a single entry point authenticating the calling product and end user, applying quotas, and routing to model providers through **adapters**. Build adapters where portability or policy genuinely needs them, not as a reflex.\n- **Policy layer**: which data classes may go to which model, redaction rules, allowed tools, regional restrictions.\n- **Retrieval services**: indexing and search over approved sources with per-user access filtering, so retrieval never exposes documents the user could not otherwise read.\n- **Orchestration**: durable workflows (retries, timeouts, human approval steps) for multi-step or long-running tasks.\n- **Telemetry**: model and version, latency, token or usage cost, tool calls, failures and quality signals, with sensitive data protected in logs.\n- **Evaluation**: representative datasets and regression runs before changing a model or prompt.\n\n## Product boundary\n\nProducts own their domain rules. When a model suggests an action (\"refund this order\"), the product validates inputs, checks the *user's* permission, and executes through its normal transactional path. Model output is not an identity and not a permission. Consequential actions can require explicit human approval.\n\n## Risks\n\nPrompt injection through retrieved or user content, over-privileged tools, cost runaway, provider outages, silent quality regression, and data leakage into logs. Mitigations: least-privilege per tool call, input and output filtering, budgets and alerts, fallbacks, evaluation gates, and log redaction.\n\n## Validation\n\nRed-team tests for injection and data leakage, regression evaluations on each change, failure injection for provider outages, and cost reports reconciled with invoices.",
+      "diagrams": [
+        {
+          "id": "ai-platform",
+          "title": "Enterprise AI platform",
+          "alt": "Product applications call an AI gateway with identity and policy checks that routes to model providers via adapters, uses a retrieval service and a workflow orchestrator, calls domain APIs with the user permissions, and emits audit and cost telemetry.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "app",
+              "label": "Product applications"
+            },
+            {
+              "id": "gw",
+              "label": "AI gateway"
+            },
+            {
+              "id": "pol",
+              "label": "Policy and identity"
+            },
+            {
+              "id": "ad",
+              "label": "Provider adapters"
+            },
+            {
+              "id": "llm",
+              "label": "Model providers"
+            },
+            {
+              "id": "rag",
+              "label": "Retrieval service"
+            },
+            {
+              "id": "wf",
+              "label": "Workflow orchestrator"
+            },
+            {
+              "id": "dom",
+              "label": "Domain APIs"
+            },
+            {
+              "id": "tel",
+              "label": "Audit and cost telemetry"
+            }
+          ],
+          "edges": [
+            {
+              "from": "app",
+              "to": "gw"
+            },
+            {
+              "from": "gw",
+              "to": "pol"
+            },
+            {
+              "from": "gw",
+              "to": "ad"
+            },
+            {
+              "from": "ad",
+              "to": "llm"
+            },
+            {
+              "from": "gw",
+              "to": "rag"
+            },
+            {
+              "from": "gw",
+              "to": "wf"
+            },
+            {
+              "from": "wf",
+              "to": "dom",
+              "label": "user permissions"
+            },
+            {
+              "from": "gw",
+              "to": "tel"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you stop a model-driven agent from performing actions the user is not permitted to do?",
+        "When is a provider abstraction layer worth its cost?",
+        "How would you evaluate a change of model before rolling it out?",
+        "How would you control and attribute costs across teams?"
+      ],
+      "related": [
+        "ai-architecture-topics-rag-evaluation-tool-authorization",
+        "design-live-tournament-platform"
+      ]
+    },
+    {
+      "slug": "design-monolith-modernization-strangler-fig",
+      "title": "Design the modernization of a legacy monolith using the Strangler Fig approach",
+      "topic": "System design case studies",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "modernization",
+        "strangler-fig",
+        "monolith",
+        "migration"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            17
+          ]
+        }
+      ],
+      "quick": "I map dependencies and business boundaries before extracting anything. First I improve observability and tests, then create modular boundaries and stable interfaces inside the monolith. With the Strangler Fig approach, a routing layer sends selected traffic to a new implementation while the old one keeps serving the rest. I plan data ownership, compatibility, reconciliation and rollback up front, and extract a service only where deployment autonomy, isolation or ownership justifies the distributed-system cost.",
+      "revision": "Observe and test first, carve modular seams, route a capability to the new path behind a facade, reconcile, keep rollback, and extract only where it pays for the distribution cost.",
+      "detailed": "The Strangler Fig pattern grows a new system around the edges of an old one and gradually replaces it, so there is never a single risky cutover.\n\n## Steps\n\n1. **Understand the system.** Map dependencies, data flows and business capabilities. Identify the critical journeys and the parts that change most often.\n2. **Build safety nets.** Add observability (logs, metrics, traces), characterisation tests that capture current behaviour, and a baseline of performance and error rates.\n3. **Create seams inside the monolith.** Establish module boundaries and stable interfaces. Often this alone delivers most of the value, and many teams stop at a modular monolith.\n4. **Introduce a facade.** A routing layer or API gateway in front of the system can send a capability, or a percentage of its traffic, to either implementation.\n5. **Build one capability alongside.** Pick one with a clear boundary and manageable data coupling, ideally with a real autonomy or scaling reason.\n6. **Migrate data deliberately.** Decide the new owner, synchronise during transition, and reconcile.\n7. **Shift traffic gradually** with flags: internal users, small percentage, then everyone. Keep the old path until confidence is high.\n8. **Retire the old code** and repeat only if evidence supports the next extraction.\n\n{{diagram:strangler}}\n\n## What to extract first\n\n| Good first candidate | Poor first candidate |\n|---|---|\n| Clear boundary, few data joins | The core entangled domain |\n| Different scaling or release cadence | Rarely changed, low-risk code |\n| Owned by one team | Shared by everyone |\n\n## Risks\n\nDual maintenance during transition, data divergence, hidden coupling through the shared database, and a half-finished migration that leaves two systems forever. Counter with an explicit exit plan, reconciliation reports and a rule that each extraction must name its measurable benefit.\n\n## Validation\n\nParallel runs comparing old and new responses, shadow traffic, error and latency comparison per slice, and rehearsed rollback.",
+      "diagrams": [
+        {
+          "id": "strangler",
+          "title": "Strangler Fig routing",
+          "alt": "Clients call a routing facade that sends migrated capabilities to a new service with its own data store and everything else to the legacy monolith, while a reconciliation job compares the two data sets.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "cl",
+              "label": "Clients"
+            },
+            {
+              "id": "fac",
+              "label": "Routing facade"
+            },
+            {
+              "id": "old",
+              "label": "Legacy monolith"
+            },
+            {
+              "id": "new",
+              "label": "New service"
+            },
+            {
+              "id": "odb",
+              "label": "Legacy database"
+            },
+            {
+              "id": "ndb",
+              "label": "New data store"
+            },
+            {
+              "id": "rec",
+              "label": "Reconciliation job"
+            }
+          ],
+          "edges": [
+            {
+              "from": "cl",
+              "to": "fac"
+            },
+            {
+              "from": "fac",
+              "to": "old",
+              "label": "remaining traffic"
+            },
+            {
+              "from": "fac",
+              "to": "new",
+              "label": "migrated slice"
+            },
+            {
+              "from": "old",
+              "to": "odb"
+            },
+            {
+              "from": "new",
+              "to": "ndb"
+            },
+            {
+              "from": "odb",
+              "to": "rec"
+            },
+            {
+              "from": "ndb",
+              "to": "rec"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you decide which capability to extract first?",
+        "How would you keep data consistent between old and new during the transition?",
+        "How do you avoid ending up with two systems forever?",
+        "When would you stop at a modular monolith instead of extracting services?"
+      ],
+      "related": [
+        "migrate-monolith-without-big-bang-rewrite",
+        "recognize-overengineering"
+      ]
+    },
+    {
+      "slug": "recognize-overengineering",
+      "title": "How do you recognize overengineering in an architecture?",
+      "topic": "Anti-patterns and modernization",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "overengineering",
+        "simplicity",
+        "trade-offs"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            17
+          ]
+        }
+      ],
+      "quick": "I ask what concrete requirement each layer, service or pattern satisfies and what measurable benefit it brings. Warning signs are abstractions with no real variation, services without independent ownership or deployment needs, duplicated infrastructure and complexity aimed at hypothetical futures. If the benefit is speculative and the operational cost is real, I simplify while keeping the non-negotiable security and reliability needs. I also check I am not underengineering, since the aim is fit, not minimalism.",
+      "revision": "Every component must justify its cost against a real requirement. Speculative benefit plus real operational burden signals overengineering; keep security and reliability non-negotiables.",
+      "detailed": "Overengineering is complexity that costs more than the problem it solves. It rarely looks silly; it looks sophisticated, which is why it needs a deliberate test.\n\n## Signals\n\n- **Abstractions without variation**: interfaces with one implementation that will never change, generic frameworks for one use case.\n- **Services without a reason**: many deployables owned by one team, released together, sharing one database.\n- **Infrastructure beyond the need**: a streaming platform for a few messages a minute, multi-region active-active for an internal tool with a relaxed recovery target.\n- **Patterns for hypothetical futures**: \"we might need to swap the database\" with no plausible trigger.\n- **Operational burden disproportionate to risk**: more dashboards, pipelines and on-call load than the business value justifies.\n- **Technology-driven decisions**: components added because they are fashionable, or because an AI assistant suggested them.\n\n## A practical test\n\nFor each component ask four questions:\n\n1. Which stated requirement or quality-attribute scenario does it satisfy?\n2. What is the measurable benefit, and how would we know?\n3. What does it cost to build, run, secure, learn and replace?\n4. What is the simplest alternative, and why is it insufficient?\n\nIf the answers are vague, record the component as a candidate for removal or deferral.\n\n## Simplify safely\n\nDelete or merge in small, reversible steps. Preserve what is non-negotiable (security, data protection, tested recovery). Keep seams that make later extraction cheap, such as clear module boundaries, rather than building the extraction in advance.\n\n## Avoiding the opposite error\n\nUnderengineering ignores requirements that are real: no idempotency in payment handlers, no backups, no observability. The question is always fit to requirements, not minimum size. Revisit when measured growth changes the requirement, and use fitness functions or load tests to know when that moment arrives.\n\n## Common mistakes\n\n- Judging by component count alone; a modular monolith may be well engineered with many modules.\n- Removing resilience for simplicity.\n- Keeping a design because effort has already been spent.",
+      "followUps": [
+        "How do you avoid underengineering at the same time?",
+        "What do you do if scale grows unexpectedly after you simplified?",
+        "How do you challenge an overengineered design from a senior colleague diplomatically?"
+      ],
+      "related": [
+        "architecture-anti-patterns-and-remediation",
+        "ai-suggests-complex-architecture-scenario"
+      ]
+    },
+    {
+      "slug": "architecture-anti-patterns-and-remediation",
+      "title": "What common architecture anti-patterns exist, and how do you spot and fix them?",
+      "topic": "Anti-patterns and modernization",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "anti-patterns",
+        "distributed-monolith",
+        "resilience",
+        "outbox"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            17
+          ]
+        }
+      ],
+      "quick": "I keep a mental checklist of recurring anti-patterns. A distributed monolith needs coordinated releases, a big ball of mud has no clear boundaries, and premature microservices arrive before ownership exists. A retry storm amplifies overload, a cache stampede regenerates the same expired value many times, and dual writes leave the database and events disagreeing. For each I look for the warning sign and apply a targeted fix such as backoff with jitter, request coalescing or a transactional outbox.",
+      "revision": "Know each anti-pattern's warning sign and fix: distributed monolith, mud, retry storm, stampede, dual write, shared database, missing observability, and AI-driven overengineering.",
+      "detailed": "Anti-patterns are common solutions that look reasonable and produce worse outcomes. Being able to name them, spot them and prescribe a fix is a core architect skill.\n\n| Anti-pattern | Warning signs | Remediation |\n|---|---|---|\n| Distributed monolith | Services need coordinated releases; long synchronous call chains | Revisit boundaries, reduce synchronous coupling, clarify ownership |\n| Big ball of mud | No clear boundaries, pervasive dependencies, fear of change | Map critical flows, add tests, create modular seams incrementally |\n| Premature microservices | Many services before ownership and operations capability exist | Consolidate; define boundaries before extraction |\n| God service or object | One component owns unrelated behaviour | Split by cohesive responsibility or business capability |\n| Shared database coupling | Teams alter each other's schema and assumptions | Assign ownership, publish contracts, migrate in stages |\n| Retry storm | Retries amplify overload and duplicate effects | Timeouts, exponential backoff with jitter, retry budgets, idempotency |\n| Cache stampede | Many requests rebuild one expired value at once | Request coalescing, staggered expiry, bounded stale serving where safe |\n| Dual-write inconsistency | Database and published events disagree | Transactional outbox or change data capture |\n| Missing observability | Incidents cannot be localised or correlated | Structured logs, metrics, traces, correlation ids, actionable alerts |\n| AI-driven overengineering | Patterns added because an assistant suggested them | Tie each component to a requirement and a measurable benefit |\n\n## Reading the table well\n\n- **Several are about coupling.** Distributed monolith, shared database and god service all hide dependencies that make changes risky. Fix by making ownership and contracts explicit.\n- **Several are failure amplifiers.** Retry storms and cache stampedes turn a small slowdown into an outage. The remedy is to bound work: deadlines, budgets and coalescing.\n- **Dual writes are a consistency trap.** Writing to a database and a broker separately means one can succeed and the other fail. Write the event to an outbox table in the same transaction, then publish it, with idempotent consumers.\n\n## Example (hypothetical)\n\nA checkout service retries a slow payment provider three times immediately, from every instance. When the provider slows down, traffic multiplies and the slowdown becomes an outage. The fix is a short timeout, exponential backoff with jitter, a retry budget, a circuit breaker and an idempotency key so retries are safe.\n\n## Common mistakes\n\n- Fixing symptoms (more instances) without removing the amplifier.\n- Treating microservices as the cure for a big ball of mud; boundaries must exist first.",
+      "followUps": [
+        "How would you detect a distributed monolith in an existing system?",
+        "How does a transactional outbox fix dual writes, and what does it not solve?",
+        "How do you prevent a retry storm without losing resilience?",
+        "How would you prevent a cache stampede for a very hot key?"
+      ],
+      "related": [
+        "recognize-overengineering",
+        "migrate-monolith-without-big-bang-rewrite"
+      ]
+    },
+    {
+      "slug": "migrate-monolith-without-big-bang-rewrite",
+      "title": "How would you migrate a monolith without a big-bang rewrite?",
+      "topic": "Anti-patterns and modernization",
+      "difficulty": "advanced",
+      "type": "conceptual",
+      "tags": [
+        "migration",
+        "expand-contract",
+        "feature-flags",
+        "reconciliation"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            18
+          ]
+        }
+      ],
+      "quick": "I would modernise incrementally: establish observability and tests, pick one bounded capability, introduce a stable seam or routing layer, and migrate gradually. Schema changes use expand-and-contract so old and new code coexist. I run old and new in parallel, reconcile their results, release behind feature flags, and keep a tested rollback at each step. I avoid a big-bang rewrite unless there is a compelling reason and a credible transition plan.",
+      "revision": "Incremental, observable, reversible: safety nets, a bounded capability, a stable seam, expand-and-contract data changes, parallel runs with reconciliation, feature flags and rollback.",
+      "detailed": "A big-bang rewrite freezes learning for months, rebuilds known bugs and unknown business rules, and concentrates risk in one cutover day. Incremental migration spreads risk over many small, reversible steps.\n\n## Mechanics\n\n1. **Baseline**: observability, automated tests for critical workflows, and measured error and latency rates.\n2. **Choose a capability** with a clear business boundary and manageable data coupling.\n3. **Introduce a seam**: a facade, adapter or routing layer so callers do not depend on the implementation.\n4. **Build alongside** and route traffic gradually.\n\n## Expand and contract for data\n\nChange the schema without breaking running code, in phases:\n\n| Phase | Action | Safe to roll back? |\n|---|---|---|\n| Expand | Add new columns or tables; keep the old ones | Yes |\n| Migrate | Backfill data; write to both with a clear source of truth | Yes |\n| Switch | Read from the new structure behind a flag | Yes, flip the flag |\n| Contract | Remove old structures after a quiet period | Hard; do it last |\n\nDual-writing is risky. Prefer one owner of writes plus replication, or an outbox, and verify with reconciliation.\n\n## Reconciliation and parallel runs\n\nCompare old and new outputs on the same inputs, either in shadow mode (new path result discarded) or with a diff report. Track mismatch rate per category and investigate before increasing traffic. Reconciliation also covers data: counts, checksums and sampled records between the two stores.\n\n{{diagram:migration-steps}}\n\n## Flags and rollback\n\nUse feature flags to move cohorts progressively: internal users, a small percentage, then all. Define the rollback in advance: flipping the flag must restore the old path, and data written by the new path must remain readable by the old one until contract.\n\n## Common mistakes\n\n- Skipping tests, so nobody knows whether behaviour changed.\n- Contracting the schema too early and losing the rollback.\n- Letting the migration drift without an exit date, so two systems are maintained forever.\n- Extracting services before boundaries are understood.",
+      "diagrams": [
+        {
+          "id": "migration-steps",
+          "title": "Incremental migration loop",
+          "alt": "Loop of safety nets, bounded capability and stable seam, expand and backfill, parallel run with reconciliation, gradual traffic shift behind flags, then contract and retire, with rollback available until the end.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "safe",
+              "label": "Safety nets"
+            },
+            {
+              "id": "seam",
+              "label": "Bounded capability and seam"
+            },
+            {
+              "id": "exp",
+              "label": "Expand and backfill"
+            },
+            {
+              "id": "par",
+              "label": "Parallel run and reconcile"
+            },
+            {
+              "id": "shift",
+              "label": "Shift traffic with flags"
+            },
+            {
+              "id": "con",
+              "label": "Contract and retire"
+            },
+            {
+              "id": "rb",
+              "label": "Rollback"
+            }
+          ],
+          "edges": [
+            {
+              "from": "safe",
+              "to": "seam"
+            },
+            {
+              "from": "seam",
+              "to": "exp"
+            },
+            {
+              "from": "exp",
+              "to": "par"
+            },
+            {
+              "from": "par",
+              "to": "shift"
+            },
+            {
+              "from": "shift",
+              "to": "con"
+            },
+            {
+              "from": "shift",
+              "to": "rb",
+              "label": "if mismatch or errors"
+            },
+            {
+              "from": "rb",
+              "to": "par"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you migrate shared data between the old and new systems?",
+        "How do you validate a parallel run, and what mismatch rate is acceptable?",
+        "When is a big-bang rewrite actually justified?"
+      ],
+      "related": [
+        "design-monolith-modernization-strangler-fig",
+        "architecture-anti-patterns-and-remediation"
+      ]
+    },
+    {
+      "slug": "answer-difficult-architecture-decision-question",
+      "title": "Tell me about a difficult architecture decision. How do you structure the answer?",
+      "topic": "Leadership and behavioral",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "behavioral",
+        "decision-making",
+        "star",
+        "leadership"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            18
+          ]
+        }
+      ],
+      "quick": "I would choose a real decision and open with the business problem and constraints. Then I describe two or more viable options, the criteria I used, and how I validated the trade-off, for example with a prototype or a load test. I am precise about my own contribution and how I aligned stakeholders. I close with the measured outcome and what I learned or would change. I would not invent numbers or claim a team result as mine alone.",
+      "revision": "Problem and constraints, options, criteria, validation, your role, stakeholder alignment, measured outcome, learning. Be honest about contribution; never invent metrics.",
+      "detailed": "This is a framework for *your own real story*. The content must come from your actual experience; nothing below is anyone's real case.\n\n## What the interviewer is testing\n\nDecision quality, evidence, ownership, communication and honesty. The decision itself matters less than how you reasoned.\n\n## Structure\n\n| Step | What to cover |\n|---|---|\n| Situation | Business problem, scale of impact, who was affected |\n| Constraints | Time, budget, skills, compliance, existing systems |\n| Options | Two or more genuinely viable alternatives, including a simple one |\n| Criteria | What mattered and why (cost, risk, speed, reversibility) |\n| Evidence | Prototype, benchmark, threat model, expert input |\n| Your role | What you personally decided, proposed or influenced |\n| Alignment | How you handled disagreement and who decided |\n| Outcome | Real result, measured or observed, including downsides |\n| Learning | What you would change now |\n\n## Template with placeholders (example only)\n\n\"We needed to [business goal] under [constraint]. I considered [option A], [option B] and [option C]. We chose criteria such as [cost, risk, reversibility]. To test the riskiest assumption I [ran a prototype / reviewed with the security team]. My role was [what you actually did]. We aligned by [workshop / ADR review]. The result was [observed outcome, with figures only if you really have them]. Looking back, I would [change].\"\n\n## Honesty rules\n\n- Use a real example. If you lack one on a topic, say \"given those requirements I would design it this way\" and reason aloud instead of fabricating history.\n- Describe your contribution accurately; use \"we\" for team outcomes and \"I\" for your own actions.\n- Include a real trade-off or downside; a story with no cost sounds rehearsed.\n- Do not quote metrics you cannot defend.\n\n## Common mistakes\n\n- Spending most of the time on technology and none on the stakes.\n- Presenting only the option you chose.\n- Skipping how you handled disagreement.\n- Ending without a learning.",
+      "followUps": [
+        "What alternative did you reject, and why?",
+        "What would change your decision today?",
+        "How did you handle someone who strongly disagreed?",
+        "How did you know the decision worked?"
+      ],
+      "related": [
+        "answer-decision-that-did-not-work-question",
+        "influence-without-authority"
+      ]
+    },
+    {
+      "slug": "answer-decision-that-did-not-work-question",
+      "title": "Tell me about an architecture decision that did not work as expected. How do you structure the answer?",
+      "topic": "Leadership and behavioral",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "behavioral",
+        "learning",
+        "failure",
+        "retrospective"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            18
+          ]
+        }
+      ],
+      "quick": "I would pick a genuine case where an assumption turned out wrong or the environment changed. I explain the original assumption and reasoning, the signal that showed the mismatch, how I contained the impact and gathered evidence, and how the design changed. I avoid blaming people. I finish with what I now do differently, such as a validation step or an alert, so it is clear I learned something concrete rather than just survived.",
+      "revision": "Assumption, signal, containment, evidence, correction, and the guardrail you added. Own it, avoid blame, and show a concrete process improvement.",
+      "detailed": "Interviewers ask this to learn whether you detect problems early, stay calm, take responsibility and improve the system around the mistake. Use a real story; the sample below is a template, not an account of anyone's experience.\n\n## What a strong answer shows\n\n- You made the decision with reasonable information, and you can say what the information was.\n- You noticed the mismatch through a signal (metric, incident, user feedback), and you can name it.\n- You reduced harm first, then investigated.\n- You changed the design and the process.\n\n## Structure\n\n1. **Original decision and assumption**: what you chose and the belief it rested on.\n2. **Signal**: how reality diverged (rising latency, cost overrun, maintainability pain).\n3. **Containment**: what you did to limit impact (rollback, flag, temporary capacity, communication).\n4. **Diagnosis**: evidence, not blame; what was actually wrong.\n5. **Correction**: the design change and how you made it safely.\n6. **Prevention**: the test, review check, fitness function or alert that now exists.\n\n## Example template (illustrative only)\n\n\"I chose [approach] because we assumed [assumption]. After [period] we saw [signal]. I first [contained impact], then [gathered evidence]. The assumption was wrong because [reason]. We changed [design aspect] and added [guardrail, such as a load-test gate or a cost alert] so we would catch it earlier. I now ask [new question] before committing to similar decisions.\"\n\n## Choosing a story\n\nPick something with real consequences but not a catastrophe caused by negligence. Avoid trivial \"failures\" that are secretly boasts (\"I worked too hard\"). Avoid stories where the lesson is that someone else was wrong.\n\n## Common mistakes\n\n- Blaming a vendor, team or requirement change without owning your part.\n- Skipping the signal, which hides how you detect problems.\n- No concrete prevention, so the story ends with a vague \"communicate more\".\n- Inventing figures to make the recovery sound heroic.",
+      "followUps": [
+        "What signal did you miss at the time, and what monitoring would have caught it earlier?",
+        "How did you communicate the change to stakeholders?",
+        "What do you do differently now when you make similar decisions?"
+      ],
+      "related": [
+        "answer-difficult-architecture-decision-question",
+        "influence-without-authority"
+      ]
+    },
+    {
+      "slug": "influence-without-authority",
+      "title": "How do you influence architecture decisions without formal authority?",
+      "topic": "Leadership and behavioral",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "leadership",
+        "influence",
+        "stakeholders",
+        "conflict"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            18,
+            19
+          ]
+        }
+      ],
+      "quick": "I build a shared understanding of the problem and make trade-offs visible. I listen to the people closest to the work, present options in terms of their concerns, and use evidence such as a prototype or data instead of position. I invite criticism early so objections surface before the decision. If we cannot agree, I use the agreed decision process and ownership path, document the rationale and set a review point. Influence means improving the decision and its acceptance, not avoiding it.",
+      "revision": "Shared problem framing, visible trade-offs, local expertise, evidence over title, early criticism, and an agreed escalation path with documented rationale.",
+      "detailed": "Architects often own the outcome without owning the people. Influence comes from clarity, credibility and fair process, not rank.\n\n## Techniques\n\n- **Frame the problem together.** Agree on the goal and the quality attributes before debating solutions; many disagreements are really about different goals.\n- **Make trade-offs explicit.** A short options table with costs for each audience beats advocacy.\n- **Listen first.** Teams know constraints you do not. Asking \"what would make this fail for you?\" surfaces them and builds trust.\n- **Use evidence.** A small prototype, a measurement or a reference to an incident persuades more than seniority.\n- **Speak their language.** For product, talk about time and risk; for operations, about on-call load; for security, about threats.\n- **Invite criticism early.** Circulate a draft ADR, hold a short review, and credit changes made on feedback.\n- **Build small wins.** A successful pilot makes the next conversation easier.\n\n## When agreement does not come\n\nUse the agreed ownership and escalation path. Decide who owns the decision, based on criteria set beforehand. Document the rationale, the dissent and a review date, so the outcome can be revisited on evidence. Commit to the decision once made.\n\n## Sample structure for your real story (template)\n\n\"Situation: [two teams disagreed on X]. My role: [facilitator / proposer, with no authority]. I [gathered concerns, wrote options with trade-offs, ran a spike]. We [reached agreement / escalated to the owner]. Result: [what actually happened]. Learning: [what I would repeat or change].\"\n\n## Common mistakes\n\n- Treating consensus as the goal; some decisions need an owner.\n- Winning the argument but losing the relationship.\n- Escalating before attempting to understand the other side.\n- Pushing a pet technology rather than solving the shared problem.",
+      "followUps": [
+        "How do you handle strong resistance from a team that feels the design is imposed?",
+        "When do you escalate, and how do you do it fairly?",
+        "What do you do if consensus is impossible?"
+      ],
+      "related": [
+        "answer-difficult-architecture-decision-question",
+        "answer-decision-that-did-not-work-question"
+      ]
+    }
+  ]
+}

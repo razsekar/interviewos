@@ -1,0 +1,664 @@
+{
+  "category": "architect-handbook",
+  "questions": [
+    {
+      "slug": "high-cohesion-low-coupling",
+      "title": "What is high cohesion, and why does it go with low coupling?",
+      "topic": "Principles and SOLID",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "cohesion",
+        "coupling",
+        "modularity",
+        "principles"
+      ],
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            4,
+            19,
+            20
+          ]
+        }
+      ],
+      "quick": "High cohesion means a module's responsibilities belong together and tend to change for related reasons. I test it by asking whether the module has one coherent purpose and whether a typical change touches only that module. It goes with low coupling, where modules depend on each other as little as practical through narrow, stable interfaces. Low coupling is not zero coupling. Cohesive modules make boundaries clear, so teams can change one area without breaking others.",
+      "revision": "Cohesion: things that change together live together. Coupling: how much one module depends on another. Aim for cohesive modules with narrow, stable dependencies, not zero coupling.",
+      "detailed": "**Cohesion** describes how closely the responsibilities inside a module relate. **Coupling** describes how strongly modules depend on each other. Good designs have high cohesion inside boundaries and low, deliberate coupling between them.\n\n## What it looks like\n\n| | High cohesion | Low cohesion |\n|---|---|---|\n| Module | `InvoiceCalculator`: totals, tax, discounts | `Utils`: date parsing, invoice totals, email sending |\n| Change | A new tax rule touches one module | A tax rule edit touches several unrelated places |\n| Naming | A clear noun or capability | Vague names such as Manager, Helper, Common |\n\n| | Low coupling | High coupling |\n|---|---|---|\n| Interface | Narrow, stable contract | Reaches into another module's internals or tables |\n| Change | Internal rewrite invisible to others | Every change ripples |\n| Testing | Test in isolation | Needs most of the system running |\n\n{{diagram:cohesion}}\n\n## Why they go together\n\nWhen responsibilities that change together are scattered, you create **cross-module changes** (high coupling). When unrelated things share a module, it has many reasons to change and becomes a hotspot. Pulling related behaviour together reduces both problems at once.\n\n## Practical heuristics\n\n- Ask \"what are the reasons this module would change?\" If there are several unrelated ones, split it.\n- Look at change history: files that always change together probably belong together.\n- Prefer dependencies on stable abstractions and contracts rather than on another module's implementation.\n\n## Common mistakes\n\n- Chasing zero coupling by adding layers and interfaces everywhere; some coupling is the whole point of a system.\n- Splitting by technical layer (controllers, services, repositories) rather than by business capability, producing low cohesion in each layer.\n- A shared \"common\" library that grows into a dumping ground and couples every service.\n\nAt architecture level the same idea applies to services: a service should own a cohesive business capability and its data.",
+      "diagrams": [
+        {
+          "id": "cohesion",
+          "title": "Cohesive modules, narrow contracts",
+          "alt": "Billing and Orders modules each contain related internals and talk to each other only through narrow public interfaces; they do not touch each other internals.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "o",
+              "label": "Orders module (internals hidden)"
+            },
+            {
+              "id": "oi",
+              "label": "Orders public interface"
+            },
+            {
+              "id": "bi",
+              "label": "Billing public interface"
+            },
+            {
+              "id": "b",
+              "label": "Billing module (internals hidden)"
+            }
+          ],
+          "edges": [
+            {
+              "from": "o",
+              "to": "bi",
+              "label": "calls contract"
+            },
+            {
+              "from": "bi",
+              "to": "b"
+            },
+            {
+              "from": "b",
+              "to": "oi",
+              "label": "reads via contract"
+            },
+            {
+              "from": "oi",
+              "to": "o"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you detect low cohesion in an existing codebase?",
+        "Why is zero coupling not a sensible goal?",
+        "How does cohesion apply to microservice boundaries?"
+      ],
+      "related": [
+        "solid-without-sounding-theoretical",
+        "dependency-inversion-principle",
+        "identify-bounded-contexts"
+      ],
+      "sourceType": "enhanced"
+    },
+    {
+      "slug": "dependency-inversion-principle",
+      "title": "What is dependency inversion, and when is it worth applying?",
+      "topic": "Principles and SOLID",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "dependency-inversion",
+        "ports-and-adapters",
+        "solid",
+        "testability"
+      ],
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            4,
+            5,
+            19,
+            20
+          ]
+        }
+      ],
+      "quick": "Dependency inversion means high-level policy depends on abstractions rather than on volatile low-level details, and the details depend on those abstractions too. For example billing logic depends on a payment port that it defines, and a vendor adapter implements that port. This keeps business rules testable and lets me swap infrastructure. I apply it at real boundaries such as external vendors and databases, not by creating an interface for every class.",
+      "revision": "Policy owns the abstraction; volatile details implement it. Worth it at real boundaries (vendors, storage, clocks), wasteful as an interface for every class.",
+      "detailed": "**Dependency inversion** has two parts: high-level modules should not depend on low-level modules (both should depend on abstractions), and abstractions should not depend on details. The key move is **who owns the interface**: the policy side defines the port in its own terms, and the infrastructure implements it.\n\n## Without and with inversion\n\n```ts\n// Without: policy depends directly on a vendor SDK\nclass BillingService {\n  charge(order: Order) {\n    new VendorPayClient(process.env.KEY).createCharge(order.total.cents);\n  }\n}\n\n// With: policy depends on a port it owns\ninterface PaymentGateway {\n  charge(amount: Money, reference: string): Promise<ChargeResult>;\n}\n\nclass BillingService {\n  constructor(private gateway: PaymentGateway) {}\n  async charge(order: Order) {\n    return this.gateway.charge(order.total, order.id);\n  }\n}\n\nclass VendorPayGateway implements PaymentGateway { /* adapts the vendor SDK */ }\n```\n\n{{diagram:dip}}\n\n## Dependency inversion versus injection\n\n| Term | Meaning |\n|---|---|\n| Dependency inversion | A design principle about the direction of source-code dependencies |\n| Dependency injection | A technique for supplying the implementation from outside, for example through a constructor |\n| IoC container | A tool that automates injection |\n\nYou can inject dependencies without inverting them (injecting a concrete class), and you can invert without a container.\n\n## When it is worth it\n\n- External systems you may replace or must fake in tests: payments, email, storage.\n- Volatile details (clocks, random numbers, third-party SDKs).\n- Core domain logic that should be testable without a database or network.\n\n## When it is not\n\n- Stable, in-process utilities that will never vary.\n- One-off scripts and simple CRUD.\n- When the interface mirrors the vendor API one to one; then the abstraction leaks and hides nothing.\n\n## Common mistakes\n\n- Interfaces for every class \"just in case\", leaving a codebase full of single-implementation interfaces.\n- Defining the port in the infrastructure package, so the dependency still points the wrong way.\n- Letting vendor concepts (error codes, models) leak through the port.",
+      "diagrams": [
+        {
+          "id": "dip",
+          "title": "Dependency direction after inversion",
+          "alt": "The billing policy depends on a payment gateway port that it owns; the vendor adapter implements that port, so source-code dependencies point inward toward the policy.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "b",
+              "label": "Billing policy"
+            },
+            {
+              "id": "p",
+              "label": "PaymentGateway port (owned by policy)"
+            },
+            {
+              "id": "a",
+              "label": "Vendor adapter"
+            },
+            {
+              "id": "s",
+              "label": "Vendor SDK"
+            }
+          ],
+          "edges": [
+            {
+              "from": "b",
+              "to": "p",
+              "label": "depends on"
+            },
+            {
+              "from": "a",
+              "to": "p",
+              "label": "implements"
+            },
+            {
+              "from": "a",
+              "to": "s",
+              "label": "wraps"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "What is the difference between dependency inversion and dependency injection?",
+        "How do you avoid vendor concepts leaking through a port?",
+        "When would you deliberately not introduce an abstraction?"
+      ],
+      "related": [
+        "solid-without-sounding-theoretical",
+        "adapter-vs-facade",
+        "repository-pattern-when-useful"
+      ],
+      "sourceType": "enhanced"
+    },
+    {
+      "slug": "factory-vs-strategy",
+      "title": "Factory versus Strategy: what is the difference?",
+      "topic": "Design patterns",
+      "difficulty": "beginner",
+      "type": "comparison",
+      "tags": [
+        "factory",
+        "strategy",
+        "design-patterns",
+        "creational",
+        "behavioral"
+      ],
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            6,
+            7,
+            20
+          ]
+        }
+      ],
+      "quick": "A Factory is about creation: it decides which object to build and hides construction details from the caller. A Strategy is about behaviour: it encapsulates interchangeable algorithms behind one interface so the caller can run whichever one is chosen. They often work together, where a factory or registry picks the right strategy for a context. Factory answers what to create, while Strategy answers how a task is done.",
+      "revision": "Factory decides which object to create; Strategy encapsulates interchangeable behaviour behind one interface. They combine well: a factory selects the strategy.",
+      "detailed": "Both patterns hide variation behind an interface, but they solve different problems. **Factory** is a *creational* pattern; **Strategy** is a *behavioural* pattern.\n\n## Comparison\n\n| Aspect | Factory | Strategy |\n|---|---|---|\n| Family | Creational | Behavioural |\n| Question answered | Which object should be created, and how? | Which algorithm should run? |\n| Caller gets | A ready-to-use object | The ability to swap behaviour at runtime |\n| Typical trigger | Construction is complex or depends on configuration | Several algorithms satisfy one contract |\n| Lifetime | Runs at creation time | Used throughout operation |\n\n## Working together\n\n```ts\ninterface ShippingCost { cost(order: Order): Money }          // Strategy contract\nclass FlatRate implements ShippingCost { /* ... */ }\nclass WeightBased implements ShippingCost { /* ... */ }\n\n// Factory chooses the strategy for a context\nfunction shippingFor(region: string): ShippingCost {\n  switch (region) {\n    case 'domestic': return new FlatRate();\n    default: return new WeightBased();\n  }\n}\n\nconst price = shippingFor(order.region).cost(order);\n```\n\nThe factory function hides which implementation exists; the strategy interface lets callers use any of them identically.\n\n## Related variants\n\n- **Factory Method**: a subclass decides which product to create.\n- **Abstract Factory**: creates families of related objects, such as a UI toolkit for different platforms.\n- A **registry** (map from key to strategy) is a lightweight alternative to a factory with a switch.\n\n## Common mistakes\n\n- Using a factory when a constructor call would do.\n- Building a Strategy hierarchy for a single algorithm that never varies.\n- Letting the factory contain business rules; it should only select and construct.\n- Treating a dependency injection container as a substitute for understanding either pattern.\n\nExample (hypothetical): a billing app uses a factory to build the right tax calculator for a country, and each calculator is a strategy behind the same interface.",
+      "followUps": [
+        "How would you combine a factory with a strategy registry?",
+        "What is the difference between Factory Method and Abstract Factory?",
+        "When is a simple conditional better than either pattern?"
+      ],
+      "related": [
+        "strategy-for-pricing-and-eligibility-rules",
+        "adapter-vs-facade",
+        "dependency-inversion-principle"
+      ],
+      "sourceType": "enhanced"
+    },
+    {
+      "slug": "adapter-vs-facade",
+      "title": "Adapter versus Facade: what is the difference?",
+      "topic": "Design patterns",
+      "difficulty": "beginner",
+      "type": "comparison",
+      "tags": [
+        "adapter",
+        "facade",
+        "design-patterns",
+        "structural",
+        "integration"
+      ],
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            6,
+            7,
+            20
+          ]
+        }
+      ],
+      "quick": "An Adapter translates one interface into another so that code expecting one shape can use a component with a different shape, such as wrapping a vendor SDK behind my own port. A Facade offers a simpler, higher-level interface over a complex subsystem, hiding several calls behind one. Adapter is about compatibility with a required interface; Facade is about simplicity. They can overlap in practice, and both reduce coupling to messy details.",
+      "revision": "Adapter converts an interface to match what the client expects; Facade simplifies a subsystem with a new, easier interface. Compatibility versus simplification.",
+      "detailed": "Both are **structural** patterns that put a layer between a client and something else, but their intent differs.\n\n## Comparison\n\n| Aspect | Adapter | Facade |\n|---|---|---|\n| Intent | Make an existing interface fit the one the client expects | Provide a simpler entry point to a complex subsystem |\n| Interface | Matches an interface that already exists (the target) | Defines a new, simplified interface |\n| Wraps | Usually one class or service | Several classes or services |\n| Typical use | Third-party SDK, legacy API, different data format | Orchestrating several calls behind one operation |\n| Client awareness | Client sees the target interface | Client sees only the facade |\n\n{{diagram:compare}}\n\n## Examples (hypothetical)\n\n```ts\n// Adapter: our port, their SDK\ninterface EmailSender { send(to: string, subject: string, body: string): Promise<void> }\n\nclass VendorEmailAdapter implements EmailSender {\n  constructor(private client: VendorMailClient) {}\n  send(to: string, subject: string, body: string) {\n    return this.client.deliver({ recipients: [to], title: subject, html: body });\n  }\n}\n\n// Facade: one call hides several subsystem steps\nclass CheckoutFacade {\n  constructor(private cart: Cart, private pricing: Pricing, private pay: Payments, private ship: Shipping) {}\n  async placeOrder(cartId: string) {\n    const total = await this.pricing.total(cartId);\n    await this.pay.charge(total);\n    return this.ship.schedule(cartId);\n  }\n}\n```\n\n## Where each is used at architecture level\n\n- **Adapter** at integration edges, together with an anti-corruption layer when a whole external model must be translated.\n- **Facade** for a module's public API in a modular monolith, or a backend-for-frontend that hides several services.\n\n## Common mistakes\n\n- Calling every wrapper an adapter; ask whether it converts to a required interface.\n- A facade that grows business logic of its own and becomes a god class.\n- Letting vendor types leak through an adapter, which defeats it.\n- Using a facade to hide a badly designed subsystem instead of fixing it.",
+      "diagrams": [
+        {
+          "id": "compare",
+          "title": "Adapter versus Facade",
+          "alt": "On one side a client calls a target interface implemented by an adapter that wraps a single vendor SDK; on the other a client calls a facade that coordinates several subsystem services.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "c1",
+              "label": "Client"
+            },
+            {
+              "id": "ad",
+              "label": "Adapter (target interface)"
+            },
+            {
+              "id": "v",
+              "label": "Vendor SDK"
+            },
+            {
+              "id": "c2",
+              "label": "Client 2"
+            },
+            {
+              "id": "f",
+              "label": "Facade"
+            },
+            {
+              "id": "s",
+              "label": "Subsystem services"
+            }
+          ],
+          "edges": [
+            {
+              "from": "c1",
+              "to": "ad"
+            },
+            {
+              "from": "ad",
+              "to": "v",
+              "label": "translates"
+            },
+            {
+              "from": "c2",
+              "to": "f"
+            },
+            {
+              "from": "f",
+              "to": "s",
+              "label": "coordinates"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How does an Adapter relate to an anti-corruption layer?",
+        "When does a Facade become an anti-pattern?",
+        "How would a backend-for-frontend relate to these patterns?"
+      ],
+      "related": [
+        "anti-corruption-layer",
+        "dependency-inversion-principle",
+        "decorator-vs-proxy"
+      ],
+      "sourceType": "enhanced"
+    },
+    {
+      "slug": "decorator-vs-proxy",
+      "title": "Decorator versus Proxy: what is the difference?",
+      "topic": "Design patterns",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "decorator",
+        "proxy",
+        "design-patterns",
+        "structural",
+        "cross-cutting"
+      ],
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            6,
+            7,
+            20
+          ]
+        }
+      ],
+      "quick": "Both wrap an object that has the same interface. A Decorator adds behaviour, such as logging, caching or metrics, and decorators can be stacked. A Proxy controls access to or stands in for another object, for example lazy loading, remote access, or permission checks. The structure is nearly identical, so the difference is intent: enrich versus control. Implementations can overlap, and I would explain which intent applies in context.",
+      "revision": "Decorator adds behaviour while keeping the interface and can be stacked; Proxy controls access or stands in for the real object. Same shape, different intent.",
+      "detailed": "Both patterns implement the **same interface as the object they wrap** and forward calls to it. The difference is the reason for wrapping.\n\n## Comparison\n\n| Aspect | Decorator | Proxy |\n|---|---|---|\n| Intent | Add responsibilities (logging, caching, retry, metrics) | Control access or represent the object (lazy load, remote call, authorization, rate limit) |\n| Stacking | Designed to be layered in any order | Usually a single proxy in front of the real subject |\n| Who creates the wrapped object | Client passes it in | Proxy often creates or locates it itself |\n| Awareness | Client chooses which decorators to apply | Client often does not know it is talking to a proxy |\n\n{{diagram:wrap}}\n\n## Examples (hypothetical)\n\n```ts\ninterface ReportService { generate(id: string): Promise<Report> }\n\n// Decorator: adds timing, same contract, stackable\nclass TimedReportService implements ReportService {\n  constructor(private inner: ReportService) {}\n  async generate(id: string) {\n    const start = Date.now();\n    try { return await this.inner.generate(id); }\n    finally { console.log('generate took', Date.now() - start, 'ms'); }\n  }\n}\n\n// Proxy: controls access\nclass AuthorizedReportService implements ReportService {\n  constructor(private inner: ReportService, private canView: (id: string) => boolean) {}\n  async generate(id: string) {\n    if (!this.canView(id)) throw new Error('Forbidden');\n    return this.inner.generate(id);\n  }\n}\n\nconst service = new TimedReportService(new AuthorizedReportService(real, canView));\n```\n\n## Overlap in practice\n\nA caching wrapper can be described either way: as a decorator adding caching, or as a caching proxy controlling access to a slow source. Frameworks use proxies heavily for transactions, security and lazy loading, and middleware pipelines are decorator-like. Naming matters less than being clear about the intent.\n\n## Common mistakes\n\n- Putting business rules in a decorator, hiding important behaviour in wrappers.\n- Wrapping order surprises: authorization after caching can leak cached data to the wrong user.\n- A proxy that changes the contract (new exceptions, different semantics), which violates substitutability.",
+      "diagrams": [
+        {
+          "id": "wrap",
+          "title": "Wrapping a service",
+          "alt": "A client calls a timing decorator, which calls an authorization proxy, which calls the real report service; all three share the same interface.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "c",
+              "label": "Client"
+            },
+            {
+              "id": "d",
+              "label": "Timing decorator"
+            },
+            {
+              "id": "p",
+              "label": "Authorization proxy"
+            },
+            {
+              "id": "r",
+              "label": "Real report service"
+            }
+          ],
+          "edges": [
+            {
+              "from": "c",
+              "to": "d"
+            },
+            {
+              "from": "d",
+              "to": "p"
+            },
+            {
+              "from": "p",
+              "to": "r"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Is a caching wrapper a decorator or a proxy?",
+        "Why does wrapping order matter for authorization and caching?",
+        "How do middleware pipelines relate to the Decorator pattern?"
+      ],
+      "related": [
+        "adapter-vs-facade",
+        "factory-vs-strategy",
+        "solid-without-sounding-theoretical"
+      ],
+      "sourceType": "enhanced"
+    },
+    {
+      "slug": "saga-vs-outbox",
+      "title": "Saga versus Outbox: how do they differ and how do they fit together?",
+      "topic": "Design patterns",
+      "difficulty": "advanced",
+      "type": "comparison",
+      "tags": [
+        "saga",
+        "outbox",
+        "distributed-transactions",
+        "messaging"
+      ],
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            7,
+            11,
+            20
+          ]
+        }
+      ],
+      "quick": "They solve different problems. A Saga coordinates a multi-step business workflow across services using local transactions and compensating actions or explicit recovery. An Outbox makes a single service's database change and its outgoing event commit atomically, so publication is reliable. They are complementary: each saga step can use an outbox to publish its events safely. Neither gives a global atomic transaction, and both need idempotent consumers.",
+      "revision": "Saga coordinates a workflow of local transactions with compensation; Outbox reliably publishes events from one local transaction. Use them together; neither is a global transaction.",
+      "detailed": "The two are often confused because both appear in event-driven designs, but they sit at **different levels**. The outbox is about *reliable messaging from one service*. The saga is about *coordinating a business process across several services*.\n\n## Comparison\n\n| Aspect | Saga | Outbox |\n|---|---|---|\n| Problem | A business transaction spans several services, each with its own database | A service must change its data and publish an event without divergence |\n| Mechanism | Sequence of local transactions with compensations or recovery steps | Event row stored in the same local transaction; publisher sends it later |\n| Scope | Workflow across services | One service and its broker |\n| Failure handling | Compensating actions, retries, timeouts | Retry publication; consumers deduplicate |\n| Guarantees | Eventual business consistency | Atomic local state and event intent; at-least-once delivery |\n| Style | Choreography or orchestration | Polling publisher or change data capture |\n\n{{diagram:together}}\n\n## Working together: an order example (hypothetical)\n\n1. The order service creates an order and, via its outbox, publishes OrderCreated.\n2. Payments consumes it, charges, and publishes PaymentCompleted (again through its outbox).\n3. Inventory reserves stock and publishes StockReserved, or StockFailed.\n4. On StockFailed, a compensating step refunds the payment and cancels the order.\n\nEach service uses an outbox so its own steps never lose events; the saga defines the overall sequence and the compensations.\n\n## Things to remember\n\n- **Compensation is a new business action**, not a database rollback. A refund is not the same as the charge never happening, and some actions (sending an email) cannot be undone.\n- Orchestration (a central coordinator) gives visibility; choreography (services reacting to events) reduces central coupling but is harder to follow.\n- Saga steps must be **idempotent**, and the state of the saga must be durable.\n- If one local transaction is enough, you do not need either pattern.\n\n## Common mistakes\n\n- Treating a saga as automatic rollback.\n- Using an outbox and claiming exactly-once processing.\n- Building sagas where the business could accept a simpler design with fewer service boundaries.",
+      "diagrams": [
+        {
+          "id": "together",
+          "title": "Saga steps with outboxes",
+          "alt": "Order, Payment and Inventory services each commit local state with an outbox record and publish events through a broker, forming a saga; a failure in inventory triggers a compensating refund.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "o",
+              "label": "Order service + outbox"
+            },
+            {
+              "id": "b",
+              "label": "Event broker"
+            },
+            {
+              "id": "p",
+              "label": "Payment service + outbox"
+            },
+            {
+              "id": "i",
+              "label": "Inventory service + outbox"
+            },
+            {
+              "id": "c",
+              "label": "Compensation: refund and cancel"
+            }
+          ],
+          "edges": [
+            {
+              "from": "o",
+              "to": "b",
+              "label": "OrderCreated"
+            },
+            {
+              "from": "b",
+              "to": "p"
+            },
+            {
+              "from": "p",
+              "to": "b",
+              "label": "PaymentCompleted"
+            },
+            {
+              "from": "b",
+              "to": "i"
+            },
+            {
+              "from": "i",
+              "to": "c",
+              "label": "StockFailed"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "What happens if a compensating action itself fails?",
+        "Would you choose choreography or orchestration for a long workflow, and why?",
+        "When is a local transaction enough so neither pattern is needed?"
+      ],
+      "related": [
+        "outbox-pattern-and-limitations",
+        "when-is-event-driven-appropriate",
+        "choose-an-aggregate-boundary"
+      ],
+      "sourceType": "enhanced"
+    },
+    {
+      "slug": "entity-vs-value-object",
+      "title": "Entity versus Value Object: how do you decide?",
+      "topic": "DDD and boundaries",
+      "difficulty": "beginner",
+      "type": "comparison",
+      "tags": [
+        "ddd",
+        "entity",
+        "value-object",
+        "immutability"
+      ],
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            7,
+            20
+          ]
+        }
+      ],
+      "quick": "An Entity has an identity that persists over time, so two entities with the same attribute values are still different things, like two orders with the same total. A Value Object has no identity of its own; it is defined entirely by its values, is typically immutable, and is replaced rather than modified, like money or an address. I model concepts as value objects by default when identity does not matter, because they are simpler and safer.",
+      "revision": "Entity: identity over time, mutable state. Value Object: defined by its values, immutable, replaceable, compared by value. Default to value objects when identity does not matter.",
+      "detailed": "Domain-driven design separates concepts that are **tracked by identity** from those that are **just values**.\n\n## Comparison\n\n| Aspect | Entity | Value Object |\n|---|---|---|\n| Identity | Has a unique identity that persists | No identity; defined by its attributes |\n| Equality | Same ID means same entity | Same values mean equal |\n| Mutability | State changes over its life | Typically immutable; replace to change |\n| Examples | Customer, Order, Invoice | Money, Address, DateRange, EmailAddress |\n| Lifecycle | Created, changed, archived | Created and discarded freely |\n\n## How to decide\n\nAsk: \"If two of these have identical attributes, do I care which one is which?\" Two `Money` objects of 10 USD are interchangeable, so Money is a value object. Two orders with the same lines and total are still different orders, so Order is an entity. Context matters: an address is a value object for a shipping label, but may be an entity in a property-management system where a particular building has its own history.\n\n## Example\n\n```ts\nclass Money {\n  private constructor(readonly amount: number, readonly currency: string) {}\n  static of(amount: number, currency: string) {\n    if (!Number.isInteger(amount)) throw new Error('Use minor units');\n    return new Money(amount, currency);\n  }\n  add(other: Money): Money {\n    if (other.currency !== this.currency) throw new Error('Currency mismatch');\n    return new Money(this.amount + other.amount, this.currency);\n  }\n  equals(o: Money) { return o.amount === this.amount && o.currency === this.currency; }\n}\n\nclass Order {            // entity\n  constructor(readonly id: string, private total: Money) {}\n}\n```\n\n## Benefits of value objects\n\n- Validation happens once, in the constructor, so invalid states cannot exist.\n- Immutability removes aliasing bugs and makes them safe to share.\n- Behaviour such as `add` or `overlaps` lives with the data, avoiding primitive obsession (strings and numbers passed everywhere).\n\n## Common mistakes\n\n- Making everything an entity with a database ID by default.\n- Mutable value objects.\n- Using raw strings for email, currency or IDs, so nothing enforces rules.\n- Treating the database table as the deciding factor; value objects can be embedded columns or serialised.",
+      "followUps": [
+        "Is an address an entity or a value object, and why?",
+        "How do you persist value objects with an ORM?",
+        "What is primitive obsession and how do value objects fix it?"
+      ],
+      "related": [
+        "aggregate-root",
+        "choose-an-aggregate-boundary",
+        "identify-bounded-contexts"
+      ],
+      "sourceType": "enhanced"
+    },
+    {
+      "slug": "aggregate-root",
+      "title": "What is an aggregate root and why does it matter?",
+      "topic": "DDD and boundaries",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "ddd",
+        "aggregate-root",
+        "invariants",
+        "repository"
+      ],
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            7,
+            8,
+            20
+          ]
+        }
+      ],
+      "quick": "The aggregate root is the single entry point to an aggregate, the one entity through which all changes and access to the inner objects go. It protects the aggregate's invariants, because outside code cannot modify inner entities directly and bypass the rules. Repositories load and save whole aggregates through their root, and other aggregates refer to it by identity. It matters because it gives a clear transactional and consistency boundary.",
+      "revision": "The aggregate root is the only door into an aggregate. All changes go through it so it can enforce invariants; outsiders hold only its ID.",
+      "detailed": "An **aggregate** is a cluster of entities and value objects that must stay consistent together. The **aggregate root** is the one entity designated as its gateway. External code interacts only with the root, never with inner objects directly.\n\n## What the root does\n\n- **Enforces invariants**: every state change passes through its methods, so rules cannot be bypassed.\n- **Owns identity**: outside references use the root's ID, not inner objects.\n- **Defines the transaction boundary**: one aggregate is saved per transaction.\n- **Is the unit of loading**: a repository loads and saves the whole aggregate by the root.\n- **May emit domain events** describing what happened.\n\n{{diagram:root}}\n\n## Example\n\n```ts\nclass Invoice {                       // aggregate root\n  private lines: InvoiceLine[] = [];\n  private status: 'DRAFT' | 'ISSUED' = 'DRAFT';\n\n  addLine(desc: string, amount: Money) {\n    if (this.status === 'ISSUED') throw new Error('Cannot change an issued invoice');\n    this.lines.push(new InvoiceLine(desc, amount));\n  }\n  issue() {\n    if (this.lines.length === 0) throw new Error('Invoice needs at least one line');\n    this.status = 'ISSUED';\n  }\n}\n```\n\nCallers cannot reach into `lines` and edit one; they must call `addLine`. The rules \"no changes after issue\" and \"at least one line to issue\" are enforced in one place.\n\n## Rules of thumb\n\n| Rule | Reason |\n|---|---|\n| Other aggregates hold only the root's ID | Keeps boundaries clear and loads small |\n| One repository per aggregate root | Persistence matches the consistency boundary |\n| Do not expose collections for external mutation | Prevents bypassing the root |\n| Modify one aggregate per transaction where possible | Reduces contention; use events across aggregates |\n\n## Common mistakes\n\n- Anemic roots: public getters and setters with all rules in services, so nothing is protected.\n- Huge roots that load an entire object graph.\n- Exposing inner entities through the repository, so they get changed directly.\n- Choosing roots by table structure rather than by invariants.",
+      "diagrams": [
+        {
+          "id": "root",
+          "title": "Access through the root",
+          "alt": "External code and a repository interact only with the Invoice aggregate root; inner invoice lines are reachable only through the root, and other aggregates reference the root by ID.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "x",
+              "label": "Application service"
+            },
+            {
+              "id": "r",
+              "label": "Invoice (aggregate root)"
+            },
+            {
+              "id": "l",
+              "label": "Invoice lines (inner)"
+            },
+            {
+              "id": "o",
+              "label": "Other aggregate (holds invoiceId)"
+            }
+          ],
+          "edges": [
+            {
+              "from": "x",
+              "to": "r",
+              "label": "only entry point"
+            },
+            {
+              "from": "r",
+              "to": "l",
+              "label": "guards"
+            },
+            {
+              "from": "o",
+              "to": "r",
+              "label": "by ID"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Why should external code not hold references to inner entities?",
+        "How do you handle a rule that spans two aggregates?",
+        "How does an aggregate root relate to a repository?"
+      ],
+      "related": [
+        "choose-an-aggregate-boundary",
+        "entity-vs-value-object",
+        "repository-pattern-when-useful"
+      ],
+      "sourceType": "enhanced"
+    },
+    {
+      "slug": "anti-corruption-layer",
+      "title": "What is an anti-corruption layer and when do you need one?",
+      "topic": "DDD and boundaries",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "ddd",
+        "anti-corruption-layer",
+        "integration",
+        "legacy"
+      ],
+      "sources": [
+        {
+          "file": "ref-technical-architect-master-handbook",
+          "pages": [
+            7,
+            8,
+            20
+          ]
+        }
+      ],
+      "quick": "An anti-corruption layer is a translation boundary that protects my domain model from another system's semantics. It converts the external model, names and rules into my own concepts, so legacy quirks or vendor terms do not leak inward. I use it when integrating with a legacy system, a third-party platform or another team's model that differs significantly from mine. If the two models already fit well, a simple adapter is enough and a full layer is unnecessary.",
+      "revision": "An ACL translates a foreign model into your domain language at the boundary so external semantics do not leak in. Worth it when models differ sharply; skip it when they align.",
+      "detailed": "An **anti-corruption layer (ACL)** sits between your bounded context and an external one, translating in both directions so your domain model stays clean. Without it, the other system's terms, data shapes and quirks gradually seep into your code, and your model starts to mirror theirs.\n\n## What it contains\n\n- **Adapters or clients** that call the external system.\n- **Translators** mapping external models to your domain objects, and back.\n- **Facades** that expose operations in your language.\n- **Error and semantic mapping**: the external \"status 7\" becomes a domain concept, not a magic number in your code.\n\n{{diagram:acl}}\n\n## Example (hypothetical)\n\nA legacy billing system returns:\n\n```json\n{ \"CUST_NO\": \"0042\", \"STAT\": \"A\", \"BAL_AMT\": \"1250.00\", \"CCY\": \"EUR\" }\n```\n\nThe ACL maps it to the domain model:\n\n```ts\nclass LegacyBillingTranslator {\n  toAccount(raw: LegacyAccount): Account {\n    return new Account(\n      AccountId.of(raw.CUST_NO),\n      raw.STAT === 'A' ? AccountStatus.Active : AccountStatus.Closed,\n      Money.of(Math.round(parseFloat(raw.BAL_AMT) * 100), raw.CCY)\n    );\n  }\n}\n```\n\nDomain code sees `Account` and `AccountStatus` only.\n\n## When to use it\n\n| Situation | Approach |\n|---|---|\n| Large legacy system with a very different model | Full ACL |\n| Third-party API whose terms you do not want in your domain | ACL or adapter |\n| Gradual migration (strangler approach) | ACL lets new code ignore old semantics |\n| Models already align closely | Simple adapter or conformist approach |\n\n## Trade-offs\n\nAn ACL costs code, tests and a mapping to maintain, and can add latency. It also becomes the single place to change when the external system changes, which is the point.\n\n## Common mistakes\n\n- Skipping translation and passing external DTOs straight into the domain.\n- Putting business rules in the ACL; it should translate, not decide.\n- Building an elaborate layer for a simple, stable integration.",
+      "diagrams": [
+        {
+          "id": "acl",
+          "title": "Anti-corruption layer",
+          "alt": "The domain model in a bounded context talks only to an anti-corruption layer of translators and adapters, which talks to the legacy or external system using its own model.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "d",
+              "label": "Your domain model"
+            },
+            {
+              "id": "f",
+              "label": "ACL facade"
+            },
+            {
+              "id": "t",
+              "label": "Translators and adapters"
+            },
+            {
+              "id": "e",
+              "label": "External or legacy system"
+            }
+          ],
+          "edges": [
+            {
+              "from": "d",
+              "to": "f"
+            },
+            {
+              "from": "f",
+              "to": "t",
+              "label": "domain language"
+            },
+            {
+              "from": "t",
+              "to": "e",
+              "label": "external model"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How does an ACL differ from a plain Adapter?",
+        "How would an ACL help in a strangler-style migration?",
+        "Where should error mapping from the external system live?"
+      ],
+      "related": [
+        "adapter-vs-facade",
+        "identify-bounded-contexts",
+        "dependency-inversion-principle"
+      ],
+      "sourceType": "enhanced"
+    }
+  ]
+}
