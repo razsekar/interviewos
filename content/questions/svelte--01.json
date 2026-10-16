@@ -1,0 +1,153 @@
+{
+  "category": "svelte",
+  "questions": [
+    {
+      "slug": "svelte-state-reactivity",
+      "title": "How does state reactivity work in Svelte compared with React?",
+      "topic": "Svelte Reactivity",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "svelte",
+        "reactivity",
+        "runes",
+        "react"
+      ],
+      "companies": [
+        "gspann"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "In Svelte, reactivity is decided at compile time. The compiler sees which variables a template uses and generates code that updates exactly those DOM nodes when the variable is assigned. In Svelte 4 a plain let declaration is reactive and $: creates derived values and side effects. In Svelte 5, runes make it explicit: $state for state, $derived for computed values and $effect for side effects. Unlike React, components do not re-run on every change, so there are no dependency arrays to maintain.",
+      "revision": "Svelte's compiler wires state to the exact DOM nodes that use it. Svelte 4 uses let and $:, Svelte 5 uses $state, $derived and $effect; components do not re-render.",
+      "detailed": "Svelte turns a component into imperative update code at build time. The compiler knows which state each part of the template reads, so a change updates only the affected DOM nodes. There is no virtual DOM diff and, in Svelte 5, the component function does not run again after setup.\n\n## Svelte 4 style (implicit)\n\nTop-level `let` variables are reactive when assigned, and `$:` labels mark derived values and statements that re-run when their inputs change.\n\n```svelte\n<script>\n  let count = 0;\n  $: doubled = count * 2;\n  $: if (count > 5) console.log('large');\n</script>\n<button on:click={() => count += 1}>{count} / {doubled}</button>\n```\n\nReactivity is triggered by assignment. In Svelte 4, `array.push(x)` alone does not trigger an update; you need `items = items` or `items = [...items, x]`.\n\n## Svelte 5 style (runes)\n\nRunes are compiler-recognised functions that make reactivity explicit and work outside component top level.\n\n```svelte\n<script>\n  let count = $state(0);\n  let doubled = $derived(count * 2);\n  $effect(() => { document.title = `Count ${count}`; });\n</script>\n<button onclick={() => count++}>{count} / {doubled}</button>\n```\n\n- `$state` creates deep reactive proxies for objects and arrays, so `items.push(x)` works.\n- `$derived` is a pure computation that is recalculated lazily when its dependencies change.\n- `$effect` runs after the DOM updates; dependencies are tracked automatically from what the effect reads, and it can return a cleanup function.\n\nWhich version a project uses depends on its Svelte major version; Svelte 5 still supports most Svelte 4 syntax in non-runes mode, but a component uses one mode or the other.\n\n## Differences from React\n\n| Aspect | React | Svelte |\n|---|---|---|\n| Update trigger | setter call re-renders the component | assignment or mutation updates bound DOM nodes |\n| Derived values | computed during render, useMemo if costly | $derived or $: |\n| Effect dependencies | dependency array you write | tracked automatically |\n| Stale closures | common pitfall | far less common |\n\n## Common mistakes\n\n- Using `$effect` to compute values that belong in `$derived`.\n- Destructuring a `$state` object and expecting the copies to stay reactive.\n- Applying React habits such as manual memoisation, which is rarely needed.",
+      "followUps": [
+        "What is the difference between $derived and $effect?",
+        "Why did array.push not update the UI in Svelte 4?",
+        "How does Svelte avoid stale closures compared with React hooks?"
+      ],
+      "related": []
+    },
+    {
+      "slug": "svelte-props-component-communication",
+      "title": "How do components communicate in Svelte: props, events, bindings and context?",
+      "topic": "Svelte Components",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "svelte",
+        "props",
+        "events",
+        "bind",
+        "context"
+      ],
+      "companies": [
+        "gspann"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Data flows down through props and up through callback props, which are plain functions passed as props. Svelte 4 also had createEventDispatcher, which Svelte 5 replaces with callback props. bind: creates two-way binding between parent and child state; it is convenient for form inputs but should be used sparingly because data flow becomes harder to trace. For distant descendants, setContext and getContext pass values down the tree without prop drilling, scoped to one component subtree.",
+      "revision": "Props down, callback props up; bind: for deliberate two-way sync; context for subtree-wide values. Prefer one-way flow and keep bindings for form-like components.",
+      "detailed": "Svelte offers four mechanisms, and the choice is mostly about how far the data travels and who owns it.\n\n## Props (parent to child)\n\nIn Svelte 5 props are read with the `$props` rune; in Svelte 4 they are declared with `export let`.\n\n```svelte\n<!-- Child.svelte (Svelte 5) -->\n<script>\n  let { label, onselect } = $props();\n</script>\n<button onclick={() => onselect(label)}>{label}</button>\n```\n\n```svelte\n<!-- Parent.svelte -->\n<script>\n  import Child from './Child.svelte';\n  let picked = $state('');\n</script>\n<Child label=\"Save\" onselect={(v) => (picked = v)} />\n```\n\n## Events (child to parent)\n\n- **Svelte 5:** pass callback props, as above. This is the same idea as React.\n- **Svelte 4:** `createEventDispatcher` emits custom events, and the parent listens with `on:select`. It still works in Svelte 5 legacy mode but is deprecated in favour of callback props.\n- Native DOM events are listened to with `onclick` (Svelte 5) or `on:click` (Svelte 4).\n\n## Bindings\n\n`bind:value` on inputs is common. Components can expose bindable props (`$bindable()` in Svelte 5, `bind:prop` on the parent), which lets a child write to parent state. This is concise but makes ownership less obvious, so it suits form controls and simple widgets more than business logic.\n\n## Context\n\n```svelte\n<script>\n  import { setContext, getContext } from 'svelte';\n  setContext('theme', { mode: 'dark' }); // in an ancestor\n  const theme = getContext('theme');      // in any descendant\n</script>\n```\n\nContext must be set and read during component initialisation. It is not reactive by itself; put reactive state (a rune-based object or a store) in the context value if updates are needed.\n\n## Guidance\n\n- Default to one-way flow: props down, callbacks up.\n- Use context for cross-cutting values such as theme or form groups, not for ordinary data passing.\n- Slots (Svelte 4) and snippets (Svelte 5) pass markup in, similar to `children` and render props in React.\n\n## Common mistakes\n\n- Mutating a prop object in the child so the parent changes unexpectedly.\n- Overusing `bind:` across many layers.\n- Reading context after initialisation, which throws.",
+      "followUps": [
+        "How does a bindable prop differ from a normal prop?",
+        "How do snippets compare with React children and render props?",
+        "Why is context not reactive by default?"
+      ],
+      "related": []
+    },
+    {
+      "slug": "svelte-sharing-state-between-components",
+      "title": "How do you share state between Svelte components, and what are the pitfalls?",
+      "topic": "Svelte State Management",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "svelte",
+        "stores",
+        "runes",
+        "context",
+        "ssr"
+      ],
+      "companies": [
+        "gspann"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "There are three common options. Stores (writable, readable, derived) work in any version and are read with the $ prefix. In Svelte 5 you can export reactive state from a .svelte.js or .svelte.ts module using runes, usually as an object whose properties are mutated. Context shares state within a subtree. The main pitfall is that a module-level store or rune object is a singleton, so on the server it is shared across requests; per-user state should live in context or be created per request.",
+      "revision": "Use stores or rune-based .svelte.js modules for shared state and context for subtree scope. Module-level state is a singleton, so never put per-user data there on the server.",
+      "detailed": "Shared state in Svelte is lighter than in React because reactive primitives are not tied to components.\n\n## Option 1: stores\n\n```js\n// cart.js\nimport { writable, derived } from 'svelte/store';\nexport const items = writable([]);\nexport const total = derived(items, ($i) => $i.reduce((s, x) => s + x.price, 0));\n```\n\nIn a component, `$items` auto-subscribes and unsubscribes. Stores work in Svelte 4 and 5 and suit async streams and framework-agnostic code.\n\n## Option 2: runes in a `.svelte.js` module (Svelte 5)\n\n```js\n// cart.svelte.js\nexport const cart = $state({ items: [] });\nexport function add(item) { cart.items.push(item); }\n```\n\nImport `cart` anywhere and read `cart.items`. Export an object and mutate its properties; reassigning an exported `let` binding is not allowed for `$state`, and destructuring loses reactivity. A class with `$state` fields is a neat way to bundle state and methods.\n\n## Option 3: context\n\nCreate the state in a root component and expose it with `setContext`. Every request or component tree gets its own instance, which suits per-user or per-feature state.\n\n## Choosing\n\n| Need | Choice |\n|---|---|\n| App-wide client state (UI flags, cart) | store or rune module |\n| Per-user or per-request state | context, created per tree |\n| Server-fetched data | load functions or a query library, not a global store |\n| Local to a few siblings | lift to the nearest parent as props |\n\n## Pitfalls\n\n- **SSR leakage:** module-level state lives for the life of the server process, so with server rendering one user's data can appear in another user's response. Keep user data out of module singletons on the server; create it per request and pass it through context or `load` data.\n- **Over-globalising:** putting everything in a store recreates the problems of global variables.\n- **Duplicated server state:** copying fetched data into a store creates sync issues.\n- **Lost reactivity:** destructuring rune state or reassigning exports.\n\nThe React parallel: this replaces much of what people use Context plus a state library for, with less boilerplate.",
+      "followUps": [
+        "Why can module-level state leak between users during SSR?",
+        "When would you still choose a store over runes in Svelte 5?",
+        "How do you make context values reactive?"
+      ],
+      "related": [
+        "svelte-state-reactivity",
+        "svelte-props-component-communication"
+      ]
+    },
+    {
+      "slug": "svelte-api-calls-loading-error-states",
+      "title": "How do you handle API calls with loading and error states in Svelte?",
+      "topic": "Svelte Data Fetching",
+      "difficulty": "intermediate",
+      "type": "coding",
+      "tags": [
+        "svelte",
+        "sveltekit",
+        "fetch",
+        "await",
+        "load"
+      ],
+      "companies": [
+        "gspann"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "The simplest approach is the {#await} block, which renders pending, resolved and rejected states from a promise. In SvelteKit, prefer load functions, which fetch before rendering, support SSR, and surface errors through +error.svelte. For client-driven fetching you can use $effect or an event handler with explicit loading and error variables. For cancellation, pass an AbortController signal to fetch and abort in the effect cleanup so stale responses cannot overwrite newer ones.",
+      "revision": "Use {#await} for simple cases, SvelteKit load functions for page data, and effects with AbortController for client-driven fetches; always handle pending, error and stale responses.",
+      "detailed": "Pick the mechanism by where the data is needed: page-level data belongs in `load`, small widgets can use `{#await}` or an effect.\n\n## `{#await}` block\n\n```svelte\n<script>\n  let promise = fetch('/api/users').then((r) => {\n    if (!r.ok) throw new Error(`HTTP ${r.status}`);\n    return r.json();\n  });\n</script>\n\n{#await promise}\n  <p>Loading...</p>\n{:then users}\n  <ul>{#each users as u}<li>{u.name}</li>{/each}</ul>\n{:catch err}\n  <p>Failed: {err.message}</p>\n{/await}\n```\n\n`fetch` only rejects on network failure, so check `r.ok` yourself.\n\n## SvelteKit load functions\n\n```js\n// +page.js\nimport { error } from '@sveltejs/kit';\n\nexport async function load({ fetch, params }) {\n  const res = await fetch(`/api/users/${params.id}`);\n  if (!res.ok) throw error(res.status, 'User not found');\n  return { user: await res.json() };\n}\n```\n\nThe data arrives as the page's `data` prop, the load runs on the server for the first request and is reused on navigation, and thrown errors render the nearest `+error.svelte`. Use `+page.server.js` when secrets or direct database access are involved. Navigation shows a loading state through the `navigating` store or by streaming promises in returned data.\n\n## Client-driven fetching with an effect (Svelte 5)\n\n```svelte\n<script>\n  let { query } = $props();\n  let results = $state([]), loading = $state(false), error = $state(null);\n\n  $effect(() => {\n    const ctrl = new AbortController();\n    loading = true; error = null;\n    fetch(`/api/search?q=${encodeURIComponent(query)}`, { signal: ctrl.signal })\n      .then((r) => r.json()).then((d) => (results = d))\n      .catch((e) => { if (e.name !== 'AbortError') error = e; })\n      .finally(() => { if (!ctrl.signal.aborted) loading = false; });\n    return () => ctrl.abort();\n  });\n</script>\n```\n\nThe cleanup function aborts the previous request when `query` changes or the component is destroyed, which prevents race conditions.\n\n## Trade-offs and mistakes\n\n- Effects do not run during SSR, so effect-fetched data is absent from server HTML; use `load` for content that matters for SEO.\n- Forgetting the pending, error and empty states.\n- Ignoring stale responses.\n- For caching, deduplication and retries, a query library (for example TanStack Query, which has a Svelte adapter) is usually better than hand-rolled code.",
+      "followUps": [
+        "Why does an effect not help with SEO-critical data?",
+        "How do you stream data in a SvelteKit load function?",
+        "How would you cache and deduplicate requests across components?"
+      ],
+      "related": [
+        "svelte-state-reactivity",
+        "svelte-sharing-state-between-components"
+      ]
+    },
+    {
+      "slug": "svelte-vs-react-key-differences",
+      "title": "What are the key differences between Svelte and React for someone moving across?",
+      "topic": "Svelte vs React",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "svelte",
+        "react",
+        "comparison",
+        "compiler",
+        "virtual-dom"
+      ],
+      "companies": [
+        "gspann"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Svelte is a compiler: it turns components into code that updates the DOM directly, without a virtual DOM diff, and ships a small runtime. React ships a runtime that re-renders components and reconciles a virtual DOM. Svelte's syntax has less boilerplate and no dependency arrays, but its ecosystem, hiring pool and library choice are smaller. React has a vast ecosystem and a mature tooling story. Neither is universally faster; the right choice depends on team skills, ecosystem needs and application shape.",
+      "revision": "Svelte compiles to direct DOM updates with less boilerplate; React runs a virtual DOM with a far larger ecosystem. Choose on team, ecosystem and constraints, not hype.",
+      "detailed": "Both build component-based UIs; the big differences are *when* the framework does its work and what you give up or gain.\n\n## Core differences\n\n| Aspect | React | Svelte |\n|---|---|---|\n| Model | runtime library; components re-run on state change | compiler; updates generated at build time |\n| DOM updates | virtual DOM diff and reconciliation | direct, targeted DOM updates |\n| State | `useState` and friends; immutable updates | `let` or `$state`; assignment or mutation |\n| Derived values and effects | `useMemo`, `useEffect` with dependency arrays | `$derived`, `$effect` with automatic tracking |\n| Styling | CSS modules, CSS-in-JS, utility classes | scoped CSS built into the component file |\n| Meta-framework | Next.js, Remix and others | SvelteKit |\n| Ecosystem | very large | smaller but healthy |\n\n## What this means in practice\n\n- **Bundle size:** Svelte apps often ship less framework code for small and medium apps, because there is no general runtime reconciler. The gap tends to narrow as an application grows, since component code dominates, so measure rather than assume.\n- **Performance:** Svelte avoids diffing work, but React with sound practices is fast enough for most products. Real bottlenecks are usually data fetching, bundle size and rendering large lists, not the framework.\n- **Developer experience:** less boilerplate and no stale-closure issues in Svelte; React's hooks rules and memoisation add mental overhead.\n- **Ecosystem and hiring:** React has more libraries, component kits, tutorials and engineers. Svelte may require building or wrapping things yourself. React Native has no Svelte equivalent of similar maturity.\n- **Tooling and types:** both support TypeScript; Svelte relies on its own file format and tooling, which is mature but different from plain JS modules.\n- **Change risk:** Svelte 5 introduced runes, a notable change from Svelte 4, so check which version a codebase uses.\n\n## Mapping React concepts\n\n- `useState` maps to `$state`; `useMemo` to `$derived`; `useEffect` to `$effect`.\n- `children` maps to slots or snippets; context exists in both.\n- Keys exist in both (`{#each items as item (item.id)}`).\n\n## How to answer in an interview\n\nDescribe both honestly: Svelte trades ecosystem size for simplicity and small output; React trades some ceremony for ecosystem and flexibility. A good decision rule is to pick the tool your team can ship and maintain well, and to prototype the risky parts first.",
+      "followUps": [
+        "Is Svelte always faster than React?",
+        "What would make you hesitate to adopt Svelte for a large team?",
+        "How do SvelteKit and Next.js compare for server rendering?"
+      ],
+      "related": [
+        "svelte-state-reactivity",
+        "svelte-props-component-communication"
+      ]
+    }
+  ]
+}

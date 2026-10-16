@@ -1,0 +1,163 @@
+{
+  "category": "react",
+  "questions": [
+    {
+      "slug": "usestate-vs-useeffect-vs-usememo-vs-usecallback",
+      "title": "What is the difference between useState, useEffect, useMemo and useCallback?",
+      "topic": "React Hooks",
+      "difficulty": "beginner",
+      "type": "comparison",
+      "tags": [
+        "react",
+        "hooks",
+        "usestate",
+        "useeffect",
+        "usememo",
+        "usecallback"
+      ],
+      "companies": [
+        "gspann"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "useState stores a value that triggers a re-render when it changes. useEffect runs side effects after render, such as subscriptions or syncing with something outside React. useMemo caches the result of a calculation between renders, and useCallback caches a function identity between renders. The last two are performance tools, not correctness tools. My rule: state for data that changes the UI, effect for synchronising with the outside world, and memoisation only after measuring a real cost.",
+      "revision": "useState holds changing data, useEffect syncs with the outside world, useMemo caches a value, useCallback caches a function. Memoise only when measured or when identity matters.",
+      "detailed": "Each hook answers a different question, so the easiest way to separate them is by purpose.\n\n| Hook | Purpose | Triggers re-render? | Runs when |\n|---|---|---|---|\n| `useState` | remember data that affects what is shown | yes, on set | on set call |\n| `useEffect` | synchronise with something outside React | no | after render, if dependencies changed |\n| `useMemo` | cache a computed value | no | during render, if dependencies changed |\n| `useCallback` | cache a function reference | no | during render, if dependencies changed |\n\n## Examples\n\n```jsx\nfunction Search({ items }) {\n  const [query, setQuery] = useState('');                 // state\n\n  const visible = useMemo(                                 // cached value\n    () => items.filter((i) => i.name.includes(query)),\n    [items, query]\n  );\n\n  const onChange = useCallback((e) => setQuery(e.target.value), []); // cached function\n\n  useEffect(() => {                                        // side effect\n    document.title = `${visible.length} results`;\n  }, [visible.length]);\n\n  return <input value={query} onChange={onChange} />;\n}\n```\n\n`useCallback(fn, deps)` is equivalent to `useMemo(() => fn, deps)`.\n\n## Decision rule\n\n1. Does the value change over time and affect the output? Use **state**.\n2. Can it be calculated from existing props or state? **Compute it during render**; do not store it in state or an effect.\n3. Is the calculation measurably expensive? Wrap it in **useMemo**.\n4. Does a child wrapped in `memo`, or a hook dependency, need a stable function identity? Use **useCallback**.\n5. Are you synchronising with something outside React (network subscription, timer, DOM API, analytics)? Use **useEffect**, and return a cleanup function if needed.\n\n## Common mistakes\n\n- Using `useEffect` to derive state from props, which causes an extra render and bugs.\n- Memoising everything by default; memoisation has its own cost and noise.\n- Using `useCallback` without a memoised consumer, which gains nothing.\n- Missing or wrong dependency arrays, producing stale values.\n- Treating `useMemo` as a semantic guarantee; React may discard cached values, so correctness must not depend on it.",
+      "followUps": [
+        "When is useEffect the wrong tool?",
+        "Does useCallback prevent a child from re-rendering by itself?",
+        "How does the React Compiler change the need for useMemo and useCallback?"
+      ],
+      "related": [
+        "usestate-hook",
+        "useeffect-hook",
+        "usememo-hook",
+        "usecallback-hook",
+        "derived-state-vs-effects"
+      ]
+    },
+    {
+      "slug": "context-api-vs-redux-toolkit",
+      "title": "Context API vs Redux Toolkit: when would you choose each?",
+      "topic": "React State Management",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "react",
+        "context",
+        "redux",
+        "redux-toolkit",
+        "zustand",
+        "tanstack-query"
+      ],
+      "companies": [
+        "gspann"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Context is a delivery mechanism for values that change rarely, such as theme, locale or the current user. It has no built-in update logic, and every consumer re-renders when the value changes. Redux Toolkit is a full state container with reducers, selectors, middleware and strong devtools, suited to complex client state shared widely and updated by many features. For server data I would use TanStack Query rather than either, and for lighter global state Zustand is a common alternative.",
+      "revision": "Context for low-frequency, app-wide values; Redux Toolkit for complex shared client state needing structure and devtools; TanStack Query for server data; Zustand for lightweight stores.",
+      "detailed": "Context and Redux solve overlapping problems at different scales, and neither should hold server data.\n\n## Context API\n\nContext avoids prop drilling by making a value available to a subtree. It does not manage state: you still pair it with `useState` or `useReducer`.\n\n```jsx\nconst ThemeContext = createContext('light');\nfunction App() {\n  const [theme, setTheme] = useState('light');\n  return (\n    <ThemeContext.Provider value={{ theme, setTheme }}>\n      <Page />\n    </ThemeContext.Provider>\n  );\n}\n```\n\nEvery component that consumes the context re-renders when the provider's value changes, even if it uses only part of it. That is fine for values that change rarely and a problem for frequently changing data.\n\n## Redux Toolkit\n\nRedux Toolkit (RTK) is the recommended way to use Redux. It provides `createSlice`, immer-based updates and a configured store.\n\n```js\nconst counter = createSlice({\n  name: 'counter',\n  initialState: { value: 0 },\n  reducers: { increment: (s) => { s.value += 1; } },\n});\n```\n\nComponents subscribe through selectors (`useSelector`), so only those whose selected value changes re-render. You also get middleware, predictable update flow, time-travel debugging with the devtools and conventions that help big teams stay consistent.\n\n## Comparison\n\n| Aspect | Context | Redux Toolkit |\n|---|---|---|\n| Setup | none | store, slices, provider |\n| Update logic | you write it | reducers, actions, middleware |\n| Render granularity | all consumers | selector-based |\n| Devtools | basic | strong |\n| Best for | theme, locale, auth user, DI | complex shared client state |\n\n## Alternatives\n\n- **Zustand:** a small store with selector subscriptions and little boilerplate, a good middle ground.\n- **TanStack Query (or RTK Query):** for server state: caching, deduplication, retries and background refresh. Using it removes much of what teams once put into Redux.\n\n## Decision rule\n\n1. Server data? Use a query library.\n2. Needed by one subtree and rarely changing? Context.\n3. Shared client state with many writers, complex transitions or a need for audit and debugging? Redux Toolkit.\n4. Shared state but you want minimal ceremony? Zustand.\n\n## Common mistakes\n\n- Putting rapidly changing values in one big context.\n- Adopting Redux for state that is really server cache or local to a component.\n- Mixing several state tools for the same data with no clear owner.",
+      "followUps": [
+        "Why does a context value change re-render all consumers?",
+        "What does Redux Toolkit add over classic Redux?",
+        "How would you split a large context to limit re-renders?"
+      ],
+      "related": [
+        "context-api",
+        "when-not-to-use-context",
+        "local-vs-global-state",
+        "client-vs-server-state"
+      ]
+    },
+    {
+      "slug": "state-management-large-react-application",
+      "title": "How does state management work in a large React application?",
+      "topic": "React State Architecture",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "react",
+        "state-management",
+        "architecture",
+        "server-state",
+        "url-state"
+      ],
+      "companies": [
+        "gspann"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "In a large application I split state by kind and give each kind an owner. Server state lives in a query cache such as TanStack Query. URL state holds filters, pagination and selection that should be shareable. Form state stays in a form library or local component state. Local UI state stays in components. Only genuinely shared client state, such as session or UI preferences, goes into a global store. This keeps the global store small and makes data flow predictable.",
+      "revision": "Classify state by kind: server, URL, form, local, global. Give each a single owner and tool, and keep the global store small.",
+      "detailed": "Large applications become hard to reason about when all state lives in one place, or when the same data is copied into several. The fix is to **classify state and assign an owner to each class**.\n\n{{diagram:layers}}\n\n## The layers\n\n| Layer | Examples | Typical tool |\n|---|---|---|\n| Server state | product lists, user profile, orders | TanStack Query, RTK Query, SWR |\n| URL state | filters, sort, page, selected tab | router search params |\n| Form state | field values, validation, dirty flags | React Hook Form, or local state |\n| Local UI state | open dialog, hover, input draft | `useState`, `useReducer` |\n| Global client state | session, theme, feature flags, cart draft | Context, Zustand, Redux Toolkit |\n\n## Principles\n\n- **Single source of truth:** each piece of data has one owner. Do not copy server data into a global store; read it from the cache.\n- **Keep state close to where it is used:** lift it only when siblings need it; promote to global as a last step.\n- **Derive, do not store:** values computable from other state are computed during render.\n- **URL as state:** anything a user might share or reload should survive in the URL.\n- **Colocate by feature:** each feature module owns its queries, slices and components, exposing a small public API to others.\n- **Explicit boundaries:** components talk to hooks (`useOrders()`), not to the fetching or store internals, so implementations can change.\n\n## Example\n\nOn a product listing page (hypothetical), the filters and page number live in the URL, the product list comes from a query keyed by those parameters, the \"add to cart\" dialog is local state, and the cart draft sits in a small global store. No layer duplicates another.\n\n## Trade-offs\n\n- More tools means more concepts for new developers; keep the rules simple and written down.\n- A single global store is easy to find but grows into a dumping ground.\n- Cache invalidation after mutations needs deliberate design.\n\n## Common mistakes\n\n- Using Redux for everything, including data a query cache would manage better.\n- Storing derived values and then synchronising them with effects.\n- Deep prop drilling through unrelated components instead of composition or context.\n- No convention, so each team picks a different pattern.",
+      "followUps": [
+        "How do you decide when local state should become global?",
+        "How do you handle cache invalidation after a mutation?",
+        "How would you enforce these state conventions across several teams?"
+      ],
+      "related": [
+        "client-vs-server-state",
+        "local-vs-global-state",
+        "structure-large-react-app",
+        "context-api-vs-redux-toolkit"
+      ],
+      "diagrams": [
+        {
+          "id": "layers",
+          "title": "State layers in a large React app",
+          "alt": "Components read from five state layers: server state in a query cache, URL state in the router, form state, local component state and a small global store.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "ui",
+              "label": "Components"
+            },
+            {
+              "id": "srv",
+              "label": "Server state (query cache)"
+            },
+            {
+              "id": "url",
+              "label": "URL state (router)"
+            },
+            {
+              "id": "form",
+              "label": "Form state"
+            },
+            {
+              "id": "loc",
+              "label": "Local state"
+            },
+            {
+              "id": "glob",
+              "label": "Global store (small)"
+            }
+          ],
+          "edges": [
+            {
+              "from": "ui",
+              "to": "srv"
+            },
+            {
+              "from": "ui",
+              "to": "url"
+            },
+            {
+              "from": "ui",
+              "to": "form"
+            },
+            {
+              "from": "ui",
+              "to": "loc"
+            },
+            {
+              "from": "ui",
+              "to": "glob"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

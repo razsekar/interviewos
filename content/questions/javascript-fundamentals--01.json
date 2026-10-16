@@ -1,0 +1,437 @@
+{
+  "category": "javascript-fundamentals",
+  "questions": [
+    {
+      "slug": "closures-and-real-world-use",
+      "title": "What is a closure in JavaScript, and where do you use one in real code?",
+      "topic": "Scope and closures",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "javascript",
+        "closures",
+        "scope",
+        "react-hooks"
+      ],
+      "quick": "A closure is a function together with the variables from the scope where it was created. The function keeps access to those variables even after the outer function has returned. I use closures for private state, factories, memoisation, debouncing and event handlers. In React, every render creates new closures over that render's props and state, so a callback captured in an effect or timer can read stale values unless dependencies, functional updates or a ref are used.",
+      "revision": "A closure is a function plus the scope it was born in. It keeps outer variables alive; in React each render closes over its own props and state, which causes stale values.",
+      "detailed": "A **closure** is a function bundled with a reference to the lexical scope in which it was defined. Because the reference is to the variables themselves (not a copy), the function can read and update them for as long as the function is reachable, even after the outer function has finished.\n\n## Real-world uses\n\n- **Private state:** expose operations, hide the data.\n- **Function factories and partial application:** configure a function once, reuse it.\n- **Debounce, throttle and memoise helpers:** the timer id or cache lives in the closure.\n- **Event handlers and callbacks:** they remember the data they were created with.\n\n```js\nfunction createCounter(start = 0) {\n  let count = start; // private: only the returned functions can reach it\n  return {\n    increment: () => ++count,\n    value: () => count,\n  };\n}\n\nfunction debounce(fn, delay) {\n  let timer;\n  return (...args) => {\n    clearTimeout(timer);\n    timer = setTimeout(() => fn(...args), delay);\n  };\n}\n```\n\n## Stale closures in React\n\nEach render of a function component is a fresh function call, so callbacks defined during it close over **that render's** props and state. A timer or subscription created once keeps seeing the old values:\n\n```jsx\nfunction Ticker() {\n  const [count, setCount] = useState(0);\n  useEffect(() => {\n    const id = setInterval(() => setCount(count + 1), 1000); // count is always 0 here\n    return () => clearInterval(id);\n  }, []); // empty deps: the closure is never refreshed\n  return <p>{count}</p>;\n}\n```\n\nThe display gets stuck at 1. Fixes, in order of preference:\n\n1. Use a functional update: `setCount(c => c + 1)`, which does not need the captured value.\n2. List the real dependencies so the effect re-subscribes with a fresh closure.\n3. For values that must be read \"latest\" without re-subscribing, store them in a ref and update it every render.\n\n## Common mistakes\n\n- Silencing the exhaustive-deps lint rule instead of fixing the stale read.\n- Assuming closures copy values; they capture variables, so later mutations are visible.\n- Holding large objects in long-lived closures, which keeps them from being garbage collected.",
+      "followUps": [
+        "How would you implement once() or memoize() using a closure?",
+        "Why does an empty dependency array cause stale state in useEffect?",
+        "Can closures cause memory leaks? Give an example."
+      ],
+      "related": [
+        "var-let-const-hoisting-tdz",
+        "closures-in-loops-var-vs-let"
+      ],
+      "companies": [
+        "gspann"
+      ],
+      "sourceType": "new",
+      "sources": []
+    },
+    {
+      "slug": "var-let-const-hoisting-tdz",
+      "title": "Explain hoisting, the temporal dead zone, and the differences between var, let and const.",
+      "topic": "Scope and closures",
+      "difficulty": "beginner",
+      "type": "comparison",
+      "tags": [
+        "javascript",
+        "hoisting",
+        "tdz",
+        "var-let-const"
+      ],
+      "quick": "Hoisting means declarations are registered when a scope is created, before code runs. Function declarations are hoisted with their body, var is hoisted and initialised to undefined, while let and const are hoisted but stay uninitialised in the temporal dead zone until their line executes, so early access throws a ReferenceError. var is function scoped; let and const are block scoped. const prevents reassignment of the binding, not mutation of the object it points to. I default to const, use let when reassigning, and avoid var.",
+      "revision": "var: function-scoped, hoisted as undefined. let/const: block-scoped, hoisted but unusable in the TDZ. const blocks reassignment, not mutation. Prefer const, then let.",
+      "detailed": "**Hoisting** is a side effect of how JavaScript creates a scope: all declarations are found and bound before any code in that scope runs. What differs is the initial state.\n\n| | var | let | const | function declaration |\n|---|---|---|---|---|\n| Scope | function | block | block | block (in modern code) / function |\n| Before its line | `undefined` | TDZ: `ReferenceError` | TDZ: `ReferenceError` | usable, fully hoisted |\n| Reassign | yes | yes | no | yes |\n| Redeclare in same scope | yes | no | no | yes |\n\nThe **temporal dead zone (TDZ)** is the span from the start of the scope until the declaration is evaluated. The binding exists, but touching it throws.\n\n```js\nconsole.log(a); // undefined\nvar a = 1;\n\nconsole.log(b); // ReferenceError: Cannot access 'b' before initialization\nlet b = 2;\n\nsayHi();        // works: declarations are hoisted with their body\nfunction sayHi() { console.log('hi'); }\n\nhello();        // TypeError: hello is not a function (var is undefined here)\nvar hello = function () {};\n```\n\n## const is not immutability\n\n`const` fixes the binding, not the value:\n\n```js\nconst user = { name: 'Asha' };\nuser.name = 'Ravi';   // allowed\n// user = {};         // TypeError\n```\n\nUse `Object.freeze` (shallow) when you need to stop mutation.\n\n## Practical guidance\n\n- Default to `const`, use `let` only when you reassign, avoid `var`.\n- Block scoping removes a class of bugs, notably loop-variable capture.\n- The TDZ turns silent `undefined` bugs into loud errors, which is usually desirable.\n- Top-level `var` in a classic script creates a property on the global object; `let` and `const` do not.\n\n## Common mistakes\n\n- Saying let and const \"are not hoisted\". They are hoisted but not initialised.\n- Calling a function expression assigned with var before its assignment.",
+      "followUps": [
+        "Why does typeof on an undeclared variable not throw, but typeof in the TDZ does?",
+        "What happens if you declare a function inside an if block?",
+        "How does const behave with arrays and objects?"
+      ],
+      "related": [
+        "closures-and-real-world-use",
+        "closures-in-loops-var-vs-let"
+      ],
+      "companies": [
+        "gspann"
+      ],
+      "sourceType": "new",
+      "sources": []
+    },
+    {
+      "slug": "event-loop-call-stack-queues",
+      "title": "How does the JavaScript event loop work, and how does long synchronous work affect the UI?",
+      "topic": "Asynchronous JavaScript",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "javascript",
+        "event-loop",
+        "microtasks",
+        "performance"
+      ],
+      "quick": "JavaScript runs on a single thread with one call stack. Async APIs such as timers, network and DOM events are handled by the host environment, which queues their callbacks as tasks. When the stack is empty, the event loop runs all pending microtasks (promise callbacks, queueMicrotask) and then takes the next task. Browsers render between tasks. So a long synchronous loop holds the stack, nothing else runs, and the page cannot paint or respond to clicks until it finishes.",
+      "revision": "One thread, one stack. When the stack empties, drain all microtasks, then run one task, then maybe render. Long sync work blocks rendering and input.",
+      "detailed": "JavaScript executes your code on a **single thread**. Concurrency comes from the host (browser or Node) doing work elsewhere and handing results back through queues.\n\n{{diagram:loop}}\n\n## The pieces\n\n- **Call stack:** where functions currently executing live. Code runs to completion; nothing interrupts it.\n- **Web APIs / host:** timers, fetch, DOM events. They run outside the stack.\n- **Task (macrotask) queue:** callbacks from timers, UI events, message events. One task runs per loop turn.\n- **Microtask queue:** promise reactions (`then`, `catch`, code after `await`), `queueMicrotask`, `MutationObserver`.\n\n## The loop\n\n1. Run the current task until the stack is empty.\n2. Run **all** microtasks, including ones added while draining.\n3. The browser may render (style, layout, paint).\n4. Take the next task and repeat.\n\nBecause the microtask queue is drained completely before the next task, a microtask that keeps scheduling more microtasks can **starve** rendering and timers.\n\n## Why synchronous work blocks the UI\n\nRendering and input handling need the thread too. If a click handler runs a 300 ms loop, the browser cannot paint or process other events during that time; the page appears frozen, and a `setTimeout(fn, 0)` fires only after the loop ends. The delay in `setTimeout` is a minimum, not a guarantee.\n\n```js\nbutton.addEventListener('click', () => {\n  heavySort(hugeArray); // blocks painting and input until it returns\n});\n```\n\n## Ways to keep the UI responsive\n\n- Move CPU-heavy work to a **Web Worker**.\n- Split work into chunks and yield between them (`setTimeout`, `requestIdleCallback` where available, or `scheduler.yield()` where supported).\n- In React, defer non-urgent updates with `useTransition` or `useDeferredValue`, and virtualise long lists.\n- Avoid doing expensive derivations in render; memoise or move them.\n\n## Common mistakes\n\n- Thinking promises or `async` functions run on another thread. They do not; only their scheduling is asynchronous.\n- Assuming `setTimeout(fn, 0)` runs immediately.",
+      "diagrams": [
+        {
+          "id": "loop",
+          "title": "Event loop turn",
+          "alt": "Host APIs such as timers and network place callbacks into the task queue and promise reactions into the microtask queue. When the call stack is empty, the event loop drains the microtask queue, optionally lets the browser render, then moves the next task onto the call stack.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "stack",
+              "label": "Call stack"
+            },
+            {
+              "id": "api",
+              "label": "Host APIs (timers, fetch, DOM)"
+            },
+            {
+              "id": "task",
+              "label": "Task queue"
+            },
+            {
+              "id": "micro",
+              "label": "Microtask queue"
+            },
+            {
+              "id": "loop",
+              "label": "Event loop"
+            },
+            {
+              "id": "render",
+              "label": "Render"
+            }
+          ],
+          "edges": [
+            {
+              "from": "stack",
+              "to": "api",
+              "label": "starts async work"
+            },
+            {
+              "from": "api",
+              "to": "task",
+              "label": "callback ready"
+            },
+            {
+              "from": "stack",
+              "to": "micro",
+              "label": "promise reactions"
+            },
+            {
+              "from": "loop",
+              "to": "micro",
+              "label": "1. drain all"
+            },
+            {
+              "from": "loop",
+              "to": "render",
+              "label": "2. maybe paint"
+            },
+            {
+              "from": "loop",
+              "to": "task",
+              "label": "3. take one"
+            },
+            {
+              "from": "task",
+              "to": "stack",
+              "label": "run"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "What is the difference between a microtask and a macrotask?",
+        "How would you process a million records without freezing the page?",
+        "Does setTimeout(fn, 0) run before or after a resolved promise callback?"
+      ],
+      "related": [
+        "event-loop-output-ordering-puzzle",
+        "promises-and-async-await"
+      ],
+      "companies": [
+        "gspann"
+      ],
+      "sourceType": "new",
+      "sources": []
+    },
+    {
+      "slug": "event-loop-output-ordering-puzzle",
+      "title": "What does this code print? Predict the order of sync code, a promise callback and setTimeout.",
+      "topic": "Asynchronous JavaScript",
+      "difficulty": "intermediate",
+      "type": "coding",
+      "tags": [
+        "javascript",
+        "event-loop",
+        "promises",
+        "output-prediction"
+      ],
+      "quick": "It prints A, D, C, B. The two console.log calls that run synchronously, A and D, execute first as part of the current task. When the stack empties, the event loop drains the microtask queue, so the promise callback C runs next. Only then does it take the next task from the task queue, which is the setTimeout callback B, even with a zero delay. The rule is synchronous code, then all microtasks, then one task.",
+      "revision": "Order: synchronous code, then every microtask (promise callbacks), then the next task (setTimeout). Hence A, D, C, B.",
+      "detailed": "```js\nconsole.log('A');\n\nsetTimeout(() => console.log('B'), 0);\n\nPromise.resolve().then(() => console.log('C'));\n\nconsole.log('D');\n```\n\n**Output:** `A, D, C, B`\n\n## Step by step\n\n1. `console.log('A')` runs immediately: **A**.\n2. `setTimeout` hands the callback to the host timer. After the delay it is placed in the **task queue**. Nothing prints yet.\n3. `Promise.resolve().then(...)` is already resolved, so its callback is placed in the **microtask queue**.\n4. `console.log('D')` runs immediately: **D**. The script (itself a task) is finished and the stack is empty.\n5. The event loop drains the microtask queue: **C**.\n6. The next task runs, the timer callback: **B**.\n\n## Extending the puzzle\n\n`async` functions run synchronously until the first `await`; the rest becomes a microtask.\n\n```js\nasync function run() {\n  console.log(1);\n  await null;\n  console.log(2);   // microtask\n}\nconsole.log(0);\nrun();\nsetTimeout(() => console.log(4), 0);\nconsole.log(3);\n// 0, 1, 3, 2, 4\n```\n\n## Rules to remember\n\n- Synchronous code always finishes first.\n- Microtasks (promise callbacks, `queueMicrotask`, code after `await`) run before the next task, and all of them are drained.\n- `setTimeout` and `setInterval` callbacks are tasks; a zero delay does not make them run earlier than microtasks.\n- Microtasks queued by microtasks still run before the next task.\n\n## Common mistakes\n\n- Believing `setTimeout(..., 0)` beats a resolved promise.\n- Forgetting that the executor function passed to `new Promise` runs synchronously; only `then` callbacks are deferred.",
+      "followUps": [
+        "What changes if the promise is created inside the setTimeout callback?",
+        "Where does the code after an await run relative to other microtasks?",
+        "How does this differ in Node.js with process.nextTick?"
+      ],
+      "related": [
+        "event-loop-call-stack-queues",
+        "promises-and-async-await"
+      ],
+      "companies": [
+        "gspann"
+      ],
+      "sourceType": "new",
+      "sources": []
+    },
+    {
+      "slug": "promises-and-async-await",
+      "title": "How do promises and async/await work, and how do Promise.all and Promise.allSettled differ?",
+      "topic": "Asynchronous JavaScript",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "javascript",
+        "promises",
+        "async-await",
+        "error-handling"
+      ],
+      "quick": "A promise represents a value that will be available later and is pending, fulfilled or rejected. async/await is syntax over promises: await pauses only that async function and lets the thread run other work, so it does not block the thread. The code after await resumes as a microtask. Promise.all fulfils with all results but rejects immediately on the first failure. Promise.allSettled always waits for every promise and reports each outcome, which suits independent work where partial success is acceptable.",
+      "revision": "await suspends the function, never the thread. Promise.all fails fast on the first rejection; allSettled waits for everything and reports each status.",
+      "detailed": "A **promise** is an object representing the eventual result of async work. It starts *pending* and settles once, to *fulfilled* (with a value) or *rejected* (with a reason). `then`, `catch` and `finally` register callbacks that run as microtasks and return new promises, so they chain.\n\n## async/await\n\nAn `async` function always returns a promise. `await` suspends **that function** until the awaited promise settles; the thread is free to run other tasks meanwhile. The continuation is scheduled as a microtask. Errors become exceptions you can handle with `try/catch`.\n\n```js\nasync function loadProfile(id) {\n  try {\n    const res = await fetch(`/api/users/${id}`);\n    if (!res.ok) throw new Error(`HTTP ${res.status}`); // fetch does not reject on 404/500\n    return await res.json();\n  } catch (err) {\n    console.error('profile failed', err);\n    throw err;\n  }\n}\n```\n\n## Promise combinators\n\n| Method | Fulfils when | Rejects when | Typical use |\n|---|---|---|---|\n| `Promise.all` | all fulfil (array of values) | any rejects (first reason) | all results required |\n| `Promise.allSettled` | all settle (array of `{status, value/reason}`) | never | independent work, partial success |\n| `Promise.race` | first settles | first settles with rejection | timeouts |\n| `Promise.any` | first fulfils | all reject (`AggregateError`) | fastest mirror |\n\n```js\nconst results = await Promise.allSettled([getUser(), getOrders(), getOffers()]);\nconst ok = results.filter(r => r.status === 'fulfilled').map(r => r.value);\n```\n\nNote that `Promise.all` rejecting does **not** cancel the other operations; they keep running, their results are just ignored.\n\n## Common mistakes\n\n- Using `await` in sequence for independent calls, which serialises them: start them first, then await together.\n- Forgetting `return` inside a `then` chain, which breaks the chain.\n- Using `async` in `forEach`; `forEach` ignores the returned promises.\n- Leaving a rejection unhandled.",
+      "followUps": [
+        "What does an async function return when it throws?",
+        "When would you choose Promise.any or Promise.race?",
+        "Why does await inside forEach not behave as expected?"
+      ],
+      "related": [
+        "event-loop-output-ordering-puzzle",
+        "concurrent-async-operations"
+      ],
+      "companies": [
+        "gspann"
+      ],
+      "sourceType": "new",
+      "sources": []
+    },
+    {
+      "slug": "concurrent-async-operations",
+      "title": "How do you run multiple async operations at once while handling errors, limiting concurrency and supporting cancellation?",
+      "topic": "Asynchronous JavaScript",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "javascript",
+        "concurrency",
+        "abortcontroller",
+        "promises"
+      ],
+      "quick": "Start independent operations together and await them with Promise.all when every result is needed, or Promise.allSettled when partial success is fine. Handle errors per task so one failure is not silently lost. For many items, bound concurrency with a small worker pool or a library rather than firing thousands of requests at once. Cancel with AbortController by passing its signal to fetch and aborting on unmount, a new request or a timeout, and ignore aborted errors.",
+      "revision": "Start together, await together; choose all vs allSettled by failure policy. Cap concurrency with a worker pool. Cancel with AbortController signals.",
+      "detailed": "Three separate concerns are involved: **running together**, **limiting how many**, and **stopping early**.\n\n## 1. Concurrency vs sequential\n\nAwaiting inside a loop runs calls one after another. Create the promises first:\n\n```js\n// sequential: total time is the sum\nconst a = await getA();\nconst b = await getB();\n\n// concurrent: total time is the slowest\nconst [a2, b2] = await Promise.all([getA(), getB()]);\n```\n\nPick the failure policy: `all` (fail fast, results all required), `allSettled` (inspect each outcome), or catch inside each task to return a fallback value.\n\n## 2. Bounded concurrency\n\nFiring thousands of requests at once can hit browser connection limits, server rate limits or memory. Use a small pool of workers pulling from a shared queue:\n\n```js\nasync function mapLimit(items, limit, worker) {\n  const results = new Array(items.length);\n  let next = 0;\n  async function run() {\n    while (next < items.length) {\n      const i = next++;          // safe: no await between read and increment\n      results[i] = await worker(items[i], i);\n    }\n  }\n  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, run));\n  return results;\n}\n\nconst pages = await mapLimit(urls, 5, (u) => fetch(u).then(r => r.json()));\n```\n\nHere a failure rejects the whole call; wrap `worker` in `try/catch` if you want to continue. Libraries such as p-limit implement the same idea.\n\n## 3. Cancellation\n\nPromises cannot be cancelled themselves. Cancel the underlying work with an **AbortController**:\n\n```js\nconst controller = new AbortController();\nfetch(url, { signal: controller.signal })\n  .then(r => r.json())\n  .catch(err => { if (err.name !== 'AbortError') throw err; });\ncontroller.abort();\n```\n\nIn React, create a controller in an effect and abort in the cleanup so a slow, outdated response cannot overwrite newer state:\n\n```jsx\nuseEffect(() => {\n  const controller = new AbortController();\n  fetch(`/api/search?q=${query}`, { signal: controller.signal })\n    .then(r => r.json()).then(setResults)\n    .catch(e => { if (e.name !== 'AbortError') setError(e); });\n  return () => controller.abort();\n}, [query]);\n```\n\n`AbortSignal.timeout(ms)` gives a simple timeout where supported.\n\n## Common mistakes\n\n- Treating Promise.race as cancellation; the losing work continues.\n- Ignoring that one rejected task in `Promise.all` hides the other errors.\n- Not handling race conditions where responses return out of order.",
+      "followUps": [
+        "How would you retry a failed request with backoff?",
+        "How do you prevent out-of-order responses in a search box?",
+        "What are the trade-offs of Promise.all versus allSettled for a dashboard that loads several widgets?"
+      ],
+      "related": [
+        "promises-and-async-await",
+        "event-loop-call-stack-queues"
+      ],
+      "companies": [
+        "gspann"
+      ],
+      "sourceType": "new",
+      "sources": []
+    },
+    {
+      "slug": "event-delegation",
+      "title": "What is event delegation and why is it useful?",
+      "topic": "DOM events",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "javascript",
+        "dom",
+        "events",
+        "event-delegation"
+      ],
+      "quick": "Event delegation means attaching one listener to a common ancestor instead of one per child, and using event bubbling to catch events from descendants. Inside the handler I read event.target, usually with closest(), to find which child was meant. It uses fewer listeners, works for elements added later, and keeps setup and cleanup simple. It does not work for events that do not bubble, and handlers must filter targets carefully. React uses the same idea internally by listening at the root.",
+      "revision": "One listener on a parent plus bubbling; identify the child with event.target.closest(). Fewer listeners and dynamic children work automatically.",
+      "detailed": "**Event delegation** relies on bubbling: an event on a child travels up through its ancestors, so one listener on a parent can handle events for all its descendants.\n\n```html\n<ul id=\"todo-list\">\n  <li data-id=\"1\">Buy milk <button class=\"remove\">x</button></li>\n  <li data-id=\"2\">Write report <button class=\"remove\">x</button></li>\n</ul>\n```\n\n```js\nconst list = document.getElementById('todo-list');\n\nlist.addEventListener('click', (event) => {\n  const button = event.target.closest('.remove');\n  if (!button || !list.contains(button)) return; // click was elsewhere\n  const item = button.closest('li');\n  removeTodo(item.dataset.id);\n  item.remove();\n});\n```\n\n## Target vs currentTarget\n\n- `event.target` is the element that was actually clicked (might be an icon inside the button).\n- `event.currentTarget` is the element the listener is attached to.\n\nUsing `closest()` handles clicks on nested children such as an icon inside a button.\n\n## Benefits\n\n- **Fewer listeners:** one handler instead of hundreds, lower memory and setup cost.\n- **Dynamic content:** items added later are handled automatically with no re-binding.\n- **Simpler cleanup:** only one listener to remove.\n\n## Limitations\n\n- Events that do not bubble (`focus`, `blur`, `mouseenter`) need their bubbling variants (`focusin`, `focusout`) or capture.\n- If something in between calls `stopPropagation()`, the delegated handler never sees the event.\n- A very hot event such as `mousemove` on a huge container may need throttling.\n\n## In React\n\nReact attaches its listeners at the root container and dispatches synthetic events through the component tree, so JSX handlers are effectively delegated. You usually do not need to hand-roll delegation, but it is useful in plain DOM code, widgets and legacy pages. In a React list, one handler per row is generally fine; reach for a single parent handler only when profiling shows a need.\n\n## Common mistakes\n\n- Using `event.target` without `closest()`, then failing when the click lands on a child element.\n- Forgetting to check the match is inside the intended container.",
+      "followUps": [
+        "Which events do not bubble, and how do you delegate them?",
+        "How does React handle events internally?",
+        "What is the difference between event.target and event.currentTarget?"
+      ],
+      "related": [
+        "event-bubbling-capturing-stoppropagation",
+        "closures-and-real-world-use"
+      ],
+      "companies": [
+        "gspann"
+      ],
+      "sourceType": "new",
+      "sources": []
+    },
+    {
+      "slug": "event-bubbling-capturing-stoppropagation",
+      "title": "Explain event bubbling and capturing. What is the difference between stopPropagation and preventDefault?",
+      "topic": "DOM events",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "javascript",
+        "dom",
+        "events",
+        "bubbling",
+        "capturing"
+      ],
+      "quick": "An event travels in three phases: capturing from the window down to the target's parent, the target phase, then bubbling back up. Listeners run on the bubbling phase by default; passing capture true runs them on the way down. stopPropagation stops the event from reaching further elements, while preventDefault cancels the browser's default action, such as following a link or submitting a form, without stopping propagation. They are independent, and stopImmediatePropagation also blocks other listeners on the same element.",
+      "revision": "Capture down, target, bubble up. stopPropagation halts travel to other elements; preventDefault cancels the browser's default action. Independent of each other.",
+      "detailed": "When a DOM event fires, it passes through three phases:\n\n1. **Capturing:** from `window` down through ancestors to the target's parent.\n2. **Target:** listeners on the element itself.\n3. **Bubbling:** back up through the ancestors to `window`.\n\n`addEventListener(type, handler)` listens in the bubbling phase. Use `{ capture: true }` to listen while the event travels down.\n\n```html\n<div id=\"outer\"><button id=\"inner\">Click</button></div>\n```\n\n```js\nouter.addEventListener('click', () => console.log('outer capture'), { capture: true });\nouter.addEventListener('click', () => console.log('outer bubble'));\ninner.addEventListener('click', () => console.log('inner'));\n// click on button: outer capture, inner, outer bubble\n```\n\n## stopPropagation vs preventDefault\n\n| | stopPropagation | preventDefault |\n|---|---|---|\n| Purpose | Stop the event reaching other elements | Cancel the browser's default behaviour |\n| Examples | Keep a click inside a dropdown from closing a parent modal | Stop link navigation, form submit, checkbox toggle |\n| Stops other listeners on same element | No (`stopImmediatePropagation` does) | No |\n| Needs cancelable event | No | Yes (and not a passive listener) |\n\n```js\nlink.addEventListener('click', (e) => {\n  e.preventDefault();   // do not navigate\n  openInModal(link.href);\n  // the event still bubbles to ancestors\n});\n```\n\n## Practical notes\n\n- Overusing `stopPropagation` breaks delegation and analytics or \"click outside\" listeners higher up the tree. Prefer checking `event.target` instead.\n- `preventDefault` has no effect in a `passive` listener; touch and wheel listeners may be passive by default in browsers, so scroll cancellation can need `{ passive: false }`.\n- `return false` in an `addEventListener` handler does nothing (it only works in inline `on*` attributes, where it means preventDefault).\n- In React, `e.stopPropagation()` in a synthetic handler stops React's own propagation; mixing with native listeners on `document` needs care.\n\n## Common mistakes\n\n- Using `stopPropagation` when `preventDefault` was needed, or the reverse.\n- Forgetting that capture handlers fire before bubble handlers, regardless of registration order.",
+      "followUps": [
+        "Which events do not bubble?",
+        "How would you implement a click-outside-to-close dropdown?",
+        "What does the passive option do?"
+      ],
+      "related": [
+        "event-delegation",
+        "event-loop-call-stack-queues"
+      ],
+      "companies": [
+        "gspann"
+      ],
+      "sourceType": "new",
+      "sources": []
+    },
+    {
+      "slug": "destructuring-defaults-and-patterns",
+      "title": "How does destructuring work, and when do default values apply?",
+      "topic": "Modern JavaScript syntax",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "javascript",
+        "es6",
+        "destructuring",
+        "react"
+      ],
+      "quick": "Destructuring unpacks values from arrays by position or from objects by property name into variables. You can rename with a colon, set defaults with an equals sign, collect the rest with the rest pattern and nest patterns. A default applies only when the value is undefined, not for null, 0, false or an empty string. It is common in React for props, hook results like useState and function parameters. Destructuring null or undefined throws a TypeError, so give such sources a fallback.",
+      "revision": "Unpack arrays by position, objects by key; rename with colon, default with equals. Defaults trigger only for undefined, not null. Destructuring null/undefined throws.",
+      "detailed": "**Destructuring** is a concise syntax for pulling values out of arrays and objects into variables.\n\n```js\n// Arrays: by position\nconst [first, , third = 'n/a', ...rest] = ['a', 'b', undefined, 'd', 'e'];\n// first 'a', third 'n/a', rest ['d', 'e']\n\n// Objects: by name\nconst user = { id: 7, name: 'Asha', address: { city: 'Pune' } };\nconst { name, role = 'guest', address: { city }, ...others } = user;\n// name 'Asha', role 'guest', city 'Pune', others { id: 7 }\n\n// Rename\nconst { name: userName } = user;\n\n// In parameters, with a default for the whole argument\nfunction render({ title, size = 'md' } = {}) {}\n\n// Swap\nlet x = 1, y = 2;\n[x, y] = [y, x];\n```\n\n## Defaults apply only to undefined\n\n```js\nconst { a = 10, b = 10, c = 10, d = 10 } = { a: undefined, b: null, c: 0, d: '' };\n// a 10, b null, c 0, d ''\n```\n\nA default is used when the value is `undefined` (including a missing property). `null`, `0`, `false` and `''` are real values and are kept. When `null` should also fall back, use `??` (nullish coalescing): `const b = obj.b ?? 10`.\n\n## Things to know\n\n- Destructuring `null` or `undefined` throws `TypeError`, so the parameter default `= {}` above matters.\n- Defaults are evaluated lazily and can refer to earlier variables.\n- The rest element must be last, and object rest copies own enumerable properties (a shallow copy).\n- Nested destructuring of a missing parent throws; `{ address: { city } } = {}` fails because `address` is undefined. Provide `address: { city } = {}` or use optional chaining instead.\n- `useState` returns an array, which is why it is destructured by position and can be named freely.\n\n## In React\n\n```jsx\nfunction Card({ title, subtitle = '', onSelect }) {\n  const [open, setOpen] = useState(false);\n  // ...\n}\n```\n\n## Common mistakes\n\n- Expecting `null` to trigger a default.\n- Over-nesting patterns, which hurts readability.",
+      "followUps": [
+        "How would you destructure a deeply nested response safely?",
+        "What is the difference between the rest and spread operators?",
+        "How do you use destructuring to omit a property from an object?"
+      ],
+      "related": [
+        "array-methods-map-filter-reduce"
+      ],
+      "companies": [
+        "gspann"
+      ],
+      "sourceType": "new",
+      "sources": []
+    },
+    {
+      "slug": "array-methods-map-filter-reduce",
+      "title": "When do you use map, filter, reduce, find, some and every?",
+      "topic": "Arrays and data transformation",
+      "difficulty": "beginner",
+      "type": "comparison",
+      "tags": [
+        "javascript",
+        "arrays",
+        "functional",
+        "reduce"
+      ],
+      "quick": "map transforms each item and returns an array of the same length. filter keeps items that pass a test. reduce folds the array into a single value of any type, such as a sum or an object, and needs an initial value to be safe on empty arrays. find returns the first matching item or undefined, some returns true if any item matches, and every returns true if all match. All take callbacks and none mutate the original array. some and every short-circuit.",
+      "revision": "map transforms, filter selects, reduce accumulates to anything, find gets the first match, some is any, every is all. None mutate; some, every and find stop early.",
+      "detailed": "These methods express intent clearly and avoid manual loops. None of them mutate the source array (unless your callback does).\n\n| Method | Returns | Use it for |\n|---|---|---|\n| `map` | new array, same length | transform each item |\n| `filter` | new array, subset | keep matching items |\n| `reduce` | single value (any type) | sum, group, index, flatten |\n| `find` | first match or `undefined` | look up one item |\n| `some` | boolean | does at least one match? |\n| `every` | boolean | do all match? |\n\n```js\nconst products = [\n  { id: 1, name: 'Pen', price: 10, inStock: true },\n  { id: 2, name: 'Book', price: 250, inStock: false },\n  { id: 3, name: 'Bag', price: 900, inStock: true },\n];\n\nconst names     = products.map(p => p.name);                 // ['Pen','Book','Bag']\nconst available = products.filter(p => p.inStock);           // Pen, Bag\nconst total     = products.reduce((sum, p) => sum + p.price, 0); // 1160\nconst bag       = products.find(p => p.id === 3);            // { id: 3, ... }\nconst anyFree   = products.some(p => p.price === 0);         // false\nconst allPriced = products.every(p => p.price > 0);          // true\n\nconst byId = products.reduce((acc, p) => ({ ...acc, [p.id]: p }), {});\n```\n\n## Details that matter\n\n- Always pass an **initial value** to `reduce`. Without it, an empty array throws `TypeError`, and the first element becomes the accumulator, which can have a different type from what you expect.\n- `some` on an empty array is `false`; `every` on an empty array is `true`.\n- `find` returns the item (possibly falsy); use `findIndex` or `includes` when you need an index or a primitive check.\n- `map` with a callback that returns nothing yields `undefined` entries; use `forEach` for side effects.\n- Spreading the accumulator in every `reduce` step (as in `byId` above) is O(n squared); for large arrays, mutate a local accumulator object.\n- Chaining `filter` then `map` is readable; for very large data a single `reduce` or a loop avoids intermediate arrays.\n- In React, `map` renders lists and needs a stable `key`; do not mutate state arrays with `sort` or `reverse` without copying first.\n\n## Common mistakes\n\n- Using `map` just for side effects.\n- Using `filter(...)[0]` instead of `find`, which scans the whole array.\n- Forgetting `return` in a braced arrow function.",
+      "followUps": [
+        "Implement map using reduce.",
+        "What is the difference between find and filter?",
+        "Why is spreading the accumulator inside reduce a performance concern?"
+      ],
+      "related": [
+        "remove-duplicates-from-array",
+        "group-employees-by-department"
+      ],
+      "companies": [
+        "gspann"
+      ],
+      "sourceType": "new",
+      "sources": []
+    },
+    {
+      "slug": "remove-duplicates-from-array",
+      "title": "Write code to remove duplicates from an array, including an array of objects by key.",
+      "topic": "Arrays and data transformation",
+      "difficulty": "beginner",
+      "type": "coding",
+      "tags": [
+        "javascript",
+        "arrays",
+        "set",
+        "coding"
+      ],
+      "quick": "For primitives I use a Set, which stores unique values and keeps insertion order: Array.from(new Set(arr)) or spread it. For objects, Set compares references, so I deduplicate by a key. I iterate once, track seen keys in a Set or Map, and keep the first item per key, which is O(n). A Map keyed by id can keep the last occurrence instead. For deep equality I would build a canonical key, for example from the relevant fields.",
+      "revision": "Primitives: [...new Set(arr)]. Objects: track seen keys in a Set during one pass, or build a Map by key. O(n); Set compares by reference.",
+      "detailed": "## Primitives: use a Set\n\nA `Set` stores unique values and iterates in insertion order. It uses the SameValueZero comparison, so `NaN` is treated as equal to itself (unlike `indexOf`).\n\n```js\nconst unique = [...new Set([3, 1, 3, 2, 1, NaN, NaN])];\n// [3, 1, 2, NaN]\n```\n\n## Objects by key\n\nTwo objects with identical contents are different references, so `Set` will not dedupe them. Pick the identity, such as `id`, and track it.\n\n```js\nfunction uniqueBy(items, getKey) {\n  const seen = new Set();\n  const result = [];\n  for (const item of items) {\n    const key = getKey(item);\n    if (!seen.has(key)) {\n      seen.add(key);\n      result.push(item);   // keeps the first occurrence\n    }\n  }\n  return result;\n}\n\nconst users = [\n  { id: 1, name: 'Asha' },\n  { id: 2, name: 'Ravi' },\n  { id: 1, name: 'Asha (dup)' },\n];\nuniqueBy(users, u => u.id); // Asha, Ravi\n```\n\nTo keep the **last** occurrence, use a Map; later entries overwrite earlier ones:\n\n```js\nconst lastWins = [...new Map(users.map(u => [u.id, u])).values()];\n```\n\n## Complexity and alternatives\n\n| Approach | Time | Notes |\n|---|---|---|\n| `Set` / `Map` single pass | O(n) | preferred |\n| `filter((x, i, a) => a.indexOf(x) === i)` | O(n squared) | fine for tiny arrays, NaN breaks it |\n| `reduce` with `includes` | O(n squared) | avoid on large data |\n\n## Edge cases to mention\n\n- **Composite keys:** combine fields (for example first name and date of birth) into one string joined by a separator that cannot occur in the data.\n- **Deep equality:** needs a canonical serialisation or a utility library; `JSON.stringify` is key-order dependent and drops `undefined`.\n- **Case-insensitive strings:** normalise (`toLowerCase`, trim) when computing the key.\n- Mutation: these approaches return a new array, which suits React state.\n\n## Common mistakes\n\n- Expecting `new Set(arrayOfObjects)` to compare by content.\n- Using nested loops on large inputs.",
+      "followUps": [
+        "How would you deduplicate while merging fields from the duplicates?",
+        "What is the time complexity of your solution and why?",
+        "How would you dedupe objects by deep equality?"
+      ],
+      "related": [
+        "array-methods-map-filter-reduce",
+        "group-employees-by-department"
+      ],
+      "companies": [
+        "gspann"
+      ],
+      "sourceType": "new",
+      "sources": []
+    },
+    {
+      "slug": "group-employees-by-department",
+      "title": "Write code to group a list of employees by department.",
+      "topic": "Arrays and data transformation",
+      "difficulty": "intermediate",
+      "type": "coding",
+      "tags": [
+        "javascript",
+        "arrays",
+        "reduce",
+        "map",
+        "grouping"
+      ],
+      "quick": "I iterate once and build a lookup keyed by department, pushing each employee into that key's array. With reduce the accumulator is a plain object, creating the array when the key is missing. A Map is a good alternative when keys are not strings, when you want guaranteed insertion order, or to avoid prototype-key issues. Newer runtimes have Object.groupBy and Map.groupBy, but availability depends on the engine version, so I check support or polyfill before relying on them.",
+      "revision": "One pass: acc[dept] ??= [] then push. Use a Map for non-string keys or safety. Object.groupBy and Map.groupBy exist in newer runtimes; verify support first.",
+      "detailed": "Given:\n\n```js\nconst employees = [\n  { name: 'Asha', dept: 'Engineering' },\n  { name: 'Ravi', dept: 'Design' },\n  { name: 'Meera', dept: 'Engineering' },\n];\n```\n\n## With reduce\n\n```js\nconst byDept = employees.reduce((acc, emp) => {\n  (acc[emp.dept] ??= []).push(emp);\n  return acc;\n}, {});\n// { Engineering: [Asha, Meera], Design: [Ravi] }\n```\n\n`??=` (logical nullish assignment) creates the array only when absent. Without it: `if (!acc[emp.dept]) acc[emp.dept] = [];`. Mutating the accumulator is fine here and stays O(n); creating a new object with spread on each step would make it O(n squared).\n\n## With a Map\n\n```js\nconst groups = new Map();\nfor (const emp of employees) {\n  if (!groups.has(emp.dept)) groups.set(emp.dept, []);\n  groups.get(emp.dept).push(emp);\n}\n```\n\n## reduce object vs Map\n\n| | Plain object | Map |\n|---|---|---|\n| Key types | strings and symbols | any value |\n| Prototype issues | a key such as `__proto__` or `constructor` can misbehave (use `Object.create(null)`) | none |\n| Iteration order | integer-like keys sorted first, then insertion order | insertion order |\n| JSON friendly | yes | needs conversion |\n\n## Built-in grouping\n\nModern JavaScript adds `Object.groupBy(items, fn)` and `Map.groupBy(items, fn)`:\n\n```js\nconst byDept2 = Object.groupBy(employees, e => e.dept);\n```\n\nThese are relatively recent. Check the browsers and Node versions you target, and use a polyfill, a utility library such as lodash `groupBy`, or the reduce version if you cannot guarantee support. Note that `Object.groupBy` returns an object with a null prototype.\n\n## Follow-on transformations\n\n```js\nconst counts = Object.fromEntries(\n  Object.entries(byDept).map(([dept, list]) => [dept, list.length])\n);\n```\n\n## Common mistakes\n\n- Forgetting to initialise the array and getting `undefined.push`.\n- Using `{ ...acc }` every iteration on large inputs.\n- Relying on `Object.groupBy` without checking runtime support.",
+      "followUps": [
+        "How would you group by a computed key, such as salary band?",
+        "How would you return the average salary per department?",
+        "How would you sort the groups by size?"
+      ],
+      "related": [
+        "array-methods-map-filter-reduce",
+        "remove-duplicates-from-array"
+      ],
+      "companies": [
+        "gspann"
+      ],
+      "sourceType": "new",
+      "sources": []
+    }
+  ]
+}

@@ -1,0 +1,250 @@
+{
+  "category": "html-css",
+  "questions": [
+    {
+      "slug": "css-box-model",
+      "title": "Explain the CSS box model. How do content-box and border-box differ?",
+      "topic": "CSS fundamentals",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "css",
+        "box-model",
+        "layout"
+      ],
+      "companies": [
+        "gspann"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Every element is a rectangular box made of content, padding, border and margin. With the default content-box, width and height apply only to the content, so padding and border are added on top. With border-box, width and height include padding and border, which makes sizing predictable. I set border-box globally with a universal reset. I also remember that vertical margins between block siblings can collapse into one, while flex and grid items do not collapse.",
+      "revision": "Content, padding, border, margin. content-box adds padding and border to width; border-box includes them. Use border-box globally; vertical block margins can collapse.",
+      "detailed": "The box model describes how the browser sizes and spaces every element: from inside out, **content**, **padding**, **border** and **margin**. Margin is outside the visible box and never takes the element's background.\n\n## content-box vs border-box\n\n| `box-sizing` | What `width` means | Rendered width of `width: 200px; padding: 20px; border: 2px solid` |\n|---|---|---|\n| `content-box` (default) | content only | 244px |\n| `border-box` | content + padding + border | 200px |\n\nWith `border-box`, a column set to `width: 50%` stays at 50% even after you add padding, which is why most codebases apply it globally:\n\n```css\n*, *::before, *::after {\n  box-sizing: border-box;\n}\n```\n\nSome teams instead use `html { box-sizing: border-box } *, *::before, *::after { box-sizing: inherit }` so third-party widgets can opt out locally.\n\n## Margin collapsing\n\nAdjacent vertical margins of in-flow block elements combine into a single margin equal to the larger one (not the sum). It also happens between a parent and its first or last child when nothing separates them (no padding, border or new formatting context). Key points:\n\n- Only vertical (block-direction) margins collapse; horizontal margins do not.\n- Flex items and grid items do not collapse margins with siblings.\n- Floats, absolutely positioned elements and elements that create a new block formatting context (for example `display: flow-root` or `overflow: hidden`) stop the effect.\n\n```css\n.card { margin-bottom: 24px; }\n.card + .card { margin-top: 16px; } /* gap between cards is 24px, not 40px */\n```\n\n## Common mistakes\n\n- Expecting `height: 100%` plus padding to fit inside the parent under `content-box`.\n- Being surprised when a child's `margin-top` pushes the parent down.\n- Using margin for gaps between flex or grid children when `gap` is cleaner.\n\n## Practical tip\n\nIn browser DevTools the box-model diagram in the Computed panel shows each layer, which is the quickest way to debug an unexpected size or spacing.",
+      "followUps": [
+        "Why does a child's top margin sometimes appear to move its parent?",
+        "How does `gap` compare with margins for spacing in flex and grid?",
+        "What does `outline` do to the box model?"
+      ],
+      "related": [
+        "css-variables-design-tokens",
+        "css-units-rem-em-vh"
+      ]
+    },
+    {
+      "slug": "css-variables-design-tokens",
+      "title": "What are CSS custom properties, and how do you use them for design tokens and theming?",
+      "topic": "CSS fundamentals",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "css",
+        "custom-properties",
+        "design-tokens",
+        "theming"
+      ],
+      "companies": [
+        "gspann"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "CSS custom properties are declared with a double-dash name, such as --color-primary, and read with var(). Unlike preprocessor variables, they exist at runtime, follow the cascade and inherit down the DOM, so I can override them per theme, component or media query without recompiling. I define raw tokens on :root, add semantic tokens like --color-text on top, and switch a theme by changing a data attribute. JavaScript can also read and set them. Preprocessor variables are still fine for build-time values.",
+      "revision": "Custom properties are runtime, cascading, inheritable variables. Define tokens on :root, override per scope for themes; preprocessor variables are compile-time only.",
+      "detailed": "A **custom property** is a CSS property whose name starts with `--`. You read it with `var(--name, fallback)`. Because it is a real part of the cascade, its value is resolved in the browser, can differ per element and can change at runtime.\n\n## Tokens and theming\n\nDesign tokens are named design decisions (colours, spacing, radii, type scale). A common two-layer approach:\n\n```css\n:root {\n  /* primitive tokens */\n  --blue-600: #2563eb;\n  --gray-900: #111827;\n  --gray-50: #f9fafb;\n  --space-2: 0.5rem;\n\n  /* semantic tokens */\n  --color-bg: var(--gray-50);\n  --color-text: var(--gray-900);\n  --color-accent: var(--blue-600);\n}\n\n:root[data-theme=\"dark\"] {\n  --color-bg: #0b1020;\n  --color-text: #e5e7eb;\n}\n\n.button {\n  background: var(--color-accent);\n  padding: var(--space-2) calc(var(--space-2) * 2);\n  color: var(--color-bg);\n}\n```\n\nComponents use only semantic tokens, so a theme is one scope of overrides. You can also respond to `@media (prefers-color-scheme: dark)`.\n\n## Runtime vs preprocessor variables\n\n| | Sass/Less variable | CSS custom property |\n|---|---|---|\n| Resolved | at build time | in the browser |\n| Cascade and inheritance | no | yes |\n| Change per element or media query | no (new compiled rule) | yes |\n| Readable from JavaScript | no | yes, via `getComputedStyle` and `style.setProperty` |\n| Usable in `calc()` and math | only before compile | yes, at runtime |\n\n## Inheritance and scoping\n\nCustom properties inherit by default, so setting `--card-padding` on a section affects every descendant that uses it. This enables component-level APIs: a `.card` reads `var(--card-padding, 1rem)` and consumers override it.\n\n## Caveats\n\n- An invalid value is only detected at use time, then the property falls back to its initial or inherited value (\"invalid at computed-value time\"). Registering with `@property` adds a type, an initial value and animation support.\n- Variables cannot be used in media query conditions.\n- Overusing deep alias chains makes debugging harder; keep two or three layers.\n- Frequently changing a variable on a high ancestor can trigger a large style recalculation, so scope fast-changing values (for example a drag position) to the smallest element.",
+      "followUps": [
+        "How would you add a user-selectable theme that persists across visits?",
+        "What does `@property` add over a plain custom property?",
+        "How do you share tokens between CSS and JavaScript?"
+      ],
+      "related": [
+        "css-box-model",
+        "structuring-css-large-scale-app"
+      ]
+    },
+    {
+      "slug": "flexbox-vs-css-grid",
+      "title": "Flexbox vs CSS Grid: when do you choose each?",
+      "topic": "CSS layout",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "css",
+        "flexbox",
+        "grid",
+        "layout"
+      ],
+      "companies": [
+        "gspann"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Flexbox is one-dimensional: it lays items out along a single row or column, and the content decides how space is shared. It suits toolbars, nav bars, button groups and centring. Grid is two-dimensional: I define rows and columns and place items into them, which suits page shells, dashboards and card galleries. They combine well: grid for the overall structure, flexbox inside the cells. If I need items to align across both rows and columns, I choose grid.",
+      "revision": "Flexbox: one axis, content-driven distribution. Grid: two axes, layout-driven placement. Use grid for structure, flexbox for components inside it.",
+      "detailed": "**Flexbox** distributes items along one axis (a row or a column) and lets them grow, shrink and wrap. **Grid** defines both rows and columns, and items are placed into cells or areas.\n\n## Rule of thumb\n\n- Starting from the **content** (a group of items that should flow and share space)? Use flexbox.\n- Starting from the **layout** (a structure you can sketch as rows and columns)? Use grid.\n\n| Need | Better fit |\n|---|---|\n| Navbar with logo left, actions right | Flexbox |\n| Centre one thing in a container | Either; `display: grid; place-items: center` is short |\n| Page shell: header, sidebar, main, footer | Grid |\n| Card gallery with equal columns aligned in rows | Grid |\n| Wrapping tags or chips of varying widths | Flexbox (`flex-wrap`) |\n| Items that must align across rows and columns | Grid |\n| Overlapping elements | Grid (same cell) |\n\n## Examples\n\n```css\n.toolbar {\n  display: flex;\n  align-items: center;\n  gap: 0.75rem;\n}\n.toolbar .spacer { margin-inline-start: auto; }\n\n.shell {\n  display: grid;\n  grid-template-columns: 240px 1fr;\n  grid-template-areas:\n    \"header header\"\n    \"nav    main\"\n    \"footer footer\";\n}\n```\n\n## Key differences\n\n- Flex sizing is computed from item content (`flex-basis`, `flex-grow`, `flex-shrink`); wrapped flex lines are laid out independently, so columns in different rows may not line up.\n- Grid tracks are defined on the container, so rows and columns stay aligned regardless of content.\n- Both support `gap`, alignment properties and `order`-based reordering, but reordering visually can hurt keyboard and screen-reader order.\n\n## Common mistakes\n\n- Forcing a two-dimensional design out of nested flex containers with percentage widths.\n- Forgetting `min-width: 0` on flex children that contain long text, so they overflow.\n- Using grid for a simple one-row group where flexbox is simpler.\n\nYou do not have to pick one for the whole page; nest them.",
+      "followUps": [
+        "How do you make a flex child with long text stop overflowing?",
+        "What is the difference between auto-fit and auto-fill in grid?",
+        "How does `subgrid` help with aligned card layouts?"
+      ],
+      "related": [
+        "css-box-model",
+        "complex-dashboard-layout-flexbox-grid"
+      ]
+    },
+    {
+      "slug": "css-units-rem-em-vh",
+      "title": "What are the main CSS units (px, %, em, rem, vh/vw, dvh/svh) and when do you use each?",
+      "topic": "CSS fundamentals",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "css",
+        "units",
+        "responsive",
+        "accessibility"
+      ],
+      "companies": [
+        "gspann"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "px is an absolute CSS pixel, good for hairlines and borders. Percentages are relative to a related value, usually the parent's size. em is relative to the element's own font size (or the parent's for font-size itself), so it compounds when nested. rem is relative to the root font size, which makes it the best choice for scalable type and spacing that respects user settings. vh and vw are percentages of the viewport; on mobile I prefer dvh or svh because 100vh ignores the dynamic browser toolbar.",
+      "revision": "px fixed; % relative to parent; em to the element's font; rem to the root font; vw/vh to the viewport; use dvh/svh on mobile instead of 100vh.",
+      "detailed": "| Unit | Relative to | Typical use |\n|---|---|---|\n| `px` | CSS pixel (fixed) | borders, shadows, hairlines |\n| `%` | depends on the property (parent width for `width`, containing block height for `height`) | fluid widths |\n| `em` | the element's own `font-size` (for `font-size` itself, the parent's) | spacing that should scale with a component's text |\n| `rem` | root (`html`) font size | type scale, global spacing, media queries |\n| `vw` / `vh` | 1% of the viewport width / height | hero sections, full-screen panels |\n| `dvh` / `svh` / `lvh` | dynamic / smallest / largest viewport height | mobile full-height layouts |\n| `ch` | width of the \"0\" glyph | readable line length |\n\n## Why rem for accessibility\n\nUsers can raise the browser's default font size. Sizes in `rem` follow that preference; sizes in `px` do not. Avoid setting `html { font-size: 12px }`; if you must adjust, use a percentage so the user setting still applies.\n\n## em compounding\n\n```css\n.menu { font-size: 1.2em; }\n.menu .menu { font-size: 1.2em; } /* 1.44x of the original, not 1.2x */\n```\n\nA component padded with `padding: 0.5em 1em` scales when its own font size changes, which suits buttons.\n\n## Viewport units on mobile\n\nOn mobile browsers the visible area changes as the address bar shows or hides. Classic `100vh` usually matches the largest viewport, so content can be hidden behind the toolbar.\n\n```css\n.hero {\n  min-height: 100vh;   /* fallback */\n  min-height: 100svh;  /* never taller than the visible area */\n}\n.drawer { height: 100dvh; } /* follows the toolbar as it changes */\n```\n\n`svh` is stable and good for hero sections; `dvh` updates dynamically and can cause reflow while scrolling, so use it where tracking the live height matters.\n\n## Common mistakes\n\n- Using `vw` for font sizes without a floor, which can become unreadable or ignore user zoom; combine with `clamp()`, for example `font-size: clamp(1rem, 0.9rem + 0.5vw, 1.25rem)`.\n- Assuming `%` height works without a parent height.\n- Using `vw` for full-width elements, which includes the scrollbar width and can cause horizontal scroll.",
+      "followUps": [
+        "Why can 100vw cause a horizontal scrollbar?",
+        "How does clamp() help with fluid typography?",
+        "When would you use `ch` or container query units?"
+      ],
+      "related": [
+        "css-box-model",
+        "responsive-desktop-tablet-mobile-layout"
+      ]
+    },
+    {
+      "slug": "responsive-desktop-tablet-mobile-layout",
+      "title": "How do you design a responsive layout that works on desktop, tablet and mobile?",
+      "topic": "Responsive design",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "css",
+        "responsive",
+        "mobile-first",
+        "media-queries",
+        "tables"
+      ],
+      "companies": [
+        "gspann"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I design mobile-first: the base CSS is a single-column layout, and I add min-width media queries as the content needs more room. I choose breakpoints where the content breaks rather than for specific devices. I use fluid grids with minmax and auto-fit, relative units, flexible images, and container queries for reusable components. Wide tables need a plan: horizontal scroll in a wrapper, or restructuring rows into stacked cards. I always test with real devices, zoom and touch targets.",
+      "revision": "Mobile-first base styles, min-width queries at content-driven breakpoints, fluid grids and units, container queries for components, and a deliberate plan for tables.",
+      "detailed": "## Approach\n\n1. **Start with the content and a narrow single column.** Base styles describe mobile; enhancements are layered on with `min-width` queries, so small devices download and parse less override CSS.\n2. **Set breakpoints where the design breaks**, not at named device sizes. Stretch the viewport until lines get too long or items look sparse, then add a query there. Having three or four breakpoints expressed as tokens is typical.\n3. **Prefer intrinsic layouts first**: grid with `auto-fit`, flex wrapping and `clamp()` often need no query at all.\n4. **Use container queries for reusable components** so a card adapts to the space it is given, not the viewport.\n5. **Always include the viewport meta tag**: `<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">`.\n\n```css\n.layout {\n  display: grid;\n  gap: 1rem;\n  padding: 1rem;\n}\n@media (min-width: 48rem) {      /* content now supports a sidebar */\n  .layout { grid-template-columns: 220px 1fr; }\n}\n@media (min-width: 80rem) {\n  .layout { grid-template-columns: 260px 1fr 300px; max-width: 90rem; margin-inline: auto; }\n}\n\nimg { max-width: 100%; height: auto; }\n\n.card-list { container-type: inline-size; }\n@container (min-width: 30rem) {\n  .card { display: grid; grid-template-columns: 8rem 1fr; }\n}\n```\n\n## Navigation and interaction\n\n- Collapse navigation into a menu on small screens; keep touch targets reasonably large (commonly around 44px).\n- Do not rely on hover for essential actions, because touch devices lack it.\n- Use responsive images (`srcset`, `sizes`) and lazy loading.\n\n## Tables on small screens\n\n- **Scroll wrapper:** wrap in `overflow-x: auto` and keep the key column sticky; simple and keeps data intact.\n- **Stacked cards:** below a breakpoint, switch rows to blocks and show column labels using `data-label` attributes. This is more readable but needs more CSS, and you must keep table semantics accessible.\n- **Prioritise columns:** hide or collapse secondary columns behind a details toggle.\n\n```css\n.table-wrap { overflow-x: auto; }\n.table-wrap table { min-width: 40rem; }\n```\n\n## Common mistakes\n\n- Desktop-first CSS with many `max-width` overrides.\n- Fixed pixel widths and heights on containers.\n- Testing only by resizing a desktop browser, without real devices, zoom or text enlargement.",
+      "followUps": [
+        "Mobile-first vs desktop-first: what are the trade-offs?",
+        "When would you use a container query rather than a media query?",
+        "How do you keep a data table accessible when you restyle it as cards?"
+      ],
+      "related": [
+        "css-units-rem-em-vh",
+        "flexbox-vs-css-grid",
+        "complex-dashboard-layout-flexbox-grid"
+      ]
+    },
+    {
+      "slug": "structuring-css-large-scale-app",
+      "title": "How do you structure CSS for a large-scale application?",
+      "topic": "CSS architecture",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "css",
+        "architecture",
+        "css-modules",
+        "specificity",
+        "cascade-layers",
+        "design-tokens"
+      ],
+      "companies": [
+        "gspann"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I want styles that are predictable, scoped and easy to delete. I define design tokens as custom properties, keep global CSS small (reset, tokens, base typography), and scope component styles with CSS Modules or an equivalent so class names cannot collide. I keep specificity low and flat, avoid IDs and !important, and use cascade layers to order resets, base, components and utilities explicitly. A consistent naming and file convention, linting, and a shared component library keep many teams consistent.",
+      "revision": "Tokens for decisions, scoped component styles, low flat specificity, cascade layers for ordering, and conventions plus linting to keep many teams consistent.",
+      "detailed": "The main problems at scale are **global namespace collisions, specificity wars, dead code nobody dares delete and inconsistent visual decisions**. Structure should address each one.\n\n## 1. Tokens as the foundation\n\nColours, spacing, typography and radii live as custom properties (see the design tokens question). Components consume tokens, so a rebrand or dark theme does not touch component files.\n\n## 2. Scope component styles\n\n| Option | Idea | Trade-off |\n|---|---|---|\n| CSS Modules | class names are hashed per file at build time | plain CSS, zero runtime; sharing across files needs explicit composition |\n| CSS-in-JS (runtime) | styles co-located in components | flexible theming, but runtime cost and tooling concerns, particularly with server rendering |\n| Zero-runtime CSS-in-JS / utility frameworks | extracted static CSS | needs tooling or a team convention |\n| BEM naming | convention only | no tooling, but relies on discipline |\n\n```css\n/* Button.module.css */\n.root { padding: var(--space-2) var(--space-4); background: var(--color-accent); }\n.primary { font-weight: 600; }\n```\n\n```jsx\nimport styles from \"./Button.module.css\";\nexport const Button = ({ children }) => (\n  <button className={`${styles.root} ${styles.primary}`}>{children}</button>\n);\n```\n\n## 3. Control specificity and order\n\nKeep selectors at one class where possible, avoid IDs, deep descendant chains and `!important`. Use **cascade layers** so ordering is explicit and independent of specificity or file order:\n\n```css\n@layer reset, tokens, base, components, utilities;\n\n@layer components {\n  .card { padding: 1rem; }\n}\n@layer utilities {\n  .p-0 { padding: 0; }  /* wins over .card regardless of selector weight */\n}\n```\n\nUnlayered styles beat layered ones, which is useful for third-party overrides but easy to forget.\n\n## 4. Organisation\n\n- A small global layer: reset, tokens, base elements, a few utilities.\n- Component styles next to the component, so deleting a component deletes its CSS.\n- Shared primitives (Stack, Grid, Text) in a design-system package with documented props.\n\n## 5. Guardrails\n\n- Stylelint rules for specificity, naming and forbidden patterns; Prettier formatting.\n- Visual regression tests or a component catalogue such as Storybook.\n- Code review checklist: tokens used, no magic numbers, responsive behaviour checked.\n\n## Common mistakes\n\n- Mixing several styling approaches without a reason.\n- Overriding library styles using increasingly specific selectors instead of layers or documented theming hooks.\n- Letting a global stylesheet grow because nothing is safe to delete.",
+      "followUps": [
+        "How do cascade layers change specificity rules?",
+        "CSS Modules vs a utility-first approach: how would you decide?",
+        "How would you migrate a legacy global stylesheet incrementally?"
+      ],
+      "related": [
+        "css-variables-design-tokens",
+        "preventing-unnecessary-css-performance"
+      ]
+    },
+    {
+      "slug": "preventing-unnecessary-css-performance",
+      "title": "How do you prevent unnecessary CSS from hurting page performance?",
+      "topic": "CSS performance",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "css",
+        "performance",
+        "critical-css",
+        "unused-css",
+        "tailwind"
+      ],
+      "companies": [
+        "gspann"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "CSS is render-blocking, so every extra kilobyte delays first paint. I ship only what a route needs: split CSS per route or component, remove unused rules with coverage audits and build-time tools, inline critical CSS for above-the-fold content and load the rest asynchronously. I minify, compress and cache with hashed filenames. I avoid heavy @import chains and expensive selectors. I'm careful that purging tools cannot see dynamically built class names, so I use complete class strings or a safelist.",
+      "revision": "Ship less CSS per route, remove unused rules, inline critical CSS, defer the rest, compress and cache. Purgers miss dynamically built class names.",
+      "detailed": "The browser will not render until it has downloaded and parsed all **render-blocking** CSS in the document head, so large or late stylesheets hurt metrics such as First Contentful Paint and Largest Contentful Paint.\n\n## Measure first\n\n- Chrome DevTools **Coverage** panel shows the proportion of unused CSS on a page. Interpret it with care: rules for other states, routes and breakpoints are legitimately unused on one load.\n- Lighthouse and the Performance panel show render-blocking resources and style recalculation cost.\n\n## Reduce what is shipped\n\n- **Split by route or component** so a page loads only its styles (CSS Modules with a bundler, or per-route chunks).\n- **Remove unused rules** at build time with tooling that scans your source, such as a purge step in a utility-first framework's build.\n- **Minify and compress** (gzip or Brotli) and give files hashed names with long-lived caching.\n- Avoid importing an entire UI or icon-font library for a few components.\n- Prefer `<link>` tags over CSS `@import`, since imports chain requests.\n\n## Reduce blocking\n\n```html\n<style>/* critical above-the-fold rules */</style>\n<link rel=\"preload\" href=\"/app.css\" as=\"style\" onload=\"this.rel='stylesheet'\">\n<noscript><link rel=\"stylesheet\" href=\"/app.css\"></noscript>\n```\n\nUse `media` attributes to avoid blocking on non-matching conditions, for example `media=\"print\"` for print styles. Inlining critical CSS trades larger HTML and extra tooling for faster first paint; only do it where measured.\n\n## Dynamic class names caveat\n\nPurging tools scan source text for class names. Names assembled at runtime are not found and are removed:\n\n```jsx\n// Not detected by a static scanner\n<div className={`text-${color}-500`} />\n\n// Detected: full class names appear in source\nconst colors = { red: \"text-red-500\", blue: \"text-blue-500\" };\n<div className={colors[color]} />\n```\n\nFix with complete strings, an explicit safelist, or CSS Modules (where each class is referenced as an import).\n\n## Rendering cost of CSS itself\n\n- Keep selectors reasonably simple; deeply nested descendant selectors matter less than the DOM size, but are still harder to maintain.\n- Animate `transform` and `opacity` instead of layout properties.\n- `content-visibility: auto` can skip rendering work for off-screen sections.\n- Load web fonts with `font-display` to avoid invisible text.\n\n## Common mistakes\n\n- Optimising Coverage numbers in isolation without checking real metrics.\n- Purging styles that are used only in conditionally rendered UI, producing production-only visual bugs.",
+      "followUps": [
+        "What is critical CSS and what are its downsides?",
+        "How do you detect a production-only style regression caused by purging?",
+        "Which CSS properties are cheap or expensive to animate, and why?"
+      ],
+      "related": [
+        "structuring-css-large-scale-app",
+        "css-box-model"
+      ]
+    },
+    {
+      "slug": "complex-dashboard-layout-flexbox-grid",
+      "title": "How would you implement a complex dashboard page layout using Flexbox and Grid?",
+      "topic": "CSS layout",
+      "difficulty": "advanced",
+      "type": "coding",
+      "tags": [
+        "css",
+        "grid",
+        "flexbox",
+        "dashboard",
+        "layout"
+      ],
+      "companies": [
+        "gspann"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I use grid for the page structure: a shell with sidebar and main, and a widget grid inside main using repeat(auto-fit, minmax(...)) so cards reflow without media queries. For content columns I use minmax(0, 1fr) rather than 1fr so wide content like tables or code cannot blow out the track. Inside each card I use flexbox for headers, toolbars and footers. I make only the main region scroll, add min-width 0 where flex children overflow, and use a few breakpoints for the shell.",
+      "revision": "Grid for shell and widget placement, minmax(0,1fr) to stop content blowout, auto-fit for reflowing cards, flexbox inside cards for toolbars and alignment.",
+      "detailed": "Treat the dashboard as three levels: the **shell**, the **widget grid** and the **widget internals**. Use grid for the first two and flexbox for the third.\n\n## 1. Shell (grid)\n\n```css\n.app {\n  display: grid;\n  grid-template-columns: 240px minmax(0, 1fr);\n  grid-template-rows: auto minmax(0, 1fr);\n  grid-template-areas:\n    \"sidebar header\"\n    \"sidebar main\";\n  height: 100dvh;\n}\n.sidebar { grid-area: sidebar; overflow-y: auto; }\n.header  { grid-area: header; }\n.main    { grid-area: main; overflow: auto; padding: 1rem; }\n```\n\n## Why `minmax(0, 1fr)` and not `1fr`\n\n`1fr` is shorthand for `minmax(auto, 1fr)`. The `auto` minimum means a track will not shrink below the minimum content size of its items, so a wide table or long unbroken string can stretch the column and cause overflow. `minmax(0, 1fr)` allows the track to shrink so the item can scroll or truncate instead. The same applies to `minmax(0, 1fr)` rows when you want the main area to scroll internally.\n\n## 2. Widget grid (auto-fit)\n\n```css\n.widgets {\n  display: grid;\n  gap: 1rem;\n  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));\n}\n.widget--wide { grid-column: span 2; }\n@media (max-width: 40rem) { .widget--wide { grid-column: auto; } }\n```\n\nEach card is at least 18rem and the browser fits as many as it can, with no media query. `auto-fit` collapses empty tracks, so the remaining cards stretch to fill the row; `auto-fill` keeps empty tracks, so cards stay at a consistent size. The `min(100%, 18rem)` guard avoids overflow on very narrow containers.\n\n## 3. Widget internals (flexbox)\n\n```css\n.widget { display: flex; flex-direction: column; min-width: 0; }\n.widget__header { display: flex; align-items: center; gap: .5rem; }\n.widget__title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.widget__body { flex: 1; overflow: auto; }\n```\n\n`flex: 1` on the body pushes a footer to the bottom, and `min-width: 0` lets the title truncate instead of forcing the card wider.\n\n## Responsive shell\n\nBelow a chosen breakpoint, collapse the sidebar into an off-canvas drawer, or switch the shell to a single column. Use `grid-template-areas` redefinitions inside the media query.\n\n## Common mistakes\n\n- Using `1fr` columns with tables inside, then wondering why the page scrolls horizontally.\n- Forgetting a height constraint so nested scrolling regions do not work.\n- Using absolute positioning for placement that grid areas handle more cleanly.\n- Reordering visually without considering keyboard order.",
+      "followUps": [
+        "Why does `1fr` sometimes cause overflow while `minmax(0, 1fr)` does not?",
+        "What is the difference between auto-fit and auto-fill?",
+        "How would you make a widget's chart resize with its container?"
+      ],
+      "related": [
+        "flexbox-vs-css-grid",
+        "responsive-desktop-tablet-mobile-layout"
+      ]
+    }
+  ]
+}

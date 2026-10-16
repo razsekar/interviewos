@@ -1,0 +1,267 @@
+{
+  "category": "frontend-engineering",
+  "questions": [
+    {
+      "slug": "reflow-vs-repaint-and-layout-thrashing",
+      "title": "What is the difference between reflow and repaint, and what is layout thrashing?",
+      "topic": "Browser rendering cost",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "reflow",
+        "repaint",
+        "layout-thrashing",
+        "animation",
+        "performance"
+      ],
+      "companies": [
+        "gspann"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Reflow, also called layout, is where the browser recalculates sizes and positions of elements. Repaint redraws pixels when appearance changes without affecting geometry, such as colour. Reflow is usually more expensive because it can cascade through the tree and is always followed by a repaint. Layout thrashing happens when code alternates between writing styles and reading layout values like offsetHeight in a loop, forcing repeated synchronous layouts. I batch reads before writes and animate transform and opacity, which can run on the compositor without layout or paint.",
+      "revision": "Reflow recomputes geometry, repaint redraws pixels. Avoid interleaving layout reads and style writes; animate transform and opacity instead of width, top or left.",
+      "detailed": "**Reflow (layout)** is the step where the browser works out the size and position of every affected box. **Repaint** is the step where it fills pixels (colours, borders, shadows, text) for boxes whose geometry did not change. A change to geometry triggers layout and then paint; a change to colour triggers paint only; a change to `transform` or `opacity` on an element promoted to its own layer can often be handled by the compositor alone.\n\n## What triggers each\n\n| Change | Typical cost |\n| --- | --- |\n| width, height, margin, top, font-size, adding or removing nodes | layout, paint, composite |\n| color, background, box-shadow, visibility | paint, composite |\n| transform, opacity (on a composited layer) | composite only, commonly |\n\nExact behaviour varies by browser and element, so confirm in DevTools rather than assuming.\n\n## Layout thrashing\n\nReading a layout property such as `offsetHeight`, `getBoundingClientRect()` or `scrollTop` after a style write forces the browser to run layout synchronously to give a correct answer. Doing that inside a loop forces one layout per iteration.\n\n```js\n// Thrashing: write, read, write, read ...\nitems.forEach(el => {\n  el.style.width = el.parentNode.offsetWidth / 2 + 'px';\n});\n\n// Better: read everything first, then write\nconst widths = items.map(el => el.parentNode.offsetWidth);\nitems.forEach((el, i) => {\n  el.style.width = widths[i] / 2 + 'px';\n});\n```\n\n## Practical rules\n\n- Batch reads, then batch writes; schedule writes with `requestAnimationFrame`.\n- Animate `transform` and `opacity` instead of `top`, `left` or `width`.\n- Use `will-change` sparingly; every promoted layer costs memory.\n- Use `content-visibility: auto` or CSS containment to limit how far a layout can spread.\n- Avoid reading layout in React render; if you must measure, do it in `useLayoutEffect` once and store the result.\n\n## Common mistakes\n\n- Toggling classes on a high-level container, invalidating the whole page.\n- Animating height from 0 to auto with JavaScript on every frame.\n- Applying `will-change` everywhere and exhausting GPU memory.\n\nUse the Performance panel to spot purple Layout blocks with a \"forced reflow\" warning.",
+      "followUps": [
+        "Why are transform and opacity cheaper to animate?",
+        "How would you find a forced reflow in DevTools?",
+        "Does React cause layout thrashing, and how would you avoid it?"
+      ],
+      "related": []
+    },
+    {
+      "slug": "reduce-javascript-bundle-size",
+      "title": "How do you reduce the JavaScript bundle size of a React application?",
+      "topic": "Bundle optimization",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "bundle-size",
+        "code-splitting",
+        "dependencies",
+        "performance-budget"
+      ],
+      "companies": [
+        "gspann"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I start by measuring with a bundle analyzer so I know what is actually large. Then I remove or replace heavy dependencies, import only what I use, split routes and rarely used features with dynamic import, and enable minification and compression. I avoid shipping polyfills and legacy code to modern browsers. To keep gains, I set a size budget in CI that fails the build on regressions. I do not over-split: too many tiny chunks add requests and hurt caching and loading.",
+      "revision": "Measure first, drop or replace heavy dependencies, split by route and rare features (not excessively), tree shake, compress, and enforce a CI size budget.",
+      "detailed": "Reducing bundle size is a **measure, cut, split, protect** loop. Guessing usually wastes time on small wins.\n\n## 1. Analyse\n\nUse a visualizer (for example webpack-bundle-analyzer or rollup-plugin-visualizer) to see which modules and dependencies dominate. Look at both raw and gzip or brotli sizes, and distinguish the initial bundle from lazy chunks.\n\n## 2. Cut what you ship\n\n- Replace heavy libraries with lighter ones or native APIs (date, utility and charting libraries are frequent offenders).\n- Import narrowly: `import debounce from 'lodash-es/debounce'` rather than the whole library through a CommonJS entry.\n- Remove duplicates: two versions of the same package, or several libraries doing the same job.\n- Target modern browsers through your browserslist so you do not ship unneeded transforms and polyfills.\n- Make sure production builds minify and strip dev-only code.\n\n## 3. Split sensibly\n\n```jsx\nconst Reports = lazy(() => import('./Reports'));\n\n<Suspense fallback={<Spinner />}>\n  <Reports />\n</Suspense>\n```\n\nSplit on **route boundaries** and on heavy, rarely used features (rich text editor, charts, PDF export). Keep shared code in a small number of well-cached chunks.\n\n## 4. Do not over-split\n\nHundreds of tiny chunks cause more requests, waterfalls of dynamic imports and worse compression. Splitting a component that is needed on first paint only delays it. Aim for a few meaningful chunks and preload ones you know the user needs next.\n\n## 5. Prevent regression\n\nSet a **performance budget** (for example a maximum initial JavaScript size) and fail CI when it is exceeded. Review the analyzer output on dependency upgrades.\n\n## Common mistakes\n\n- Optimising before measuring.\n- Lazy-loading above-the-fold content.\n- Ignoring third-party scripts that are not in the bundle but cost as much.\n\nServe with brotli or gzip and long-lived caching so repeat visits cost little.",
+      "followUps": [
+        "How would you decide whether a dependency is worth its size?",
+        "What is the downside of splitting too aggressively?",
+        "How do you set and enforce a bundle budget in CI?"
+      ],
+      "related": []
+    },
+    {
+      "slug": "tree-shaking-explained",
+      "title": "What is tree shaking and how do you make sure it works?",
+      "topic": "Bundle optimization",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "tree-shaking",
+        "es-modules",
+        "sideeffects",
+        "bundler"
+      ],
+      "companies": [
+        "gspann"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Tree shaking is dead code elimination across modules: the bundler keeps only exports that are actually imported. It relies on the static structure of ES module import and export, so CommonJS require generally defeats it. I make sure libraries ship ES modules, avoid importing through barrel files that have side effects, and set the sideEffects field in package.json so unused modules can be dropped safely. Then I verify by checking the production bundle or analyzer for code I expected to disappear.",
+      "revision": "Tree shaking drops unused exports using static ES module syntax. Needs ESM, side-effect-free modules (sideEffects flag) and a production build; verify in the output.",
+      "detailed": "**Tree shaking** removes exports that nothing imports. The bundler builds a module graph, marks which exports are used, and the minifier then deletes the unused code.\n\n## Why ES modules matter\n\n`import` and `export` are static: the bundler can know at build time what is used. `require()` calls and `module.exports` are dynamic, so CommonJS packages are generally bundled whole.\n\n## Side effects\n\nA module is only safe to drop if importing it does nothing besides define exports. Code that patches globals, registers polyfills or imports CSS has side effects. Package authors declare this:\n\n```json\n{\n  \"name\": \"ui-kit\",\n  \"sideEffects\": [\"*.css\"],\n  \"module\": \"dist/index.mjs\"\n}\n```\n\n`\"sideEffects\": false` tells the bundler that any module with no used exports can be removed. Listing files (as above) protects the ones that must stay. Setting it wrongly breaks apps, for example by dropping a stylesheet import.\n\n## Making it work\n\n- Use ES module builds of libraries and your own code; do not let Babel transpile ESM to CommonJS before the bundler sees it.\n- Use named imports; avoid `import * as lib` followed by dynamic property access.\n- Be careful with barrel files (`index.ts` re-exporting everything). Without `sideEffects` info, importing one component can pull in many.\n- Production mode matters: the shaking marks code unused, and minification removes it.\n- Avoid top-level code that runs on import (for example instantiating a large object).\n\n## Verifying\n\nDo not assume. Build for production, open the analyzer, and search the output for a function you know is unused. A quick test is to import one helper from a library and check the resulting chunk size.\n\n## Common mistakes\n\n- Assuming tree shaking works on CommonJS dependencies.\n- Marking a package side-effect free when it is not.\n- Expecting class methods or object properties to be pruned individually; shaking works at module and export level, with limited analysis inside.",
+      "followUps": [
+        "Why does CommonJS defeat tree shaking?",
+        "What is the risk of setting sideEffects to false?",
+        "How do barrel files affect bundle size?"
+      ],
+      "related": [
+        "reduce-javascript-bundle-size",
+        "bundlers-webpack-vite-rollup"
+      ]
+    },
+    {
+      "slug": "bundlers-webpack-vite-rollup",
+      "title": "What does a bundler like Webpack do, and how does it compare with Vite and Rollup?",
+      "topic": "Build tooling",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "webpack",
+        "vite",
+        "rollup",
+        "bundler",
+        "build"
+      ],
+      "companies": [
+        "gspann"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "A bundler starts from entry points, follows imports to build a dependency graph, transforms files such as TypeScript, JSX and CSS through loaders or plugins, and emits optimised assets. Webpack is highly configurable and mature, with code splitting, hashed filenames and module federation. Rollup focuses on ES modules and clean library output. Vite serves source files as native ES modules in development for fast start and uses Rollup for production builds. I choose based on ecosystem needs, not fashion.",
+      "revision": "Bundlers build a module graph and emit optimised assets. Webpack: configurable and mature; Rollup: clean ESM output for libraries; Vite: native-ESM dev server plus Rollup production build.",
+      "detailed": "A **bundler** takes many modules and assets and produces files the browser can load efficiently.\n\n## What it does\n\n1. Starts from one or more **entry points** and resolves imports into a dependency graph.\n2. **Transforms** files: TypeScript, JSX, CSS, images, through loaders (Webpack) or plugins (Rollup, Vite).\n3. **Optimises**: minification, tree shaking, code splitting, scope hoisting.\n4. **Emits** assets with content hashes and a manifest, and can inject them into HTML.\n\n## Common Webpack optimisations\n\n- `mode: 'production'` for minification and tree shaking.\n- `splitChunks` for shared vendor chunks, and dynamic `import()` for route-level splitting.\n- Content-hashed filenames (`[contenthash]`) for long-term caching.\n- Persistent filesystem cache and faster transpilers (for example swc or esbuild loaders) to speed builds.\n- Bundle analysis and `performance.hints` to flag size growth.\n\n## Comparison\n\n| Tool | Strengths | Trade-offs |\n| --- | --- | --- |\n| Webpack | Very flexible, huge plugin ecosystem, module federation | Complex config, slower dev start on large apps |\n| Rollup | Clean ESM output, great for libraries, strong tree shaking | Fewer app-oriented features out of the box |\n| Vite | Fast dev server (native ESM, pre-bundled dependencies), sensible defaults, Rollup-based production build | Dev and production pipelines differ slightly; some legacy setups need adaptation |\n\nNewer tools (for example Rspack, or Rolldown within the Vite ecosystem) aim at faster builds with compatible configuration; check current maturity before adopting.\n\n## Choosing\n\n- New app: Vite is commonly the default.\n- Existing large Webpack app or module federation needs: stay and optimise, or migrate incrementally.\n- Publishing a library: Rollup or a tool built on it.\n\n## Common mistakes\n\n- Migrating tooling for speed without measuring the real bottleneck.\n- Assuming dev behaviour matches production output; always test the production build.",
+      "followUps": [
+        "How does Vite achieve fast dev server start-up?",
+        "What are loaders and plugins in Webpack?",
+        "When would you keep Webpack in a new project?"
+      ],
+      "related": [
+        "tree-shaking-explained",
+        "reduce-javascript-bundle-size",
+        "frontend-asset-management"
+      ]
+    },
+    {
+      "slug": "frontend-asset-management",
+      "title": "How do you manage frontend assets such as images, fonts and CSS for performance and caching?",
+      "topic": "Asset delivery",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "assets",
+        "caching",
+        "hashed-filenames",
+        "images",
+        "fonts",
+        "css"
+      ],
+      "companies": [
+        "gspann"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I treat assets by type. Images get modern formats, correct sizes, responsive srcset and lazy loading below the fold. Fonts are subsetted WOFF2 with font-display and a preload for the critical one. CSS is minified, with critical rules prioritised and unused styles removed. The build emits content-hashed filenames, so I can serve them with long-lived immutable caching, while the HTML that references them stays short-cached. A CDN then delivers everything close to users.",
+      "revision": "Optimise each asset type, fingerprint filenames with content hashes, cache hashed files as immutable for a year, keep HTML revalidating, and serve from a CDN.",
+      "detailed": "Asset management is about **small payloads, correct priority and safe long-term caching**.\n\n## Images\n\n- Use modern formats (AVIF or WebP with fallbacks where needed) and compress.\n- Serve the right size using `srcset` and `sizes`; set `width` and `height` to prevent layout shift.\n- `loading=\"lazy\"` for below-the-fold images; never lazy-load the main hero image.\n- Prefer SVG for icons and simple graphics.\n\n## Fonts\n\n- Self-host WOFF2, subset to needed character ranges, limit weights.\n- Use `font-display: swap` (or `optional`) and preload the one or two critical fonts.\n\n## CSS\n\n- Minify, remove unused rules, and split per route if the stylesheet is large.\n- Inline or prioritise critical CSS only when measurement shows it helps.\n\n## Hashed filenames and immutable caching\n\nBundlers emit names like `app.3f9a1c.js` where the hash comes from file content. If the content changes, the URL changes, so the file can be cached forever:\n\n```text\n# hashed static assets\nCache-Control: public, max-age=31536000, immutable\n\n# the HTML entry document\nCache-Control: no-cache\n```\n\n`no-cache` means the browser revalidates, so users get the new HTML that points to new hashed assets immediately. Old hashed files can stay on the CDN for a while so that users with an older HTML page do not hit 404s during a deployment.\n\n## CDN and delivery\n\nServe through a CDN with compression (brotli or gzip), HTTP/2 or HTTP/3, and consider an image CDN for on-the-fly resizing.\n\n## Common mistakes\n\n- Long caching on a non-hashed filename, so users get stale files.\n- Deleting previous build assets immediately on deploy.\n- Caching the HTML for a long time.\n- Preloading too many assets, which competes with the genuinely critical ones.",
+      "followUps": [
+        "Why must the HTML not be cached as long as the assets?",
+        "How would you handle a deployment while users still hold the old HTML?",
+        "How do you avoid layout shift from images and fonts?"
+      ],
+      "related": []
+    },
+    {
+      "slug": "find-and-prevent-frontend-memory-leaks",
+      "title": "How do you find and prevent memory leaks in a frontend application?",
+      "topic": "Memory management",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "memory-leak",
+        "heap-snapshot",
+        "useeffect",
+        "abortcontroller",
+        "devtools"
+      ],
+      "companies": [
+        "gspann"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "A leak is memory that stays reachable after it is no longer needed. Symptoms are tabs growing slower and heavier over time. I reproduce the flow repeatedly, take heap snapshots before and after, force garbage collection, and compare which objects keep growing, often detached DOM nodes or closures. Typical causes are uncleaned event listeners, timers, subscriptions, and in-flight requests. I prevent them with effect cleanup functions, AbortController, and removing references when components unmount.",
+      "revision": "Leak = still-reachable but unused memory. Find it by comparing heap snapshots across repeated actions; prevent it by cleaning listeners, timers, subscriptions and requests on unmount.",
+      "detailed": "A **memory leak** in a garbage-collected language means objects remain *reachable* from something long-lived (a global, a timer, a listener) even though the app no longer needs them.\n\n## Finding leaks\n\n1. Reproduce a user flow that should return to a baseline (open and close a modal, navigate away and back) many times.\n2. In Chrome DevTools, use the **Memory** panel: take a heap snapshot, repeat the flow, trigger garbage collection, take another and use the comparison view. Allocation timelines help too.\n3. Look for growing counts of **detached DOM nodes**, repeated component instances and large arrays or maps.\n4. Inspect the *retainers* path to see what is holding the object.\n5. In production, track memory trends through monitoring where available, and watch for long sessions degrading.\n\n## Typical causes in React apps\n\n- Event listeners on `window` or `document` never removed.\n- `setInterval` or `setTimeout` not cleared.\n- Subscriptions (WebSocket, observers, stores) not closed.\n- Fetches resolving after unmount and updating state.\n- Module-level caches or maps that grow without limit.\n- Closures capturing large objects.\n\n## Prevention pattern\n\n```jsx\nuseEffect(() => {\n  const controller = new AbortController();\n  const onResize = () => setWidth(window.innerWidth);\n\n  window.addEventListener('resize', onResize);\n  const id = setInterval(refresh, 30000);\n\n  fetch('/api/items', { signal: controller.signal })\n    .then(r => r.json())\n    .then(setItems)\n    .catch(err => { if (err.name !== 'AbortError') setError(err); });\n\n  return () => {\n    controller.abort();\n    window.removeEventListener('resize', onResize);\n    clearInterval(id);\n  };\n}, []);\n```\n\n## Other practices\n\n- Bound caches (size limit or LRU) and use `WeakMap` or `WeakRef` where appropriate.\n- Disconnect `IntersectionObserver` and `ResizeObserver` instances.\n- Do not store DOM nodes in long-lived structures.\n\n## Common mistakes\n\n- Treating a growing heap as a leak before forcing garbage collection.\n- Assuming React cleans up your manual subscriptions.\n- Ignoring leaks in single-page apps that stay open for hours.",
+      "followUps": [
+        "What is a detached DOM node and how does it leak?",
+        "Why is aborting a fetch on unmount good practice?",
+        "How would you detect a leak in production?"
+      ],
+      "related": []
+    },
+    {
+      "slug": "debounce-vs-throttle",
+      "title": "What is the difference between debouncing and throttling, and how do you implement each?",
+      "topic": "Event handling patterns",
+      "difficulty": "beginner",
+      "type": "coding",
+      "tags": [
+        "debounce",
+        "throttle",
+        "events",
+        "performance"
+      ],
+      "companies": [
+        "gspann"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Both limit how often a function runs for high-frequency events. Debounce waits until activity stops for a given delay and then runs once, which suits search input or resize-end handling. Throttle runs at most once per interval while events continue, which suits scroll or pointer tracking. I implement debounce with a timer that resets on each call, and throttle by tracking the last run time. In React I keep the debounced function stable across renders, for example with useMemo or by debouncing a value.",
+      "revision": "Debounce: run once after calls stop. Throttle: run at most once per interval during continuous calls. Debounce for typing, throttle for scroll.",
+      "detailed": "Both techniques reduce the cost of handlers fired many times per second.\n\n| | Debounce | Throttle |\n| --- | --- | --- |\n| Runs | After calls stop for N ms | At most once every N ms |\n| During continuous input | Does not run until it pauses | Runs periodically |\n| Good for | Search-as-you-type, validation, autosave | Scroll, mousemove, resize, drag |\n\n## Debounce\n\n```js\nfunction debounce(fn, delay) {\n  let timer;\n  return function (...args) {\n    clearTimeout(timer);\n    timer = setTimeout(() => fn.apply(this, args), delay);\n  };\n}\n```\n\n## Throttle\n\n```js\nfunction throttle(fn, interval) {\n  let last = 0;\n  return function (...args) {\n    const now = Date.now();\n    if (now - last >= interval) {\n      last = now;\n      fn.apply(this, args);\n    }\n  };\n}\n```\n\nThis is a leading-edge throttle: it runs immediately, then ignores calls until the interval passes. Library versions (for example lodash) add leading and trailing options and a `cancel` method.\n\n## Using them in React\n\nCreating a debounced function inside the component body makes a new timer each render, so debouncing silently stops working. Either keep it stable:\n\n```jsx\nconst debouncedSearch = useMemo(() => debounce(runSearch, 300), [runSearch]);\nuseEffect(() => () => { /* cancel pending call if your helper supports it */ }, []);\n```\n\nor debounce the *value*:\n\n```jsx\nfunction useDebouncedValue(value, delay) {\n  const [debounced, setDebounced] = useState(value);\n  useEffect(() => {\n    const id = setTimeout(() => setDebounced(value), delay);\n    return () => clearTimeout(id);\n  }, [value, delay]);\n  return debounced;\n}\n```\n\n## Alternatives and mistakes\n\n- For visual updates, `requestAnimationFrame` is often a better throttle.\n- Debouncing alone does not cancel an in-flight request; pair it with `AbortController`.\n- A too-long delay feels laggy; 200 to 400 ms is a common starting point for typing, to be tuned.",
+      "followUps": [
+        "What are leading and trailing edge options?",
+        "Why can a debounced function inside a React component fail?",
+        "When would you use requestAnimationFrame instead of throttle?"
+      ],
+      "related": [
+        "typeahead-autocomplete-design"
+      ]
+    },
+    {
+      "slug": "typeahead-autocomplete-design",
+      "title": "How would you design a typeahead or autocomplete component?",
+      "topic": "Component design",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "typeahead",
+        "autocomplete",
+        "race-condition",
+        "abortcontroller",
+        "accessibility",
+        "combobox"
+      ],
+      "companies": [
+        "gspann"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I debounce input, require a minimum length, and cancel the previous request with AbortController so stale responses cannot overwrite newer results. I may cache recent queries and show loading, empty and error states. For accessibility I follow the ARIA combobox pattern: input with role combobox, aria-expanded, aria-controls to a listbox, options with role option, aria-activedescendant for the highlighted item, arrow keys, Enter and Escape. Selection and keyboard handling matter as much as the fetching.",
+      "revision": "Debounce, minimum length, abort stale requests, cache, handle loading, empty and error states, and implement the ARIA combobox pattern with full keyboard support.",
+      "detailed": "A good typeahead balances **responsiveness, correctness under race conditions, and accessibility**.\n\n## Data flow\n\n1. **Input handling:** update the input immediately (controlled state), but trigger the search from a debounced value (about 200 to 300 ms, tuned).\n2. **Guards:** skip very short queries, trim whitespace, and ignore queries identical to the last one.\n3. **Cancellation:** abort the previous request when a new one starts. Responses can return out of order, so without this a slow answer for \"ab\" can replace the fast answer for \"abc\".\n4. **Caching:** keep a small map of recent query results to make backspacing instant.\n5. **States:** loading, no results, error with retry, and results.\n\n```jsx\nuseEffect(() => {\n  if (query.length < 2) { setResults([]); return; }\n  const controller = new AbortController();\n  const id = setTimeout(async () => {\n    try {\n      const res = await fetch('/api/search?q=' + encodeURIComponent(query),\n        { signal: controller.signal });\n      setResults(await res.json());\n    } catch (e) {\n      if (e.name !== 'AbortError') setError(e);\n    }\n  }, 250);\n  return () => { clearTimeout(id); controller.abort(); };\n}, [query]);\n```\n\nThe effect cleanup handles both debouncing and cancellation in one place.\n\n## Accessibility (ARIA combobox pattern)\n\n- Input: `role=\"combobox\"`, `aria-expanded`, `aria-controls` pointing to the list, `aria-autocomplete=\"list\"`.\n- List: `role=\"listbox\"`; items: `role=\"option\"` with `aria-selected`.\n- Keep focus in the input and expose the highlighted option with `aria-activedescendant`.\n- Keys: Down and Up move, Enter selects, Escape closes, Tab leaves.\n- Announce result counts through a polite live region.\n\n## Server and performance considerations\n\n- Rate-limit and cache on the backend; return only the fields needed.\n- Highlight matched text, and limit result count.\n- Virtualise only if lists are large.\n\n## Common mistakes\n\n- Ignoring out-of-order responses.\n- Firing a request on every keystroke.\n- Mouse-only selection and no focus management.\n- Losing the typed text when results change.\n\nConsider an established headless library to avoid re-implementing keyboard and ARIA behaviour.",
+      "followUps": [
+        "How do you prevent stale responses from overwriting newer ones?",
+        "How does a screen reader know which option is highlighted?",
+        "How would you handle very fast typists and slow networks?"
+      ],
+      "related": [
+        "debounce-vs-throttle"
+      ]
+    },
+    {
+      "slug": "optimize-api-usage-from-frontend",
+      "title": "How do you optimise the way a frontend uses APIs?",
+      "topic": "API consumption",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "api",
+        "caching",
+        "waterfall",
+        "deduplication",
+        "performance"
+      ],
+      "companies": [
+        "gspann"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I reduce the number and cost of calls. I deduplicate identical in-flight requests, run independent calls in parallel with Promise.all, and avoid request waterfalls by fetching earlier or letting the server aggregate. I ask only for the fields I need, paginate large lists, and cache safely, using HTTP caching headers and a client cache such as TanStack Query with sensible staleness. I only cache data that is safe to share or reuse, and I invalidate after mutations.",
+      "revision": "Fewer, smaller, parallel calls: dedupe, parallelise, remove waterfalls, select fields, paginate, and cache only what is safe with proper invalidation.",
+      "detailed": "Frontend API performance is mostly about **doing less work, earlier and in parallel**.\n\n## Techniques\n\n- **Deduplicate:** several components asking for the same resource should share one request. Query libraries (TanStack Query, SWR, RTK Query) key requests and share in-flight promises.\n- **Parallelise independent calls:**\n\n```js\nconst [user, orders] = await Promise.all([\n  fetch('/api/user').then(r => r.json()),\n  fetch('/api/orders').then(r => r.json()),\n]);\n```\n\n  Use `Promise.allSettled` when one failure should not discard the others.\n- **Avoid waterfalls:** a child component that fetches only after its parent renders and fetches creates a chain. Fetch at route level, prefetch on hover or intent, or have a backend-for-frontend aggregate the data into one response.\n- **Reduce payloads:** field selection or sparse fieldsets, GraphQL selections, compression, and pagination or cursors instead of fetching everything.\n- **Cache safely:** HTTP caching (`Cache-Control`, ETag) for public or stable data, plus a client cache with a stale time. Invalidate or update after mutations.\n- **Control triggers:** debounce input-driven calls, cancel obsolete ones, avoid fetching in effects that rerun needlessly.\n- **Batch and prefetch:** combine small related calls; prefetch likely next screens.\n\n## Safe caching\n\nNever cache user-specific or sensitive responses in shared caches (CDN, shared proxies); use `private` or `no-store` as appropriate. Stale data is acceptable for a product list but not for a payment balance, so choose staleness per resource.\n\n## Trade-offs\n\n- Aggressive prefetching wastes bandwidth on mobile.\n- Larger aggregated endpoints couple screens to backend shapes.\n- Optimistic updates need rollback logic.\n\n## Common mistakes\n\n- Sequential `await` for independent requests.\n- Refetching on every render or focus without a stale time.\n- Putting server state into global client state and manually keeping it in sync.",
+      "followUps": [
+        "How do you spot a request waterfall in the Network panel?",
+        "When is a backend-for-frontend the right fix?",
+        "How would you cache a user-specific response safely?"
+      ],
+      "related": []
+    }
+  ]
+}

@@ -1,0 +1,371 @@
+{
+  "category": "frontend-engineering",
+  "questions": [
+    {
+      "slug": "slow-api-ux-strategies",
+      "title": "How do you keep the user experience good when an API is slow?",
+      "topic": "Resilient UX",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "loading-states",
+        "skeleton",
+        "timeout",
+        "202-accepted",
+        "ux"
+      ],
+      "companies": [
+        "gspann"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I make waiting feel short and informative. I render the page shell immediately, use skeletons for the content shape, and show partial results as each independent call returns instead of blocking on the slowest. I keep previous data visible while refreshing, set sensible timeouts with a clear retry option, and for genuinely long operations ask the backend to return 202 with a job to poll or subscribe to, so the UI can show progress. Optimistic updates help for writes that usually succeed.",
+      "revision": "Show the shell and skeletons at once, render partial results, keep stale data while refreshing, time out with retry, and use 202 plus a job status for long operations.",
+      "detailed": "Perceived performance depends on **feedback, progressive rendering and honest failure handling**. You cannot make a slow dependency fast from the browser, but you can stop it from freezing the experience.\n\n## Techniques\n\n- **Instant shell:** render layout, navigation and static content without waiting for data.\n- **Skeletons over spinners:** a placeholder that matches the final layout reduces perceived delay and layout shift. Use a spinner only for short, unstructured waits.\n- **Partial results:** fetch independent sections separately (or stream) so fast data appears first; each section has its own loading and error state. Avoid one big all-or-nothing request.\n- **Stale-while-revalidate:** show cached or previous data while refreshing, with a subtle indicator.\n- **Optimistic updates:** for low-risk actions (a like, a reorder) update the UI immediately and roll back on failure. Do not use them for payments.\n- **Timeouts and retry:** a request without a timeout can hang for minutes. Set a client timeout, then show a clear message with a retry button.\n- **Long operations:** if the backend can take seconds or minutes, it should answer `202 Accepted` with a status URL; the UI polls (with a sensible interval and cap) or subscribes to completion events, and shows progress or lets the user leave and return.\n- **Prefetching:** start loading likely next data on hover or route intent.\n\n```js\nasync function fetchWithTimeout(url, ms = 8000) {\n  const controller = new AbortController();\n  const id = setTimeout(() => controller.abort(), ms);\n  try {\n    return await fetch(url, { signal: controller.signal });\n  } finally {\n    clearTimeout(id);\n  }\n}\n```\n\n(Newer browsers also offer `AbortSignal.timeout(ms)`.)\n\n## Trade-offs\n\n- Many small requests mean more overhead; balance with a backend aggregation where it makes sense.\n- Showing stale data needs a clear freshness signal where accuracy matters.\n\n## Common mistakes\n\n- A full-page spinner that blocks content that is already available.\n- Infinite loading with no timeout or error path.\n- Skeletons that do not match the final size, causing layout shift.\n- Polling every second forever.",
+      "followUps": [
+        "When is a skeleton better than a spinner?",
+        "How would you design polling for a long-running job?",
+        "When are optimistic updates a bad idea?"
+      ],
+      "related": [
+        "api-request-state-machine-and-retries"
+      ]
+    },
+    {
+      "slug": "api-request-state-machine-and-retries",
+      "title": "How do you model API loading, success, error, timeout and retry states in the UI?",
+      "topic": "Resilient UX",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "state-machine",
+        "retry",
+        "backoff",
+        "jitter",
+        "retry-after",
+        "idempotency"
+      ],
+      "companies": [
+        "gspann"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I model a request as an explicit state machine, idle, loading, success, error and sometimes timeout or retrying, rather than a few loosely related booleans that can contradict each other. I retry only transient failures such as network errors, 502, 503, 504 and 429, using exponential backoff with jitter and honouring Retry-After. I never auto-retry 4xx validation errors. For non-idempotent operations such as payments, I retry only with an idempotency key or after checking status.",
+      "revision": "Use an explicit state machine, retry only transient errors with backoff plus jitter and Retry-After, and never blindly retry non-idempotent writes without an idempotency key.",
+      "detailed": "Several booleans (`isLoading`, `isError`, `data`) can represent impossible combinations. A **discriminated union or state machine** makes illegal states unrepresentable.\n\n```ts\ntype RequestState<T> =\n  | { status: 'idle' }\n  | { status: 'loading'; attempt: number }\n  | { status: 'success'; data: T }\n  | { status: 'error'; error: Error; retryable: boolean };\n```\n\nTransitions: idle to loading; loading to success, or error (timeout is an error with a reason); error to loading only through a retry. Keep previous `data` visible during a refetch when appropriate.\n\n## What to retry\n\n| Failure | Retry? |\n| --- | --- |\n| Network error, timeout (reads) | Yes |\n| 502, 503, 504 | Yes, with backoff |\n| 429 | Yes, after the wait given by `Retry-After` |\n| 400, 401, 403, 404, 422 | No; fix the request or re-authenticate |\n| 500 | Cautiously, limited attempts |\n\n## Backoff with jitter\n\nWait roughly `base * 2^attempt`, capped, with random jitter so many clients do not retry in lockstep:\n\n```js\nconst sleep = ms => new Promise(r => setTimeout(r, ms));\n\nasync function withRetry(fn, { retries = 3, base = 300, cap = 5000 } = {}) {\n  for (let attempt = 0; ; attempt++) {\n    try {\n      return await fn();\n    } catch (err) {\n      if (!err.retryable || attempt >= retries) throw err;\n      const delay = err.retryAfterMs ??\n        Math.random() * Math.min(cap, base * 2 ** attempt); // full jitter\n      await sleep(delay);\n    }\n  }\n}\n```\n\n## Non-idempotent requests\n\nA timeout does not tell you whether the server processed the request. Retrying a POST that creates an order or charges a card can duplicate it. Send an **idempotency key**, or query the resource status before retrying.\n\n## Common mistakes\n\n- Retrying everything, including validation errors.\n- Retries without a cap, or without jitter, which amplify outages.\n- Hiding the retry state from the user.\n- Ignoring `Retry-After` on 429 and 503.\n\nLibraries such as TanStack Query provide retry and backoff options; the key is configuring them per error type.",
+      "followUps": [
+        "Why add jitter to exponential backoff?",
+        "Which HTTP methods are safe to retry automatically?",
+        "How would you represent a timeout differently from a server error in the UI?"
+      ],
+      "related": [
+        "slow-api-ux-strategies",
+        "payment-failures-duplicates-and-status"
+      ]
+    },
+    {
+      "slug": "third-party-client-hammering-apis",
+      "title": "A third-party client keeps hammering your APIs. How do you investigate and protect the system?",
+      "topic": "API protection",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "rate-limiting",
+        "429",
+        "quotas",
+        "caching",
+        "webhooks",
+        "incident"
+      ],
+      "companies": [
+        "gspann"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "First I identify who and what: use API keys, logs and metrics to find the client, endpoints, request rate and whether it is polling, retrying in a loop or scraping. Then I mitigate with per-client quotas and rate limits returning 429 with Retry-After, add caching or conditional requests for repeated reads, and block abusive traffic if needed. Longer term I talk to the partner, document limits, and offer better patterns such as webhooks instead of polling, bulk endpoints and pagination.",
+      "revision": "Identify the client and pattern, cap it with per-client quotas and 429 plus Retry-After, cache repeated reads, then fix the cause with the partner: webhooks instead of polling.",
+      "detailed": "Treat this as both an **incident** and a **design problem**: protect the platform first, then remove the reason the client behaves this way.\n\n## 1. Investigate\n\n- Identify the client through API key, OAuth client id, IP range or user agent. If traffic is anonymous, that itself is a gap.\n- From gateway logs and metrics, find the endpoints, request rate, error ratio and time pattern. Is it tight-loop polling, retry without backoff after errors, or bulk scraping?\n- Check the impact on latency and error rate for other consumers.\n\n## 2. Mitigate quickly\n\n- Apply a **per-client rate limit and quota** at the API gateway, using a token-bucket or sliding-window algorithm keyed by client id.\n- Respond with `429 Too Many Requests` and a `Retry-After` header so well-behaved clients can back off.\n- Add **caching** (`Cache-Control`, ETag with `304`) for repeated identical reads, and cache at the CDN or gateway where the data is not user-specific.\n- If traffic is clearly abusive, temporarily block or throttle that key more strongly. Revoking a key should be a deliberate, communicated step.\n\n```http\nHTTP/1.1 429 Too Many Requests\nRetry-After: 30\nContent-Type: application/json\n\n{\"error\":\"rate_limited\",\"message\":\"Quota exceeded for this client\"}\n```\n\n## 3. Fix the cause\n\n- Agree limits and publish them in the documentation; give clients visibility into their usage.\n- Replace polling with **webhooks** (or events) for status changes, so the client does not need to ask repeatedly.\n- Provide bulk, filtered or incremental endpoints (`updatedSince`) instead of many small calls.\n- Make expensive endpoints cheaper or asynchronous.\n\n## Trade-offs and mistakes\n\n- Global limits punish all clients for one offender; limit per client.\n- Limits without communication break integrations; notify the partner and give a grace period.\n- Webhooks need signature verification, retries and idempotent handling on the receiver side.\n- Do not rely on IP alone; shared NAT addresses and rotating IPs make it unreliable.",
+      "followUps": [
+        "Which rate-limiting algorithm would you choose and why?",
+        "How do webhooks reduce load compared with polling?",
+        "How would you handle the partner relationship while limiting them?"
+      ],
+      "related": [
+        "api-request-state-machine-and-retries"
+      ]
+    },
+    {
+      "slug": "payment-gateway-integration",
+      "title": "How do you integrate a payment gateway into a web application?",
+      "topic": "Payments",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "payments",
+        "webhook",
+        "pci",
+        "tokenization",
+        "checkout",
+        "security"
+      ],
+      "companies": [
+        "gspann"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "The backend creates the order and the payment session with the gateway using secret keys. The browser never touches raw card data: I use the gateway hosted checkout page or its tokenizing components, so card details go straight to the gateway and PCI scope stays small. The result is not trusted from the browser redirect. The gateway sends a webhook, I verify its signature, and the backend confirms the payment amount and marks the order paid. The UI then shows status from the backend.",
+      "revision": "Server creates the order and payment session; card data goes only to the gateway via hosted or tokenized fields; trust a signed webhook and backend verification, never the browser.",
+      "detailed": "The core principle is that **the browser is untrusted and the backend is the source of truth**.\n\n## Flow\n\n{{diagram:payment-flow}}\n\n1. The user chooses to pay. The frontend calls your backend.\n2. The backend **creates an order** with the server-calculated amount and currency, then creates a payment session or intent with the gateway using a secret key. Never calculate the price in the client.\n3. The frontend receives only a client token or redirect URL, and shows **hosted checkout** or **tokenized fields** (iframes or SDK components). Card numbers go directly to the gateway.\n4. After payment, the gateway redirects the browser back and also sends a **webhook** to your backend.\n5. The backend verifies the webhook **signature** (HMAC with a shared secret, over the raw request body, with timestamp checks to limit replay), looks up the order, confirms amount and currency, and updates its status.\n6. The frontend shows the result by reading status from your backend, not by trusting the redirect query string.\n\n```js\n// Express-style sketch: use the raw body for signature checks\napp.post('/webhooks/payments', express.raw({ type: 'application/json' }), (req, res) => {\n  if (!verifySignature(req.body, req.get('Signature'), process.env.WEBHOOK_SECRET)) {\n    return res.sendStatus(400);\n  }\n  const event = JSON.parse(req.body);\n  // process idempotently by event id, then acknowledge quickly\n  res.sendStatus(200);\n});\n```\n\n## PCI scope\n\nHandling raw card data puts your systems in a large compliance scope. Hosted pages or tokenization keep card data out of your servers and JavaScript, so scope is much smaller (the exact questionnaire depends on integration style; confirm with your compliance team).\n\n## Common mistakes\n\n- Marking an order paid because the user reached the success page.\n- Skipping webhook signature verification.\n- Processing the same webhook twice, since gateways retry.\n- Storing or logging card data, or putting secret keys in frontend code.\n- Trusting an amount sent from the client.",
+      "diagrams": [
+        {
+          "id": "payment-flow",
+          "title": "Payment flow with webhook confirmation",
+          "alt": "The browser asks the backend to create an order and payment session at the gateway. The browser pays on the gateway hosted page. The gateway sends a signed webhook to the backend, which updates the order, and the browser reads the status from the backend.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "b",
+              "label": "Browser"
+            },
+            {
+              "id": "s",
+              "label": "Backend"
+            },
+            {
+              "id": "g",
+              "label": "Payment gateway"
+            },
+            {
+              "id": "d",
+              "label": "Order database"
+            }
+          ],
+          "edges": [
+            {
+              "from": "b",
+              "to": "s",
+              "label": "1 start checkout"
+            },
+            {
+              "from": "s",
+              "to": "g",
+              "label": "2 create session"
+            },
+            {
+              "from": "b",
+              "to": "g",
+              "label": "3 pay (card data)"
+            },
+            {
+              "from": "g",
+              "to": "s",
+              "label": "4 signed webhook"
+            },
+            {
+              "from": "s",
+              "to": "d",
+              "label": "5 mark paid"
+            },
+            {
+              "from": "b",
+              "to": "s",
+              "label": "6 read status"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Why is the redirect back to the site not enough to confirm payment?",
+        "What does verifying a webhook signature protect against?",
+        "How do hosted checkout and tokenized fields differ in PCI impact?"
+      ],
+      "related": [
+        "payment-failures-duplicates-and-status"
+      ]
+    },
+    {
+      "slug": "payment-failures-duplicates-and-status",
+      "title": "How do you handle payment failures, duplicate charges and uncertain payment status?",
+      "topic": "Payments",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "payments",
+        "idempotency",
+        "reconciliation",
+        "state-machine",
+        "timeouts"
+      ],
+      "companies": [
+        "gspann"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I model payment as a state machine, for example created, pending, authorised, paid, failed and refunded, and only allow valid transitions. Every create-payment call carries an idempotency key so retries and double clicks cannot charge twice. A timeout does not mean failure, so the status stays pending and I check with the gateway or wait for the webhook. A scheduled reconciliation job compares my records with the gateway and fixes mismatches. The UI shows pending honestly rather than guessing.",
+      "revision": "Payment state machine, idempotency keys against duplicates, timeout means unknown not failed, confirm via webhook or status query, and reconcile periodically with the gateway.",
+      "detailed": "Money flows cross several systems, so you must design for **uncertainty**: the user, your server and the gateway can briefly disagree.\n\n## State machine\n\n```text\ncreated -> pending -> authorised -> paid -> refunded\n              \\-> failed\n```\n\nStore the status in your database, allow only valid transitions, and make state changes idempotent so a repeated webhook does nothing the second time. Keep an audit trail of events.\n\n## Duplicates\n\n- Send an **idempotency key** (for example a UUID generated per payment attempt) with the create call; the server returns the original result for the same key instead of charging again.\n- Disable the pay button while a request is pending, but do not rely on that; the server must enforce uniqueness.\n- Deduplicate webhooks by event id.\n- Use one order with at most one active payment attempt, or clearly handle several.\n\n## A timeout is not a failure\n\nIf the request to the gateway times out, the charge may still have succeeded. Do not tell the user it failed and invite them to pay again. Instead:\n\n1. Keep the payment **pending**.\n2. Query the gateway by your reference or idempotency key, and/or wait for the webhook.\n3. Tell the user \"we are confirming your payment\" and give a status page, plus an email once resolved.\n\n## Failures\n\nDistinguish **declines** (insufficient funds, wrong code; user can try another method) from **technical errors** (retry with the same idempotency key). Present clear next steps and never expose raw gateway errors.\n\n## Reconciliation\n\nA scheduled job compares your orders with the gateway's transaction list, flagging paid-but-not-marked, marked-but-not-paid and amount mismatches for automatic correction or manual review. This catches lost webhooks.\n\n## Common mistakes\n\n- Generating a new idempotency key on each retry, which defeats it.\n- Treating \"no response\" as \"failed\".\n- No process for webhooks that arrive out of order.\n- No reconciliation, so errors surface only through customer complaints.",
+      "followUps": [
+        "What should happen if the webhook arrives before the redirect, or never arrives?",
+        "How long should an idempotency key be honoured?",
+        "How would you design the reconciliation job?"
+      ],
+      "related": [
+        "payment-gateway-integration",
+        "api-request-state-machine-and-retries"
+      ]
+    },
+    {
+      "slug": "why-use-websockets",
+      "title": "Why would you use WebSockets?",
+      "topic": "Real-time communication",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "websocket",
+        "real-time",
+        "polling",
+        "bidirectional"
+      ],
+      "companies": [
+        "gspann"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "WebSockets provide a persistent, full-duplex connection between browser and server, started with an HTTP upgrade handshake. Either side can send messages at any time, with small framing overhead and no repeated request headers. That makes them suitable for chat, collaborative editing, live dashboards, games and notifications, where polling would add latency and load. The trade-offs are stateful connections that need scaling, reconnect logic, authentication handling and proxy compatibility.",
+      "revision": "WebSockets give one persistent two-way connection after an HTTP upgrade: low-latency push and client messages without polling, at the cost of stateful connections to manage.",
+      "detailed": "A **WebSocket** is a long-lived, bidirectional connection over TCP. It begins as an HTTP request with an `Upgrade: websocket` header; after the server accepts, both sides exchange framed messages until one closes.\n\n## Why it beats polling\n\n- **Low latency:** the server pushes updates the moment they occur.\n- **Less overhead:** polling repeats full HTTP requests and headers, mostly to learn that nothing changed.\n- **Two-way:** the client can send messages on the same connection, useful for chat, collaboration and games.\n\n## Good use cases\n\n- Chat and presence.\n- Collaborative editing and shared cursors.\n- Live trading prices, sports scores, operational dashboards.\n- Multiplayer or interactive applications.\n- Frequent bidirectional messages with low latency needs.\n\n```js\nconst ws = new WebSocket('wss://example.test/live');\nws.onopen = () => ws.send(JSON.stringify({ type: 'subscribe', channel: 'orders' }));\nws.onmessage = e => console.log(JSON.parse(e.data));\nws.onclose = e => console.log('closed', e.code);\n```\n\nAlways use `wss://` (TLS) in production.\n\n## Costs and trade-offs\n\n- **Stateful connections:** each holds server resources; load balancers need sticky routing or a pub/sub backplane (for example Redis) so messages reach the right node.\n- **Reconnection** must be built by you: the native API does not reconnect automatically, and has no built-in backpressure handling.\n- **Authentication:** browsers cannot set custom headers on the handshake, so common approaches are cookies, or a short-lived token in the URL or first message.\n- **Infrastructure:** some proxies and corporate networks interfere with long-lived connections.\n- **Caching and standard HTTP tooling** do not apply.\n\n## When not to use\n\nIf you only need occasional server-to-client updates, SSE or even plain polling is simpler. For infrequent updates, ordinary HTTP is enough.\n\n## Common mistakes\n\n- Using WebSockets for data that changes every few minutes.\n- No heartbeat, so dead connections go unnoticed.\n- Trusting messages without authorisation checks per message or channel.",
+      "followUps": [
+        "How does the WebSocket handshake work?",
+        "How do you scale WebSocket servers horizontally?",
+        "How do you authenticate a WebSocket connection?"
+      ],
+      "related": [
+        "websockets-vs-server-sent-events",
+        "design-real-time-frontend"
+      ]
+    },
+    {
+      "slug": "websockets-vs-server-sent-events",
+      "title": "What is the difference between WebSockets and Server-Sent Events, and when do you choose each?",
+      "topic": "Real-time communication",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "websocket",
+        "sse",
+        "eventsource",
+        "real-time",
+        "comparison"
+      ],
+      "companies": [
+        "gspann"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "WebSockets are full-duplex: both sides send messages over one custom protocol connection. Server-Sent Events are one-way, server to client, over ordinary HTTP with the EventSource API, which reconnects automatically and supports last event id resume. I choose SSE for feeds, notifications, progress and live dashboards where the client rarely sends data, because it is simpler and proxy-friendly. I choose WebSockets for chat, collaboration or games needing frequent two-way messages, binary data or very low latency.",
+      "revision": "SSE: one-way server push over HTTP with auto-reconnect. WebSocket: two-way, more flexible but more to build. Default to SSE for feeds; WebSocket for interactive two-way.",
+      "detailed": "Both keep a connection open to push data, but they differ in direction, protocol and what the platform handles for you.\n\n| | WebSockets | Server-Sent Events |\n| --- | --- | --- |\n| Direction | Bidirectional | Server to client only |\n| Protocol | Upgrades from HTTP to the WebSocket protocol | Plain HTTP response with `text/event-stream` |\n| Data | Text and binary | Text (UTF-8) |\n| Reconnect | Manual | Automatic in `EventSource`, with `Last-Event-ID` resume |\n| Auth | No custom headers in browsers | Cookies work; `EventSource` also lacks custom headers (fetch-based clients can add them) |\n| Proxies and HTTP/2 | Can be blocked or need configuration | Generally works with standard HTTP infrastructure |\n| Connection limits | Per server resource | Browsers limit HTTP/1.1 connections per origin (about six); HTTP/2 multiplexing largely removes this |\n\n## SSE example\n\n```js\nconst es = new EventSource('/events');\nes.addEventListener('price', e => updatePrice(JSON.parse(e.data)));\nes.onerror = () => { /* browser retries automatically */ };\n```\n\nServer response frames look like `id: 42`, `event: price`, `data: {...}` followed by a blank line.\n\n## Choosing\n\n- **SSE:** notifications, live feeds, job progress, dashboards, streamed responses. Client actions use normal HTTP requests.\n- **WebSockets:** chat, collaborative editing, multiplayer, anything with frequent client-to-server messages or binary payloads.\n- **Polling or long polling:** simplest fallback for rare updates or restricted environments.\n\n## Trade-offs\n\n- SSE reuses existing HTTP auth, logging and load balancing, making it easier to operate.\n- WebSockets give full flexibility but you own reconnection, heartbeats and scaling concerns.\n- Both need server capacity planning for many open connections.\n\n## Common mistakes\n\n- Picking WebSockets by default for a one-way feed.\n- Forgetting that proxies may buffer or time out idle streams; send periodic comments or heartbeats.\n- Not using `Last-Event-ID` to avoid missed events after reconnect.",
+      "followUps": [
+        "How does SSE resume after a dropped connection?",
+        "Why might SSE be easier behind corporate proxies?",
+        "Can you send binary data over SSE?"
+      ],
+      "related": [
+        "why-use-websockets",
+        "design-real-time-frontend"
+      ]
+    },
+    {
+      "slug": "design-real-time-frontend",
+      "title": "How would you design a real-time frontend, such as a live order dashboard?",
+      "topic": "Real-time communication",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "real-time",
+        "websocket",
+        "reconnect",
+        "resync",
+        "batching",
+        "react-hooks"
+      ],
+      "companies": [
+        "gspann"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I choose the transport by need: SSE for one-way updates, WebSockets for two-way. I authenticate with a cookie or short-lived token and authorise subscriptions on the server. The client reconnects with exponential backoff and jitter, then resyncs by fetching a snapshot or replaying from the last event id, because messages can be missed. I batch high-frequency updates, for example per animation frame, to avoid render storms, and wrap the subscription in a React hook with proper cleanup.",
+      "revision": "Pick transport by direction, authenticate and authorise, reconnect with backoff, resync from a snapshot after gaps, batch updates, and manage the subscription in a cleanup-safe hook.",
+      "detailed": "A real-time UI must stay **correct after disconnects** and **efficient under bursts**.\n\n{{diagram:realtime-arch}}\n\n## Design decisions\n\n1. **Transport:** SSE when updates flow one way (dashboards, notifications); WebSockets when the client also sends frequent messages. Keep a polling fallback if the environment demands it.\n2. **Auth:** use a session cookie or a short-lived token. Authorise each channel subscription on the server and handle token expiry on reconnect.\n3. **Initial state:** load a **snapshot** through a normal HTTP call, then apply live events on top. Include a sequence number or version with both.\n4. **Reconnect:** use exponential backoff with jitter. Detect dead connections through heartbeats.\n5. **Resync:** after a reconnect, events may have been missed. Either replay from the last seen id (SSE `Last-Event-ID` or an offset) or refetch the snapshot and discard stale events by sequence number.\n6. **Backpressure and batching:** if hundreds of messages arrive per second, buffer them and flush once per frame or interval, so React renders once, not hundreds of times.\n7. **Visibility:** pause or slow updates when the tab is hidden, and show connection status to the user.\n\n## React subscription hook\n\n```jsx\nfunction useLiveOrders(onBatch) {\n  useEffect(() => {\n    let ws, timer, attempt = 0, buffer = [], closed = false;\n    const flush = () => { if (buffer.length) { onBatch(buffer); buffer = []; } };\n    const flushTimer = setInterval(flush, 250);\n\n    const connect = () => {\n      ws = new WebSocket('wss://example.test/orders');\n      ws.onopen = () => { attempt = 0; /* refetch snapshot here */ };\n      ws.onmessage = e => buffer.push(JSON.parse(e.data));\n      ws.onclose = () => {\n        if (closed) return;\n        const delay = Math.random() * Math.min(30000, 500 * 2 ** attempt++);\n        timer = setTimeout(connect, delay);\n      };\n    };\n    connect();\n\n    return () => { closed = true; clearTimeout(timer); clearInterval(flushTimer); ws.close(); };\n  }, [onBatch]);\n}\n```\n\nKeep `onBatch` stable (for example with `useCallback`) or the connection will be recreated on every render. Reducing updates into state with `useReducer` keeps handling consistent.\n\n## Common mistakes\n\n- No resync after reconnect, so the UI silently drifts.\n- Setting state on every message.\n- Leaking sockets when components unmount.\n- Letting every client reconnect at the same moment after an outage.",
+      "diagrams": [
+        {
+          "id": "realtime-arch",
+          "title": "Real-time client architecture",
+          "alt": "The browser loads a snapshot over HTTP and opens a live connection to a gateway. A message broker publishes events to the gateway. The client buffers incoming events, applies them to state and renders, and on reconnect it refetches the snapshot.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "api",
+              "label": "Snapshot API"
+            },
+            {
+              "id": "br",
+              "label": "Message broker"
+            },
+            {
+              "id": "gw",
+              "label": "Realtime gateway"
+            },
+            {
+              "id": "cl",
+              "label": "Client connection"
+            },
+            {
+              "id": "buf",
+              "label": "Event buffer"
+            },
+            {
+              "id": "ui",
+              "label": "React state and UI"
+            }
+          ],
+          "edges": [
+            {
+              "from": "br",
+              "to": "gw",
+              "label": "events"
+            },
+            {
+              "from": "gw",
+              "to": "cl",
+              "label": "push"
+            },
+            {
+              "from": "cl",
+              "to": "buf"
+            },
+            {
+              "from": "buf",
+              "to": "ui",
+              "label": "batched flush"
+            },
+            {
+              "from": "api",
+              "to": "ui",
+              "label": "initial and resync snapshot"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you avoid missing events during reconnect?",
+        "How would you scale the real-time gateway horizontally?",
+        "How do you keep React from re-rendering on every message?"
+      ],
+      "related": [
+        "why-use-websockets",
+        "websockets-vs-server-sent-events"
+      ]
+    }
+  ]
+}

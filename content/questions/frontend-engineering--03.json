@@ -1,0 +1,400 @@
+{
+  "category": "frontend-engineering",
+  "questions": [
+    {
+      "slug": "solid-principles-in-react",
+      "title": "How do the SOLID principles apply to frontend and React code?",
+      "topic": "Design principles",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "solid",
+        "react",
+        "design",
+        "components",
+        "hooks"
+      ],
+      "companies": [
+        "gspann"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "In React, single responsibility means a component or hook does one job, such as fetching, formatting or rendering. Open/closed means extending behaviour through props, children or composition rather than editing the component. Liskov means a variant component can replace the base one without breaking callers. Interface segregation means passing narrow props, not whole objects. Dependency inversion means components depend on abstractions, like an injected service or context, not on a concrete fetch call. I apply them to keep code testable, not as dogma.",
+      "revision": "SRP: one reason to change. OCP: extend via props and composition. LSP: substitutable variants. ISP: narrow props. DIP: inject dependencies instead of hard-coding them.",
+      "detailed": "SOLID comes from object-oriented design, but each principle has a clear **frontend translation**. (For the general, language-neutral discussion see the architecture handbook entry; this answer is about React.)\n\n## Single responsibility\n\nA component should have one reason to change. A `UserPage` that fetches data, maps it, handles forms and renders markup has four. Split into a data hook, a mapper and presentational components.\n\n```tsx\nfunction useUser(id: string) { /* fetching + loading/error state */ }\nfunction UserPage({ id }: { id: string }) {\n  const { user, loading } = useUser(id);\n  return loading ? <Spinner /> : <UserCard user={user} />;\n}\n```\n\n## Open/closed\n\nAdd behaviour without editing the component: accept `children`, render props or a config object.\n\n```tsx\nfunction Button({ icon, children, ...rest }: ButtonProps) {\n  return <button {...rest}>{icon}{children}</button>;\n}\n```\n\nNew variants come from props, not new `if` branches inside `Button`.\n\n## Liskov substitution\n\nA `PrimaryButton` built on `Button` must still accept and honour the same props (`onClick`, `disabled`, `aria-*`). If a wrapper swallows `disabled` or changes what `onChange` receives, callers break.\n\n## Interface segregation\n\nPass only what a component needs. `<Avatar src alt />` is better than `<Avatar user={user} />`, which couples it to the whole user shape and re-renders on unrelated changes.\n\n## Dependency inversion\n\nDepend on an abstraction supplied from outside: a service passed via context or props, instead of importing `fetch` and URLs everywhere.\n\n```tsx\nconst ApiContext = createContext<Api>(defaultApi);\nconst api = useContext(ApiContext); // tests provide a fake Api\n```\n\n## Trade-offs and mistakes\n\n- Over-splitting produces dozens of tiny files with prop drilling. Split when a second reason to change appears.\n- Abstracting early guesses wrong; wait for a second use.\n- Do not recite definitions. Give one concrete before-and-after.",
+      "followUps": [
+        "Which principle do you find most often violated in React code?",
+        "How do custom hooks help with single responsibility?",
+        "Is dependency injection worth it in a small app?"
+      ],
+      "related": [
+        "frontend-design-patterns-catalogue"
+      ]
+    },
+    {
+      "slug": "frontend-design-patterns-catalogue",
+      "title": "What design patterns are commonly used in frontend applications?",
+      "topic": "Design patterns",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "patterns",
+        "react",
+        "architecture",
+        "state-machine"
+      ],
+      "companies": [
+        "gspann"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Common patterns include container/presentational split, custom hooks for reusable logic, compound components for flexible widgets like tabs, higher-order components and render props for cross-cutting behaviour, observer or pub-sub for events and stores, strategy for swappable rules, adapter to normalise API shapes, facade to hide complex services, and state machines for flows with explicit states. I choose a pattern to solve a visible problem such as duplication or coupling, not to decorate the code.",
+      "revision": "Know the problem each solves: hooks for reuse, compound components for flexible UI, strategy for swappable rules, adapter and facade for APIs, state machines for flows.",
+      "detailed": "Patterns are **named solutions to recurring problems**. A good answer pairs each with the problem it fixes.\n\n| Pattern | Problem it solves | Frontend example |\n|---|---|---|\n| Container / presentational | Mixed data and markup | Data component feeds a pure view; today often a hook plus view |\n| Custom hook | Reusing stateful logic | `useDebounce`, `useFetch` |\n| Compound components | Flexible, related parts sharing state | `<Tabs><Tabs.List/><Tabs.Panel/></Tabs>` via context |\n| HOC / render props | Cross-cutting behaviour | `withAuth(Page)`; render prop for mouse position. Hooks replace many uses |\n| Observer / pub-sub | Decoupled notification | Event emitter, store subscriptions, `useSyncExternalStore` |\n| Strategy | Swappable algorithms | Validation or pricing rules chosen at runtime |\n| Adapter | Mismatched shapes | Convert a backend DTO to a UI model |\n| Facade | Complex subsystem behind one API | `analytics.track()` wrapping several vendors |\n| State machine | Flows with illegal states | Checkout: idle, submitting, success, error |\n\n## Two short examples\n\n```ts\n// Adapter: UI never sees the backend shape\nconst toProduct = (dto: ProductDto): Product => ({\n  id: dto.product_id, name: dto.display_name, price: dto.price_cents / 100,\n});\n```\n\n```ts\n// State machine: only valid transitions\nconst next = { idle: [\"submitting\"], submitting: [\"success\", \"error\"], error: [\"submitting\"], success: [] } as const;\n```\n\n## Trade-offs\n\n- Patterns add indirection. Use one when duplication or coupling is actually hurting.\n- HOCs nest wrappers and obscure props; prefer hooks where possible.\n- Context-based compound components can cause wide re-renders if the value is unstable.\n\n## Common mistake\n\nNaming patterns without saying what problem they solved in the given situation.",
+      "followUps": [
+        "When would you choose a hook over a HOC?",
+        "How does a state machine reduce bugs in a form flow?",
+        "What is the difference between adapter and facade?"
+      ],
+      "related": [
+        "explain-design-pattern-you-implemented",
+        "solid-principles-in-react"
+      ]
+    },
+    {
+      "slug": "explain-design-pattern-you-implemented",
+      "title": "How do you answer 'Explain a design pattern you implemented and why'?",
+      "topic": "Design patterns",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "patterns",
+        "interview-technique",
+        "strategy",
+        "forms"
+      ],
+      "companies": [
+        "gspann"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I use a four-part structure: the problem and its pain, the options I considered, the pattern chosen and how it was structured, and the result with trade-offs. Keep it concrete and brief. For example, a form with many pricing rules had growing if-else logic, so rules became interchangeable strategy functions selected by plan type. That made rules testable and new plans additive. I also mention the cost, extra indirection, and when I would not use it.",
+      "revision": "Problem, options, pattern and structure, outcome and trade-off. Keep it concrete, small and honest about the cost.",
+      "detailed": "Interviewers use this question to test **judgement**, not vocabulary. They want to see that you reach for a pattern because of a problem.\n\n## Answer framework\n\n1. **Context and pain (1-2 sentences):** what kept going wrong? Duplication, a growing conditional, hard testing.\n2. **Options:** the simple alternative and why it stopped working.\n3. **Pattern and structure:** name it, sketch the pieces.\n4. **Outcome:** what became easier, ideally something measurable (fewer regressions, faster additions).\n5. **Trade-offs and limits:** cost and when you would not use it.\n\n## Generic example answer framework (labelled example)\n\n*Example scenario:* a quote form where the price depends on plan type, region and promotions. The first version was one function with nested conditionals that grew with every new rule.\n\n**Pattern: strategy.** Each rule is a function with the same signature, registered by key.\n\n```ts\ntype PricingRule = (input: QuoteInput) => number;\n\nconst rules: Record<Plan, PricingRule> = {\n  basic: (i) => i.units * 10,\n  team: (i) => i.units * 8 + 50,\n  enterprise: (i) => Math.max(i.units * 6, 500),\n};\n\nexport const price = (i: QuoteInput) => rules[i.plan](i);\n```\n\n**Why it helped:** each rule is unit-testable alone, adding a plan means adding one entry, and the form component stays free of pricing logic.\n\n**Trade-off:** more indirection for tiny cases. For two rules, an `if` is clearer. I would also keep a test that every plan has a rule (the `Record` type enforces it).\n\n## Tips\n\n- Pick a pattern you can explain with a whiteboard sketch.\n- Be ready for \"what else did you consider?\" and \"what would you change?\".\n- Use an example from your own work for authenticity; the one above is only a template.\n- Avoid claiming credit for team decisions you did not make.",
+      "followUps": [
+        "What alternative to this pattern did you reject, and why?",
+        "When does a strategy become over-engineering?",
+        "How would you test this design?"
+      ],
+      "related": [
+        "frontend-design-patterns-catalogue",
+        "solid-principles-in-react"
+      ]
+    },
+    {
+      "slug": "microservices-and-frontend-impact",
+      "title": "What are the advantages and challenges of microservices, and what do they mean for the frontend?",
+      "topic": "Architecture",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "microservices",
+        "bff",
+        "api-gateway",
+        "frontend"
+      ],
+      "companies": [
+        "gspann"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Microservices give independent deployment, team autonomy, scaling per service and fault isolation. The cost is distributed-system complexity: network failures, data consistency, observability, versioning and operational overhead. For the frontend, many services means many endpoints, so chatty calls, inconsistent errors and partial failures become UI concerns. A backend-for-frontend or gateway aggregates calls into UI-shaped responses, and the UI must handle partial data, timeouts and loading states gracefully.",
+      "revision": "Microservices trade simplicity for autonomy and independent scaling. Frontends then need aggregation via BFF or gateway and must handle partial failure.",
+      "detailed": "(The monolith-versus-microservices decision itself is covered in the architecture handbook. This answer focuses on trade-offs and the **frontend consequences**.)\n\n## Advantages\n\n- **Independent deployment and scaling** per service.\n- **Team autonomy** aligned to business domains.\n- **Fault isolation** if designed well.\n- **Technology choice** per service where it matters.\n\n## Challenges\n\n- Network calls fail, time out and add latency.\n- Data is split, so consistency is eventual and joins move into code.\n- Needs strong observability: tracing, correlation IDs, centralised logs.\n- API versioning and contract testing across teams.\n- Operational overhead: CI/CD, service discovery, security between services.\n\n## What it means for the frontend\n\n1. **Chatty UIs:** a page needing data from five services might make five browser calls, which hurts mobile latency.\n2. **Inconsistent contracts:** different error formats, naming and auth per service.\n3. **Partial failure:** one service down should not blank the whole page.\n4. **Cross-service auth and CORS** complexity.\n\n## Typical responses\n\n- **Backend for frontend (BFF):** a server layer owned by the UI team that calls services and returns exactly what a screen needs, per client type.\n- **API gateway:** routing, auth, rate limiting, shared concerns.\n- **GraphQL layer** as aggregation, where it fits.\n- In the UI: independent loading and error boundaries per section, timeouts, retries with backoff, skeletons, and optional sections that degrade gracefully.\n\n```ts\n// BFF handler: aggregate with partial-failure tolerance\nconst [profile, orders] = await Promise.allSettled([getProfile(id), getOrders(id)]);\nreturn {\n  profile: profile.status === \"fulfilled\" ? profile.value : null,\n  orders: orders.status === \"fulfilled\" ? orders.value : [],\n};\n```\n\n## Common mistakes\n\n- Splitting into microservices without a team or scale reason.\n- Making the BFF a dumping ground for business logic.\n- Treating every dependency as critical to page rendering.",
+      "followUps": [
+        "When would you choose a BFF over a shared API gateway?",
+        "How do you handle partial failures in the UI?",
+        "How do you keep contracts stable across many services?"
+      ],
+      "related": [
+        "frontend-design-patterns-catalogue"
+      ]
+    },
+    {
+      "slug": "scenario-production-release-critical-bug",
+      "title": "A production release introduces a critical bug. What do you do?",
+      "topic": "Incident response",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "incident",
+        "rollback",
+        "feature-flags",
+        "postmortem",
+        "release"
+      ],
+      "companies": [
+        "gspann"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "First I confirm impact and severity, declare an incident and assign roles. The priority is restoring service, not finding the root cause: roll back, or switch off the feature behind a flag, whichever is faster and safer. I communicate status to stakeholders at a steady cadence. After stabilising, I find the root cause from logs, diffs and reproduction, fix forward with tests, and hold a blameless postmortem that produces concrete prevention actions such as better tests, canary releases and alerts.",
+      "revision": "Mitigate first (rollback or flag off), communicate clearly, then find root cause, fix with tests, and run a blameless postmortem with prevention actions.",
+      "detailed": "Under pressure the order matters: **stop the harm, then understand it**.\n\n## 1. Triage (minutes)\n\n- Confirm via alerts, error rate and user reports; assess scope (who, what, how bad) and severity.\n- Declare an incident: an incident lead, someone investigating, and someone handling communication.\n\n## 2. Mitigate\n\n- **Feature flag off** if the change was flagged; usually the fastest and lowest risk.\n- **Roll back** to the last known good build if it is safe. Check that database migrations are backward compatible; a rollback that meets a new schema can make things worse.\n- **Roll forward** with a hotfix only when rollback is unsafe and the fix is small and obvious.\n- For frontend deploys, also consider cached assets: check that CDN caches and service workers serve the corrected version.\n\n## 3. Communicate\n\nPost updates on a regular cadence: impact, current action, next update time. Keep stakeholders and support informed, and avoid speculating about cause.\n\n## 4. Root cause\n\nCompare the release diff, correlate with logs, traces and error-tracking releases, reproduce in staging, and ask why tests and review missed it.\n\n## 5. Fix and verify\n\nFix with a regression test, ship through the normal pipeline (possibly expedited), watch metrics after release.\n\n## 6. Blameless postmortem\n\nTimeline, contributing factors (not individuals), what went well, and action items with owners and dates.\n\n## Prevention\n\n- Canary or progressive rollouts with automatic rollback on error-rate thresholds.\n- Feature flags for risky changes.\n- Better tests at the right level, including the failing scenario.\n- Monitoring and alerting on key user journeys.\n- A rehearsed, documented rollback procedure.\n\n## Common mistakes\n\n- Debugging live while users are still affected.\n- Rolling back without checking data migrations.\n- Postmortems that stop at \"human error\".",
+      "followUps": [
+        "How do you decide between rollback and a hotfix?",
+        "What makes a postmortem blameless and still useful?",
+        "How do database migrations complicate rollback?"
+      ],
+      "related": [
+        "scenario-slow-app-after-hours-open"
+      ]
+    },
+    {
+      "slug": "scenario-slow-scrolling-data-heavy-page",
+      "title": "A page with a lot of data becomes slow when scrolling. How do you fix it?",
+      "topic": "Rendering performance",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "performance",
+        "virtualization",
+        "scroll",
+        "layout",
+        "images"
+      ],
+      "companies": [
+        "gspann"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I start by profiling in the browser's Performance panel to see whether the cost is scripting, layout, paint or too many DOM nodes. Typical fixes are list virtualization so only visible rows exist, removing layout thrashing from scroll handlers, using passive listeners or IntersectionObserver, applying content-visibility for offscreen sections, sizing and lazy-loading images, and simplifying expensive CSS. I measure again after each change, and keep keyboard and accessibility behaviour intact.",
+      "revision": "Profile first. Then virtualize big lists, avoid layout reads in scroll handlers, use passive listeners and content-visibility, and lazy-load sized images.",
+      "detailed": "Scroll jank means the main thread or compositor cannot produce frames in time (roughly 16 ms at 60 Hz). **Find which stage is slow before changing code.**\n\n## Diagnose\n\n- Performance panel: long tasks, forced reflow warnings, repeated style recalculation, paint cost.\n- Count DOM nodes; thousands of rows with nested wrappers are a common root cause.\n- Check whether scroll handlers run React state updates on every event.\n\n## Fixes, roughly by impact\n\n1. **Virtualize long lists:** render only visible rows plus a small buffer, using a windowing library or your own. Keep row heights predictable, and preserve semantics (focus, search-in-page, screen reader context) where needed.\n2. **Avoid layout thrashing:** do not interleave DOM reads (`offsetHeight`) and writes in a loop. Batch reads, then writes, or use `requestAnimationFrame`.\n3. **Cheaper scroll handling:** use `{ passive: true }` listeners, throttle work, and prefer `IntersectionObserver` over polling scroll positions.\n4. **`content-visibility: auto`** with `contain-intrinsic-size` on offscreen sections so the browser skips their rendering work.\n5. **Images:** explicit width and height, `loading=\"lazy\"`, responsive sizes and modern formats.\n6. **Reduce render work:** stable keys, memoise rows only where profiling shows benefit, avoid storing scroll position in state that re-renders the list.\n7. **CSS:** avoid costly effects (large blur, heavy shadows, fixed backgrounds) on many elements; animate `transform` and `opacity`.\n8. **Paginate or load incrementally** if the data set is huge.\n\n```js\nwindow.addEventListener(\"scroll\", onScroll, { passive: true });\n```\n\n```css\n.section { content-visibility: auto; contain-intrinsic-size: auto 600px; }\n```\n\n## Trade-offs\n\nVirtualization complicates accessibility, dynamic row heights and in-page search; `content-visibility` needs size hints to avoid scrollbar jumps.\n\n## Common mistake\n\nAdding memoisation everywhere instead of removing the real bottleneck found in the profile.",
+      "followUps": [
+        "How does virtualization affect accessibility and find-in-page?",
+        "What is layout thrashing and how do you detect it?",
+        "When would you paginate instead of virtualize?"
+      ],
+      "related": [
+        "scenario-improve-performance-existing-app",
+        "scenario-slow-app-after-hours-open"
+      ]
+    },
+    {
+      "slug": "scenario-slow-app-after-hours-open",
+      "title": "The app gets slower after the tab stays open for hours. How do you investigate?",
+      "topic": "Memory and long sessions",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "memory-leak",
+        "devtools",
+        "heap-snapshot",
+        "performance"
+      ],
+      "companies": [
+        "gspann"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "That pattern suggests a memory leak or unbounded growth. I reproduce the long session, then take heap snapshots at intervals and compare them to see which objects keep increasing. I look for detached DOM nodes, event listeners never removed, uncleared timers and intervals, subscriptions without unsubscribe, closures holding large data, and stores or caches that grow without limits. I fix cleanup, cap caches, add regression checks, and monitor memory in production.",
+      "revision": "Reproduce, compare heap snapshots over time, find retained objects, then fix cleanup: listeners, timers, subscriptions, detached nodes and unbounded caches.",
+      "detailed": "Gradual slowdown over hours usually means **resources accumulate**: memory growth causing garbage-collection pauses, or work (timers, handlers) multiplying.\n\n## Investigate\n\n1. **Reproduce:** perform the typical user flow repeatedly (navigate between routes, open and close modals) and watch the Memory panel or performance timeline for a rising baseline after garbage collection.\n2. **Heap snapshot comparison:** take a snapshot, repeat the flow, force garbage collection, take another, and use the comparison view to see objects allocated and still retained. Sort by size delta and count.\n3. **Inspect retainers:** the retainer path shows what keeps an object alive.\n4. **Allocation timeline** or sampling for what allocates over time.\n\n## Usual culprits\n\n- **Detached DOM nodes** still referenced by JavaScript.\n- **Event listeners** added on `window` or `document` and never removed.\n- **Timers:** `setInterval` not cleared, polling that continues after unmount.\n- **Subscriptions:** WebSockets, observers, store listeners without unsubscribe.\n- **Closures** capturing large objects.\n- **Unbounded state:** logs, caches, history arrays or normalised stores that only grow.\n- **Third-party scripts** or analytics queues.\n\n## Fix pattern\n\n```tsx\nuseEffect(() => {\n  const id = setInterval(poll, 5000);\n  const onResize = () => update();\n  window.addEventListener(\"resize\", onResize);\n  return () => {\n    clearInterval(id);\n    window.removeEventListener(\"resize\", onResize);\n  };\n}, []);\n```\n\nAlso use `AbortController` for in-flight requests, cap caches (LRU or max size), and evict old entries.\n\n## Prevent and monitor\n\n- Lint rules and code review for cleanup.\n- Soak tests with automated long sessions.\n- Production telemetry for memory growth where the browser supports it, and error tracking for long-session cohorts.\n\n## Common mistake\n\nFixing a suspected cause without confirming through a snapshot comparison.",
+      "followUps": [
+        "How do you tell a leak from normal growth that garbage collection later reclaims?",
+        "What does a retainer path tell you?",
+        "How would you test for leaks in CI?"
+      ],
+      "related": [
+        "scenario-slow-scrolling-data-heavy-page",
+        "scenario-improve-performance-existing-app"
+      ]
+    },
+    {
+      "slug": "scenario-api-takes-5-10-seconds",
+      "title": "An API takes 5 to 10 seconds to respond. How do you handle it in the UI and the API design?",
+      "topic": "API and UX design",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "api",
+        "async",
+        "polling",
+        "streaming",
+        "ux"
+      ],
+      "companies": [
+        "gspann"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "First I ask whether it needs to be that slow: profile the backend and cache or precompute where possible. If the work is inherently long, I redesign it as asynchronous: return 202 Accepted with a job ID, and let the client poll or receive updates, then fetch the result. For incremental results I stream. In the UI I show skeletons or progress, allow cancellation, keep the rest of the page usable, and handle timeouts and retries gracefully.",
+      "revision": "Fix the cause or cache first. For inherently long work use 202 plus job polling or streaming. In the UI use skeletons, progress, cancel and timeouts.",
+      "detailed": "A 5-10 second synchronous call is fragile: proxies time out, users abandon, and retries multiply load. Work on both sides.\n\n## API side\n\n1. **Investigate:** trace slow queries, N+1 calls, downstream latency; add indexes, parallelise, precompute.\n2. **Cache:** HTTP caching, server-side cache or materialised results for repeated queries.\n3. **Go asynchronous** when the work is inherently long:\n   - `POST /reports` returns `202 Accepted` with `Location: /reports/{jobId}`.\n   - `GET /reports/{jobId}` returns status (`queued`, `running`, `done`, `failed`), progress and the result link.\n   - Use polling with backoff, or push via SSE or WebSocket when updates matter.\n4. **Stream** partial results (chunked responses, SSE) when data can be produced incrementally.\n5. Make the job endpoint **idempotent** so retries do not start duplicate work.\n\n## UI side\n\n- Show **skeletons or progress** immediately; avoid a blocking spinner for the whole page.\n- Let users **cancel** (`AbortController`) or continue elsewhere and be notified.\n- Render fast parts first; isolate the slow section with its own loading and error state.\n- Set client **timeouts**, show a clear message, and offer retry with backoff.\n- Avoid duplicate submissions while work is in progress.\n\n```ts\nconst res = await fetch(\"/reports\", { method: \"POST\", body, signal });\nconst { statusUrl } = await res.json(); // 202\nlet job;\ndo {\n  await sleep(2000);\n  job = await (await fetch(statusUrl, { signal })).json();\n} while (job.status === \"queued\" || job.status === \"running\");\n```\n\n## Trade-offs\n\nPolling is simple but wasteful; push is efficient but needs more infrastructure. Async adds states to model and test.\n\n## Common mistake\n\nOnly adding a spinner and leaving the backend and timeout problems untouched.",
+      "followUps": [
+        "How would you choose polling interval and backoff?",
+        "When would you stream instead of using a job?",
+        "How do you handle a job that fails after the user left the page?"
+      ],
+      "related": [
+        "scenario-realtime-notification-system",
+        "scenario-prevent-duplicate-payment-clicks"
+      ]
+    },
+    {
+      "slug": "scenario-realtime-notification-system",
+      "title": "How would you design a real-time notification system using WebSockets or SSE?",
+      "topic": "Real-time design",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "websocket",
+        "sse",
+        "notifications",
+        "scalability",
+        "design"
+      ],
+      "companies": [
+        "gspann"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Producers publish events to a message broker; a notification service stores them and fans out to connected clients through a gateway tier. Clients authenticate on connect, subscribe to their own user channel, and receive events over SSE or WebSocket. For missed events, each notification has a monotonic ID, and on reconnect the client asks for everything after its last ID. Unread counts come from the server, and tabs coordinate through a shared connection. Scale gateways horizontally with pub/sub fanout.",
+      "revision": "Broker plus notification store plus gateway fanout. Authenticate on connect, resume from last event ID, server-owned unread count, one shared connection per browser, scale horizontally.",
+      "detailed": "## Requirements to clarify\n\nDelivery guarantees, volume, latency target, one-way versus bidirectional, offline users, and multi-device behaviour.\n\n## Choosing transport\n\n**SSE** suits one-way server push, reconnects automatically and carries `Last-Event-ID`. **WebSockets** suit bidirectional, low-latency use. Notifications are usually one-way, so SSE is often enough, with polling as a fallback.\n\n{{diagram:arch}}\n\n## Core design\n\n- **Persist first:** write each notification to a store (with a per-user increasing ID), then publish to the fanout layer. The store is the source of truth; the live push is an optimisation.\n- **Fanout:** gateway nodes keep connections; a broker (pub/sub) delivers each event to whichever node holds that user's connection.\n- **Auth:** authenticate at connect with a short-lived token or session cookie (browsers cannot set custom headers on native WebSocket or EventSource, so use cookies or a ticket in the URL carefully). Authorise channels by user; re-check on token expiry.\n- **Missed events:** the client sends its last seen ID on reconnect (`Last-Event-ID` for SSE), and the server replays newer items from the store. Fall back to a REST fetch if the gap is too large.\n- **Unread counts:** compute on the server from read markers, push count updates, and mark as read via API so all devices stay consistent.\n- **Multi-tab:** one connection per browser using a `SharedWorker`, or leader election with `BroadcastChannel`, to avoid N connections per user.\n- **Scaling:** stateless gateways behind a load balancer, connection limits per node, heartbeats, jittered exponential backoff on reconnect to avoid thundering herds, and backpressure or batching for bursts.\n\n## Trade-offs\n\nExactly-once is hard; aim for at-least-once with idempotent client handling (dedupe by ID). Sticky sessions are not needed if the broker handles routing.\n\n## Common mistakes\n\n- Treating the socket as the source of truth.\n- Forgetting reconnect backoff.\n- Counting unread on the client only.",
+      "diagrams": [
+        {
+          "id": "arch",
+          "title": "Notification fanout architecture",
+          "alt": "Services publish events to a message broker. A notification service writes them to a store and publishes to gateway nodes, which push them to browser clients. Clients that reconnect fetch missed events from the store.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "p",
+              "label": "Producer services"
+            },
+            {
+              "id": "b",
+              "label": "Message broker"
+            },
+            {
+              "id": "n",
+              "label": "Notification service"
+            },
+            {
+              "id": "s",
+              "label": "Notification store"
+            },
+            {
+              "id": "g",
+              "label": "Gateway nodes"
+            },
+            {
+              "id": "c",
+              "label": "Browser clients"
+            }
+          ],
+          "edges": [
+            {
+              "from": "p",
+              "to": "b"
+            },
+            {
+              "from": "b",
+              "to": "n"
+            },
+            {
+              "from": "n",
+              "to": "s"
+            },
+            {
+              "from": "n",
+              "to": "g",
+              "label": "fanout"
+            },
+            {
+              "from": "g",
+              "to": "c",
+              "label": "SSE / WebSocket"
+            },
+            {
+              "from": "c",
+              "to": "s",
+              "label": "replay on reconnect"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you dedupe notifications after a reconnect?",
+        "SSE or WebSocket: how do you decide?",
+        "How would you handle millions of concurrent connections?"
+      ],
+      "related": [
+        "scenario-api-takes-5-10-seconds",
+        "scenario-prevent-duplicate-payment-clicks"
+      ]
+    },
+    {
+      "slug": "scenario-prevent-duplicate-payment-clicks",
+      "title": "Duplicate payment requests are created when users click the pay button repeatedly. How do you prevent it?",
+      "topic": "Resilient payments",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "payments",
+        "idempotency",
+        "forms",
+        "reliability"
+      ],
+      "companies": [
+        "gspann"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Defend in layers. In the UI, disable the button and set an in-flight guard as soon as the click happens, showing a pending state. Generate an idempotency key per payment attempt and send it with the request, so retries reuse it. On the server, enforce uniqueness on that key and return the original result for repeats. The UI must also handle timeouts and refreshes by checking payment status instead of blindly resubmitting. The UI guard improves experience; the server guarantee prevents double charges.",
+      "revision": "Disable and guard in the UI, send an idempotency key, enforce uniqueness on the server and return the original result, and show pending status.",
+      "detailed": "A disabled button is **not enough**: double clicks can fire before React re-renders, users refresh, networks retry, and malicious or buggy clients ignore the UI. Use defence in depth.\n\n## 1. UI guard\n\nSet a synchronous in-flight flag (a `ref`), because state updates are asynchronous:\n\n```tsx\nconst inFlight = useRef(false);\nasync function pay() {\n  if (inFlight.current) return;\n  inFlight.current = true;\n  setStatus(\"pending\");\n  try {\n    await postPayment({ orderId, key: attemptKey });\n    setStatus(\"success\");\n  } catch {\n    setStatus(\"unknown\"); // check status before allowing retry\n  } finally {\n    inFlight.current = false;\n  }\n}\n```\n\nAlso disable the button, show a pending message and avoid leaving the page ambiguous.\n\n## 2. Idempotency key\n\nCreate a key (for example a UUID) **per intended payment**, not per click. Keep it across retries and page reloads for the same checkout attempt (store it with the order draft). Send it in an `Idempotency-Key` header.\n\n## 3. Server enforcement\n\n- Store the key with a unique constraint along with the request fingerprint and the result.\n- The first request processes; a repeat with the same key returns the stored response; the same key with a different body is rejected.\n- Use database transactions or atomic insert so concurrent duplicates cannot both pass.\n- Pass an idempotency key to the payment provider too if it supports one.\n\n## 4. Handle uncertain outcomes\n\nAfter a timeout the payment may have succeeded. The client should query payment status by order or key, and only retry with the **same key**.\n\n## Trade-offs and mistakes\n\n- Keys need an expiry and storage policy.\n- Throttling or debouncing the click is not a correctness guarantee.\n- Generating a fresh key on every retry defeats the whole mechanism.",
+      "followUps": [
+        "Why is disabling the button not enough?",
+        "What should the server return when the same key arrives with a different payload?",
+        "How do you recover when the request timed out?"
+      ],
+      "related": [
+        "scenario-api-takes-5-10-seconds",
+        "scenario-realtime-notification-system"
+      ]
+    },
+    {
+      "slug": "scenario-improve-performance-existing-app",
+      "title": "How would you improve the performance of an existing app without a major architectural change?",
+      "topic": "Performance strategy",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "performance",
+        "core-web-vitals",
+        "profiling",
+        "optimization"
+      ],
+      "companies": [
+        "gspann"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I measure first, using field data like Core Web Vitals plus lab profiling, to find the biggest real bottlenecks. Then I rank quick wins by impact and effort: compress and size images, cut or defer unused JavaScript, code-split routes, cache static assets with long-lived headers, fix slow API calls and waterfalls, reduce unnecessary re-renders, and preload critical resources. I make one change at a time, re-measure, and add performance budgets in CI so gains are not lost.",
+      "revision": "Measure, rank quick wins by impact versus effort, change one thing at a time, re-measure, and add budgets so regressions are caught.",
+      "detailed": "Without redesign, the best approach is **disciplined measurement and prioritisation**.\n\n## 1. Measure\n\n- **Field data** (real users): Largest Contentful Paint, Interaction to Next Paint, Cumulative Layout Shift, plus time to first byte.\n- **Lab tools:** Lighthouse, the Performance panel, bundle analyser, and network waterfall.\n- Segment by device and network; the slowest cohort often matters most.\n\n## 2. Quick wins, ranked by impact and effort\n\n| Win | Impact | Effort |\n|---|---|---|\n| Optimise and size images, modern formats, lazy-load below the fold | High | Low |\n| Compression (Brotli/gzip), long-lived caching with hashed filenames, CDN | High | Low |\n| Remove unused or duplicate dependencies; defer or remove third-party scripts | High | Low-Medium |\n| Route-level code splitting and dynamic import | High | Medium |\n| Fix API waterfalls: parallelise requests, cache, trim payloads | High | Medium |\n| Preload the LCP resource, `preconnect` to key origins | Medium | Low |\n| Avoid layout shift: set image and embed dimensions | Medium | Low |\n| Reduce re-renders and long tasks found in profiles | Medium | Medium |\n| Virtualize huge lists | Situational | Medium |\n\n```js\nconst Chart = lazy(() => import(\"./Chart\")); // load heavy code only when needed\n```\n\n## 3. Verify and protect\n\nChange one thing at a time and compare before and after. Add **performance budgets** (bundle size, LCP) in CI and monitor real-user metrics after release.\n\n## Trade-offs\n\nSome wins (aggressive caching) need cache invalidation discipline; code splitting adds loading states.\n\n## Common mistakes\n\n- Optimising what is easy rather than what the data shows.\n- Memoising everywhere without profiling.\n- Judging by lab scores only and ignoring real-user data.",
+      "followUps": [
+        "How would you convince the team to invest time in performance?",
+        "Which Core Web Vital would you tackle first, and why?",
+        "How do you stop performance regressing after the work is done?"
+      ],
+      "related": [
+        "scenario-slow-scrolling-data-heavy-page",
+        "scenario-slow-app-after-hours-open"
+      ]
+    }
+  ]
+}
