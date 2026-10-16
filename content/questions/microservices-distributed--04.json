@@ -1,0 +1,37 @@
+{
+  "category": "microservices-distributed",
+  "questions": [
+    {
+      "slug": "at-most-once-at-least-once-exactly-once",
+      "title": "What is the difference between at-most-once, at-least-once and exactly-once delivery?",
+      "topic": "Messaging guarantees",
+      "difficulty": "advanced",
+      "type": "conceptual",
+      "tags": [
+        "messaging",
+        "idempotency",
+        "delivery-semantics"
+      ],
+      "companies": [
+        "evoke"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "At-most-once never redelivers, so messages can be lost. At-least-once retries until acknowledged, so messages are never lost but can arrive more than once. Exactly-once end to end is not something a network can simply guarantee; some brokers offer it only within a defined scope. In practice I design for at-least-once delivery with idempotent handlers, unique business keys and periodic reconciliation, so duplicates are harmless and gaps are detected and repaired.",
+      "revision": "At-most-once may lose, at-least-once may duplicate. Practical systems use at-least-once plus idempotent handlers, unique keys and reconciliation; broker exactly-once is scoped.",
+      "detailed": "Delivery semantics describe what a consumer can expect when messages cross an unreliable network. Failures create an unavoidable ambiguity: if a sender gets no acknowledgement, it cannot know whether the message or the acknowledgement was lost.\n\n## The three guarantees\n\n| Guarantee | Behaviour | Risk | Typical use |\n|---|---|---|---|\n| At-most-once | Send once, never retry | Message loss | Metrics, non-critical telemetry |\n| At-least-once | Retry until acknowledged | Duplicates | Most business events |\n| Exactly-once | Each message has exactly one effect | Hard to achieve end to end | Scoped features |\n\n## Why exactly-once is subtle\n\nSome platforms provide exactly-once **processing** inside their own boundary, for example by combining idempotent producers with transactional writes between topics of the same system. That guarantee generally does not extend to an external database write, an email or a call to a third-party API. Treat claims of exactly-once as scoped and read exactly what is covered.\n\n## The practical design\n\n1. **Assume at-least-once.** Acknowledge a message only after its effects are durably recorded.\n2. **Make handlers idempotent.** Repeating the same message must not repeat the effect.\n3. **Use unique business keys.** Enforce them in storage, for example a unique constraint on an order or payment reference, rather than relying on in-memory checks.\n4. **Record processed message ids** in the same transaction as the state change when a natural key is not available.\n5. **Reconcile.** Periodically compare source and target to find lost or inconsistent items and repair them.\n\n```sql\n-- Idempotent insert: a replay does nothing\nINSERT INTO payments (payment_ref, amount)\nVALUES ($1, $2)\nON CONFLICT (payment_ref) DO NOTHING;\n```\n\n## Common mistakes\n\n- Acknowledging before processing, which silently turns at-least-once into at-most-once.\n- Assuming a broker setting makes downstream side effects safe.\n- Idempotency keys that are generated per attempt instead of per logical operation.\n- Never reconciling, so silent loss goes unnoticed.",
+      "followUps": [
+        "How would you make an email-sending consumer idempotent?",
+        "What does a transactional outbox add to this?",
+        "How long should you retain processed message ids?",
+        "When is at-most-once acceptable?"
+      ],
+      "related": [
+        "duplicate-webhook-handling",
+        "poison-messages",
+        "retry-storms",
+        "dead-letter-queue-retry-flow"
+      ]
+    }
+  ]
+}

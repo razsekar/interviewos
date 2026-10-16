@@ -1,0 +1,200 @@
+{
+  "category": "backend-databases",
+  "questions": [
+    {
+      "slug": "database-connection-pool-exhausted-scenario",
+      "title": "Scenario: the database connection pool is exhausted in production. How do you investigate and fix it?",
+      "topic": "Connection management",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "connection-pool",
+        "incident",
+        "performance",
+        "database"
+      ],
+      "companies": [
+        "evoke"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "First I find who holds the connections: slow queries, long-running transactions, leaked connections that are never released, or too many application replicas each with a large pool. I check pool and database metrics, and active sessions grouped by state and query. I do not simply raise the pool size. I set a connection budget across all replicas, add acquisition timeouts, fix the holders, and apply admission control so excess requests fail fast instead of queueing forever.",
+      "revision": "Find the holders first: slow queries, long transactions, leaks, too many replicas. Budget connections across replicas, set timeouts, add admission control; do not just enlarge the pool.",
+      "detailed": "Pool exhaustion means requests are waiting for a connection that never frees up in time. The pool is usually a **symptom**; the cause is something holding connections too long or too many clients competing for a fixed database limit.\n\n## Step 1: contain\n\nShed or pause non-essential work (batch jobs, exports), and if needed restart leaking instances to restore service. Do this before deep analysis.\n\n## Step 2: find the holders\n\n- **Slow queries:** a missing index or bad plan keeps each connection busy.\n- **Long transactions:** a transaction left open across a network call or user wait pins a connection and may hold locks.\n- **Leaks:** code paths that acquire a connection and fail to release it on error.\n- **Too many replicas:** total connections equals replicas multiplied by pool size, which can exceed the database limit after autoscaling.\n- **Downstream waits:** code calling a slow external service while holding a connection.\n\nUseful evidence: pool wait time and active counts, database sessions grouped by state (\"idle in transaction\" is a red flag), longest-running queries and lock waits.\n\n## Step 3: fix properly\n\n1. **Connection budget:** database max connections divided across replicas and other clients, with headroom for admin access. Consider an external pooler when many instances connect.\n2. **Acquisition timeout:** fail fast with a clear error instead of waiting indefinitely.\n3. **Statement and transaction timeouts** to cap runaway work.\n4. **Release discipline:** use patterns that release in `finally` or equivalent, and keep transactions short and free of external calls.\n5. **Admission control:** limit concurrent work per endpoint or queue so overload degrades gracefully rather than cascading.\n\n## Why not simply raise the pool?\n\nA bigger pool pushes more concurrent load onto the database, can exceed its connection limit and often makes latency worse. It hides leaks until the larger pool is also exhausted.\n\n## Verification\n\nWatch wait time, saturation and error rate after the fix, and add an alert on pool saturation.",
+      "followUps": [
+        "How would you size a pool for many replicas?",
+        "What does 'idle in transaction' indicate?",
+        "When would you introduce an external connection pooler?",
+        "How do timeouts interact with retries?"
+      ],
+      "related": [
+        "connection-pooling",
+        "postgresql-slow-query",
+        "transactions-isolation-levels"
+      ]
+    },
+    {
+      "slug": "design-notification-service",
+      "title": "How would you design a notification service for email, SMS and push?",
+      "topic": "Notification system design",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "design",
+        "queue",
+        "retries",
+        "notifications"
+      ],
+      "companies": [
+        "evoke"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Producers publish a notification intent, such as order shipped, and never call providers directly. The service applies user preferences, picks a template, and puts a job on a queue. Workers send through provider adapters and record every attempt and outcome. I add rate limits, bounded retries with backoff, and dedupe keys so replays do not send twice. Most importantly, a failure here must never block the purchase or the originating business transaction.",
+      "revision": "Intent in, preferences and templates applied, queued, sent via provider adapters, attempts recorded, rate-limited, retried with bounds, deduped, and never blocking the main transaction.",
+      "detailed": "A notification service decouples **why** something should be communicated from **how** it is delivered.\n\n{{diagram:flow}}\n\n## Core components\n\n- **Intents:** callers send a typed event (\"order_shipped\" plus data and recipient id), not rendered content or a provider name.\n- **Preferences and consent:** per user and channel settings, quiet hours and legal opt-outs are checked before sending.\n- **Templates:** versioned, localised templates rendered from intent data.\n- **Queue:** durable buffering per channel, so spikes do not overload providers and the caller returns immediately.\n- **Provider adapters:** a common interface per provider so one can be replaced or failed over without touching producers.\n- **Attempts and outcomes:** store each attempt with status, provider reference and error, enabling support lookups and delivery receipts.\n\n## Reliability\n\n1. **Never block the purchase.** Write the intent via an outbox or enqueue asynchronously; if notification fails, the order still succeeds.\n2. **Bounded retries** with exponential backoff and jitter, then a dead-letter queue and alert.\n3. **Dedupe:** a key such as intent type plus business id prevents duplicates when producers retry or events replay.\n4. **Rate limits:** respect provider limits and avoid spamming one user; prioritise transactional over marketing messages.\n5. **Idempotent workers**, because queues deliver at least once.\n\n## Trade-offs\n\n- Provider failover improves availability but complicates ordering and duplicate risk.\n- Strong delivery tracking needs provider webhooks, which are themselves duplicated and out of order.\n\n## Common mistakes\n\n- Calling an email provider inside the checkout request.\n- Unbounded retries that hammer a failing provider.\n- Embedding templates in producer code.\n- Ignoring unsubscribe and consent requirements.",
+      "followUps": [
+        "How would you guarantee a password-reset message is prioritised?",
+        "How do you handle provider webhooks for delivery status?",
+        "How would you prevent a user receiving the same alert twice?",
+        "How would you add a new channel?"
+      ],
+      "related": [
+        "caching-strategies",
+        "connection-pooling"
+      ],
+      "diagrams": [
+        {
+          "id": "flow",
+          "title": "Notification service flow",
+          "alt": "A producer publishes an intent to the notification service, which checks preferences and renders a template, enqueues a job, and workers send through provider adapters to email, SMS or push providers while recording attempts.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "p",
+              "label": "Producer (order service)"
+            },
+            {
+              "id": "n",
+              "label": "Notification API"
+            },
+            {
+              "id": "pr",
+              "label": "Preferences and templates"
+            },
+            {
+              "id": "qu",
+              "label": "Channel queue"
+            },
+            {
+              "id": "wk",
+              "label": "Workers"
+            },
+            {
+              "id": "ad",
+              "label": "Provider adapters"
+            },
+            {
+              "id": "at",
+              "label": "Attempts store"
+            }
+          ],
+          "edges": [
+            {
+              "from": "p",
+              "to": "n",
+              "label": "intent"
+            },
+            {
+              "from": "n",
+              "to": "pr"
+            },
+            {
+              "from": "n",
+              "to": "qu",
+              "label": "job"
+            },
+            {
+              "from": "qu",
+              "to": "wk"
+            },
+            {
+              "from": "wk",
+              "to": "ad",
+              "label": "send"
+            },
+            {
+              "from": "wk",
+              "to": "at",
+              "label": "outcome"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "how-to-use-redis-well",
+      "title": "How do you use Redis well in a backend system?",
+      "topic": "Redis usage",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "redis",
+        "caching",
+        "rate-limiting",
+        "sessions"
+      ],
+      "companies": [
+        "evoke"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I use Redis for cache-aside reads, rate limiting, short-lived sessions and light coordination such as locks with expiry. For each use I decide the TTL, eviction behaviour, key scope and invalidation approach, and what the application does when Redis is slow or down. I never treat it as the only durable record of important data; the system of record stays in the primary database and Redis holds data that can be rebuilt.",
+      "revision": "Use Redis for cache-aside, rate limits, sessions and coordination. Define TTL, eviction, key scope, invalidation and failure behaviour. Never the only durable copy.",
+      "detailed": "Redis is an in-memory data store that is very fast and flexible, which makes it easy to overuse. Using it well means being deliberate about **what lives there and what happens when it disappears**.\n\n## Common uses\n\n- **Cache-aside:** read the cache, on a miss load from the database and store with a TTL. Simple and safe because the database stays authoritative.\n- **Rate limiting:** counters or token buckets with expiry, using atomic operations so concurrent requests are counted correctly.\n- **Sessions:** short-lived data with an expiry matching session policy.\n- **Coordination:** locks or leader markers with expiry. Be cautious: expiring locks can be held by two parties after a pause, so protect critical writes with fencing or database constraints.\n\n## Decisions for every use\n\n| Decision | Questions to answer |\n|---|---|\n| TTL | How stale can this be? Add jitter to avoid synchronised expiry |\n| Eviction | What happens under memory pressure; which policy is configured? |\n| Key scope | Does the key include tenant, user, version or locale where needed? |\n| Invalidation | Expire only, delete on write, or publish an invalidation event? |\n| Failure behaviour | Fall back to the database, serve degraded, or fail fast? |\n\n## Example key convention\n\n```text\napp:v2:tenant:42:user:7:profile\n```\n\n## Common mistakes\n\n- Treating Redis as the only copy of data that cannot be recreated. Persistence options exist but have trade-offs; keep the system of record elsewhere.\n- Unbounded key growth with no TTL.\n- Cache stampedes when a hot key expires; mitigate with request coalescing or early refresh.\n- Letting a Redis outage take down the whole application because every request depends on it.\n- Large values or slow commands that block the single-threaded command loop.",
+      "followUps": [
+        "How do you prevent a cache stampede?",
+        "When would you not use Redis for a lock?",
+        "How do you invalidate a cache across services?",
+        "What persistence trade-offs does Redis have?"
+      ],
+      "related": [
+        "caching-strategies",
+        "connection-pooling",
+        "prevent-duplicate-operations"
+      ]
+    },
+    {
+      "slug": "investigate-rising-api-latency",
+      "title": "API latency is rising. How do you investigate?",
+      "topic": "Performance investigation",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "latency",
+        "observability",
+        "performance",
+        "troubleshooting"
+      ],
+      "companies": [
+        "evoke"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I start with rate, errors and latency percentiles to see whether it is all endpoints or one, and when it began, including recent deploys. Then I use traces to find the slow span and check pool saturation, slow queries, lock waits, downstream dependencies, queue depth, and CPU or garbage collection. I mitigate first, for example by rolling back or shedding load, then confirm the root cause with evidence and add alerts.",
+      "revision": "Check rate, errors and p95/p99; use traces to locate the slow span; test pools, queries, locks, downstream, queues, CPU/GC. Mitigate first, then verify the root cause.",
+      "detailed": "Rising latency is a symptom with many possible causes, so work **from broad signals to specific evidence** rather than guessing.\n\n## 1. Scope the problem\n\n- Use rate, errors and duration (percentiles, not averages; averages hide tail latency).\n- Is it all endpoints or one? One region, tenant or instance? Did it start at a deploy, config change, traffic spike or data growth point?\n\n## 2. Locate where time goes\n\n- **Distributed traces:** find the span that grew. Is it the handler, a database call, a cache call or an external service?\n- **Resource saturation:** CPU, memory, garbage collection pauses, event-loop lag, thread or connection pool exhaustion.\n\n## 3. Check the usual suspects\n\n| Area | Evidence |\n|---|---|\n| Connection pool | Acquisition wait, active versus max |\n| Slow queries | Query plans, missing indexes, data growth |\n| Locks | Lock waits, long transactions |\n| Downstream services | Their latency and error rate, timeouts, retries |\n| Queues | Depth and age of oldest message |\n| Cache | Hit rate drop pushing load to the database |\n| Traffic | New clients, bots, retry storms |\n\n## 4. Mitigate, then prove\n\nMitigation might be rollback, disabling a feature flag, scaling out, shedding low-priority traffic or tightening timeouts. After service stabilises, **verify the root cause**: reproduce or show that the metric improves when the suspected cause is removed. Treat an unproven theory as a hypothesis.\n\n## 5. Prevent\n\nAdd alerts on percentile latency and saturation, query review in release, load tests for critical paths and a runbook capturing the investigation.\n\n## Common mistakes\n\n- Looking only at averages.\n- Scaling out before finding that the database is the bottleneck, which can worsen it.\n- Fixing a symptom and never confirming the cause.",
+      "followUps": [
+        "Why are percentiles better than averages?",
+        "How would you tell a database problem from a downstream dependency problem?",
+        "What would you do if latency only rises at peak hours?",
+        "How do retries make latency worse?"
+      ],
+      "related": [
+        "postgresql-slow-query",
+        "connection-pooling",
+        "caching-strategies"
+      ]
+    }
+  ]
+}

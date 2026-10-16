@@ -1,0 +1,169 @@
+{
+  "category": "edtech-architecture",
+  "questions": [
+    {
+      "slug": "search-shows-unpurchasable-course",
+      "title": "Scenario: search shows a course that can no longer be purchased. What do you do?",
+      "topic": "Search",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "search",
+        "consistency",
+        "checkout",
+        "scenario"
+      ],
+      "companies": [
+        "evoke"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "This is a stale read model, so I treat the database as authoritative. Immediately, I make purchase validate availability and price against the database and show a clear message. Then I find why the index missed the change: failed consumer, dropped event or lag. I fix and replay the missing events, run a reconciliation that compares index and database to repair drift, and add an index-lag metric with alerts. Longer term, unpublishing triggers a priority update.",
+      "revision": "Stale read model: validate at purchase against the database, replay missed events, reconcile index versus database, and alert on index lag.",
+      "detailed": "A course that is listed but cannot be bought means search and the database disagree. Search is allowed to lag; checkout is not allowed to trust it.\n\n## Triage\n\n1. **Protect the user path now.** Course page and checkout read availability and price from the database. If the course is unavailable, return a specific message and a way to find alternatives, not a generic error.\n2. **Confirm the cause.** Compare the database state with the index document. Check the indexer's queue depth, consumer errors, dead-letter queue and the event or CDC position for the affected course.\n3. **Repair.** Replay or manually re-index the affected courses. If many are wrong, run a bulk reindex into a fresh index and swap the alias.\n\n## Root cause categories\n\n| Cause | Fix |\n|---|---|\n| Consumer failing on one bad event | Dead-letter handling, fix mapping, replay |\n| Lag from backlog | Scale indexers, prioritise unpublish events |\n| Event never emitted (dual write) | Move to outbox or CDC |\n| Out-of-order updates overwrite newer state | Version field, ignore older updates |\n\n## Prevent recurrence\n\n- **Reconciliation job:** periodically sample or scan published courses, compare key fields (status, price, availability) and re-index differences. Report drift counts.\n- **Index-lag metric:** time from database change to indexed, with alerts on percentile thresholds.\n- **Fast path for removals:** unpublish or takedown also filters at query time using a short deny list or a database check on the final result page, since showing a withdrawn course is worse than missing a new one.\n- Re-check eligibility at the moment of purchase regardless.\n\n## Communication\n\nIf learners were affected, support needs a clear explanation, and any failed purchase attempts should be verified to ensure no payment was captured without an order.\n\n## Common mistakes\n\n- Fixing only the one course instead of the pipeline.\n- Making search \"more real time\" instead of validating at the point of truth.",
+      "followUps": [
+        "How would you measure index lag?",
+        "What if the course was purchasable but search hides it?",
+        "Would you ever filter search results against the database on every query?"
+      ],
+      "related": [
+        "search-courses-index-lag-checkout",
+        "payment-succeeded-enrollment-failed"
+      ]
+    },
+    {
+      "slug": "big-course-launch-overload",
+      "title": "Scenario: a major course launch overloads the platform. How do you respond?",
+      "topic": "Scaling and operations",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "scaling",
+        "rate-limiting",
+        "cdn",
+        "incident",
+        "load-testing"
+      ],
+      "companies": [
+        "evoke"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "First confirm the real bottleneck from metrics: database connections, a hot query, a downstream provider or CDN misses, rather than guessing. Then protect the core: admission control with a waiting room or rate limits, shed non-essential work, scale stateless app tiers, cache and use the CDN for static and public pages, and protect the database with pooling and query fixes. Defer analytics and notifications to queues. Afterwards I run load tests modelled on this traffic and add launch playbooks.",
+      "revision": "Confirm the bottleneck, add admission control, scale stateless tiers, protect the database, lean on CDN, defer analytics and notifications, then load test afterwards.",
+      "detailed": "Treat it as an incident with a clear order of operations.\n\n## 1. Confirm the bottleneck\n\nUse dashboards and traces: request latency by endpoint, error rate, database CPU, connections and slow queries, queue depth, cache hit ratio, CDN origin load, and third-party latency (payments, email). Do not scale the wrong tier.\n\n## 2. Protect the critical path\n\nPrioritise: browse, login, checkout, enrollment and playback. Everything else is optional under stress.\n\n- **Admission control.** Rate limits per user and IP, and a virtual waiting room for checkout if demand exceeds capacity, so excess users wait instead of causing failures for everyone.\n- **Load shedding.** Disable expensive non-essentials (recommendations, large reports) via feature flags.\n\n## 3. Scale and relieve\n\n- **Stateless app servers** scale horizontally; check autoscaling limits and warm-up time.\n- **Database:** use connection pooling, fix the hot query or add the missing index, move reads to replicas where staleness is acceptable, and avoid long transactions. The database is usually the first hard limit, so shield it rather than only adding app servers.\n- **CDN and caching.** Course pages, images and static assets served from the edge or cached with short TTLs; confirm hit ratio.\n- **Hot rows:** per-course counters like \"enrolled count\" should be batched or approximate, not updated on every purchase.\n\n## 4. Defer work\n\nMove analytics events, notification emails and certificate generation behind queues, and let them lag. Make sure queues have bounded retries so they do not amplify load.\n\n## 5. After the incident\n\nWrite the timeline, replay the traffic shape in a load test (including login spikes and checkout concurrency), set autoscaling and capacity before the next launch, and prepare a launch checklist: pre-warming, cache priming, feature flags, on-call coverage.\n\n## Common mistakes\n\n- Autoscaling app servers while the database is the limit.\n- Retries without backoff, creating a retry storm.\n- Doing analytics writes synchronously in the purchase path.",
+      "followUps": [
+        "How would a virtual waiting room work?",
+        "How do you decide what to shed first?",
+        "How would you plan capacity for a planned launch?"
+      ],
+      "related": [
+        "design-online-learning-platform",
+        "video-upload-processing-delivery"
+      ]
+    },
+    {
+      "slug": "ai-tutor-for-learning-platform",
+      "title": "How would you add an AI tutor to the learning platform?",
+      "topic": "AI features",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "ai",
+        "rag",
+        "security",
+        "evaluation",
+        "prompt-injection"
+      ],
+      "companies": [
+        "evoke"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would use retrieval over approved course content only, filtered by the learner's entitlements and tenant before anything reaches the model. Content is chunked and indexed with metadata, answers include citations to lessons, and retrieved text is treated as untrusted to resist prompt injection. I evaluate with test questions for groundedness, correctness, refusal and cost, and add a fallback when the model or retrieval fails. The model advises only: it never changes grades, payments or entitlements.",
+      "revision": "Entitlement- and tenant-filtered retrieval over approved content, citations, injection defences, evaluation metrics, fallback; the model never changes grades, payments or access.",
+      "detailed": "An AI tutor is a retrieval-augmented feature with strict authorisation and clear limits.\n\n{{diagram:tutor}}\n\n## Retrieval\n\n- **Approved content only.** Index published course material (transcripts, text, approved notes). Chunk by lesson and section with overlap sensible for the content, and store metadata: course version, lesson, tenant, language.\n- **Authorised retrieval.** Filter by the caller's entitlements and tenant at query time, in the retrieval layer, so unauthorised text never reaches the prompt. Do not rely on telling the model \"do not reveal\".\n- **Citations.** Answers link back to lessons so learners can verify, and the system can refuse when nothing relevant is retrieved.\n\n## Safety\n\n- **Prompt injection.** Course text, learner uploads and forum posts may contain instructions. Treat retrieved content as data, separate it from system instructions, strip or flag suspicious patterns, and limit what actions the model can trigger.\n- **Privacy.** Minimise personal data in prompts, set retention rules, and check your model provider's terms for training and data handling.\n- **Least authority.** The model produces text. It has no tool that changes grades, payments, enrolments or entitlements; those stay in deterministic services with their own checks.\n\n## Evaluation\n\nBuild a test set of real-style questions with expected sources. Track groundedness (answer supported by retrieved text), citation accuracy, refusal quality for out-of-scope or unauthorised queries, helpfulness ratings, latency and cost per session. Re-run on every prompt, model or index change, and monitor in production with sampling and human review.\n\n## Reliability\n\nDefine fallbacks: if the model or retrieval is down, show plain course search and an apology rather than an error. Apply rate limits and budgets per user and tenant.\n\n## Common mistakes\n\n- Putting all content in one index without tenant filtering.\n- Letting the model decide grades or refunds.\n- Shipping with no evaluation set.",
+      "diagrams": [
+        {
+          "id": "tutor",
+          "title": "AI tutor request flow",
+          "alt": "A learner question goes to a tutor service that checks the learner's identity, tenant and entitlements. Retrieval searches the approved content index using those filters and returns chunks with citations. The tutor service builds a prompt with the chunks as untrusted data and calls the model. The answer passes an output check and is returned with citations. If retrieval or the model fails, a fallback shows course search.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "lq",
+              "label": "Learner question"
+            },
+            {
+              "id": "ts",
+              "label": "Tutor service: identity, tenant, entitlements"
+            },
+            {
+              "id": "ix",
+              "label": "Approved content index"
+            },
+            {
+              "id": "pb",
+              "label": "Prompt builder: chunks as untrusted data"
+            },
+            {
+              "id": "md",
+              "label": "Language model"
+            },
+            {
+              "id": "oc",
+              "label": "Output check and citations"
+            },
+            {
+              "id": "fb",
+              "label": "Fallback: course search"
+            }
+          ],
+          "edges": [
+            {
+              "from": "lq",
+              "to": "ts"
+            },
+            {
+              "from": "ts",
+              "to": "ix",
+              "label": "filtered retrieval"
+            },
+            {
+              "from": "ix",
+              "to": "pb",
+              "label": "chunks"
+            },
+            {
+              "from": "pb",
+              "to": "md"
+            },
+            {
+              "from": "md",
+              "to": "oc"
+            },
+            {
+              "from": "oc",
+              "to": "lq",
+              "label": "answer with citations"
+            },
+            {
+              "from": "ts",
+              "to": "fb",
+              "label": "failure"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you test for cross-tenant leakage?",
+        "How do you handle content updates in the index?",
+        "Should the tutor help during a graded assessment?"
+      ],
+      "related": [
+        "enterprise-b2b-learning-multi-tenancy",
+        "assessment-system-design"
+      ]
+    }
+  ]
+}

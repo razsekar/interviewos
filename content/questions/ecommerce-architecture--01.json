@@ -1,0 +1,431 @@
+{
+  "category": "ecommerce-architecture",
+  "questions": [
+    {
+      "slug": "design-scalable-ecommerce-platform",
+      "title": "Design a scalable e-commerce platform",
+      "topic": "E-commerce system design",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "ecommerce",
+        "system-design",
+        "modular-monolith",
+        "consistency"
+      ],
+      "companies": [
+        "evoke"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would start with the main journeys: browse, search, cart, checkout and fulfilment. Then I split the platform into modules: catalog, search, pricing and promotions, inventory, cart, orders, payment, fulfilment, returns and notifications. Catalog and search can be eventually consistent and heavily cached behind a CDN. Inventory, payment and order state need strong control, so they use transactions, idempotency and a clear state machine. I would begin as a modular monolith and extract services only where scale or team ownership demands it.",
+      "revision": "Separate read-heavy, eventually consistent browsing from write-critical inventory, payment and order state; start modular, extract services where scale or ownership forces it.",
+      "detailed": "A good answer separates the **read-heavy browsing path** from the **write-critical transaction path**, because they have opposite needs. Browsing wants speed, caching and tolerance for staleness. Money and stock want correctness.\n\n## Modules and ownership\n\n| Module | Owns | Consistency need |\n|---|---|---|\n| Catalog | Products, attributes, media | Eventual is fine |\n| Search | Derived index of catalog | Eventual; rebuilt from catalog events |\n| Pricing and promotions | Price lists, rules | Cached, revalidated at checkout |\n| Inventory | Stock and reservations | Strong |\n| Cart | Pending line items | Session-level, loosely consistent |\n| Checkout and orders | Order and its state | Strong, state machine |\n| Payment | Provider interaction, payment records | Strong, idempotent |\n| Fulfilment and returns | Shipments, return cases | Workflow-driven |\n| Notifications | Email, SMS, push | Async, at-least-once |\n\n{{diagram:platform}}\n\n## Key design choices\n\n- **Modular first.** Begin as a modular monolith with enforced module boundaries and one database schema per module. Extract a module into a service when its scaling profile (search, inventory under flash sales) or team ownership justifies the operational cost.\n- **Events between modules.** Catalog changes publish events; search indexing, cache invalidation and recommendations subscribe. Use an outbox table so a change and its event commit together.\n- **CDN and caching.** Product images, scripts and cacheable product pages sit behind a CDN. Personalised parts (cart, price for a logged-in user) load separately.\n- **Search as a derived store.** A search engine is a read model, never the source of truth. If it lags, the customer sees slightly old data; checkout still validates against the owning modules.\n- **Strong control where it hurts.** Inventory decrements, payment capture and order transitions use transactions, idempotency keys and explicit states. See the related questions on overselling and the order state machine.\n- **Async everywhere else.** Notifications, analytics and fulfilment hand-off go through a queue so a slow email provider never blocks an order.\n\n## Common mistakes\n\n- Making everything eventually consistent, then overselling or double charging.\n- Starting with many microservices and paying distributed-transaction costs before there is any scale.\n- Treating the search index as the place to read price or stock at checkout.\n- Ignoring peak events (sales, launches): plan load tests, queue-based smoothing and graceful degradation such as disabling recommendations first.\n\nExample (hypothetical): during a flash sale, the product page is served from cache, the add-to-cart call hits only the cart module, and stock is checked and reserved only at checkout, where the inventory module is the single authority.",
+      "diagrams": [
+        {
+          "id": "platform",
+          "title": "E-commerce platform modules",
+          "alt": "Customers reach a CDN and an API gateway. The gateway routes browsing requests to catalog and search, and transactional requests to cart, checkout and orders. Checkout calls pricing, inventory and payment. Orders publish events to a message queue consumed by fulfilment and notifications.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "cdn",
+              "label": "CDN and web app"
+            },
+            {
+              "id": "gw",
+              "label": "API gateway"
+            },
+            {
+              "id": "cat",
+              "label": "Catalog and search"
+            },
+            {
+              "id": "cart",
+              "label": "Cart"
+            },
+            {
+              "id": "chk",
+              "label": "Checkout and orders"
+            },
+            {
+              "id": "price",
+              "label": "Pricing and promotions"
+            },
+            {
+              "id": "inv",
+              "label": "Inventory"
+            },
+            {
+              "id": "pay",
+              "label": "Payment"
+            },
+            {
+              "id": "q",
+              "label": "Event queue"
+            },
+            {
+              "id": "ful",
+              "label": "Fulfilment and notifications"
+            }
+          ],
+          "edges": [
+            {
+              "from": "cdn",
+              "to": "gw"
+            },
+            {
+              "from": "gw",
+              "to": "cat",
+              "label": "browse"
+            },
+            {
+              "from": "gw",
+              "to": "cart"
+            },
+            {
+              "from": "gw",
+              "to": "chk"
+            },
+            {
+              "from": "chk",
+              "to": "price",
+              "label": "validate"
+            },
+            {
+              "from": "chk",
+              "to": "inv",
+              "label": "reserve"
+            },
+            {
+              "from": "chk",
+              "to": "pay",
+              "label": "charge"
+            },
+            {
+              "from": "chk",
+              "to": "q",
+              "label": "order events"
+            },
+            {
+              "from": "q",
+              "to": "ful"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Which modules would you extract into services first, and why?",
+        "How do you keep search and catalog in sync, and what happens when they drift?",
+        "How would you design for a flash sale with 50x normal traffic?",
+        "How do you handle data ownership when reporting needs data from many modules?"
+      ],
+      "related": [
+        "prevent-selling-last-item-twice",
+        "checkout-order-state-machine"
+      ]
+    },
+    {
+      "slug": "prevent-selling-last-item-twice",
+      "title": "How do you prevent selling the last item twice?",
+      "topic": "Inventory consistency",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "inventory",
+        "concurrency",
+        "transactions",
+        "ecommerce"
+      ],
+      "companies": [
+        "evoke"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Two buyers can both read stock as 1 and both succeed if the check and the decrement are separate steps. I make them one atomic operation: an UPDATE that decrements only when enough stock remains, then check the affected row count. Zero rows means sold out. For checkout I use a reservation with an expiry so stock is held while payment happens, and a job releases expired holds. For very hot SKUs I would add queueing or sharded counters rather than relying on row locks alone.",
+      "revision": "Never read then write stock. Use one atomic conditional UPDATE and check affected rows; hold stock with expiring reservations during payment.",
+      "detailed": "The bug is a **check-then-act race**: both requests read `available = 1`, both decide it is fine, both decrement. The fix is to make the check and the change a single atomic step in the system that owns the data.\n\n## Option 1: atomic conditional update\n\n```sql\nUPDATE inventory\nSET available = available - :qty\nWHERE sku_id = :sku AND available >= :qty;\n-- affected rows = 1  -> reserved\n-- affected rows = 0  -> insufficient stock\n```\n\nThe database serialises concurrent updates to the same row, and the `WHERE` clause re-evaluates against the latest committed value. The application must inspect the affected-row count; ignoring it recreates the bug. Add a `CHECK (available >= 0)` constraint as a safety net.\n\n## Other techniques\n\n| Technique | How it works | Trade-off |\n|---|---|---|\n| Pessimistic lock (`SELECT ... FOR UPDATE`) | Lock the row, check, update, commit | Simple and safe, but holds locks and can queue under contention |\n| Optimistic version | `UPDATE ... WHERE id = ? AND version = ?` and retry on 0 rows | Good for low contention, wasteful on hot rows |\n| Reservation with expiry | Insert a reservation row (and decrement available) with `expires_at`; confirm on payment, release on timeout | Needed because payment takes time; requires a cleanup job |\n| Queue per SKU | Serialise requests for a hot SKU through one consumer | Adds latency, removes contention |\n| Sharded counters | Split stock across buckets to spread writes | Complex; reconciling the last few units is tricky |\n\n## Reservation flow\n\n1. At checkout start, atomically move quantity from `available` to `reserved` and create a reservation with a TTL.\n2. On successful payment, convert the reservation to a committed sale.\n3. On failure or expiry, a scheduled job returns the quantity to `available`. Make release idempotent so running it twice does not double-credit.\n\n## Common mistakes\n\n- Reserving on add-to-cart, which lets abandoned carts block real buyers.\n- Caching stock in the product page and treating it as authoritative; show it as approximate and validate at checkout.\n- Releasing stock on payment failure without checking whether a late success callback arrives.\n- Using a distributed lock in front of the database when a single conditional UPDATE is enough.\n\nExample (hypothetical): a limited-edition item has 1 unit. Both buyers send the UPDATE; one gets 1 affected row, the other gets 0 and sees a sold-out message.",
+      "followUps": [
+        "How do you handle a hot SKU where thousands of buyers want the same item?",
+        "What reservation TTL would you choose and what are the trade-offs?",
+        "How do you reconcile inventory when warehouse counts differ from the system?",
+        "What changes if inventory lives in a different service from orders?"
+      ],
+      "related": [
+        "design-scalable-ecommerce-platform",
+        "checkout-order-state-machine"
+      ]
+    },
+    {
+      "slug": "checkout-order-state-machine",
+      "title": "Design the checkout flow and order state machine",
+      "topic": "Checkout and orders",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "checkout",
+        "state-machine",
+        "saga",
+        "idempotency"
+      ],
+      "companies": [
+        "evoke"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I model the order as an explicit state machine with allowed transitions only, for example created, stock reserved, payment pending, paid, fulfilling, completed, or cancelled. Checkout validates prices, reserves stock, then starts payment. Every transition is idempotent and recorded. Because payment, inventory and fulfilment are separate systems, I use a saga: each step has a compensation such as releasing stock or refunding. Late payment callbacks and expired reservations are handled by checking current state before acting.",
+      "revision": "Orders move through explicit, idempotent transitions; a saga with compensations coordinates inventory, payment and fulfilment, and every callback checks current state first.",
+      "detailed": "Checkout spans several systems that cannot share one database transaction, so correctness comes from an **explicit state machine plus a saga with compensations**.\n\n## Flow\n\n1. **Checkout intent**: freeze cart lines, address and shipping choice into a checkout record.\n2. **Price validation**: recompute prices and promotions server-side; reject or confirm changes with the customer.\n3. **Reservation**: atomically reserve stock with an expiry.\n4. **Payment**: create a payment attempt with an idempotency key; wait for the provider result.\n5. **Confirm**: on success mark the order paid and hand off to fulfilment; on failure release stock.\n\n{{diagram:states}}\n\n## Rules that keep it safe\n\n- **Allowed transitions only.** A transition function takes (current state, event) and returns the next state or rejects it. Terminal states (completed, cancelled) accept nothing, except compensating financial events.\n- **Idempotent transitions.** Applying the same event twice yields the same state. Store event ids or use `UPDATE ... WHERE state = :expected` and check affected rows.\n- **Saga compensation.** If payment fails, release the reservation. If fulfilment cannot ship, cancel and refund. Compensations are themselves retried until they succeed.\n- **Late callbacks.** A provider may confirm payment after the reservation expired. Check state: if the order is already cancelled, either re-reserve if stock remains or automatically refund, and log it.\n- **Expired reservations.** A timer moves the order to cancelled only if it is still awaiting payment; the same guarded update prevents racing a payment success.\n- **Partial fulfilment.** Track state per shipment or order line, with the order status derived (for example partially shipped) rather than forcing a single flag.\n\n## Common mistakes\n\n- Storing a boolean `is_paid` plus other flags instead of one authoritative state.\n- Trusting the browser redirect after payment instead of the provider's verified server callback.\n- Charging the customer, then failing to create the order because the process crashed; persist intent before calling the provider.\n- Orchestration logic scattered across services; keep one owner of order state.\n\nExample (hypothetical): payment is captured at the same moment the reservation expires. The guarded update fails for the expiry job because the state is already paid, so the order survives.",
+      "diagrams": [
+        {
+          "id": "states",
+          "title": "Order state machine",
+          "alt": "An order starts as checkout created, then stock reserved, then payment pending. Successful payment moves it to paid, then fulfilling, then completed. Payment failure or reservation expiry moves it to cancelled. A paid order can also be cancelled with a refund.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "c",
+              "label": "Checkout created"
+            },
+            {
+              "id": "r",
+              "label": "Stock reserved"
+            },
+            {
+              "id": "p",
+              "label": "Payment pending"
+            },
+            {
+              "id": "paid",
+              "label": "Paid"
+            },
+            {
+              "id": "f",
+              "label": "Fulfilling"
+            },
+            {
+              "id": "d",
+              "label": "Completed"
+            },
+            {
+              "id": "x",
+              "label": "Cancelled"
+            }
+          ],
+          "edges": [
+            {
+              "from": "c",
+              "to": "r",
+              "label": "reserve ok"
+            },
+            {
+              "from": "r",
+              "to": "p",
+              "label": "start payment"
+            },
+            {
+              "from": "p",
+              "to": "paid",
+              "label": "payment success"
+            },
+            {
+              "from": "paid",
+              "to": "f"
+            },
+            {
+              "from": "f",
+              "to": "d",
+              "label": "delivered"
+            },
+            {
+              "from": "p",
+              "to": "x",
+              "label": "failed or expired"
+            },
+            {
+              "from": "paid",
+              "to": "x",
+              "label": "cancel and refund"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Orchestration or choreography for this saga, and why?",
+        "How would you handle a payment provider timeout where the result is unknown?",
+        "How do you let customers edit or cancel an order after payment?",
+        "How do you test the failure paths of a saga?"
+      ],
+      "related": [
+        "prevent-selling-last-item-twice",
+        "refunds-and-returns-design"
+      ]
+    },
+    {
+      "slug": "pricing-and-promotions-design",
+      "title": "How do you design pricing and promotions?",
+      "topic": "Pricing engine",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "pricing",
+        "promotions",
+        "tax",
+        "rules-engine"
+      ],
+      "companies": [
+        "evoke"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I treat pricing as a deterministic function: base price, then ordered discount rules, then tax, then rounding. Rules have explicit precedence, stacking policy, validity windows and are versioned so any order can be explained later. Prices can be cached for browsing, but I recompute and revalidate at checkout and store the applied rule versions on the order. Money uses integer minor units with a defined rounding rule and currency, never floating point.",
+      "revision": "Pricing is a versioned, deterministic pipeline with explicit precedence and stacking; cache for display, recompute at checkout, and store what was applied.",
+      "detailed": "Pricing bugs cost money and trust, so the goal is a **deterministic, explainable, versioned pipeline**.\n\n## Pipeline\n\n1. **Base price** from a price list (by region, currency, customer segment).\n2. **Item-level promotions** (percentage off, fixed off, sale price).\n3. **Cart-level promotions** (spend threshold, buy X get Y, coupon codes).\n4. **Shipping and fees.**\n5. **Tax** according to jurisdiction and whether prices are tax-inclusive.\n6. **Rounding** at a defined step, producing final totals.\n\n## Design decisions\n\n| Concern | Approach |\n|---|---|\n| Precedence | Each rule has a priority and a type; the engine applies them in a fixed order |\n| Stacking | Declare per rule whether it is exclusive, stackable, or best-of; cap total discount if needed |\n| Time windows | Rules carry start and end timestamps in UTC; evaluate against one \"pricing time\" captured per request |\n| Versioning | Rules are immutable versions; an order stores the rule and price-list versions used |\n| Rounding | Use integer minor units (cents) or decimal types; fix where rounding happens and how remainders are allocated across lines |\n| Currency | Store the currency with every amount; convert with a recorded rate and timestamp, never mix silently |\n| Tax | Prefer a dedicated tax component or provider interface; keep tax lines separate from the discounted subtotal |\n\n## Caching and checkout\n\nProduct pages may show cached prices for speed. At checkout the server **recomputes the whole price** from current rules, compares with what the customer saw, and asks for confirmation if it changed. The cached value is a hint, never the charge.\n\n## Common mistakes\n\n- Using floating point for money.\n- Applying discounts in different orders in different services, producing different totals.\n- Letting the client send the price.\n- Editing rules in place so past orders cannot be explained or refunded accurately.\n- Forgetting that a refund of one line must reverse that line's share of cart-level discounts.\n\nExample (hypothetical): a 10% category discount and a fixed 5 off coupon are both valid. The policy says percentage first, then the fixed coupon, and the coupon cannot reduce an item below zero.",
+      "followUps": [
+        "How would you allocate a cart-level discount across line items for refunds?",
+        "How do you test a pricing engine with thousands of rule combinations?",
+        "How do you schedule a sale to start at an exact time across regions?",
+        "When would you precompute prices versus compute on request?"
+      ],
+      "related": [
+        "checkout-order-state-machine",
+        "refunds-and-returns-design"
+      ]
+    },
+    {
+      "slug": "refunds-and-returns-design",
+      "title": "How do you design refunds and returns?",
+      "topic": "Returns and refunds",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "returns",
+        "refunds",
+        "idempotency",
+        "reconciliation"
+      ],
+      "companies": [
+        "evoke"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I model returns as their own workflow: request, authorisation against eligibility rules, shipment back, inspection, then refund and inventory disposition. Refunds go to the payment provider with idempotency keys so retries never pay twice. Financial records are append-only: a refund is a new entry linked to the original payment, never an edit. Returned items are restocked, quarantined or scrapped based on inspection. A reconciliation job compares our ledger with provider reports to catch mismatches.",
+      "revision": "Returns are a workflow, refunds are idempotent provider calls recorded as immutable ledger entries, and reconciliation catches drift between our records and the provider's.",
+      "detailed": "Returns touch customers, warehouses, finance and the payment provider, so the design must be **auditable and safe to retry**.\n\n## Return workflow\n\n1. **Request and authorisation.** Check eligibility: order state, return window, item category, condition rules, quantity already returned. Issue a return authorisation with a reason code.\n2. **Shipping back.** Generate a label or schedule pickup; track the return shipment.\n3. **Inspection.** Warehouse records condition per item.\n4. **Decision.** Approve full, partial or no refund based on inspection and policy.\n5. **Refund and disposition.** Pay the customer and decide what happens to the stock.\n\n## Refund correctness\n\n- **Idempotent provider calls.** Create each refund with a stable idempotency key derived from the return line, so a retry after a timeout returns the original result instead of paying twice.\n- **Bounded amounts.** Total refunded can never exceed amount captured; check against the sum of existing refunds in a transaction.\n- **Pro-rated adjustments.** Return the item's price, its share of order-level discounts, tax and, depending on policy, shipping.\n- **Async confirmation.** Refunds often settle later; track states such as requested, submitted, succeeded, failed, and handle provider webhooks idempotently.\n\n## Inventory disposition\n\n| Outcome | Action |\n|---|---|\n| Resellable | Add back to available stock |\n| Needs refurbishing | Move to a separate non-sellable location |\n| Damaged | Write off or return to supplier |\n\nOnly add stock back after inspection, not when the customer clicks return.\n\n## Immutable financial records and reconciliation\n\nNever update or delete payments or refunds. Record each money movement as an append-only ledger entry; corrections are new compensating entries. A daily reconciliation compares internal entries with provider settlement reports and flags missing, duplicate or amount-mismatched items for review.\n\n## Common mistakes\n\n- Refunding on request instead of on approval.\n- Recalculating the refund from today's prices rather than what the customer paid.\n- Mixing return status and refund status in one field.\n\nExample (hypothetical): a customer returns 1 of 3 units; the refund covers one unit's paid price after its discount share, and the remaining quantity stays eligible.",
+      "followUps": [
+        "How would you prevent a refund from exceeding what was paid across multiple partial returns?",
+        "What do you do when a refund fails at the provider after the item was restocked?",
+        "How do you handle returns for bundles or items with promotions?",
+        "How would you detect refund fraud?"
+      ],
+      "related": [
+        "checkout-order-state-machine",
+        "pricing-and-promotions-design"
+      ]
+    },
+    {
+      "slug": "multi-seller-marketplace-design",
+      "title": "How would you support a multi-seller marketplace?",
+      "topic": "Marketplace architecture",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "marketplace",
+        "ledger",
+        "payouts",
+        "multi-tenant"
+      ],
+      "companies": [
+        "evoke"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "A marketplace adds sellers as first-class actors. I add seller onboarding and verification, per-seller catalog and inventory, and split a customer's order into fulfilment groups, one per seller. Money is tracked in a ledger: customer payment, platform commission, seller balance, refunds. Sellers are paid out on a schedule after holds for returns and disputes. Order status shows overall progress while each group ships independently. Disputes and refunds reverse the right ledger entries per seller.",
+      "revision": "Split one customer order into per-seller fulfilment groups, track money in a ledger with commission, and pay sellers after hold periods and disputes.",
+      "detailed": "The shift from single-merchant to marketplace is that **one customer order contains work and money belonging to several sellers**.\n\n## Capabilities to add\n\n- **Seller onboarding.** Identity and business verification, payout account details, policy acceptance, status (pending, active, suspended). Use a regulated payment partner for compliance-sensitive steps where possible.\n- **Seller catalog and inventory.** Listings belong to a seller; stock is per seller and location. The same product may have several offers; the storefront selects or shows them by rule.\n- **Order splitting.** The customer pays once; the order divides into **fulfilment groups**, one per seller (and per warehouse if needed), each with its own shipment, tracking and state.\n\n{{diagram:split}}\n\n## Money and ledger\n\nUse double-entry-style ledger records instead of a mutable balance:\n\n| Event | Entries (illustrative) |\n|---|---|\n| Customer pays | Platform holds funds for the order |\n| Group delivered | Seller payable credited; commission recognised |\n| Return and refund | Reverse the seller's share and commission proportionally |\n| Payout | Seller payable debited, bank transfer recorded |\n\n- **Commission** is configurable by category or seller and snapshotted on the order group so later rate changes do not rewrite history.\n- **Payouts** run on a schedule, after a hold period, net of refunds, fees and adjustments. Make payout runs idempotent and reconcile with the provider.\n- **Disputes and chargebacks** are tied to a group; the platform may reserve funds from the seller's balance until resolved.\n\n## Operational concerns\n\n- Each seller's catalog changes feed search with seller-scoped permissions and rate limits.\n- Customer-facing status aggregates group states, for example partially shipped.\n- Seller isolation: sellers see only their own orders, customers and reports.\n- Quality controls: seller ratings, cancellation rates, policy enforcement.\n\n## Common mistakes\n\n- One shipment status for the whole order.\n- Storing a seller balance as one editable number.\n- Paying out immediately and then being unable to recover refunds.\n\nExample (hypothetical): a cart has items from two sellers. One group ships today, the other is delayed; the customer cancels only the delayed group and gets a partial refund.",
+      "diagrams": [
+        {
+          "id": "split",
+          "title": "Marketplace order splitting",
+          "alt": "One customer order is paid once, then split into fulfilment groups for seller A and seller B. Each group has its own shipment. Both groups feed a ledger that records commission and seller balances, which leads to seller payouts.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "o",
+              "label": "Customer order and payment"
+            },
+            {
+              "id": "ga",
+              "label": "Group: seller A"
+            },
+            {
+              "id": "gb",
+              "label": "Group: seller B"
+            },
+            {
+              "id": "sa",
+              "label": "Shipment A"
+            },
+            {
+              "id": "sb",
+              "label": "Shipment B"
+            },
+            {
+              "id": "l",
+              "label": "Ledger"
+            },
+            {
+              "id": "p",
+              "label": "Seller payouts"
+            }
+          ],
+          "edges": [
+            {
+              "from": "o",
+              "to": "ga",
+              "label": "split"
+            },
+            {
+              "from": "o",
+              "to": "gb",
+              "label": "split"
+            },
+            {
+              "from": "ga",
+              "to": "sa"
+            },
+            {
+              "from": "gb",
+              "to": "sb"
+            },
+            {
+              "from": "sa",
+              "to": "l",
+              "label": "delivered"
+            },
+            {
+              "from": "sb",
+              "to": "l",
+              "label": "delivered"
+            },
+            {
+              "from": "l",
+              "to": "p",
+              "label": "after hold"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you handle returns and refunds when one order has multiple sellers?",
+        "How would you design seller-level inventory feeds from external systems?",
+        "What compliance concerns affect marketplace payouts?",
+        "How do you rank competing offers for the same product?"
+      ],
+      "related": [
+        "design-scalable-ecommerce-platform",
+        "refunds-and-returns-design"
+      ]
+    }
+  ]
+}

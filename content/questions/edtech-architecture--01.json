@@ -1,0 +1,683 @@
+{
+  "category": "edtech-architecture",
+  "questions": [
+    {
+      "slug": "design-online-learning-platform",
+      "title": "How would you design an online learning platform for courses, video, assessments and certificates?",
+      "topic": "Platform design",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "edtech",
+        "architecture",
+        "bounded-contexts",
+        "modular-monolith"
+      ],
+      "companies": [
+        "evoke"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would split the platform into bounded contexts: identity, tenants, authoring, catalog and search, media, enrollment and entitlements, progress, assessments, commerce, certificates, notifications and analytics. I would start as a modular monolith with async workers for slow jobs, and extract media, search and analytics first when scale or team ownership demands it. Video never flows through app servers: learners upload and stream through object storage and a CDN, while the app only issues short-lived credentials and checks entitlements.",
+      "revision": "Bounded contexts in a modular monolith plus async workers; video goes object storage to CDN, never through app servers; extract media, search and analytics later.",
+      "detailed": "A learning platform is a set of loosely related domains sharing one learner and one catalogue. Design it around **bounded contexts**, each owning its data and exposing a narrow interface.\n\n{{diagram:overview}}\n\n## Contexts\n\n| Context | Owns |\n|---|---|\n| Identity | accounts, authentication, roles |\n| Tenants/orgs | organisations, memberships, delegated admins |\n| Authoring | drafts, versions, publishing workflow |\n| Catalog/search | published course listings, read models, search index |\n| Media | uploads, transcoding, renditions, delivery |\n| Enrollment/entitlements | who may access which course version |\n| Progress | positions, completion state |\n| Assessments | quizzes, attempts, grading |\n| Commerce | orders, payments, refunds, coupons |\n| Certificates | completion records, issued certificates |\n| Notifications, analytics | email/push, event-derived reporting |\n\n## Shape of the system\n\nStart as a **modular monolith**: one deployable, strict module boundaries, no cross-module table access, communication through in-process interfaces and domain events. Slow or spiky work (transcoding, email, indexing, certificate rendering, report exports) goes to **async workers** fed by a queue, using a transactional outbox so events are not lost.\n\nExtract later what has a clear reason: media processing (CPU heavy, different scaling), search (different datastore), analytics (high write volume, different consistency needs).\n\n## Video rule\n\nLarge binaries never pass through application servers. Authors upload straight to **object storage** using short-lived credentials; learners stream from a **CDN** after the app has checked entitlement. App servers handle metadata and authorisation only.\n\n## Common mistakes\n\n- Starting with a dozen microservices before the domain is understood.\n- Letting modules read each other's tables, which makes later extraction painful.\n- Proxying video through the API, which makes bandwidth the bottleneck.\n- Treating certificates and payments as best-effort side effects instead of durable workflows.",
+      "diagrams": [
+        {
+          "id": "overview",
+          "title": "Platform overview",
+          "alt": "Learners and authors use web and mobile clients that call one modular monolith containing identity, catalog, enrollment, progress, assessments and commerce modules. The monolith writes to a relational database and publishes events through an outbox to a queue. Workers consume the queue for search indexing, notifications and certificates. Authors upload video to object storage, a media pipeline processes it, and a CDN serves it to learners.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "cl",
+              "label": "Web and mobile clients"
+            },
+            {
+              "id": "mono",
+              "label": "Modular monolith (identity, catalog, enrollment, progress, assessments, commerce)"
+            },
+            {
+              "id": "db",
+              "label": "Relational database"
+            },
+            {
+              "id": "q",
+              "label": "Queue (outbox events)"
+            },
+            {
+              "id": "w",
+              "label": "Async workers (search, email, certificates)"
+            },
+            {
+              "id": "obj",
+              "label": "Object storage"
+            },
+            {
+              "id": "media",
+              "label": "Media pipeline"
+            },
+            {
+              "id": "cdn",
+              "label": "CDN"
+            }
+          ],
+          "edges": [
+            {
+              "from": "cl",
+              "to": "mono",
+              "label": "API calls"
+            },
+            {
+              "from": "mono",
+              "to": "db"
+            },
+            {
+              "from": "mono",
+              "to": "q",
+              "label": "outbox relay"
+            },
+            {
+              "from": "q",
+              "to": "w"
+            },
+            {
+              "from": "cl",
+              "to": "obj",
+              "label": "direct upload"
+            },
+            {
+              "from": "obj",
+              "to": "media"
+            },
+            {
+              "from": "media",
+              "to": "cdn",
+              "label": "renditions"
+            },
+            {
+              "from": "cdn",
+              "to": "cl",
+              "label": "video stream"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Which context would you extract first and why?",
+        "Where do tenant boundaries show up in this design?",
+        "How do contexts communicate without sharing tables?"
+      ],
+      "related": [
+        "modular-monolith-vs-microservices-edtech",
+        "course-publishing-workflow",
+        "video-upload-processing-delivery"
+      ]
+    },
+    {
+      "slug": "modular-monolith-vs-microservices-edtech",
+      "title": "Modular monolith or microservices for an EdTech platform?",
+      "topic": "Platform design",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "microservices",
+        "modular-monolith",
+        "boundaries",
+        "edtech"
+      ],
+      "companies": [
+        "evoke"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would begin with a modular monolith because early domain boundaries are guesses and a single deployable is cheaper to change, test and operate. Service boundaries should follow domain ownership and change cadence, not database tables or screens. I extract a module when there is a concrete trigger: different scaling profile such as video processing, independent release needs of a team, a different datastore such as search, or fault isolation. Until then, enforce boundaries in code.",
+      "revision": "Start modular monolith; boundaries follow domain ownership, not tables or screens; extract on concrete triggers such as scaling profile, team autonomy or datastore need.",
+      "detailed": "The default answer is a **modular monolith**, with named triggers for extraction. Microservices are an organisational and operational tool, not a quality mark.\n\n## Why start modular\n\n- Domain boundaries are still moving; refactoring inside one codebase is far cheaper than changing network contracts.\n- One deployment, one transaction scope and one debugging surface keep a small team fast.\n- Enrollment, payment and progress often need consistent updates; distributed transactions add complexity early.\n\n## Boundaries that hold\n\nDraw lines around **domain ownership**: who decides the rules and who is accountable. \"Enrollment\" owns entitlements even if the UI shows them on three screens. Bad cuts follow tables (\"user-service\", \"course-table-service\") or screens (\"dashboard-service\"), producing chatty calls and shared data.\n\nEnforce the boundary in the monolith: separate modules or packages, public interfaces, no cross-module joins, architecture tests that fail on forbidden imports, and domain events for cross-module reactions.\n\n## Extraction triggers\n\n| Trigger | Example (illustrative) |\n|---|---|\n| Different scaling profile | Transcoding is CPU heavy and bursty |\n| Different technology | Search needs its own engine |\n| Team autonomy | A team is blocked by shared release trains |\n| Fault isolation | Analytics ingestion must never slow checkout |\n| Compliance | Payment data needs a narrower blast radius |\n\n## Cost of splitting\n\nNetwork failures, versioned contracts, distributed tracing, eventual consistency, separate deployments and data ownership migration. If the team cannot operate these, splitting makes things worse.\n\n## Common mistakes\n\n- A \"distributed monolith\": many services that must deploy together.\n- Sharing one database between services.\n- Splitting before there is a reason you can measure.",
+      "followUps": [
+        "How do you prevent module boundaries eroding in a monolith?",
+        "How would you extract search with minimal risk?",
+        "When is a shared database acceptable?"
+      ],
+      "related": [
+        "design-online-learning-platform",
+        "course-publishing-workflow"
+      ]
+    },
+    {
+      "slug": "course-publishing-workflow",
+      "title": "How would you design the course publishing workflow?",
+      "topic": "Authoring",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "publishing",
+        "outbox",
+        "events",
+        "versioning"
+      ],
+      "companies": [
+        "evoke"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Authors edit a draft; publishing creates an immutable, versioned snapshot after validation, so learners never see half-edited content. Media is uploaded directly to storage and processed asynchronously, with a visible status per asset. Publishing validates that every lesson has ready media and required metadata, then in one database transaction marks the version published and writes a CoursePublished event to an outbox. Search indexing and notification consumers read that event and are retryable and idempotent.",
+      "revision": "Draft is editable; publish validates and freezes an immutable version, writing CoursePublished via outbox in the same transaction; consumers are idempotent and retryable.",
+      "detailed": "Publishing is a state transition, not a flag flip. The goals: learners see only complete, consistent content; publishing is safe to retry; downstream systems catch up reliably.\n\n{{diagram:publish}}\n\n## Steps\n\n1. **Draft editing.** Authors change a mutable draft. Autosave is fine here.\n2. **Direct uploads.** Files go straight to object storage via short-lived credentials. The app records each asset with a status: `uploading`, `processing`, `ready`, `failed`. The UI shows progress and failures.\n3. **Validation.** On publish request, check completeness: every lesson has ready media or content, titles and pricing present, assessments have valid answer keys, no failed assets.\n4. **Snapshot.** Copy or freeze the draft into a new **course version** with a version number. Published versions are immutable.\n5. **Atomic commit with outbox.** In one transaction, mark the version published, move the course's \"current version\" pointer, and insert a `CoursePublished` row into an outbox table.\n6. **Relay and consumers.** A relay publishes outbox rows to the queue. Consumers update the search index, send notifications and refresh caches. Each consumer must be idempotent (keyed by event id or version) and retry with backoff, with a dead-letter queue for poison messages.\n\n```sql\nCREATE TABLE outbox (\n  id bigserial PRIMARY KEY,\n  event_type text NOT NULL,\n  aggregate_id uuid NOT NULL,\n  payload jsonb NOT NULL,\n  created_at timestamptz NOT NULL DEFAULT now(),\n  published_at timestamptz\n);\n```\n\n## Why the outbox\n\nWriting to the database and then calling the queue separately can lose the event if the process dies between them. The outbox makes the event part of the same transaction.\n\n## Common mistakes\n\n- Editing published content in place, which breaks enrolled learners.\n- Publishing before media is ready.\n- Calling search or email synchronously from the publish request, so a slow dependency fails publishing.",
+      "diagrams": [
+        {
+          "id": "publish",
+          "title": "Publishing flow",
+          "alt": "An author edits a draft, uploads media directly to storage, and requests publish. A validation step checks completeness. On success, one database transaction creates the immutable course version and an outbox event. A relay sends the CoursePublished event to a queue, from which a search indexer and a notification consumer each read and process it.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "dr",
+              "label": "Draft course"
+            },
+            {
+              "id": "up",
+              "label": "Direct media upload and status"
+            },
+            {
+              "id": "val",
+              "label": "Validation"
+            },
+            {
+              "id": "tx",
+              "label": "Transaction: publish version and write outbox"
+            },
+            {
+              "id": "rel",
+              "label": "Outbox relay"
+            },
+            {
+              "id": "q",
+              "label": "Queue"
+            },
+            {
+              "id": "idx",
+              "label": "Search indexer"
+            },
+            {
+              "id": "not",
+              "label": "Notification consumer"
+            }
+          ],
+          "edges": [
+            {
+              "from": "dr",
+              "to": "up"
+            },
+            {
+              "from": "up",
+              "to": "val",
+              "label": "publish requested"
+            },
+            {
+              "from": "val",
+              "to": "tx",
+              "label": "valid"
+            },
+            {
+              "from": "tx",
+              "to": "rel"
+            },
+            {
+              "from": "rel",
+              "to": "q",
+              "label": "CoursePublished"
+            },
+            {
+              "from": "q",
+              "to": "idx"
+            },
+            {
+              "from": "q",
+              "to": "not"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you handle unpublishing or a content takedown?",
+        "What happens to enrolled learners when a new version is published?",
+        "How do you avoid duplicate notifications on retry?"
+      ],
+      "related": [
+        "course-lesson-data-model",
+        "video-upload-processing-delivery"
+      ]
+    },
+    {
+      "slug": "course-lesson-data-model",
+      "title": "How would you model courses, sections and lessons, including versions?",
+      "topic": "Data modelling",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "data-model",
+        "sql",
+        "versioning",
+        "constraints"
+      ],
+      "companies": [
+        "evoke"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would separate the stable course identity from course_version rows, with section and lesson belonging to a version, and content_asset rows pointing to binaries in object storage by key. Enrollments reference the course_version the learner started on, so later edits never change their curriculum. Constraints enforce ordering and uniqueness, indexes support listing a version's lessons in order, and a status column models draft, published and archived. Videos and files are never stored in the database.",
+      "revision": "course -> course_version -> section -> lesson -> content_asset; enrollment pins a version; unique ordering constraints; binaries stay in object storage.",
+      "detailed": "Model identity separately from content, and content separately from binaries.\n\n## Core tables (simplified)\n\n```sql\nCREATE TABLE course (\n  id uuid PRIMARY KEY,\n  org_id uuid,                       -- null for public catalogue\n  current_version_id uuid\n);\n\nCREATE TABLE course_version (\n  id uuid PRIMARY KEY,\n  course_id uuid NOT NULL REFERENCES course(id),\n  version_no int NOT NULL,\n  status text NOT NULL CHECK (status IN ('draft','published','archived')),\n  published_at timestamptz,\n  UNIQUE (course_id, version_no)\n);\n\nCREATE TABLE section (\n  id uuid PRIMARY KEY,\n  course_version_id uuid NOT NULL REFERENCES course_version(id),\n  position int NOT NULL,\n  title text NOT NULL,\n  UNIQUE (course_version_id, position) DEFERRABLE INITIALLY DEFERRED\n);\n\nCREATE TABLE lesson (\n  id uuid PRIMARY KEY,\n  section_id uuid NOT NULL REFERENCES section(id),\n  position int NOT NULL,\n  kind text NOT NULL,                -- video, text, quiz\n  title text NOT NULL,\n  UNIQUE (section_id, position) DEFERRABLE INITIALLY DEFERRED\n);\n\nCREATE TABLE content_asset (\n  id uuid PRIMARY KEY,\n  lesson_id uuid NOT NULL REFERENCES lesson(id),\n  storage_key text NOT NULL,         -- object storage key, not the bytes\n  status text NOT NULL,              -- uploading, processing, ready, failed\n  duration_seconds int\n);\n```\n\n## Design points\n\n- **Versions.** Publishing copies the draft into a new version. The enrollment row stores `course_version_id`, so a learner keeps the curriculum they started on; the product can offer an opt-in upgrade.\n- **Immutability.** Enforce in the application (and optionally with triggers) that published versions are not edited.\n- **Ordering.** Unique `(parent, position)` constraints, deferrable so reordering within a transaction works.\n- **Indexes.** Foreign keys are not auto-indexed in every database; index `section(course_version_id)` and `lesson(section_id)` for curriculum loading.\n- **Carrying shared assets.** If a version copies lessons, reuse the same storage objects by key rather than duplicating bytes.\n\n## Common mistakes\n\n- Storing video or large files in database columns.\n- A single mutable course table that rewrites history under enrolled learners.\n- Ordering by insertion time instead of an explicit position.",
+      "followUps": [
+        "How would you let a learner migrate to a newer version?",
+        "How do you copy a version cheaply?",
+        "How would you model lessons that can be reused across courses?"
+      ],
+      "related": [
+        "course-publishing-workflow",
+        "progress-tracking-design"
+      ]
+    },
+    {
+      "slug": "video-upload-processing-delivery",
+      "title": "How would you design video upload, processing and delivery?",
+      "topic": "Media",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "video",
+        "hls",
+        "cdn",
+        "transcoding"
+      ],
+      "companies": [
+        "evoke"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Authors upload directly to object storage using short-lived, scoped credentials, never through app servers. An event triggers a worker pipeline: virus and type scan, transcoding into multiple renditions, packaging as HLS or DASH, and thumbnails. Learners request a manifest from an entitlement-aware endpoint, then fetch segments from a CDN. I track startup time, rebuffering ratio, and failed or slow jobs, with retries and a visible asset status for authors.",
+      "revision": "Direct upload with short-lived credentials, scan, transcode to HLS/DASH renditions, entitlement-aware manifest, CDN delivery; watch startup time, rebuffering and job failures.",
+      "detailed": "Video is the heaviest workload on a learning platform, so isolate it from the application path.\n\n{{diagram:video}}\n\n## Upload\n\nThe API issues a **short-lived, scoped upload credential** (for example a pre-signed URL or multipart upload) limited to one object key, size and content type. The browser uploads straight to object storage. Large files use multipart or resumable uploads so flaky connections can continue.\n\n## Processing\n\nA storage event enqueues a job. Workers:\n\n1. **Scan** for malware and verify the real media type, not just the extension.\n2. **Transcode** into several renditions (resolutions and bitrates) for adaptive streaming.\n3. **Package** as HLS or DASH segments plus a manifest, and generate thumbnails and optionally captions.\n4. Update the asset status to `ready` or `failed` with a reason.\n\nJobs are idempotent (output keys derived from asset id and rendition), retried with backoff, and routed to a dead-letter queue after repeated failure. Workers scale on queue depth.\n\n## Delivery\n\nThe player asks the API for the manifest. The API checks **entitlement** for the learner and course version, then returns a manifest URL, or signed cookies/URLs scoped to that content and short in lifetime. Segments are served by the **CDN** from the object store origin, so app servers never carry video bytes.\n\n## Metrics\n\n| Metric | Why |\n|---|---|\n| Video startup time | First impression and abandonment |\n| Rebuffering ratio | Quality of experience |\n| Rendition distribution | Whether bitrates fit audiences |\n| Job failure and queue age | Author-facing reliability |\n| CDN cache hit ratio, origin egress | Cost and load |\n\n## Common mistakes\n\n- Proxying uploads or playback through the API.\n- Single rendition only, hurting mobile learners.\n- No author-visible status, causing support tickets.\n- Long-lived public segment URLs.",
+      "diagrams": [
+        {
+          "id": "video",
+          "title": "Video pipeline",
+          "alt": "An author uploads a video directly to object storage using a short-lived credential issued by the API. A storage event queues a processing job. Workers scan the file, transcode it into several renditions, and package HLS or DASH segments back into storage. A learner asks the API for a manifest, which checks entitlement, then the learner's player fetches segments from the CDN, which pulls from object storage.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "au",
+              "label": "Author client"
+            },
+            {
+              "id": "api",
+              "label": "API (issues credentials, checks entitlement)"
+            },
+            {
+              "id": "obj",
+              "label": "Object storage"
+            },
+            {
+              "id": "jq",
+              "label": "Job queue"
+            },
+            {
+              "id": "wk",
+              "label": "Workers: scan, transcode, package"
+            },
+            {
+              "id": "cdn",
+              "label": "CDN"
+            },
+            {
+              "id": "pl",
+              "label": "Learner player"
+            }
+          ],
+          "edges": [
+            {
+              "from": "au",
+              "to": "api",
+              "label": "request upload credential"
+            },
+            {
+              "from": "au",
+              "to": "obj",
+              "label": "direct upload"
+            },
+            {
+              "from": "obj",
+              "to": "jq",
+              "label": "storage event"
+            },
+            {
+              "from": "jq",
+              "to": "wk"
+            },
+            {
+              "from": "wk",
+              "to": "obj",
+              "label": "renditions and manifest"
+            },
+            {
+              "from": "pl",
+              "to": "api",
+              "label": "request manifest"
+            },
+            {
+              "from": "pl",
+              "to": "cdn",
+              "label": "fetch segments"
+            },
+            {
+              "from": "cdn",
+              "to": "obj",
+              "label": "origin pull"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you support captions and multiple audio languages?",
+        "How do you reduce transcoding cost?",
+        "How do you handle a re-upload replacing a lesson video?"
+      ],
+      "related": [
+        "protecting-paid-content",
+        "course-publishing-workflow"
+      ]
+    },
+    {
+      "slug": "protecting-paid-content",
+      "title": "How do you protect paid course content from unauthorised access?",
+      "topic": "Content protection",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "security",
+        "signed-urls",
+        "drm",
+        "entitlements"
+      ],
+      "companies": [
+        "evoke"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I check entitlement on the server before returning any playback or download access, then issue short-lived signed URLs or cookies scoped to that content so links cannot be shared for long. I add rate limits and abuse detection for patterns like many concurrent streams or bulk downloads, and use DRM when contracts or content value require it. I am honest that nothing stops screen capture or a determined recording, so protection raises cost and supports takedown rather than guaranteeing secrecy.",
+      "revision": "Server-side entitlement check, short-lived scoped signed URLs/cookies, rate limits and abuse detection, DRM when needed; no scheme stops screen capture.",
+      "detailed": "Content protection is layered risk reduction, not a guarantee.\n\n## Layers\n\n1. **Authentication and entitlement.** Every playback or download request goes through the API, which verifies the learner has an active entitlement for that course version (purchase, subscription, org assignment). Do not rely on hidden URLs.\n2. **Short-lived signed access.** The CDN and object store accept only signed URLs or signed cookies with an expiry of minutes, scoped to a path prefix (that course or asset). A leaked link soon stops working. Refresh tokens while the player is active.\n3. **Rate limits and abuse detection.** Limit manifest and token requests per account and IP. Flag suspicious patterns: many simultaneous streams, many devices, sequential bulk fetching of every segment, credential sharing. Responses range from challenge to session revocation to review.\n4. **DRM when needed.** Encrypted streams with licence servers (commonly multi-DRM for different devices) add device-level enforcement and are worth their cost for premium or contractually restricted content. They add packaging, player and licensing complexity.\n5. **Watermarking and audit.** Visible or forensic watermarks with learner identity deter leaks and help trace them. Keep access logs.\n\n## Honest limits\n\nA learner who can watch can record the screen or capture the output. DRM raises the effort but does not close the analogue hole. State this to clients: aim to stop casual sharing and scraping, and have a takedown process for the rest.\n\n## Revocation\n\nExpiry should be short enough that refunds and cancellations take effect quickly. Entitlement checks happen at token issue; shorter token lifetimes reduce the window.\n\n## Common mistakes\n\n- Static public URLs for segments or PDFs.\n- Checking entitlement only in the UI.\n- Very long token lifetimes, defeating revocation.\n- Promising \"piracy-proof\" content.",
+      "followUps": [
+        "When would you not bother with DRM?",
+        "How do you handle a legitimate learner with several devices?",
+        "How do refunds revoke access promptly?"
+      ],
+      "related": [
+        "video-upload-processing-delivery",
+        "enterprise-b2b-learning-multi-tenancy"
+      ]
+    },
+    {
+      "slug": "progress-tracking-design",
+      "title": "How would you store learning progress reliably?",
+      "topic": "Progress",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "progress",
+        "idempotency",
+        "multi-device",
+        "events"
+      ],
+      "companies": [
+        "evoke"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "First define progress: last position, completion flag and watch time are different facts with different uses. The client sends batched heartbeats with a stable event id, timestamp and sequence; the server applies them idempotently. For multi-device, I use explicit rules such as completion is sticky and furthest-position or latest-timestamp wins per field. Stale or replayed events must never move progress backward or undo completion. Heavy detail goes to an event stream; the hot row holds the current state.",
+      "revision": "Separate position, completion and watch time; idempotent batched heartbeats; per-field merge rules; completion is sticky and stale events never move progress backward.",
+      "detailed": "Start by deciding what \"progress\" means, because one number cannot serve every need.\n\n| Fact | Use | Rule |\n|---|---|---|\n| Last position | Resume playback | Latest by client timestamp or sequence |\n| Completion | Certificates, course percentage | Sticky once true (unless content version resets) |\n| Watch time | Analytics, some compliance | Additive, deduplicated by event |\n\n## Write path\n\nClients send **heartbeats** every N seconds, buffered and sent in batches, plus an immediate flush on pause or exit. Each event carries a client-generated id, lesson id, position, device and monotonic timestamp or sequence. Batching cuts write volume massively compared with per-second requests.\n\nThe server writes idempotently:\n\n```sql\nINSERT INTO lesson_progress (learner_id, lesson_id, position_s, completed, updated_at)\nVALUES ($1, $2, $3, $4, $5)\nON CONFLICT (learner_id, lesson_id) DO UPDATE SET\n  position_s = CASE WHEN EXCLUDED.updated_at > lesson_progress.updated_at\n                    THEN EXCLUDED.position_s ELSE lesson_progress.position_s END,\n  completed  = lesson_progress.completed OR EXCLUDED.completed,\n  updated_at = GREATEST(lesson_progress.updated_at, EXCLUDED.updated_at);\n```\n\nReplaying the same batch produces the same row. Watch-time totals come from a deduplicated event log (unique event id), not from incrementing in the hot row.\n\n## Multi-device conflicts\n\nDefine rules per field and document them. A phone offline for an hour may send old events after a laptop has finished the lesson: the late events must not reduce position beyond policy or clear completion. Do not trust client clocks blindly; clamp timestamps to server receive time bounds.\n\n## Scaling\n\nKeep the current-state row small and indexed by `(learner_id, lesson_id)`. Append raw events to a stream for analytics and rebuilds. Course-level percentage can be computed asynchronously or cached.\n\n## Common mistakes\n\n- Treating \"99% watched\" as complete without a stated threshold.\n- Last-write-wins on everything, letting stale devices regress progress.\n- One synchronous write per second per learner.",
+      "followUps": [
+        "Who decides the completion threshold and where is it stored?",
+        "How do you recompute progress when a new course version adds lessons?",
+        "How would you detect and handle fake heartbeats?"
+      ],
+      "related": [
+        "certificates-exactly-once",
+        "course-lesson-data-model"
+      ]
+    },
+    {
+      "slug": "assessment-system-design",
+      "title": "How would you design quizzes and assessments?",
+      "topic": "Assessments",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "assessments",
+        "grading",
+        "idempotency",
+        "timers"
+      ],
+      "companies": [
+        "evoke"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I version questions so edits do not rewrite past attempts, and create an attempt record that snapshots the question set, start time and deadline. The server enforces time limits and attempt counts; the client timer is only a display. Answers autosave, and submit is idempotent so double clicks or retries produce one result. Grading records the rule version used, so later key corrections can trigger regrading deliberately. Subjective answers go to a manual grading queue with its own audit trail.",
+      "revision": "Versioned questions, attempt snapshot, server-enforced deadline and limits, autosave, idempotent submit, recorded grading rule version, manual grading queue.",
+      "detailed": "Assessment integrity depends on server-side authority and good records.\n\n## Data\n\n- **Question** and **question_version**: editing creates a new version; attempts reference the exact version shown.\n- **Attempt**: learner, assessment version, question versions served (and order if randomised), `started_at`, `deadline_at`, status (`in_progress`, `submitted`, `graded`, `expired`), attempt number.\n- **Answer**: attempt, question version, response, saved time.\n- **Grade**: score, per-question marks, grader (system or person), **grading rule version**, timestamp.\n\n## Enforcement\n\nThe server decides limits: it refuses a new attempt beyond the maximum, computes `deadline_at` at start, and rejects or flags answers after the deadline (policy may allow a small grace). The browser timer is cosmetic. A background job expires abandoned attempts and auto-submits what was saved where policy says so.\n\n## Autosave and submit\n\nAnswers autosave periodically so a crash or lost connection does not lose work. Submit takes an idempotency key (or uses the attempt id as the natural key): the first call transitions the attempt to `submitted`; repeats return the same result.\n\n```sql\nUPDATE attempt\nSET status = 'submitted', submitted_at = now()\nWHERE id = $1 AND status = 'in_progress';\n-- rows affected = 0 means already submitted: return the stored result\n```\n\n## Grading\n\nObjective questions grade automatically using the key of the version served. Store the **rule version** so a corrected key can be applied through an explicit regrade job, with before/after scores and an audit entry, rather than silently changing history. Free-text or project work enters a manual queue with rubrics, assignment, double marking if needed, and moderation.\n\n## Common mistakes\n\n- Sending correct answers to the client.\n- Trusting client-supplied time or score.\n- Editing a question in place after attempts exist.\n- Regrading without recording what changed.",
+      "followUps": [
+        "How would you randomise questions fairly and reproducibly?",
+        "How do you handle a learner whose connection drops mid-exam?",
+        "How would you support proctoring integrations?"
+      ],
+      "related": [
+        "certificates-exactly-once",
+        "progress-tracking-design"
+      ]
+    },
+    {
+      "slug": "certificates-exactly-once",
+      "title": "How do you issue certificates exactly once?",
+      "topic": "Certificates",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "certificates",
+        "idempotency",
+        "workers",
+        "reconciliation"
+      ],
+      "companies": [
+        "evoke"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "True exactly-once delivery is not available, so I make issuing effectively once. First persist the completion decision as a record. Then enforce a unique key on learner, course version and certificate type so duplicates are impossible at the database. A worker generates the certificate and sends email; it is safe to retry because it uses an insert-or-fetch on that key and stable file names. A periodic reconciliation job finds completed learners without certificates and repairs gaps.",
+      "revision": "Persist the completion decision, unique (learner, course version, type), retry-safe worker using insert-or-fetch, and reconcile completions missing certificates.",
+      "detailed": "Aim for **at-least-once execution with idempotent effects**, which behaves as exactly once for the learner.\n\n## Steps\n\n1. **Decide and persist completion.** When progress and assessment rules are met, record a `completion` row (learner, course version, completed_at, rule summary). This is the source of truth, evaluated once and stored, not recomputed each time the PDF is requested.\n2. **Emit an event** via the outbox so a worker is triggered.\n3. **Unique key.** The certificate table enforces one per learner, course version and type.\n\n```sql\nCREATE TABLE certificate (\n  id uuid PRIMARY KEY,\n  learner_id uuid NOT NULL,\n  course_version_id uuid NOT NULL,\n  cert_type text NOT NULL,\n  serial text NOT NULL UNIQUE,\n  file_key text,\n  issued_at timestamptz NOT NULL DEFAULT now(),\n  UNIQUE (learner_id, course_version_id, cert_type)\n);\n\nINSERT INTO certificate (id, learner_id, course_version_id, cert_type, serial)\nVALUES ($1, $2, $3, $4, $5)\nON CONFLICT (learner_id, course_version_id, cert_type) DO NOTHING;\n```\n\n4. **Retry-safe worker.** It inserts or fetches the row, renders the document to a deterministic storage key (overwriting is harmless), and sends the email through an idempotent notification step. If it crashes midway, a retry resumes. Send status is tracked separately from issuance.\n5. **Reconciliation.** A scheduled job queries completions with no certificate, or certificates without a file, and re-enqueues them. This catches lost events and bugs.\n\n## Design choices\n\n- Choose whether the certificate pins the course version (usually yes) and how re-completion of a new version is treated.\n- Provide a public verification endpoint using the serial number.\n- Revocation is a status on the record, not a deletion.\n\n## Common mistakes\n\n- Checking \"already issued?\" in code without a unique constraint, so races create duplicates.\n- Generating a new random file name on every retry.\n- No reconciliation, leaving silent gaps.",
+      "followUps": [
+        "How would you revoke or reissue a certificate?",
+        "What if the completion rules change later?",
+        "How would you let employers verify a certificate?"
+      ],
+      "related": [
+        "progress-tracking-design",
+        "assessment-system-design"
+      ]
+    },
+    {
+      "slug": "payment-succeeded-enrollment-failed",
+      "title": "Payment succeeded but enrollment failed: how do you design for it?",
+      "topic": "Commerce",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "payments",
+        "webhooks",
+        "workflow",
+        "idempotency",
+        "compensation"
+      ],
+      "companies": [
+        "evoke"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Payment and enrollment are separate transaction boundaries, so I model the order as a state machine and treat the provider's payment reference as the link. The provider sends signed webhooks; I verify the signature and handle them idempotently, recording the event id. A reliable workflow grants the entitlement, retrying on failure. If enrollment cannot succeed within policy, compensation issues a refund. Every step is written to an audit trail, so support can see exactly what happened.",
+      "revision": "Order state machine keyed by provider reference; verified, idempotent webhooks; retried entitlement grant; refund as compensation; full audit trail.",
+      "detailed": "You cannot wrap an external payment and your own database in one transaction, so design for the gap.\n\n{{diagram:payment}}\n\n## Principles\n\n- **Separate boundaries.** Payment capture happens at the provider. Enrollment is a local change. Connect them with durable state, not hope.\n- **Order state machine.** `created` -> `payment_pending` -> `paid` -> `fulfilled`, with branches `payment_failed`, `fulfillment_failed`, `refunded`. Store the provider's payment reference on the order.\n- **Webhooks as the source of truth.** Do not rely on the browser returning to a success page. Verify the **signature** with the shared secret, check the timestamp window, and reject unsigned calls.\n- **Idempotency.** Providers deliver at-least-once and out of order. Record each provider event id in a unique table; duplicates are acknowledged without effect. Also use idempotency keys when you call the provider.\n\n```sql\nCREATE TABLE payment_event (\n  provider_event_id text PRIMARY KEY,\n  order_id uuid NOT NULL,\n  received_at timestamptz NOT NULL DEFAULT now()\n);\n```\n\n## Fulfilment\n\nOn a verified `paid` event, one local transaction marks the order paid, and writes an outbox message or workflow task \"grant entitlement\". A worker grants the enrollment (itself idempotent via a unique `(learner, course_version)` key) and marks the order `fulfilled`. Failures retry with backoff.\n\n## Compensation\n\nIf fulfilment keeps failing (course withdrawn, validation problem), a compensating step issues a **refund** through the provider and sets the order `refunded`, with the learner notified. Alert operations when orders sit in `paid` too long.\n\n## Audit and reconciliation\n\nLog every transition with actor, time and reference. A scheduled job compares provider records with local orders to find payments without orders or orders stuck mid-state.\n\n## Common mistakes\n\n- Granting access on the client redirect.\n- Not handling duplicate or reordered webhooks.\n- Silent failures that leave a customer charged with no access.",
+      "diagrams": [
+        {
+          "id": "payment",
+          "title": "Payment to enrollment workflow",
+          "alt": "The learner pays at the payment provider, which sends a signed webhook to the platform. The webhook handler verifies the signature, deduplicates by event id, and marks the order paid in one transaction that also queues a fulfilment task. A worker grants the enrollment entitlement. If it fails repeatedly, a compensation step refunds the payment. All steps write to an audit trail.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "ln",
+              "label": "Learner checkout"
+            },
+            {
+              "id": "pp",
+              "label": "Payment provider"
+            },
+            {
+              "id": "wh",
+              "label": "Webhook handler: verify signature, dedupe"
+            },
+            {
+              "id": "od",
+              "label": "Order state: paid plus fulfilment task"
+            },
+            {
+              "id": "wk",
+              "label": "Fulfilment worker: grant enrollment"
+            },
+            {
+              "id": "en",
+              "label": "Enrollment entitlement"
+            },
+            {
+              "id": "rf",
+              "label": "Refund compensation"
+            },
+            {
+              "id": "au",
+              "label": "Audit trail"
+            }
+          ],
+          "edges": [
+            {
+              "from": "ln",
+              "to": "pp",
+              "label": "pay"
+            },
+            {
+              "from": "pp",
+              "to": "wh",
+              "label": "signed webhook"
+            },
+            {
+              "from": "wh",
+              "to": "od"
+            },
+            {
+              "from": "od",
+              "to": "wk"
+            },
+            {
+              "from": "wk",
+              "to": "en",
+              "label": "success"
+            },
+            {
+              "from": "wk",
+              "to": "rf",
+              "label": "repeated failure"
+            },
+            {
+              "from": "rf",
+              "to": "pp",
+              "label": "refund request"
+            },
+            {
+              "from": "od",
+              "to": "au"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you handle a webhook arriving before the order is committed?",
+        "When would you refund versus retry indefinitely?",
+        "How do you handle chargebacks after access was granted?"
+      ],
+      "related": [
+        "search-shows-unpurchasable-course",
+        "protecting-paid-content"
+      ]
+    },
+    {
+      "slug": "enterprise-b2b-learning-multi-tenancy",
+      "title": "How would you support enterprise and B2B learning?",
+      "topic": "Multi-tenancy",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "b2b",
+        "multi-tenancy",
+        "tenant-isolation",
+        "reporting"
+      ],
+      "companies": [
+        "evoke"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I model organisations as tenants with members, delegated admins and roles, then add assignments, cohorts and org-level reporting on top. Tenant scope must be enforced everywhere: queries, background jobs, caches, exports and analytics, because leaks usually happen outside the main request path. Isolation is a spectrum: shared schema with a tenant id for most, stronger separation such as dedicated schemas, databases or deployments for customers with compliance or scale needs, at higher operating cost.",
+      "revision": "Orgs, delegated admins, assignments, cohorts and reports; enforce tenant scope in queries, jobs, caches, exports and analytics; choose shared versus dedicated isolation by need.",
+      "detailed": "B2B learning adds a second customer: the organisation that buys and manages learning for many people.\n\n## Domain additions\n\n- **Organisation and membership** with roles (owner, admin, manager, learner) and **delegated admin** so a manager can only administer their own department or cohort.\n- **Assignments**: an admin assigns courses to users, groups or cohorts, with due dates and reminders. Assignment creates an entitlement not tied to an individual purchase.\n- **Cohorts and groups** for scheduled programmes.\n- **Reporting**: completion, scores and time by team, exportable on a schedule.\n- Also SSO and automated user provisioning, commonly offered through standards such as SAML, OIDC and SCIM.\n\n## Tenant scoping everywhere\n\nRequest handlers are the easy part. Leaks commonly come from:\n\n| Place | Control |\n|---|---|\n| Queries | Mandatory tenant filter via a repository layer or row-level security |\n| Background jobs | Tenant id in every message; job code sets scope explicitly |\n| Caches | Tenant id in cache keys |\n| Exports and reports | Generated with the requester's scope, stored under tenant prefixes |\n| Search and analytics | Tenant field filtered server-side, never by the client |\n| Files | Tenant-prefixed object keys and policies |\n\nAdd automated tests that create two tenants and assert no cross-visibility.\n\n## Isolation models\n\n| Model | Pros | Cons |\n|---|---|---|\n| Shared schema, tenant id | Cheap, simple operations | Noisy neighbours, bigger blast radius |\n| Schema or database per tenant | Stronger isolation, per-tenant restore | More migrations and connections |\n| Dedicated deployment | Strongest isolation, custom residency | Highest cost and operations |\n\nOffer tiers: most customers on shared, a few on dedicated where contracts demand it.\n\n## Common mistakes\n\n- Trusting a tenant id sent by the client.\n- Forgetting tenant scope in a nightly export.\n- Per-tenant customisation forks of the code.",
+      "followUps": [
+        "How would you implement row-level security safely?",
+        "How do you handle a user who belongs to several organisations?",
+        "How do you offboard a tenant and delete their data?"
+      ],
+      "related": [
+        "protecting-paid-content",
+        "design-online-learning-platform"
+      ]
+    },
+    {
+      "slug": "search-courses-index-lag-checkout",
+      "title": "How would you design course search?",
+      "topic": "Search",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "search",
+        "cdc",
+        "read-model",
+        "facets"
+      ],
+      "companies": [
+        "evoke"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "The relational database stays the source of truth; the search engine holds a denormalised read model of published courses. I update it asynchronously from domain events or change data capture, with idempotent upserts and a full reindex path for rebuilds. Facets such as category, level, language and rating come from indexed fields. Because the index lags, anything that matters transactionally, like availability and price, is revalidated against the database at checkout rather than trusted from search results.",
+      "revision": "SQL is truth; async-indexed denormalised search read model via events/CDC with reindex path; facets from fields; revalidate availability and price at checkout.",
+      "detailed": "Search is a **read model**: optimised for queries, rebuilt from truth, and allowed to be briefly wrong.\n\n## Architecture\n\n- **Source of truth:** relational tables for courses, versions, pricing and availability.\n- **Index document:** one denormalised document per published course with title, description, instructor, categories, level, language, rating, price band and tenant visibility.\n- **Update path:** publish, price or availability changes emit events (outbox) or are captured by change data capture. An indexer upserts by course id with a version number so out-of-order updates are ignored.\n- **Rebuild path:** a reindex job builds a new index from the database and swaps an alias, which also supports mapping changes.\n\n## Query features\n\n- Full-text relevance with field weighting, synonyms and typo tolerance.\n- **Facets** (aggregations) for category, level, language, duration, price.\n- Filters enforced server-side: tenant visibility, published status, region.\n- Ranking signals (popularity, rating) added carefully and tested, since they can be gamed.\n\n## Index lag\n\nEventual consistency means a just-unpublished or repriced course can still appear. Track **index lag** (event time to indexed time) as a metric and alert on it. Never use search results as authority for money or access: on course page and checkout, read price and availability from the database.\n\n## Common mistakes\n\n- Dual-writing to database and index in the request, which drifts on failure.\n- No rebuild path, making mapping changes risky.\n- Making search the system of record.\n- Ignoring tenant filters in queries.",
+      "followUps": [
+        "How would you roll out a new analyzer or mapping without downtime?",
+        "How do you keep ranking explainable?",
+        "How would you do personalised recommendations separately from search?"
+      ],
+      "related": [
+        "search-shows-unpurchasable-course",
+        "payment-succeeded-enrollment-failed"
+      ]
+    }
+  ]
+}

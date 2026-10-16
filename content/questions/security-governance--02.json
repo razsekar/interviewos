@@ -1,0 +1,35 @@
+{
+  "category": "security-governance",
+  "questions": [
+    {
+      "slug": "tenant-safe-caching",
+      "title": "How do you design tenant-safe caching in a multi-tenant system?",
+      "topic": "Multi-tenant caching",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "multi-tenancy",
+        "caching",
+        "security",
+        "authorization"
+      ],
+      "companies": [
+        "evoke"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I put the tenant and the authorization scope into every cache key, so one tenant can never read another's entry. I do not store sensitive data under shared keys, I set sensible TTLs and invalidate on writes, and I write explicit cross-tenant tests that try to read other tenants' data. Above all, the cache never replaces authorization: every request is still authenticated and authorised before a cached value is returned.",
+      "revision": "Tenant and authorization scope in every key; no sensitive data under shared keys; TTL and invalidation; cross-tenant tests; the cache never replaces authorization.",
+      "detailed": "Caching improves performance but is a classic source of **cross-tenant data leaks**: a key that does not distinguish tenants or permission levels returns one customer's data to another.\n\n## Design rules\n\n1. **Tenant in the key.** Every key includes the tenant identifier, taken from the verified session or token, never from client input alone.\n2. **Authorization scope in the key.** If the response varies by role, permissions, locale or feature flags, those inputs belong in the key too, or the value must be cached only for a precise audience.\n3. **No sensitive data under shared keys.** Do not cache personal or confidential responses in shared or public layers (CDN, shared proxy) unless the key and cache controls guarantee isolation. Consider not caching at all.\n4. **TTL and invalidation.** Short TTLs limit exposure after permission changes; invalidate on writes and on role or membership changes.\n5. **Cache never replaces authorization.** Check the caller's rights on every request, then read the cache. Caching the decision is acceptable only with a short TTL and invalidation on change.\n6. **Centralise key construction** so developers cannot build keys by hand.\n\n```ts\n// Single place that builds keys; tenant is required, not optional\nfunction cacheKey(ctx: { tenantId: string; roleScope: string }, resource: string, id: string): string {\n  if (!ctx.tenantId) throw new Error(\"tenantId required\");\n  return `v1:t:${ctx.tenantId}:r:${ctx.roleScope}:${resource}:${id}`;\n}\n```\n\n## Tests\n\nWrite explicit cross-tenant tests: as tenant A, populate the cache, then request the same resource id as tenant B and assert denial or different data. Also test after a role downgrade.\n\n## Common mistakes\n\n- Keys like `user:7` that collide across tenants with overlapping ids.\n- Caching a response that includes per-user fields under a tenant-wide key.\n- HTTP caching headers that let shared caches store private responses.\n- Assuming the cache is internal and therefore safe.",
+      "followUps": [
+        "How do you handle cache invalidation when a user's role changes?",
+        "What are the risks of caching at a CDN for authenticated content?",
+        "How would you detect a cross-tenant leak in production?",
+        "When is a per-tenant cache instance better than shared keys?"
+      ],
+      "related": [
+        "multi-tenant-security-controls"
+      ]
+    }
+  ]
+}

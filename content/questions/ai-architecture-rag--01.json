@@ -1,0 +1,260 @@
+{
+  "category": "ai-architecture-rag",
+  "questions": [
+    {
+      "slug": "rag-architecture-end-to-end",
+      "title": "Explain RAG architecture end to end",
+      "topic": "Retrieval-augmented generation",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "rag",
+        "llm",
+        "embeddings",
+        "retrieval"
+      ],
+      "companies": [
+        "evoke"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Retrieval-augmented generation lets a model answer from our own content. Offline, I ingest documents, split them into chunks, create embeddings and store them with metadata such as owner, tenant and permissions. At query time I authenticate the user, retrieve only content they may see, optionally rerank, build a prompt with the best passages, and ask the model to answer from them with citations. Quality depends on retrieval, chunking, permissions, prompt, model and evaluation, not the model alone.",
+      "revision": "RAG = ingest, chunk, embed and index with metadata offline; at query time retrieve only authorised chunks, rerank, prompt with context and cite sources.",
+      "detailed": "RAG grounds a language model in **external, current, private content** by retrieving relevant passages at question time and putting them into the prompt, instead of relying on what the model memorised.\n\n## Pipeline\n\n**Offline (ingestion)**\n\n1. **Ingest** documents from wikis, tickets, files, databases, with a record of source, version and owner.\n2. **Clean and chunk.** Split by structure (headings, paragraphs) into passages of a size that holds one idea, often with some overlap.\n3. **Embed** each chunk with an embedding model into a vector.\n4. **Index** vectors with metadata (tenant, source, access control list, date, language) in a vector store, usually alongside keyword search.\n\n**Online (query)**\n\n5. **Authenticate** the user and determine their permissions.\n6. **Retrieve** top candidates using vector, keyword or hybrid search, **filtered by permissions before results are returned**.\n7. **Rerank** candidates with a stronger relevance model.\n8. **Build a grounded prompt**: instructions, retrieved passages, the question; tell the model to answer only from the context and say when it is not there.\n9. **Generate and cite**: return the answer with references to the chunks used.\n\n{{diagram:rag}}\n\n## Where quality comes from\n\n| Factor | Typical failure |\n|---|---|\n| Chunking | Passages too large (diluted) or too small (missing context) |\n| Retrieval | Relevant document not in the top results |\n| Permissions | Missing filters leak content; over-filtering hides answers |\n| Prompt | Model ignores context or invents beyond it |\n| Model | Weak reasoning over long context |\n| Evaluation | No way to know which stage is failing |\n\nDebug stage by stage: if the right chunk was not retrieved, no prompt change will help.\n\n## Common mistakes\n\n- Judging the system only by how fluent answers sound.\n- Re-embedding everything without versioning, so old and new embeddings mix.\n- Letting stale documents persist after deletion at the source.\n- Putting too many passages in the prompt, increasing cost and distraction.\n\nExample (hypothetical): an internal policy assistant retrieves the three most relevant policy sections for the user's department and cites them next to the answer.",
+      "diagrams": [
+        {
+          "id": "rag",
+          "title": "RAG request flow",
+          "alt": "Source documents are chunked, embedded and stored in an index with metadata. At query time the user is authenticated, the retriever searches the index filtered by that user's permissions, a reranker orders the results, a prompt builder combines them with the question, and the model returns an answer with citations.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "docs",
+              "label": "Source documents"
+            },
+            {
+              "id": "chunk",
+              "label": "Chunk and embed"
+            },
+            {
+              "id": "idx",
+              "label": "Index with metadata"
+            },
+            {
+              "id": "auth",
+              "label": "Authenticated user query"
+            },
+            {
+              "id": "ret",
+              "label": "Permission-filtered retrieval"
+            },
+            {
+              "id": "rr",
+              "label": "Rerank"
+            },
+            {
+              "id": "pb",
+              "label": "Grounded prompt"
+            },
+            {
+              "id": "llm",
+              "label": "Model"
+            },
+            {
+              "id": "ans",
+              "label": "Answer with citations"
+            }
+          ],
+          "edges": [
+            {
+              "from": "docs",
+              "to": "chunk",
+              "label": "ingest"
+            },
+            {
+              "from": "chunk",
+              "to": "idx"
+            },
+            {
+              "from": "auth",
+              "to": "ret"
+            },
+            {
+              "from": "idx",
+              "to": "ret"
+            },
+            {
+              "from": "ret",
+              "to": "rr"
+            },
+            {
+              "from": "rr",
+              "to": "pb"
+            },
+            {
+              "from": "pb",
+              "to": "llm"
+            },
+            {
+              "from": "llm",
+              "to": "ans"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you choose chunk size and overlap?",
+        "When does hybrid search beat pure vector search?",
+        "How do you keep the index in sync when source documents change or are deleted?",
+        "When would fine-tuning be better than RAG?"
+      ],
+      "related": [
+        "rag-security-risks",
+        "evaluating-ai-features"
+      ]
+    },
+    {
+      "slug": "rag-security-risks",
+      "title": "What are the security risks in a RAG system?",
+      "topic": "AI security",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "rag",
+        "security",
+        "prompt-injection",
+        "access-control"
+      ],
+      "companies": [
+        "evoke"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Retrieved text is untrusted input, so it can contain prompt injection. I enforce access control before retrieval, filtering by user and tenant in the index query, not after generation. I keep secrets out of prompts, give the model only narrow, constrained tools, and validate outputs before acting. Anything involving authorisation, payments or financial rules stays in deterministic code; the model can suggest, but it must not decide or bypass those checks.",
+      "revision": "Treat retrieved text as untrusted, filter by permission before retrieval, keep secrets and authority out of the model, and never let it override deterministic authorisation or money rules.",
+      "detailed": "A language model cannot reliably tell instructions from data, so every piece of text placed in its prompt is a possible attack vector. Security comes from **architecture around the model**, not from asking it to behave.\n\n## Main risks and controls\n\n| Risk | Control |\n|---|---|\n| **Prompt injection** in documents, web pages or emails (\"ignore previous instructions...\") | Treat retrieved content as untrusted data; delimit it; limit what the model can do even if it is fooled |\n| **Data leakage across users** | Apply access control **before retrieval** using the user's identity in the index query; never retrieve everything and ask the model to hide restricted parts |\n| **Tenant mixing** | Tenant id as a mandatory filter or separate indexes per tenant; test isolation explicitly |\n| **Secrets in prompts** | Keep keys and credentials in server-side tools, never in prompts or retrievable documents; scan content at ingestion |\n| **Over-powerful tools** | Expose a small set of narrow, parameter-validated tools with least privilege; require confirmation for side effects |\n| **Unsafe output** | Validate structure, escape before rendering in HTML, and check actions against policy before executing |\n| **Poisoned content** | Control who can write to indexed sources; record provenance |\n\n## Deterministic code keeps authority\n\nThe model may draft a refund or propose a discount, but code decides:\n\n- Is this user allowed to do this? (authorisation)\n- Is the amount within limits and rules? (business and financial rules)\n- Is the action idempotent and logged?\n\n{{diagram:guard}}\n\n## Common mistakes\n\n- Filtering results after generation, so restricted text already influenced the answer.\n- Giving an agent a database admin credential \"for convenience\".\n- Assuming a system prompt saying \"never reveal X\" is a security boundary.\n- Logging full prompts that contain personal data without protection.\n\nExample (hypothetical): a support document contains hidden text telling the assistant to email customer data to an address. With no email tool and output checks, the injected instruction has nothing to act with.",
+      "diagrams": [
+        {
+          "id": "guard",
+          "title": "Model proposes, code decides",
+          "alt": "The model produces a proposed action. A deterministic policy layer checks authorisation and business rules. Only approved actions reach the backend system; rejected ones return an error to the user.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "m",
+              "label": "Model proposal"
+            },
+            {
+              "id": "v",
+              "label": "Schema validation"
+            },
+            {
+              "id": "p",
+              "label": "Authorisation and rules"
+            },
+            {
+              "id": "b",
+              "label": "Backend action"
+            },
+            {
+              "id": "r",
+              "label": "Rejected with reason"
+            }
+          ],
+          "edges": [
+            {
+              "from": "m",
+              "to": "v"
+            },
+            {
+              "from": "v",
+              "to": "p"
+            },
+            {
+              "from": "p",
+              "to": "b",
+              "label": "approved"
+            },
+            {
+              "from": "p",
+              "to": "r",
+              "label": "denied"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you test for prompt injection?",
+        "How do you do per-document access control at scale in a vector index?",
+        "Should the model ever call a payment API directly?",
+        "What should you log for audit without exposing sensitive data?"
+      ],
+      "related": [
+        "rag-architecture-end-to-end",
+        "evaluating-ai-features"
+      ]
+    },
+    {
+      "slug": "evaluating-ai-features",
+      "title": "How do you evaluate an AI feature?",
+      "topic": "AI quality evaluation",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "evaluation",
+        "rag",
+        "metrics",
+        "llm"
+      ],
+      "companies": [
+        "evoke"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I evaluate each stage and the end result. For retrieval, recall of relevant passages. For answers, groundedness, citation accuracy, task success and whether the system correctly refuses. I add latency and cost. I build an eval set of realistic questions with expected outcomes, mix automated checks with human review, run it on every change, and monitor production for drift. I always measure a baseline first, because without one there is no proof a change helped, and I keep a fallback.",
+      "revision": "Measure retrieval, groundedness, citations, task success, refusals, latency and cost against a baseline on a versioned eval set, and monitor drift in production.",
+      "detailed": "AI output is probabilistic, so \"it looked good in the demo\" is not evidence. Evaluation turns quality into numbers you can track and compare.\n\n## What to measure\n\n| Metric | Question it answers |\n|---|---|\n| Retrieval recall | Was the needed passage among the retrieved results? |\n| Groundedness | Is every claim supported by the retrieved context? |\n| Citation accuracy | Do the cited sources actually support the statement? |\n| Task success | Did the user get a correct, useful outcome? |\n| Refusal correctness | Does it decline when it should (no source, out of scope, unauthorised) and not decline when it should answer? |\n| Latency | Time to first token and total, at typical and high percentiles |\n| Cost | Tokens and calls per request |\n\n## Building the process\n\n1. **Eval set.** Collect realistic questions from users, include hard and adversarial cases, unanswerable questions and permission edge cases. Store expected answers or key facts, and version the set.\n2. **Baseline.** Record the current system's scores before changing anything. A new prompt, chunk size or model is only an improvement if it beats the baseline on the same set.\n3. **Automated checks.** Rule-based checks (format, citations present) and model-based grading for groundedness, with periodic calibration against human judgement, since automated graders can be biased.\n4. **Human review.** Sample outputs regularly, especially in high-risk areas, and feed findings back into the eval set.\n5. **Regression gating.** Run evals in CI; block releases that drop key metrics.\n6. **Production monitoring.** Track user feedback, refusal rates, empty retrievals, latency and cost. Content, user behaviour and models change, so quality can **drift**.\n7. **Fallback.** When confidence is low or a dependency fails, show search results, route to a human or return a safe message.\n\n## Common mistakes\n\n- Averaging everything into one score and hiding a collapse in one category.\n- Tuning the prompt on the same examples used to report success.\n- Ignoring cost and latency until the budget is blown.\n- Evaluating only the final answer, so you cannot tell whether retrieval or generation failed.\n\nExample (hypothetical): after changing chunk size, recall improves but groundedness drops because passages lost context; separate metrics reveal this.",
+      "followUps": [
+        "How would you build an eval set when you have no labelled data?",
+        "How reliable is using a model as a judge, and how would you check it?",
+        "How do you detect quality drift after launch?",
+        "What would your release gate look like?"
+      ],
+      "related": [
+        "rag-architecture-end-to-end",
+        "rag-security-risks"
+      ]
+    },
+    {
+      "slug": "prompting-ai-for-architecture-design",
+      "title": "How do you prompt an AI assistant for architecture design?",
+      "topic": "AI-assisted design",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "ai",
+        "prompting",
+        "architecture",
+        "validation"
+      ],
+      "companies": [
+        "evoke"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I give the assistant the context an architect would need: objective, actors, scale assumptions, non-functional requirements, boundaries, constraints, existing stack and failure scenarios. I state the outputs I want, such as components, data flows, risks and decision records. I ask for alternatives with trade-offs and failure modes rather than a single answer. Then I challenge the result, check assumptions, and validate it with prototypes, load tests and review, because the assistant is a thinking aid, not an authority.",
+      "revision": "Supply objective, actors, scale, NFRs, constraints, stack and failure cases; ask for alternatives and failure modes; then challenge and validate the output yourself.",
+      "detailed": "An AI assistant produces a generic design when given a generic request. Its output is only as good as the **context and constraints** supplied, and it still needs human validation.\n\n## What to include\n\n| Input | Example (hypothetical) |\n|---|---|\n| Objective | Let customers return items and receive refunds within days |\n| Actors | Customers, warehouse staff, finance, support |\n| Scale assumptions | Peak orders per second, data volume, growth, state them as assumptions |\n| Non-functional requirements | Availability, latency, consistency, security, compliance, cost |\n| Boundaries | What is in scope and what existing systems own |\n| Constraints | Team size, deadlines, budget, mandated technologies |\n| Existing stack | Languages, databases, cloud, messaging already in use |\n| Failure scenarios | Provider outage, duplicate messages, partial failures |\n| Required outputs | Component diagram, data model, API sketch, risks, rollout plan |\n\n## Prompting techniques\n\n- **Ask for alternatives**: \"Give two or three options with trade-offs and when each fits.\"\n- **Ask for failure modes**: \"What breaks at 10x load? What happens when the payment provider times out?\"\n- **Request assumptions explicitly**: have it list what it assumed so you can correct them.\n- **Iterate in steps**: requirements, then high-level design, then deep dive on risky areas.\n- **Use roles carefully**: ask it to critique its own design as a reviewer would.\n\n## Then challenge and validate\n\n1. Check claims against official documentation; models can state product limits or behaviours incorrectly.\n2. Test the design against your real constraints and numbers.\n3. Prototype the riskiest parts and load-test them.\n4. Review with the team and record decisions and rejected options.\n5. Never paste secrets or confidential data into tools that are not approved for it.\n\n## Common mistakes\n\n- Accepting the first answer because it sounds confident.\n- Omitting constraints, then receiving a design the team cannot build or run.\n- Letting the assistant pick technologies without regard to existing skills.\n- Using it as a substitute for understanding trade-offs you must defend.\n\nExample (hypothetical): asking for \"an e-commerce architecture\" returns a textbook diagram, while adding scale, a modular-monolith constraint and inventory consistency needs returns a design you can actually critique.",
+      "followUps": [
+        "What would you never share with an AI assistant while designing a system?",
+        "How do you detect when an AI-generated design is wrong?",
+        "How would you use AI to review an existing architecture?",
+        "How do you record AI-assisted decisions for later audit?"
+      ],
+      "related": [
+        "evaluating-ai-features",
+        "rag-architecture-end-to-end"
+      ]
+    }
+  ]
+}
