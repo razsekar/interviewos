@@ -1,0 +1,1509 @@
+{
+  "category": "react-state-redux",
+  "questions": [
+    {
+      "slug": "when-is-redux-justified",
+      "title": "When is Redux justified in a modern React application?",
+      "topic": "Redux fundamentals",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "redux",
+        "state-management",
+        "architecture"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I reach for Redux when many distant parts of the UI share client-side state that changes often, when I need predictable updates, time-travel debugging or middleware for cross-cutting behaviour, and when several teams must follow one convention. I do not use it for server data, which a cache library handles better, nor for form or local UI state. Today that means Redux Toolkit, not hand-written Redux, and often only a small store for genuinely global concerns.",
+      "revision": "Use Redux Toolkit for shared, frequently changing client state needing traceability and conventions; keep server, form, URL and local state elsewhere.",
+      "detailed": "Redux is a **predictable, centralised state container**. The question is whether its costs (indirection, boilerplate, a learning curve) buy something your app needs.\n\n## Signals that justify it\n\n- Many components far apart in the tree read and write the same client state.\n- State transitions are intricate and you want them testable as pure functions.\n- You need an **audit trail** of actions, undo/redo or replay of a bug report.\n- Cross-cutting behaviour (analytics, auth refresh, offline queue) fits middleware.\n- A large team benefits from one enforced pattern.\n\n## Signals against it\n\n| Situation | Better tool |\n|---|---|\n| Data fetched from an API | RTK Query, TanStack Query, SWR |\n| Form fields | React Hook Form, Formik, local state |\n| Filters worth sharing or bookmarking | URL search params |\n| Theme or locale read rarely | Context |\n| State used by one component subtree | useState / useReducer |\n\n{{diagram:decision}}\n\n## Practical stance\n\nStart with the simplest tool. Move state into a store when prop drilling or duplicated logic becomes painful, not before. When you do, use **Redux Toolkit**, which removes most boilerplate, and keep the store small: auth session metadata, cart, UI preferences, feature flags.\n\n```ts\nimport { configureStore } from '@reduxjs/toolkit';\nexport const store = configureStore({ reducer: { cart: cartReducer, ui: uiReducer } });\n```\n\n## Common mistakes\n\n- Putting every piece of state in Redux because \"it is the standard\".\n- Copying API responses into slices by hand, then writing loading and error flags for each.\n- Storing derived values instead of computing them with selectors.\n- Treating Redux as the reason to avoid thinking about state ownership.",
+      "followUps": [
+        "What would make you remove Redux from an existing app?",
+        "How does RTK Query change the case for Redux?",
+        "How do you keep a store small as the team grows?"
+      ],
+      "related": [
+        "redux-vs-context-vs-zustand-matrix",
+        "avoid-unnecessary-global-state"
+      ],
+      "diagrams": [
+        {
+          "id": "decision",
+          "title": "Should this state live in Redux?",
+          "alt": "A decision flow asking whether state comes from the server or is shared by distant components, ending in a data cache, local state or a Redux Toolkit slice.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "New piece of state"
+            },
+            {
+              "id": "n1",
+              "label": "Comes from the server?"
+            },
+            {
+              "id": "n2",
+              "label": "Use a data cache such as RTK Query"
+            },
+            {
+              "id": "n3",
+              "label": "Shared by distant components?"
+            },
+            {
+              "id": "n4",
+              "label": "Local useState or useReducer"
+            },
+            {
+              "id": "n5",
+              "label": "Redux Toolkit slice"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2",
+              "label": "yes"
+            },
+            {
+              "from": "n1",
+              "to": "n3",
+              "label": "no"
+            },
+            {
+              "from": "n3",
+              "to": "n4",
+              "label": "no"
+            },
+            {
+              "from": "n3",
+              "to": "n5",
+              "label": "yes"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "redux-toolkit-slices-configurestore-immer",
+      "title": "How do configureStore, createSlice and Immer work in Redux Toolkit?",
+      "topic": "Redux Toolkit",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "redux-toolkit",
+        "createSlice",
+        "immer",
+        "typescript"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Redux Toolkit is the standard way to write Redux. configureStore combines reducers, adds the thunk middleware, enables DevTools and, in development, checks for mutations and non-serialisable values. createSlice generates action creators and a reducer from a name, initial state and case reducers. Inside those reducers Immer lets me write code that looks like mutation while it produces a new immutable state from a draft, so updates stay short and safe.",
+      "revision": "configureStore wires reducers, middleware and DevTools; createSlice generates actions and reducer; Immer turns draft mutations into immutable updates.",
+      "detailed": "**Redux Toolkit (RTK)** is the official, opinionated toolset that removes the boilerplate of classic Redux.\n\n## The pieces\n\n| API | Purpose |\n|---|---|\n| configureStore | Creates the store, composes reducers, adds default middleware and DevTools |\n| createSlice | Defines name, initial state and reducers; generates action creators and action types |\n| createAsyncThunk | Async lifecycle actions (pending, fulfilled, rejected) |\n| createSelector | Memoised derived data (re-exported from Reselect) |\n\n{{diagram:slice}}\n\n## A slice in TypeScript\n\n```ts\nimport { createSlice, PayloadAction } from '@reduxjs/toolkit';\n\ninterface CartItem { sku: string; qty: number }\ninterface CartState { items: CartItem[] }\n\nconst initialState: CartState = { items: [] };\n\nconst cartSlice = createSlice({\n  name: 'cart',\n  initialState,\n  reducers: {\n    added(state, action: PayloadAction<string>) {\n      const line = state.items.find(i => i.sku === action.payload);\n      if (line) line.qty += 1;          // draft mutation, safe under Immer\n      else state.items.push({ sku: action.payload, qty: 1 });\n    },\n    cleared: () => initialState,        // or return a new value instead\n  },\n});\n\nexport const { added, cleared } = cartSlice.actions;\nexport default cartSlice.reducer;\n```\n\n## How Immer helps\n\nImmer passes the reducer a **draft proxy**. Your \"mutations\" are recorded and applied to produce a new immutable object, structurally sharing unchanged parts. Rules: either mutate the draft **or** return a new value, not both; do not mutate state outside a reducer.\n\n## Common mistakes\n\n- Mutating state in thunks or components, where there is no draft.\n- Returning a value and also mutating the draft.\n- Putting non-serialisable values (class instances, Promises, functions) in state.\n- Storing derived values rather than computing them in selectors.\n\nDefaults such as the serialisability and immutability checks apply in development builds; check the current docs for exact behaviour in your version.",
+      "followUps": [
+        "What happens if a reducer both mutates and returns a value?",
+        "Why does RTK warn about non-serialisable values?",
+        "How would you reset a slice to its initial state?"
+      ],
+      "related": [
+        "actions-reducers-selectors-createselector",
+        "typed-hooks-redux-typescript"
+      ],
+      "diagrams": [
+        {
+          "id": "slice",
+          "title": "How a slice becomes a store",
+          "alt": "A createSlice call generates action creators and a reducer; the reducer is passed to configureStore, components dispatch actions, and Immer produces the next immutable state.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "createSlice"
+            },
+            {
+              "id": "n1",
+              "label": "Action creators"
+            },
+            {
+              "id": "n2",
+              "label": "Component dispatches"
+            },
+            {
+              "id": "n3",
+              "label": "Reducer with Immer draft"
+            },
+            {
+              "id": "n4",
+              "label": "New immutable state"
+            },
+            {
+              "id": "n5",
+              "label": "configureStore"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            },
+            {
+              "from": "n0",
+              "to": "n5",
+              "label": "reducer"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "actions-reducers-selectors-createselector",
+      "title": "How do selectors and createSelector memoisation work?",
+      "topic": "Selectors",
+      "difficulty": "intermediate",
+      "type": "coding",
+      "tags": [
+        "redux",
+        "selectors",
+        "reselect",
+        "performance"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Actions describe what happened, reducers compute the next state, and selectors read and derive data from it. I keep state minimal and compute derived values in selectors. createSelector memoises: it recomputes only when its input selectors return new references, so expensive filtering or totals are not recalculated on every render, and components receive stable references that avoid needless re-renders. The cache is small by default, so parameterised selectors need care.",
+      "revision": "Selectors derive data from minimal state; createSelector recomputes only when input results change by reference, keeping outputs stable for useSelector.",
+      "detailed": "Redux has three roles: **actions** describe events, **reducers** are pure functions computing the next state, **selectors** read and derive data.\n\n## Why selectors matter\n\nuseSelector re-renders a component when the selected value changes by reference (strict equality by default). A selector that returns a **new array or object each call** triggers re-renders even when nothing relevant changed.\n\n## Memoisation with createSelector\n\n```ts\nimport { createSelector } from '@reduxjs/toolkit';\n\nconst selectItems = (s: RootState) => s.cart.items;\nconst selectDiscount = (s: RootState) => s.cart.discountRate;\n\nexport const selectCartTotal = createSelector(\n  [selectItems, selectDiscount],\n  (items, rate) => items.reduce((t, i) => t + i.price * i.qty, 0) * (1 - rate),\n);\n```\n\nThe result function runs only if `items` or `rate` changed by reference; otherwise the cached value is returned.\n\n{{diagram:memo}}\n\n## Guidelines\n\n| Do | Avoid |\n|---|---|\n| Store the minimum, derive the rest | Storing totals and counts that can go stale |\n| Keep input selectors cheap and direct | Doing the heavy work inside input selectors |\n| Colocate selectors with the slice | Inline filter() inside useSelector |\n| Make a factory for per-component parameters | One shared memoised selector with varying arguments |\n\nMemoisation cache size is small by default (often one entry in classic Reselect); library versions differ, so check the documentation for options such as larger caches.\n\n## Common mistakes\n\n- `useSelector(s => s.items.filter(...))`, which returns a new array every time.\n- Mutating state so input references never change and the memo returns stale data.\n- Using one shared selector across many component instances with different arguments, thrashing the cache.\n- Over-memoising trivial property reads.",
+      "followUps": [
+        "How would you build a selector that takes a category id?",
+        "When is shallowEqual useful with useSelector?",
+        "Why can mutation break memoised selectors?"
+      ],
+      "related": [
+        "redux-toolkit-slices-configurestore-immer",
+        "normalising-state-createentityadapter"
+      ],
+      "diagrams": [
+        {
+          "id": "memo",
+          "title": "createSelector memoisation",
+          "alt": "Input selectors read slices of state; if their results are reference-equal to last time the cached output is returned, otherwise the result function recomputes and the new value is cached.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "State changes"
+            },
+            {
+              "id": "n1",
+              "label": "Input selectors run"
+            },
+            {
+              "id": "n2",
+              "label": "Inputs changed by reference?"
+            },
+            {
+              "id": "n3",
+              "label": "Return cached value"
+            },
+            {
+              "id": "n4",
+              "label": "Run result function"
+            },
+            {
+              "id": "n5",
+              "label": "Cache and return new value"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3",
+              "label": "no"
+            },
+            {
+              "from": "n2",
+              "to": "n4",
+              "label": "yes"
+            },
+            {
+              "from": "n4",
+              "to": "n5"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "redux-middleware-async-thunk-listener",
+      "title": "How do middleware, createAsyncThunk and listener middleware handle async work?",
+      "topic": "Middleware and async",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "redux",
+        "middleware",
+        "createAsyncThunk",
+        "listener-middleware"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Middleware sits between dispatch and the reducer, so it can log, intercept, delay or dispatch more actions. Thunks are the default for async logic. createAsyncThunk wraps a promise and dispatches pending, fulfilled and rejected actions that the slice handles in extraReducers. The listener middleware reacts to actions or state changes with effects, replacing most sagas for workflows such as analytics or refetching after login, with cancellation support.",
+      "revision": "Middleware wraps dispatch; createAsyncThunk emits pending/fulfilled/rejected; listener middleware runs effects in response to actions with cancellation, replacing most sagas.",
+      "detailed": "**Middleware** is a function chain wrapped around `dispatch`. Each piece can inspect an action, change it, stop it or dispatch others before it reaches reducers.\n\n{{diagram:flow}}\n\n## createAsyncThunk\n\n```ts\nexport const loadOrders = createAsyncThunk<Order[], string, { rejectValue: string }>(\n  'orders/load',\n  async (customerId, { rejectWithValue, signal }) => {\n    const res = await fetch(`/api/customers/${customerId}/orders`, { signal });\n    if (!res.ok) return rejectWithValue('Failed to load orders');\n    return (await res.json()) as Order[];\n  },\n);\n\nbuilder\n  .addCase(loadOrders.pending, s => { s.status = 'loading'; })\n  .addCase(loadOrders.fulfilled, (s, a) => { s.status = 'idle'; s.items = a.payload; })\n  .addCase(loadOrders.rejected, (s, a) => { s.status = 'failed'; s.error = a.payload ?? 'Unknown'; });\n```\n\nThe thunk supports a `condition` option to skip duplicate requests and an abort `signal`.\n\n## Listener middleware\n\n```ts\nlistenerMiddleware.startListening({\n  actionCreator: loggedIn,\n  effect: async (_action, api) => {\n    api.dispatch(loadProfile());\n    await api.delay(500);\n  },\n});\n```\n\n## Choosing\n\n| Need | Tool |\n|---|---|\n| One async call with lifecycle | createAsyncThunk |\n| React to actions, debounce, cancel previous | Listener middleware |\n| Complex long-running orchestration | Listener effects, or sagas if already in use |\n| Server data caching | RTK Query instead of thunks |\n\n## Common mistakes\n\n- Hand-writing loading flags for every request that RTK Query would manage.\n- Swallowing errors so the rejected branch never fires.\n- Putting side effects inside reducers.\n- Adding non-serialisable values to actions, which triggers dev warnings.",
+      "followUps": [
+        "How would you skip a thunk if data is already loaded?",
+        "When would you still choose sagas?",
+        "How does the listener middleware cancel earlier effects?"
+      ],
+      "related": [
+        "rtk-query-endpoints-tags-invalidation",
+        "race-conditions-stale-responses-async-flows"
+      ],
+      "diagrams": [
+        {
+          "id": "flow",
+          "title": "Dispatch through middleware",
+          "alt": "A component dispatches an action which passes through thunk and listener middleware before reaching the reducer, which updates the store, while listeners can dispatch follow-up actions.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Component dispatch"
+            },
+            {
+              "id": "n1",
+              "label": "Thunk middleware"
+            },
+            {
+              "id": "n2",
+              "label": "Listener middleware"
+            },
+            {
+              "id": "n3",
+              "label": "Reducer"
+            },
+            {
+              "id": "n4",
+              "label": "Store state"
+            },
+            {
+              "id": "n5",
+              "label": "Follow-up actions"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            },
+            {
+              "from": "n2",
+              "to": "n5",
+              "label": "effect"
+            },
+            {
+              "from": "n5",
+              "to": "n1"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "rtk-query-endpoints-tags-invalidation",
+      "title": "How does RTK Query handle endpoints, cache tags, polling and optimistic updates?",
+      "topic": "RTK Query",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "rtk-query",
+        "caching",
+        "invalidation",
+        "optimistic-updates"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "RTK Query defines an API slice with query and mutation endpoints and generates hooks. Results are cached by endpoint and arguments, with subscription counting and a keep-unused-data period. Queries declare providesTags and mutations declare invalidatesTags, so a mutation automatically refetches affected queries. Polling uses pollingInterval, and optimistic updates patch the cache in onQueryStarted and undo on failure. It removes hand-written loading, error and caching code.",
+      "revision": "RTK Query caches by endpoint and args; tags link mutations to queries for invalidation; polling and optimistic patches with rollback are built in.",
+      "detailed": "**RTK Query** is the data-fetching and caching layer in Redux Toolkit. It treats **server state** as a cache to keep in sync, not as hand-managed slices.\n\n## Defining an API\n\n```ts\nexport const api = createApi({\n  reducerPath: 'api',\n  baseQuery: fetchBaseQuery({ baseUrl: '/api' }),\n  tagTypes: ['Product'],\n  endpoints: build => ({\n    getProducts: build.query<Product[], void>({\n      query: () => 'products',\n      providesTags: res => res\n        ? [...res.map(p => ({ type: 'Product' as const, id: p.id })), { type: 'Product', id: 'LIST' }]\n        : [{ type: 'Product', id: 'LIST' }],\n    }),\n    updateProduct: build.mutation<Product, Partial<Product> & Pick<Product, 'id'>>({\n      query: ({ id, ...patch }) => ({ url: `products/${id}`, method: 'PATCH', body: patch }),\n      invalidatesTags: (_r, _e, { id }) => [{ type: 'Product', id }],\n    }),\n  }),\n});\nexport const { useGetProductsQuery, useUpdateProductMutation } = api;\n```\n\n{{diagram:tags}}\n\n## Key behaviours\n\n| Feature | How |\n|---|---|\n| Deduplication | Identical in-flight requests share one fetch |\n| Cache lifetime | Removed after subscribers leave plus keepUnusedDataFor |\n| Polling | pollingInterval option on the hook |\n| Refetch triggers | refetchOnFocus, refetchOnReconnect, refetchOnMountOrArgChange |\n| Invalidation | Mutation tags cause matching queries to refetch |\n\n## Optimistic update\n\n```ts\nasync onQueryStarted({ id, ...patch }, { dispatch, queryFulfilled }) {\n  const undo = dispatch(api.util.updateQueryData('getProducts', undefined, draft => {\n    Object.assign(draft.find(p => p.id === id)!, patch);\n  }));\n  try { await queryFulfilled; } catch { undo.undo(); }\n}\n```\n\n## Common mistakes\n\n- Missing tags, so the UI shows stale data after a mutation.\n- Using one broad tag and refetching far more than needed.\n- Copying query results into another slice, creating two sources of truth.\n- Optimistic updates without a rollback path.\n\nOption names and defaults may differ by version; confirm against the documentation you use.",
+      "followUps": [
+        "How would you design tags for a paginated list?",
+        "When would you prefer TanStack Query to RTK Query?",
+        "How do you handle auth token refresh in baseQuery?"
+      ],
+      "related": [
+        "avoid-unnecessary-global-state",
+        "rtk-vs-apollo-client-graphql"
+      ],
+      "diagrams": [
+        {
+          "id": "tags",
+          "title": "Tag-based cache invalidation",
+          "alt": "A query provides tags and is cached; a mutation invalidates a tag; RTK Query finds queries providing that tag and refetches them so the UI updates.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Query provides Product tag"
+            },
+            {
+              "id": "n1",
+              "label": "Cached result"
+            },
+            {
+              "id": "n2",
+              "label": "Mutation succeeds"
+            },
+            {
+              "id": "n3",
+              "label": "Invalidates Product tag"
+            },
+            {
+              "id": "n4",
+              "label": "Matching queries refetch"
+            },
+            {
+              "id": "n5",
+              "label": "UI shows fresh data"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            },
+            {
+              "from": "n4",
+              "to": "n5"
+            },
+            {
+              "from": "n1",
+              "to": "n4",
+              "label": "subscribed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "redux-vs-context-vs-zustand-matrix",
+      "title": "Redux vs Context API vs Zustand: what is the decision matrix?",
+      "topic": "State library choice",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "redux",
+        "context",
+        "zustand",
+        "decision"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Context is a dependency-injection channel for rarely changing values such as theme, locale or the current user; every consumer re-renders when the value changes. Zustand is a small store with selector-based subscriptions and little ceremony, good for modest shared client state. Redux Toolkit adds conventions, DevTools, middleware and a large ecosystem, which pays off in big teams and complex state. I pick by update frequency, complexity, team size and tooling needs.",
+      "revision": "Context for rare-change values, Zustand for lightweight shared state, Redux Toolkit for large teams needing conventions, DevTools and middleware.",
+      "detailed": "All three move state across components, but they differ in **granularity of subscriptions, ceremony and tooling**.\n\n## Comparison\n\n| Aspect | Context API | Zustand | Redux Toolkit |\n|---|---|---|---|\n| Purpose | Pass values down the tree | Small external store | Structured global store |\n| Re-render control | All consumers re-render on value change | Selector-based subscriptions | Selector-based (useSelector) |\n| Boilerplate | Minimal | Very low | Moderate, reduced by RTK |\n| Middleware | None built in | Optional middleware | Rich (thunks, listeners, custom) |\n| DevTools | React DevTools only | Redux DevTools via middleware | First-class time-travel debugging |\n| Data fetching | Not provided | Not provided | RTK Query |\n| Best for | Theme, locale, session shell | Small to mid apps, widgets | Large apps, many teams |\n\n{{diagram:matrix}}\n\n## Reasoning\n\n- **Context** is not a state manager; it has no selector mechanism, so a frequently changing value re-renders everyone. Split contexts by concern and memoise values.\n- **Zustand** lets components subscribe to slices, works outside React and keeps code compact. Conventions are your responsibility.\n- **Redux Toolkit** gives one pattern, strong debugging and a standard async story, at the price of more concepts.\n\n```ts\n// Zustand\nconst useCart = create<{ items: string[]; add: (s: string) => void }>(set => ({\n  items: [],\n  add: sku => set(s => ({ items: [...s.items, sku] })),\n}));\nconst count = useCart(s => s.items.length);\n```\n\n## Common mistakes\n\n- Using Context for fast-changing state such as keystrokes or cursor position.\n- Choosing Zustand or Redux \"because it is trendy\" without a state-ownership analysis.\n- Mixing three libraries for the same kind of state.\n- Ignoring server-state tools, which remove much of what these libraries were used for.",
+      "followUps": [
+        "How would you migrate from Context to a store without a rewrite?",
+        "How do you stop Context consumers re-rendering unnecessarily?",
+        "What governance keeps Zustand stores consistent across teams?"
+      ],
+      "related": [
+        "when-is-redux-justified",
+        "avoid-unnecessary-global-state"
+      ],
+      "diagrams": [
+        {
+          "id": "matrix",
+          "title": "Choosing a state tool",
+          "alt": "A flow from update frequency and complexity to Context for rarely changing values, Zustand for lightweight shared state, or Redux Toolkit for complex state with many contributors.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Shared client state"
+            },
+            {
+              "id": "n1",
+              "label": "Changes rarely?"
+            },
+            {
+              "id": "n2",
+              "label": "Context API"
+            },
+            {
+              "id": "n3",
+              "label": "Complex logic or large team?"
+            },
+            {
+              "id": "n4",
+              "label": "Zustand"
+            },
+            {
+              "id": "n5",
+              "label": "Redux Toolkit"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2",
+              "label": "yes"
+            },
+            {
+              "from": "n1",
+              "to": "n3",
+              "label": "no"
+            },
+            {
+              "from": "n3",
+              "to": "n4",
+              "label": "no"
+            },
+            {
+              "from": "n3",
+              "to": "n5",
+              "label": "yes"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "redux-devtools-debugging-state",
+      "title": "How do you debug state problems with Redux DevTools?",
+      "topic": "Debugging",
+      "difficulty": "beginner",
+      "type": "scenario",
+      "tags": [
+        "redux",
+        "devtools",
+        "debugging",
+        "observability"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Redux DevTools shows every dispatched action, the state diff it produced and the full state after it, so I can see exactly which action caused a wrong value. I can time-travel by jumping or skipping actions, replay a sequence, export a session to attach to a bug report, and trace where an action was dispatched. In production I disable or restrict it, and sanitise actions and state so no personal data is exposed.",
+      "revision": "DevTools lists actions with state diffs, supports time-travel, replay and export; restrict or sanitise it in production to avoid exposing sensitive data.",
+      "detailed": "Because Redux state changes only through actions, you get a **complete, ordered log** of how the app reached its current state.\n\n## Workflow for a wrong value\n\n1. Open the DevTools **Action** list and find the first action after which the value is wrong.\n2. Check the **Diff** tab to see exactly what changed.\n3. Use the **Trace** tab (when enabled) to find the dispatching code.\n4. **Jump** to earlier states, or **skip** an action to see whether the bug disappears.\n5. **Export** the session, and **import** it elsewhere to reproduce the problem.\n\n{{diagram:debug}}\n\n## What DevTools can reveal\n\n| Symptom | Likely finding |\n|---|---|\n| UI stale after save | Mutation action never fired, or tag not invalidated |\n| Value flips back | Late response overwrote newer state (race) |\n| Unexpected action count | Effect dispatching in a loop |\n| State has class instances | Serialisability problem |\n\n## Setup and safety\n\n```ts\nexport const store = configureStore({\n  reducer,\n  devTools: process.env.NODE_ENV !== 'production' && {\n    actionSanitizer: a => (a.type === 'auth/loggedIn' ? { ...a, payload: '[redacted]' } : a),\n    stateSanitizer: s => ({ ...s, auth: '[redacted]' }),\n  },\n});\n```\n\nConfiguration options and extension behaviour vary by version, so check the current docs.\n\n## Complementary tools\n\n- React DevTools Profiler to see which components re-rendered.\n- Network tab to confirm request order and responses.\n- Logging middleware in staging for remote sessions.\n\n## Common mistakes\n\n- Leaving DevTools enabled in production with tokens or personal data in state or actions.\n- Dispatching generic actions such as \"setState\", which makes the log unreadable.\n- Debugging the UI without first checking whether the right action fired.\n- Large payloads in actions slowing the extension.",
+      "followUps": [
+        "How do you reproduce a customer bug using an exported session?",
+        "How would you log actions in production safely?",
+        "What makes action names useful for debugging?"
+      ],
+      "related": [
+        "race-conditions-stale-responses-async-flows",
+        "persisted-state-and-security"
+      ],
+      "diagrams": [
+        {
+          "id": "debug",
+          "title": "Debugging with action history",
+          "alt": "The engineer reproduces the bug, finds the first action with wrong state, inspects the diff and trace, then fixes the reducer, selector or dispatching code.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Reproduce the bug"
+            },
+            {
+              "id": "n1",
+              "label": "Find first bad action"
+            },
+            {
+              "id": "n2",
+              "label": "Inspect diff and trace"
+            },
+            {
+              "id": "n3",
+              "label": "Skip or jump to confirm"
+            },
+            {
+              "id": "n4",
+              "label": "Fix reducer, selector or caller"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "normalising-state-createentityadapter",
+      "title": "How do you normalise state with createEntityAdapter?",
+      "topic": "State shape",
+      "difficulty": "intermediate",
+      "type": "coding",
+      "tags": [
+        "redux-toolkit",
+        "normalisation",
+        "createEntityAdapter",
+        "performance"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Normalising means storing each entity once by id, with an ids array for ordering, instead of nested arrays of copies. Updates become O(1) lookups, there is a single source of truth and fewer re-renders. createEntityAdapter provides the empty state shape, CRUD reducers such as addMany, upsertOne and removeOne, and memoised selectors like selectAll and selectById. It suits lists that are edited, referenced from several places or paginated.",
+      "revision": "Store entities by id plus an ordered ids array; createEntityAdapter supplies CRUD reducers and selectors, giving one source of truth and cheap updates.",
+      "detailed": "**Normalised state** stores each entity once, keyed by id, and refers to it elsewhere by id.\n\n## Nested versus normalised\n\n| Concern | Nested copies | Normalised |\n|---|---|---|\n| Update one item | Search and update every copy | One write |\n| Consistency | Copies drift apart | Single source of truth |\n| Lookup by id | Linear scan | Constant time |\n| Re-renders | Whole list objects change | Only the touched entity changes |\n\n{{diagram:shape}}\n\n## createEntityAdapter\n\n```ts\nimport { createEntityAdapter, createSlice, createSelector } from '@reduxjs/toolkit';\n\ninterface Product { id: string; name: string; price: number }\n\nconst adapter = createEntityAdapter<Product>({\n  sortComparer: (a, b) => a.name.localeCompare(b.name),\n});\n\nconst productsSlice = createSlice({\n  name: 'products',\n  initialState: adapter.getInitialState({ loading: false }),\n  reducers: {\n    received: adapter.setAll,\n    priceChanged(state, a: PayloadAction<{ id: string; price: number }>) {\n      adapter.updateOne(state, { id: a.payload.id, changes: { price: a.payload.price } });\n    },\n  },\n});\n\nexport const { selectAll, selectById } =\n  adapter.getSelectors((s: RootState) => s.products);\n```\n\nBy default the adapter expects an `id` field; a `selectId` option supports other keys.\n\n## When to normalise\n\n- Entities appear in multiple places (product in cart, list and detail).\n- Frequent partial updates, such as real-time prices.\n- Large lists where updating one row should not re-render all.\n\nNot every response needs it. For server data, RTK Query caches per request; normalise only if you need cross-query consistency, or use the adapter inside an endpoint's cache transformation.\n\n## Common mistakes\n\n- Normalising small, read-only data and adding complexity for nothing.\n- Storing derived arrays alongside the entities.\n- Forgetting that sort order is by sortComparer or by insertion if none is given.\n- Mixing nested and normalised copies of the same entity.",
+      "followUps": [
+        "How do you handle relationships such as orders to products?",
+        "Does RTK Query normalise data automatically?",
+        "How would you paginate with an entity adapter?"
+      ],
+      "related": [
+        "actions-reducers-selectors-createselector",
+        "ecommerce-frontend-state-architecture"
+      ],
+      "diagrams": [
+        {
+          "id": "shape",
+          "title": "Normalised state shape",
+          "alt": "A products slice holds an ids array for order and an entities map keyed by id; the cart and a product list both reference products by id instead of copying them.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "products.ids"
+            },
+            {
+              "id": "n1",
+              "label": "products.entities by id"
+            },
+            {
+              "id": "n2",
+              "label": "Cart holds product ids"
+            },
+            {
+              "id": "n3",
+              "label": "List page reads ids"
+            },
+            {
+              "id": "n4",
+              "label": "One product update"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n2",
+              "to": "n1"
+            },
+            {
+              "from": "n3",
+              "to": "n1"
+            },
+            {
+              "from": "n4",
+              "to": "n1"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "avoid-unnecessary-global-state",
+      "title": "How do you avoid unnecessary global state: server, client, URL and form state?",
+      "topic": "State ownership",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "state-management",
+        "server-state",
+        "url-state",
+        "forms"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I classify state by where it truly lives. Server state is a cache of remote data, so it belongs in RTK Query or TanStack Query. URL state such as filters, sort and page belongs in search params so it is shareable and survives refresh. Form state belongs in a form library or local state until submit. Ephemeral UI state stays local. Only what is genuinely shared client state, such as a cart draft or session shell, goes into the global store.",
+      "revision": "Classify state: server in a cache library, shareable view state in the URL, form state local, UI local; only true shared client state goes global.",
+      "detailed": "Most \"state management\" pain comes from putting **different kinds of state in one bucket**.\n\n## The four kinds\n\n| Kind | Examples | Home |\n|---|---|---|\n| Server state | Products, orders, profile | RTK Query, TanStack Query, SWR |\n| URL state | Search term, page, sort, tab | Router search params |\n| Form state | Draft fields, validation, dirty flags | React Hook Form, local state |\n| Client UI state | Open modal, hovered row | useState / useReducer |\n| Shared client state | Cart draft, UI preferences, feature flags | Redux or similar store |\n\n{{diagram:kinds}}\n\n## Why it matters\n\n- Server data in a store needs hand-written loading, error, caching, invalidation and deduplication.\n- Filters outside the URL cannot be bookmarked, shared or restored by the back button.\n- Form drafts in a global store re-render large trees on each keystroke.\n\n## Example: product listing\n\n```tsx\nconst [params, setParams] = useSearchParams();\nconst category = params.get('category') ?? 'all';\nconst page = Number(params.get('page') ?? 1);\n\nconst { data, isFetching } = useGetProductsQuery({ category, page });\n// URL holds the view, the cache holds the data, no slice needed\n```\n\n## Decision questions\n\n1. Can the server recompute it? Then it is cached server state.\n2. Should a link reproduce it? Then it belongs in the URL.\n3. Is it only relevant until submit? Then form state.\n4. Do distant components need it and it is not in the above? Then global store.\n\n## Common mistakes\n\n- Copying fetched data into a slice with useEffect.\n- Keeping filter state in Redux and syncing it to the URL manually.\n- Storing every input value globally.\n- Treating \"global\" as a default instead of an exception.",
+      "followUps": [
+        "How do you keep URL state typed and validated?",
+        "What belongs in the store for a checkout flow?",
+        "How do you handle optimistic UI with server state?"
+      ],
+      "related": [
+        "when-is-redux-justified",
+        "ecommerce-frontend-state-architecture"
+      ],
+      "diagrams": [
+        {
+          "id": "kinds",
+          "title": "Where each kind of state lives",
+          "alt": "Application state is classified into server state, URL state, form state, local UI state and shared client state, each mapped to its own home such as a cache library, router, form library, component or store.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Application state"
+            },
+            {
+              "id": "n1",
+              "label": "Server state to RTK Query"
+            },
+            {
+              "id": "n2",
+              "label": "URL state to search params"
+            },
+            {
+              "id": "n3",
+              "label": "Form state to form library"
+            },
+            {
+              "id": "n4",
+              "label": "Local UI state to useState"
+            },
+            {
+              "id": "n5",
+              "label": "Shared client state to store"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n0",
+              "to": "n2"
+            },
+            {
+              "from": "n0",
+              "to": "n3"
+            },
+            {
+              "from": "n0",
+              "to": "n4"
+            },
+            {
+              "from": "n0",
+              "to": "n5"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "persisted-state-and-security",
+      "title": "How do you persist Redux state safely, and why never store tokens or PII in localStorage?",
+      "topic": "Persistence and security",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "redux-persist",
+        "security",
+        "localStorage",
+        "xss"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "redux-persist can rehydrate selected slices from storage, which suits harmless preferences or a cart draft. localStorage is readable by any script on the page, so one XSS flaw exposes everything in it. I never persist access tokens, refresh tokens or personal data there. Sessions use HttpOnly, Secure, SameSite cookies set by the server. I whitelist persisted slices, version and migrate the shape, and clear persisted data on logout.",
+      "revision": "Persist only harmless slices with a whitelist and migrations; never tokens or PII in localStorage, because XSS can read it; use HttpOnly cookies.",
+      "detailed": "Persisting state improves perceived speed and continuity, but the storage choice is a **security decision**.\n\n## What redux-persist does\n\nIt serialises selected slices to a storage engine and rehydrates them on startup, with a `version` and `migrate` function to handle shape changes.\n\n```ts\nconst persistConfig = {\n  key: 'root',\n  version: 2,\n  storage,                       // localStorage engine\n  whitelist: ['cart', 'preferences'],   // never auth\n  migrate: createMigrate({ 2: (s: any) => ({ ...s, preferences: { ...s.preferences, density: 'comfortable' } }) }),\n};\nconst persisted = persistReducer(persistConfig, rootReducer);\n```\n\nWith RTK, ignore the persist actions in the serialisability check (FLUSH, REHYDRATE, PAUSE, PERSIST, PURGE, REGISTER).\n\n## Why not tokens or PII in localStorage\n\n- Any script running on your origin can read it: an XSS bug, a compromised third-party script or a malicious browser extension.\n- Data persists on shared devices after the tab closes.\n- There is no expiry or flag like HttpOnly to protect it.\n\n{{diagram:storage}}\n\n## Safer approach\n\n| Data | Where |\n|---|---|\n| Session or refresh token | HttpOnly, Secure, SameSite cookie set by the server |\n| Short-lived access token | Memory only, renewed via the cookie |\n| Preferences, theme | localStorage is acceptable |\n| Cart draft | Persist ids and quantities, re-price on the server |\n| Profile data | Refetch after login, do not persist |\n\nCookie-based sessions need CSRF protections such as SameSite and anti-forgery tokens. Trade-offs vary by architecture, so assess against your threat model.\n\n## Common mistakes\n\n- Persisting the whole store with no whitelist.\n- Persisting prices or entitlements and trusting them later.\n- Not purging storage on logout or account switch.\n- Forgetting migrations, so old shapes crash after a release.",
+      "followUps": [
+        "How would you design token renewal without storing a token in storage?",
+        "How do you handle logout across multiple tabs?",
+        "What would you persist for an offline-capable cart?"
+      ],
+      "related": [
+        "redux-devtools-debugging-state",
+        "ecommerce-frontend-state-architecture"
+      ],
+      "diagrams": [
+        {
+          "id": "storage",
+          "title": "Where session data should live",
+          "alt": "The server sets an HttpOnly cookie for the session, the client keeps a short-lived access token in memory, and only harmless preferences are persisted to localStorage, which injected scripts can read.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Login succeeds"
+            },
+            {
+              "id": "n1",
+              "label": "Server sets HttpOnly cookie"
+            },
+            {
+              "id": "n2",
+              "label": "Access token held in memory"
+            },
+            {
+              "id": "n3",
+              "label": "Preferences persisted"
+            },
+            {
+              "id": "n4",
+              "label": "localStorage readable by XSS"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n0",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "testing-redux-slices-and-connected-components",
+      "title": "How do you test Redux slices and Redux-connected components?",
+      "topic": "Testing",
+      "difficulty": "intermediate",
+      "type": "coding",
+      "tags": [
+        "testing",
+        "redux",
+        "react-testing-library",
+        "msw"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I test reducers as pure functions: given state and an action, assert the next state. Selectors get tests with sample state. For components I render with a real store through a helper that accepts preloaded state, using React Testing Library and user-event, and assert on what the user sees rather than on dispatch calls. Network is mocked at the boundary with a tool such as MSW, which also exercises thunks and RTK Query realistically.",
+      "revision": "Test reducers and selectors as pure functions; render components with a real store and preloaded state; mock the network boundary, assert user-visible behaviour.",
+      "detailed": "A good Redux test strategy follows the pyramid: many fast pure-function tests, fewer integration tests with a real store.\n\n{{diagram:pyramid}}\n\n## Reducers and selectors\n\n```ts\nimport reducer, { added } from './cartSlice';\n\ntest('adds a new line', () => {\n  const next = reducer({ items: [] }, added('SKU-1'));\n  expect(next.items).toEqual([{ sku: 'SKU-1', qty: 1 }]);\n});\n\ntest('selectCartTotal applies discount', () => {\n  const state = { cart: { items: [{ sku: 'a', price: 100, qty: 2 }], discountRate: 0.1 } } as RootState;\n  expect(selectCartTotal(state)).toBe(180);\n});\n```\n\n## Connected components\n\n```tsx\nexport function renderWithStore(ui: React.ReactElement, preloadedState?: Partial<RootState>) {\n  const store = configureStore({ reducer: rootReducer, preloadedState });\n  return { store, ...render(<Provider store={store}>{ui}</Provider>) };\n}\n\ntest('shows item count', async () => {\n  renderWithStore(<CartBadge />, { cart: { items: [{ sku: 'a', qty: 3 }] } });\n  expect(screen.getByText('3')).toBeInTheDocument();\n});\n```\n\nCreate a **fresh store per test** to prevent leaks between tests.\n\n## Async flows\n\nMock HTTP with MSW so thunks and RTK Query run their real code paths, then assert on rendered results or on state after `await`.\n\n| Layer | Test style |\n|---|---|\n| Reducer, selector | Pure unit test |\n| Thunk, listener | Real store plus mocked network |\n| Component | Testing Library with preloaded store |\n| Critical journeys | End-to-end tests in a browser |\n\n## Common mistakes\n\n- Mocking useSelector or useDispatch, which couples tests to implementation.\n- Asserting that dispatch was called rather than what the user sees.\n- Sharing one store instance across tests.\n- Testing RTK-generated code instead of your own logic.",
+      "followUps": [
+        "How do you test a thunk that handles a failed request?",
+        "How do you test RTK Query cache invalidation?",
+        "When would you mock the store instead?"
+      ],
+      "related": [
+        "redux-toolkit-slices-configurestore-immer",
+        "redux-middleware-async-thunk-listener"
+      ],
+      "diagrams": [
+        {
+          "id": "pyramid",
+          "title": "Redux testing layers",
+          "alt": "Pure reducer and selector tests form the fast base, store-backed thunk and component tests sit in the middle, and a few browser end-to-end journeys sit at the top.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Few end-to-end journeys"
+            },
+            {
+              "id": "n1",
+              "label": "Component tests with real store"
+            },
+            {
+              "id": "n2",
+              "label": "Thunk and listener tests with mocked network"
+            },
+            {
+              "id": "n3",
+              "label": "Reducer and selector unit tests"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "typed-hooks-redux-typescript",
+      "title": "How do you type useDispatch and useSelector in Redux with TypeScript?",
+      "topic": "Redux with TypeScript",
+      "difficulty": "beginner",
+      "type": "coding",
+      "tags": [
+        "redux",
+        "typescript",
+        "hooks",
+        "typing"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I infer types from the store rather than writing them by hand. RootState is ReturnType of store.getState, AppDispatch is typeof store.dispatch, and I export pre-typed hooks useAppDispatch and useAppSelector using withTypes in recent versions, or typed wrappers in older ones. Components import only those hooks, so state access is checked, dispatching thunks is typed, and renaming a slice field surfaces compile errors everywhere it is used.",
+      "revision": "Infer RootState and AppDispatch from the store, export pre-typed useAppDispatch and useAppSelector, and use them everywhere instead of the plain hooks.",
+      "detailed": "Redux Toolkit is designed so types **flow from the store**. You declare them once and reuse them.\n\n## Setup\n\n```ts\n// store.ts\nexport const store = configureStore({ reducer: { cart: cartReducer, auth: authReducer } });\nexport type RootState = ReturnType<typeof store.getState>;\nexport type AppDispatch = typeof store.dispatch;\n\n// hooks.ts (react-redux 9 style)\nimport { useDispatch, useSelector } from 'react-redux';\nexport const useAppDispatch = useDispatch.withTypes<AppDispatch>();\nexport const useAppSelector = useSelector.withTypes<RootState>();\n\n// older react-redux\n// export const useAppSelector: TypedUseSelectorHook<RootState> = useSelector;\n// export const useAppDispatch: () => AppDispatch = useDispatch;\n```\n\n{{diagram:types}}\n\n## Usage\n\n```tsx\nconst count = useAppSelector(s => s.cart.items.length);   // inferred number\nconst dispatch = useAppDispatch();\ndispatch(loadOrders('c-1'));                               // thunk typed correctly\n```\n\n## Other typing points\n\n| Item | Approach |\n|---|---|\n| Action payload | PayloadAction<T> in reducers |\n| createAsyncThunk | Generics: <Returned, ThunkArg, { state, rejectValue }> |\n| Pre-typed thunk helper | createAsyncThunk.withTypes in recent versions |\n| Selectors | Take RootState as input type |\n| Circular import warnings | Keep the thunk's state type via the store's reducer type if needed |\n\nThe `withTypes` helpers exist in recent versions of react-redux and Redux Toolkit; if you are on an older release, use the typed-wrapper pattern.\n\n## Common mistakes\n\n- Using plain useSelector and annotating state as `any`.\n- Hand-writing a RootState interface that drifts from the reducers.\n- Typing thunks without the rejectValue, so error payloads are `unknown`.\n- Importing the store into slices, creating circular dependencies; use type-only imports.",
+      "followUps": [
+        "How do you avoid circular type imports between store and slices?",
+        "How are RTK Query hooks typed?",
+        "How would you type a custom middleware?"
+      ],
+      "related": [
+        "redux-toolkit-slices-configurestore-immer",
+        "actions-reducers-selectors-createselector"
+      ],
+      "diagrams": [
+        {
+          "id": "types",
+          "title": "Types flowing from the store",
+          "alt": "The store is created from reducers, RootState and AppDispatch are inferred from it, and the typed hooks built from them are used by every component.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "configureStore with reducers"
+            },
+            {
+              "id": "n1",
+              "label": "RootState inferred"
+            },
+            {
+              "id": "n2",
+              "label": "AppDispatch inferred"
+            },
+            {
+              "id": "n3",
+              "label": "Typed hooks"
+            },
+            {
+              "id": "n4",
+              "label": "Components use hooks"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n0",
+              "to": "n2"
+            },
+            {
+              "from": "n1",
+              "to": "n3"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "splitting-stores-and-code-splitting-reducers",
+      "title": "How do you split stores and code-split reducers in a large app?",
+      "topic": "Store architecture",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "redux",
+        "code-splitting",
+        "architecture",
+        "micro-frontends"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Redux recommends one store per app. At scale I split by feature slices owned by teams, with a clear public API for each, and lazy-load reducers for routes that are not needed initially. Newer Redux Toolkit versions offer combineSlices with inject, and older code uses replaceReducer. RTK Query's injectEndpoints splits API definitions the same way. For truly independent micro-frontends I consider separate stores with a narrow shared contract, accepting the cost.",
+      "revision": "One store, feature-owned slices with public APIs, lazy-injected reducers and endpoints per route; separate stores only for truly independent micro-frontends.",
+      "detailed": "A large app has two scaling problems: **bundle size** (loading every reducer up front) and **ownership** (many teams editing one store).\n\n## Structure by feature\n\n```text\nsrc/\n  app/store.ts\n  features/\n    cart/      slice.ts selectors.ts api.ts index.ts\n    catalogue/ slice.ts selectors.ts api.ts index.ts\n    checkout/  ...\n```\n\nEach feature exposes a small public API through `index.ts`; other features import only from it.\n\n{{diagram:inject}}\n\n## Lazy reducers\n\n```ts\n// recent Redux Toolkit versions\nconst rootReducer = combineSlices(authSlice, cartSlice).withLazyLoadedSlices<LazyLoadedSlices>();\n\n// in the checkout route chunk\ncheckoutSlice.injectInto(rootReducer);\n\n// RTK Query\nexport const checkoutApi = baseApi.injectEndpoints({ endpoints: build => ({ /* ... */ }) });\n```\n\nOlder approach: keep a map of async reducers and call `store.replaceReducer(combineReducers(map))` when a route loads. Check your installed version for the available helpers.\n\n## One store or many\n\n| Option | Good for | Cost |\n|---|---|---|\n| Single store, lazy slices | Most apps | Needs discipline on boundaries |\n| Store per micro-frontend | Independently deployed apps | Cross-app communication, duplicated libraries |\n| Shared events or URL contract | Loose coupling between shells | Weaker consistency |\n\n## Guidelines\n\n- Keep shared slices (auth, session metadata) in the host; lazy-load feature slices.\n- Selectors for a lazy slice must tolerate it being absent.\n- Do not let features reach into each other's state shape.\n\n## Common mistakes\n\n- Loading all reducers and endpoints in the initial bundle.\n- Cross-feature imports of internal selectors, creating tight coupling.\n- Multiple stores for convenience rather than for a real deployment boundary.\n- Forgetting to handle state that does not yet exist when a lazy slice has not loaded.",
+      "followUps": [
+        "How do you share the auth state with a micro-frontend?",
+        "How would you enforce feature boundaries in the repository?",
+        "What happens to state when a lazy slice is never injected?"
+      ],
+      "related": [
+        "ecommerce-frontend-state-architecture",
+        "migrating-legacy-redux-to-rtk"
+      ],
+      "diagrams": [
+        {
+          "id": "inject",
+          "title": "Lazy injection of feature reducers",
+          "alt": "The host app creates a store with core slices; when a user navigates to a feature route, its code chunk loads and injects its reducer and API endpoints into the existing store.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Host store with core slices"
+            },
+            {
+              "id": "n1",
+              "label": "User navigates to checkout"
+            },
+            {
+              "id": "n2",
+              "label": "Checkout chunk loads"
+            },
+            {
+              "id": "n3",
+              "label": "Inject reducer and endpoints"
+            },
+            {
+              "id": "n4",
+              "label": "Feature state available"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "rtk-vs-apollo-client-graphql",
+      "title": "Redux Toolkit vs Apollo Client for GraphQL state: how do you choose?",
+      "topic": "GraphQL client state",
+      "difficulty": "advanced",
+      "type": "comparison",
+      "tags": [
+        "graphql",
+        "apollo-client",
+        "redux-toolkit",
+        "caching"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Apollo Client ships a normalised cache keyed by type and id, so a mutation returning an updated object refreshes every query showing it, plus fragments, pagination helpers and codegen integration. RTK Query can call GraphQL through a custom baseQuery, but its cache is per query and argument, with tag-based invalidation. If the whole app is GraphQL and entities overlap heavily, Apollo fits well. If the app mixes REST and GraphQL and already uses Redux, RTK Query is simpler.",
+      "revision": "Apollo gives a normalised entity cache and GraphQL-native features; RTK Query gives per-query caching with tags across REST and GraphQL; choose by API mix and entity overlap.",
+      "detailed": "Both manage **server state**, but their caching models differ.\n\n## Comparison\n\n| Aspect | Apollo Client | RTK Query with GraphQL |\n|---|---|---|\n| Cache model | Normalised by __typename and id | Per endpoint and arguments |\n| Cross-query consistency | Automatic when an entity is returned | Via tags and refetch, or manual cache updates |\n| GraphQL features | Fragments, field policies, pagination helpers, subscriptions | You supply a base query and document handling |\n| Mixed REST and GraphQL | Possible but GraphQL-centred | Natural; one tool for both |\n| Local client state | Reactive variables, field policies | Redux slices |\n| Tooling | Apollo DevTools, codegen | Redux DevTools, codegen |\n| Bundle and learning curve | Larger | Smaller if Redux already used |\n\n{{diagram:choose}}\n\n## Illustration\n\n```ts\n// Apollo: updating one product updates every query that contains it\nconst [updatePrice] = useMutation(UPDATE_PRICE);  // returns { id, __typename, price }\n\n// RTK Query: declare tags and refetch\nupdatePrice: build.mutation({\n  query: vars => ({ document: UPDATE_PRICE, variables: vars }),\n  invalidatesTags: (_r, _e, { id }) => [{ type: 'Product', id }],\n}),\n```\n\n## Decision guidance\n\n- **Choose Apollo** when most data is GraphQL, screens show overlapping entities and you want fragment colocation.\n- **Choose RTK Query** when the app already runs on Redux Toolkit, mixes REST and GraphQL or prefers explicit invalidation.\n- **Consider alternatives** such as urql or TanStack Query where appropriate.\n\nLibrary features evolve; verify current capabilities before deciding.\n\n## Common mistakes\n\n- Using Apollo cache and Redux for the same server data.\n- Missing `id` fields in selections, which disables normalisation.\n- Over-fetching with large queries because the cache hides cost.\n- Storing GraphQL responses in slices by hand.",
+      "followUps": [
+        "How do field policies handle pagination in Apollo?",
+        "How would you generate typed hooks from a schema?",
+        "How do you handle optimistic updates in each?"
+      ],
+      "related": [
+        "rtk-query-endpoints-tags-invalidation",
+        "avoid-unnecessary-global-state"
+      ],
+      "diagrams": [
+        {
+          "id": "choose",
+          "title": "Choosing a GraphQL data layer",
+          "alt": "Decision flow asking whether the app is mostly GraphQL with overlapping entities, leading to Apollo Client, or mixed REST and GraphQL on Redux Toolkit, leading to RTK Query.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Need GraphQL data layer"
+            },
+            {
+              "id": "n1",
+              "label": "Mostly GraphQL with overlapping entities?"
+            },
+            {
+              "id": "n2",
+              "label": "Apollo Client normalised cache"
+            },
+            {
+              "id": "n3",
+              "label": "Mixed APIs and already on Redux?"
+            },
+            {
+              "id": "n4",
+              "label": "RTK Query with custom base query"
+            },
+            {
+              "id": "n5",
+              "label": "Evaluate urql or TanStack Query"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2",
+              "label": "yes"
+            },
+            {
+              "from": "n1",
+              "to": "n3",
+              "label": "no"
+            },
+            {
+              "from": "n3",
+              "to": "n4",
+              "label": "yes"
+            },
+            {
+              "from": "n3",
+              "to": "n5",
+              "label": "no"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "race-conditions-stale-responses-async-flows",
+      "title": "How do you prevent race conditions and stale responses in async Redux flows?",
+      "topic": "Async correctness",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "race-conditions",
+        "abortcontroller",
+        "redux",
+        "async"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "A race happens when an older request finishes after a newer one and overwrites the state, for example typeahead or fast filter changes. I prevent it by aborting superseded requests with AbortController, tagging each request with an id and ignoring responses that do not match the latest, using takeLatest-style listener effects, or relying on RTK Query, which keys results by arguments. I also make server writes idempotent and disable repeat submissions.",
+      "revision": "Abort superseded requests, match responses to the latest request id, use cancel-previous effects or RTK Query keyed results; make writes idempotent.",
+      "detailed": "A **stale response** overwrites newer state because network completion order is not request order.\n\n{{diagram:race}}\n\n## Scenario\n\nA user types \"sh\", then \"shoe\". The \"sh\" response arrives last and replaces the \"shoe\" results.\n\n## Techniques\n\n| Technique | How |\n|---|---|\n| Abort | Pass `signal` from AbortController; cancel the previous request |\n| Request id check | Store latest requestId in state; ignore mismatches |\n| Cancel-previous effect | Listener middleware cancels earlier runs |\n| Keyed cache | RTK Query stores results per argument, so the UI selects the right one |\n| Debounce | Reduces request volume but does not remove the race |\n\n## createAsyncThunk\n\n```ts\nlet inFlight: { abort: () => void } | undefined;\n\nexport const search = (q: string): AppThunk => dispatch => {\n  inFlight?.abort();\n  inFlight = dispatch(searchProducts(q));   // thunk promise exposes abort()\n};\n\n// reducer guard\n.addCase(searchProducts.fulfilled, (s, a) => {\n  if (s.currentRequestId !== a.meta.requestId) return;   // stale\n  s.results = a.payload;\n})\n```\n\nEach thunk call carries a unique `meta.requestId`; compare it with the id stored when the request started. The thunk's `signal` can be forwarded to fetch.\n\n## Listener version\n\n```ts\nstartListening({\n  actionCreator: queryChanged,\n  effect: async (action, api) => {\n    api.cancelActiveListeners();\n    await api.delay(250);\n    // fetch with the listener's signal\n  },\n});\n```\n\n## Related races\n\n- **Double submit**: disable the button and send an idempotency key.\n- **Out-of-order updates** from websockets: include versions or timestamps.\n- **Unmounted components**: prefer state updates in the store over component-local setState after await.\n\n## Common mistakes\n\n- Debouncing and assuming ordering is solved.\n- Aborting the fetch but still applying a late result from a thunk that ignores the signal.\n- Using a single loading boolean for several concurrent requests.\n- Updating from a response without checking it matches the current arguments.",
+      "followUps": [
+        "How does RTK Query avoid this problem?",
+        "How do you make a payment submit idempotent?",
+        "How do you order websocket updates safely?"
+      ],
+      "related": [
+        "redux-middleware-async-thunk-listener",
+        "rtk-query-endpoints-tags-invalidation"
+      ],
+      "diagrams": [
+        {
+          "id": "race",
+          "title": "A stale response overwriting newer state",
+          "alt": "Request A is sent first and request B second; B returns and updates the state, then A returns late and overwrites it unless it was aborted or ignored by a request id check.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Request A sent"
+            },
+            {
+              "id": "n1",
+              "label": "Request B sent"
+            },
+            {
+              "id": "n2",
+              "label": "B response arrives"
+            },
+            {
+              "id": "n3",
+              "label": "State shows B results"
+            },
+            {
+              "id": "n4",
+              "label": "A response arrives late"
+            },
+            {
+              "id": "n5",
+              "label": "Abort or ignore A"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            },
+            {
+              "from": "n4",
+              "to": "n5"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "migrating-legacy-redux-to-rtk",
+      "title": "How do you migrate a legacy Redux codebase to Redux Toolkit incrementally?",
+      "topic": "Migration",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "migration",
+        "redux-toolkit",
+        "refactoring",
+        "legacy"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I do it incrementally because RTK is compatible with existing Redux. First swap createStore for configureStore, keeping current reducers. Then convert slices one at a time with createSlice, starting with the most edited ones, delete action-type constants and switch-statements, and replace hand-written fetch thunks and loading flags with RTK Query or createAsyncThunk. Connect HOCs can be replaced gradually with hooks. Tests guard each step, and I never freeze feature work for a big rewrite.",
+      "revision": "Replace createStore with configureStore, convert slices one by one, move fetching to RTK Query, swap connect for hooks, guard each step with tests.",
+      "detailed": "RTK sits on top of Redux, so legacy reducers and new slices **coexist in one store**. That makes an incremental migration safe.\n\n{{diagram:steps}}\n\n## Suggested sequence\n\n1. **Baseline**: add tests for critical flows and upgrade Redux, react-redux and TypeScript to supported versions.\n2. **configureStore**: replace createStore and manual middleware wiring. Fix warnings it surfaces (mutations, non-serialisable values) as separate small changes.\n3. **Slice by slice**: convert reducers to createSlice, prioritising files that change often or are bug-prone.\n4. **Server state**: replace thunks that only fetch, with loading and error flags, by RTK Query endpoints; delete the matching slice fields.\n5. **Components**: replace connect with useAppSelector and useAppDispatch when touching a file.\n6. **Types and selectors**: add RootState, typed hooks and memoised selectors.\n\n## Before and after\n\n```ts\n// before\nconst ADD = 'cart/ADD';\nfunction cart(state = [], action) {\n  switch (action.type) {\n    case ADD: return [...state, action.payload];\n    default: return state;\n  }\n}\n\n// after\nconst cartSlice = createSlice({\n  name: 'cart',\n  initialState: [] as string[],\n  reducers: { added: (s, a: PayloadAction<string>) => { s.push(a.payload); } },\n});\n```\n\n## Risks and controls\n\n| Risk | Control |\n|---|---|\n| Action type strings change | Keep type names stable, or update consumers together |\n| Behaviour regressions | Reducer tests before and after |\n| Big-bang pull requests | One slice or feature per PR |\n| Team confusion | Short guide, lint rules, an example feature |\n\nCompatibility details depend on versions; check upgrade notes.\n\n## Common mistakes\n\n- Pausing product work for a months-long rewrite.\n- Converting reducers but keeping hand-rolled caching.\n- Fixing every dev-mode warning in one change.\n- Leaving two patterns indefinitely without a deadline or ownership.",
+      "followUps": [
+        "How would you measure migration progress?",
+        "What do you do with legacy sagas?",
+        "How do you convince the team the migration is worth it?"
+      ],
+      "related": [
+        "when-is-redux-justified",
+        "splitting-stores-and-code-splitting-reducers"
+      ],
+      "diagrams": [
+        {
+          "id": "steps",
+          "title": "Incremental migration path",
+          "alt": "The migration proceeds from adding tests and upgrading, to configureStore, converting slices one by one, moving server data to RTK Query, and replacing connect with hooks.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Tests and upgrades"
+            },
+            {
+              "id": "n1",
+              "label": "configureStore"
+            },
+            {
+              "id": "n2",
+              "label": "Convert slices one by one"
+            },
+            {
+              "id": "n3",
+              "label": "Server data to RTK Query"
+            },
+            {
+              "id": "n4",
+              "label": "Hooks replace connect"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "ecommerce-frontend-state-architecture",
+      "title": "Design the state architecture for a large ecommerce frontend (cart, auth, filters)",
+      "topic": "State architecture",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "ecommerce",
+        "architecture",
+        "redux-toolkit",
+        "rtk-query"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I separate state by kind. Catalogue, orders and the authoritative cart come from the server through RTK Query. Filters, sort and page live in the URL. The cart draft and a small set of preferences live in a Redux slice, with the server as the source of truth for prices and stock. Auth keeps a session cookie handled by the server and only non-sensitive user metadata in the store. Checkout form state stays local, and slices load lazily per route.",
+      "revision": "Server cache for catalogue and cart truth, URL for filters, small slices for cart draft and session metadata, local form state, lazy feature slices.",
+      "detailed": "A large storefront mixes fast-changing UI, shared data and security-sensitive flows. Mapping each concern to the **right owner** keeps the store small.\n\n{{diagram:arch}}\n\n## Ownership map\n\n| Concern | Owner | Notes |\n|---|---|---|\n| Product lists and details | RTK Query | Tags per product and list; cache and refetch |\n| Filters, sort, page | URL search params | Shareable, SEO-friendly, back button works |\n| Cart | Server-authoritative; slice for optimistic draft | Re-price and check stock on the server |\n| Auth session | HttpOnly cookie; slice stores id, roles for UI hints | Server enforces authorisation |\n| Checkout forms | Form library, local state | Persist nothing sensitive |\n| UI flags | Local state or a small ui slice | Drawer open, toasts |\n\n## Cart design\n\n```ts\nconst cartSlice = createSlice({\n  name: 'cart',\n  initialState: { lines: {} as Record<string, number>, syncing: false },\n  reducers: {\n    quantitySet(s, a: PayloadAction<{ sku: string; qty: number }>) {\n      if (a.payload.qty <= 0) delete s.lines[a.payload.sku];\n      else s.lines[a.payload.sku] = a.payload.qty;\n    },\n  },\n});\n```\n\nTotals, taxes and shipping are **derived or fetched**, never trusted from the client. A listener syncs changes to the server with debounce and reconciles the response.\n\n## Filters\n\nBuild the query from the URL, call the products endpoint with those arguments, and let the cache serve repeat visits. Validate and default params to avoid malformed URLs.\n\n## Cross-cutting\n\n- Lazy-load checkout and account slices.\n- Handle price or stock changes at checkout with an explicit \"cart updated\" step.\n- Multiple tabs: sync via storage events or refetch on focus.\n\n## Common mistakes\n\n- Persisting prices in localStorage and trusting them at checkout.\n- Keeping filters in the store and in the URL, with two sources of truth.\n- Putting every checkout field in global state.\n- Using client totals for payment amounts.",
+      "followUps": [
+        "How would you merge an anonymous cart with the cart after login?",
+        "How do you handle stock changing while items sit in the cart?",
+        "What do you cache aggressively and what never?"
+      ],
+      "related": [
+        "avoid-unnecessary-global-state",
+        "persisted-state-and-security"
+      ],
+      "diagrams": [
+        {
+          "id": "arch",
+          "title": "Ecommerce frontend state ownership",
+          "alt": "Server data flows through RTK Query, filters live in the URL, a small Redux store holds cart draft and session metadata, and checkout form state stays local, with the server as authority for prices.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Storefront UI"
+            },
+            {
+              "id": "n1",
+              "label": "URL: filters, sort, page"
+            },
+            {
+              "id": "n2",
+              "label": "RTK Query: catalogue, orders"
+            },
+            {
+              "id": "n3",
+              "label": "Redux slices: cart draft, session metadata"
+            },
+            {
+              "id": "n4",
+              "label": "Local form state: checkout"
+            },
+            {
+              "id": "n5",
+              "label": "Server: prices, stock, auth"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n0",
+              "to": "n2"
+            },
+            {
+              "from": "n0",
+              "to": "n3"
+            },
+            {
+              "from": "n0",
+              "to": "n4"
+            },
+            {
+              "from": "n2",
+              "to": "n5"
+            },
+            {
+              "from": "n3",
+              "to": "n5"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "redux-toolkit-vs-hand-written-boilerplate-pitfalls",
+      "title": "What are common Redux Toolkit pitfalls reviewers should catch?",
+      "topic": "Code review",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "redux-toolkit",
+        "code-review",
+        "best-practices",
+        "pitfalls"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "In review I look for mutation outside reducers, non-serialisable values in state or actions, derived data stored instead of selected, selectors that return fresh objects, server data copied into slices, giant catch-all slices, vague action names, secrets in persisted state, and missing error handling in thunks. A short checklist in the pull request template and lint rules for hooks and imports catch most of these before they reach production.",
+      "revision": "Review for mutation outside reducers, non-serialisable state, stored derived data, unstable selectors, copied server data, vague actions and persisted secrets.",
+      "detailed": "A consistent review checklist keeps a shared store healthy as a team grows.\n\n## Checklist\n\n| Area | Look for | Fix |\n|---|---|---|\n| Immutability | Mutating state in thunks or components | Do it in reducers only |\n| Serialisability | Dates, Maps, class instances, Promises in state | Store ISO strings, plain objects |\n| Derived data | Totals and counts saved in state | createSelector |\n| Selectors | `useSelector(s => s.x.filter(...))` | Memoised selector |\n| Server data | Fetch in effect then dispatch into slice | RTK Query |\n| Action design | setState, update, generic names | Event-style names such as orderPlaced |\n| Slice size | One slice for everything | Feature slices |\n| Persistence | Whole store persisted | Whitelist harmless slices |\n| Errors | Thunk rejects ignored | Handle rejected and show feedback |\n\n{{diagram:review}}\n\n## Event-style actions\n\n```ts\n// weak: describes a setter\ndispatch(setStatus('paid'));\n// better: describes what happened\ndispatch(orderPaid({ orderId }));\n```\n\nSeveral slices can respond to one event through extraReducers, which keeps logic out of components.\n\n## Automation\n\n- ESLint rules for react-hooks and import boundaries between features.\n- TypeScript strict mode and typed hooks.\n- A pull-request template with the checklist above.\n- Tests for reducers and selectors with every slice change.\n\n## Common mistakes\n\n- Reviewing only for style while state-shape problems accumulate.\n- Allowing \"temporary\" duplicates of server data to stay.\n- Disabling the serialisability check globally to silence warnings instead of fixing the cause.\n- Naming actions after UI events rather than domain events.",
+      "followUps": [
+        "When is it acceptable to ignore the serialisability check for specific actions?",
+        "How would you enforce boundaries between feature slices?",
+        "How do you review a slice for performance?"
+      ],
+      "related": [
+        "redux-toolkit-slices-configurestore-immer",
+        "actions-reducers-selectors-createselector"
+      ],
+      "diagrams": [
+        {
+          "id": "review",
+          "title": "State review checklist flow",
+          "alt": "A pull request touching state is checked for immutability, serialisability, derived data, server data placement and persistence, then approved or sent back with fixes.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Pull request touches state"
+            },
+            {
+              "id": "n1",
+              "label": "Immutability and serialisability"
+            },
+            {
+              "id": "n2",
+              "label": "Derived data and selectors"
+            },
+            {
+              "id": "n3",
+              "label": "Server data and persistence"
+            },
+            {
+              "id": "n4",
+              "label": "Approve or request changes"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

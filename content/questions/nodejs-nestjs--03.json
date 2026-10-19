@@ -1,0 +1,1461 @@
+{
+  "category": "nodejs-nestjs",
+  "questions": [
+    {
+      "slug": "event-loop-phases-timers-immediate-order",
+      "title": "What are the phases of the Node.js event loop, and why can setTimeout and setImmediate run in either order?",
+      "topic": "Event loop",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "nodejs",
+        "event-loop",
+        "libuv",
+        "timers"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "The libuv event loop cycles through phases: timers, pending callbacks, idle and prepare, poll, check, and close callbacks. Timers run expired setTimeout and setInterval callbacks, poll waits for and runs I/O callbacks, and check runs setImmediate. From the main module, setTimeout(0) versus setImmediate is non-deterministic because it depends on process speed. Inside an I/O callback, setImmediate always runs first because the loop moves from poll straight to check.",
+      "revision": "Phases: timers, pending, idle/prepare, poll, check, close. Inside an I/O callback setImmediate beats setTimeout(0); from the main module the order is not guaranteed.",
+      "detailed": "The event loop is how Node runs JavaScript on one thread while the operating system and libuv do the waiting. Each turn of the loop passes through ordered phases, and each phase has its own queue of callbacks.\n\n## The phases\n\n| Phase | What runs |\n|---|---|\n| Timers | Callbacks from expired `setTimeout` and `setInterval` |\n| Pending callbacks | Deferred system-level callbacks, such as some TCP errors |\n| Idle, prepare | Internal use only |\n| Poll | Retrieves new I/O events and runs their callbacks; may block waiting |\n| Check | `setImmediate` callbacks |\n| Close callbacks | For example `socket.on('close')` |\n\n{{diagram:phases}}\n\nBetween every callback (and between phases in modern Node), the microtask queues are drained: `process.nextTick` first, then promise jobs. That is covered in a separate question.\n\n## Why the order can vary\n\n`setTimeout(fn, 0)` is really a minimum delay of about 1 ms. When the loop starts, whether that 1 ms has elapsed by the time the timers phase is reached depends on how busy the process is. So from the main module either can win.\n\n```ts\nimport { readFile } from 'node:fs';\n\nsetTimeout(() => console.log('timeout'), 0);\nsetImmediate(() => console.log('immediate'));   // order not guaranteed here\n\nreadFile(__filename, () => {\n  setTimeout(() => console.log('timeout'), 0);\n  setImmediate(() => console.log('immediate')); // always immediate first\n});\n```\n\nInside an I/O callback we are in the poll phase, so the next phase is check, which runs the immediate before the loop wraps around to timers.\n\n## Practical implications\n\n- Use `setImmediate` to yield to I/O after a chunk of work; use `setTimeout` when you need a delay, not for \"run soon\".\n- A timer is a lower bound, never a guarantee, because a busy loop delays it.\n- The poll phase will not block if immediates are queued.\n\n## Common mistakes\n\n- Assuming `setTimeout(0)` runs before everything else.\n- Believing timers are precise; long synchronous work delays every one of them.\n- Confusing `setImmediate` (check phase) with `process.nextTick` (microtask-like, runs before the loop continues).",
+      "diagrams": [
+        {
+          "id": "phases",
+          "title": "Event loop phase order",
+          "alt": "The event loop cycles through timers, pending callbacks, idle and prepare, poll, check and close callbacks, then returns to timers, with microtasks drained between callbacks.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "t",
+              "label": "Timers"
+            },
+            {
+              "id": "p",
+              "label": "Pending callbacks"
+            },
+            {
+              "id": "i",
+              "label": "Idle and prepare"
+            },
+            {
+              "id": "po",
+              "label": "Poll (I/O)"
+            },
+            {
+              "id": "c",
+              "label": "Check (setImmediate)"
+            },
+            {
+              "id": "cl",
+              "label": "Close callbacks"
+            }
+          ],
+          "edges": [
+            {
+              "from": "t",
+              "to": "p"
+            },
+            {
+              "from": "p",
+              "to": "i"
+            },
+            {
+              "from": "i",
+              "to": "po"
+            },
+            {
+              "from": "po",
+              "to": "c"
+            },
+            {
+              "from": "c",
+              "to": "cl"
+            },
+            {
+              "from": "cl",
+              "to": "t",
+              "label": "next turn"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "What happens in the poll phase when there is nothing to do?",
+        "How does a long synchronous loop affect timers and I/O callbacks?",
+        "Why is setInterval drift possible and how would you avoid it?"
+      ],
+      "related": [
+        "microtasks-vs-macrotasks-nexttick"
+      ]
+    },
+    {
+      "slug": "microtasks-vs-macrotasks-nexttick",
+      "title": "Explain microtasks versus macrotasks in Node.js, including process.nextTick and promises",
+      "topic": "Event loop",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "nodejs",
+        "microtasks",
+        "promises",
+        "nexttick"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Macrotasks are the callbacks the event loop phases run, such as timers, I/O and setImmediate. Microtasks run in between them: first the process.nextTick queue, then the promise job queue, and both are drained fully before the loop continues. So a nextTick callback beats a resolved promise, and both beat setTimeout and setImmediate. Careless recursive nextTick or promise chains can starve I/O because the loop never gets its turn.",
+      "revision": "After each callback Node drains nextTick, then promise microtasks, completely, before the next macrotask. Recursive microtasks starve I/O and timers.",
+      "detailed": "JavaScript in Node has two kinds of queued work. **Macrotasks** are scheduled by the event loop phases. **Microtasks** run immediately after the current operation finishes, before control returns to the loop.\n\n## Ordering rules\n\n| Queue | Examples | When it runs |\n|---|---|---|\n| nextTick queue | `process.nextTick` | After the current operation, before promise jobs |\n| Promise microtasks | `.then`, `await` continuations, `queueMicrotask` | After nextTick queue empties |\n| Timers phase | `setTimeout`, `setInterval` | Timers phase |\n| Poll phase | I/O callbacks | Poll phase |\n| Check phase | `setImmediate` | Check phase |\n\n```ts\nsetTimeout(() => console.log('timeout'), 0);\nsetImmediate(() => console.log('immediate'));\nPromise.resolve().then(() => console.log('promise'));\nprocess.nextTick(() => console.log('nextTick'));\nconsole.log('sync');\n// sync, nextTick, promise, then timeout/immediate\n```\n\nNote that in CommonJS the nextTick queue is processed before promises; in ES modules the module evaluation itself runs inside a promise job, so a promise callback can appear before nextTick at the top level. Verify against the current Node documentation if exact top-level ordering matters.\n\n{{diagram:micro}}\n\n## Why it matters\n\n- **Starvation:** a microtask that schedules another microtask forever means the loop never reaches I/O or timers. The Node documentation warns about recursive nextTick for this reason.\n- **API design:** nextTick lets a constructor return before emitting an event, so listeners can attach; promises give consistent asynchronous behaviour.\n- Prefer `queueMicrotask` or promises for new code; reserve nextTick for the rare case that needs to run before other microtasks.\n\n## Common mistakes\n\n- Using nextTick to \"defer\" heavy work; it does not yield to I/O. Use `setImmediate` or a worker.\n- Mixing sync and async callback behaviour in one API (\"Zalgo\"), which makes ordering unpredictable.\n- Assuming `await` yields to the event loop phases; it only yields to the microtask queue.",
+      "diagrams": [
+        {
+          "id": "micro",
+          "title": "Microtasks between macrotasks",
+          "alt": "After each macrotask callback the runtime drains the nextTick queue and then the promise microtask queue completely before the event loop moves on to the next macrotask.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "m",
+              "label": "Macrotask callback"
+            },
+            {
+              "id": "nt",
+              "label": "Drain nextTick queue"
+            },
+            {
+              "id": "pj",
+              "label": "Drain promise jobs"
+            },
+            {
+              "id": "nx",
+              "label": "Next macrotask"
+            }
+          ],
+          "edges": [
+            {
+              "from": "m",
+              "to": "nt"
+            },
+            {
+              "from": "nt",
+              "to": "pj"
+            },
+            {
+              "from": "pj",
+              "to": "nx"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Can a promise chain starve the event loop? Show how.",
+        "What does await compile down to in terms of microtasks?",
+        "How would you yield to I/O during a long loop?"
+      ],
+      "related": [
+        "event-loop-phases-timers-immediate-order"
+      ]
+    },
+    {
+      "slug": "async-await-errors-unhandled-rejections",
+      "title": "How do errors propagate with async/await, and what happens with unhandled rejections in Node?",
+      "topic": "Async error handling",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "nodejs",
+        "async-await",
+        "promises",
+        "errors"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "A rejected promise surfaces as a thrown exception at the await, so try/catch works as in synchronous code. If nothing handles a rejection, Node emits unhandledRejection, and since Node 15 the default mode throws, which crashes the process. Common causes are forgotten awaits, fire-and-forget calls, and async callbacks passed to APIs that ignore promises. I fix the cause, add a process-level handler only to log and exit, and let the orchestrator restart.",
+      "revision": "await turns rejections into exceptions. Unhandled rejections crash modern Node by default; fix floating promises, log and exit in a global handler rather than continuing.",
+      "detailed": "An async function always returns a promise. A throw inside it, or a rejected awaited promise, rejects that promise. The caller sees the error only if it awaits or attaches a handler.\n\n## Propagation\n\n```ts\nasync function getUser(id: string) {\n  const row = await db.query('select * from users where id = $1', [id]);\n  if (!row) throw new NotFoundError(id);   // rejects the returned promise\n  return row;\n}\n\nasync function handler(id: string) {\n  try {\n    return await getUser(id);              // await needed for catch to work\n  } catch (err) {\n    if (err instanceof NotFoundError) return null;\n    throw err;                             // rethrow what you cannot handle\n  }\n}\n```\n\nNote `return await` inside try: a plain `return getUser(id)` would leave the rejection to escape the catch block.\n\n## Unhandled rejections\n\nIf a rejected promise has no handler by the time the microtask queue drains, Node raises `unhandledRejection`. The default mode since Node 15 is `throw`, so it becomes an uncaught exception and the process exits (check current docs for the `--unhandled-rejections` modes).\n\n{{diagram:flow}}\n\n## Typical sources\n\n| Cause | Fix |\n|---|---|\n| Missing `await` on a call | Enable the `no-floating-promises` lint rule |\n| Fire-and-forget work | Attach `.catch` that logs and reports |\n| `async` function in an event listener | Wrap with try/catch; an emitter ignores the returned promise |\n| `Promise.all` with several failures | Only the first rejection is returned; use `allSettled` if all outcomes matter |\n\n```ts\nprocess.on('unhandledRejection', (reason) => {\n  logger.error({ err: reason }, 'unhandled rejection');\n  process.exit(1);   // state is unknown; let the supervisor restart\n});\n```\n\n## Common mistakes\n\n- Swallowing errors with an empty catch.\n- Continuing after `uncaughtException`; the process state may be corrupt.\n- Throwing strings instead of Error objects, losing stack traces.\n- Forgetting that a rejected promise created but not awaited yet can warn spuriously if handled later.",
+      "diagrams": [
+        {
+          "id": "flow",
+          "title": "Rejection propagation path",
+          "alt": "A rejection inside an async function propagates to the awaiting caller as an exception; if no caller handles it the process emits unhandledRejection and, by default in modern Node, terminates so the supervisor can restart it.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "t",
+              "label": "throw or rejected await"
+            },
+            {
+              "id": "f",
+              "label": "async function promise rejects"
+            },
+            {
+              "id": "c",
+              "label": "Caller awaits with try/catch"
+            },
+            {
+              "id": "h",
+              "label": "Handled and logged"
+            },
+            {
+              "id": "u",
+              "label": "unhandledRejection event"
+            },
+            {
+              "id": "x",
+              "label": "Process exits and restarts"
+            }
+          ],
+          "edges": [
+            {
+              "from": "t",
+              "to": "f"
+            },
+            {
+              "from": "f",
+              "to": "c"
+            },
+            {
+              "from": "c",
+              "to": "h",
+              "label": "caught"
+            },
+            {
+              "from": "f",
+              "to": "u",
+              "label": "nobody awaits"
+            },
+            {
+              "from": "u",
+              "to": "x"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "What is the difference between Promise.all, allSettled and any for error handling?",
+        "Why does return await matter inside try/catch?",
+        "How would you handle errors in an async event listener?"
+      ]
+    },
+    {
+      "slug": "nestjs-request-lifecycle-order",
+      "title": "What is the order of the NestJS request lifecycle: middleware, guards, interceptors, pipes and filters?",
+      "topic": "NestJS internals",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "nestjs",
+        "guards",
+        "pipes",
+        "interceptors",
+        "filters"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "A request goes through middleware first, then guards, then the before part of interceptors, then pipes, then the route handler. The response comes back through the after part of interceptors, in reverse order, and exception filters catch errors thrown anywhere from guards onward. Within each type, global runs before controller-level, which runs before route-level. I choose each by purpose: guards for access, pipes for validation, interceptors for cross-cutting wrapping.",
+      "revision": "Middleware, guards, interceptors (before), pipes, handler, interceptors (after, reversed); filters catch exceptions. Order within a type is global, controller, route.",
+      "detailed": "NestJS layers cross-cutting concerns around the route handler. Knowing the order tells you where to put logic and why a piece of behaviour is or is not applied.\n\n## Order of execution\n\n{{diagram:lifecycle}}\n\n| Step | Purpose | Has access to |\n|---|---|---|\n| Middleware | Low-level request handling, like Express middleware | Request, response, next |\n| Guards | Allow or deny (authentication, roles) | ExecutionContext, route metadata |\n| Interceptors (before) | Start timers, transform input, cache lookup | ExecutionContext, call handler |\n| Pipes | Validate and transform parameters | Argument value, metadata |\n| Handler | Business entry point | Validated arguments |\n| Interceptors (after) | Map response, add headers, log duration | Response stream (RxJS) |\n| Exception filters | Convert exceptions to responses | The thrown exception |\n\nBinding order inside each type is **global, then controller, then route**. For interceptors the response phase runs in reverse (route, controller, global).\n\n```ts\n@UseGuards(JwtAuthGuard, RolesGuard)\n@UseInterceptors(TimingInterceptor)\n@Controller('orders')\nexport class OrdersController {\n  @Post()\n  @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))\n  create(@Body() dto: CreateOrderDto) {\n    return this.orders.create(dto);\n  }\n}\n```\n\n## Choosing the right tool\n\n- **Middleware:** things that need no Nest context, such as raw body parsing or correlation IDs.\n- **Guard:** an authorisation decision. A guard cannot see validated data because pipes have not run yet.\n- **Pipe:** validation and transformation of one argument.\n- **Interceptor:** wraps the handler, so it can measure, cache, retry or reshape output.\n- **Filter:** consistent error format.\n\n## Common mistakes\n\n- Doing validation in a guard, where the body has not been transformed.\n- Expecting a global filter to catch errors thrown in middleware; behaviour differs by where the error occurs, so test it.\n- Forgetting that guards run after middleware, so a failed guard cannot stop earlier middleware cost.\n- Forgetting that pipes also run on custom decorators and query parameters.",
+      "diagrams": [
+        {
+          "id": "lifecycle",
+          "title": "NestJS request lifecycle",
+          "alt": "A request flows through middleware, guards, interceptors before the handler, pipes, the route handler, then back through interceptors after the handler; exception filters handle errors thrown along the way.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "req",
+              "label": "Request"
+            },
+            {
+              "id": "mw",
+              "label": "Middleware"
+            },
+            {
+              "id": "g",
+              "label": "Guards"
+            },
+            {
+              "id": "ib",
+              "label": "Interceptors before"
+            },
+            {
+              "id": "p",
+              "label": "Pipes"
+            },
+            {
+              "id": "h",
+              "label": "Handler"
+            },
+            {
+              "id": "ia",
+              "label": "Interceptors after"
+            },
+            {
+              "id": "res",
+              "label": "Response"
+            },
+            {
+              "id": "f",
+              "label": "Exception filters"
+            }
+          ],
+          "edges": [
+            {
+              "from": "req",
+              "to": "mw"
+            },
+            {
+              "from": "mw",
+              "to": "g"
+            },
+            {
+              "from": "g",
+              "to": "ib"
+            },
+            {
+              "from": "ib",
+              "to": "p"
+            },
+            {
+              "from": "p",
+              "to": "h"
+            },
+            {
+              "from": "h",
+              "to": "ia"
+            },
+            {
+              "from": "ia",
+              "to": "res"
+            },
+            {
+              "from": "g",
+              "to": "f",
+              "label": "throws"
+            },
+            {
+              "from": "h",
+              "to": "f",
+              "label": "throws"
+            },
+            {
+              "from": "f",
+              "to": "res"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Where would you put authentication versus authorisation?",
+        "Can an interceptor short-circuit the handler? Give an example.",
+        "Which layer would you use for a response envelope and why?"
+      ]
+    },
+    {
+      "slug": "express-vs-nestjs-choice",
+      "title": "When would you choose Express over NestJS, and when does NestJS pay off?",
+      "topic": "Framework selection",
+      "difficulty": "beginner",
+      "type": "comparison",
+      "tags": [
+        "express",
+        "nestjs",
+        "architecture",
+        "frameworks"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Express is a minimal, unopinionated HTTP library: tiny, flexible, and fast to start, but structure, validation, dependency management and testing patterns are left to the team. NestJS is an opinionated framework, usually on top of Express or Fastify, adding modules, dependency injection, decorators and conventions. I pick Express for small services and scripts, and NestJS for larger codebases with many developers, where consistent structure outweighs the boilerplate.",
+      "revision": "Express: minimal and flexible, you assemble the structure. NestJS: opinionated modules and DI that scale with team size, at the cost of boilerplate and a learning curve.",
+      "detailed": "Both run on Node. The real question is how much structure the team needs supplied by the framework versus decided by itself.\n\n## Comparison\n\n| Aspect | Express | NestJS |\n|---|---|---|\n| Philosophy | Minimal routing and middleware | Opinionated application framework |\n| Structure | Your own conventions | Modules, controllers, providers |\n| Dependency injection | Manual or a library | Built in |\n| Validation | Add libraries yourself | Pipes with class-validator or zod integration |\n| TypeScript | Supported, not central | First-class, decorator-based |\n| Testing | Your own setup | Testing module with provider overrides |\n| Learning curve | Low | Moderate |\n| Boilerplate | Low | Higher |\n| Underlying server | Itself | Express or Fastify adapter |\n\n{{diagram:choice}}\n\n## When Express fits\n\n- Small services, prototypes, webhooks, glue scripts.\n- Teams with strong existing conventions.\n- Cases where every dependency should be explicit and few.\n\n## When NestJS pays off\n\n- Many developers who need one consistent structure.\n- Large domains where modules enforce boundaries.\n- Need for testability through dependency injection.\n- Several transports (HTTP, gRPC, message brokers) with shared patterns.\n\n```ts\n// Express: wiring is manual\nconst app = express();\napp.post('/orders', validate(createOrderSchema), async (req, res) => {\n  res.status(201).json(await orderService.create(req.body));\n});\n\n// NestJS: wiring is declarative\n@Controller('orders')\nexport class OrdersController {\n  constructor(private readonly orders: OrdersService) {}\n  @Post() create(@Body() dto: CreateOrderDto) { return this.orders.create(dto); }\n}\n```\n\n## Trade-offs to state honestly\n\nNestJS adds an abstraction layer and decorator metadata, so startup and debugging can feel heavier. Express gives freedom that often turns into inconsistent code as the team grows. Raw throughput differences are usually dwarfed by database and network time; measure rather than assume.\n\n## Common mistakes\n\n- Choosing NestJS for a three-endpoint service.\n- Choosing Express for a large product, then rebuilding DI and modules badly.\n- Putting business logic in controllers in either framework.",
+      "diagrams": [
+        {
+          "id": "choice",
+          "title": "Framework choice by context",
+          "alt": "A decision flow: small or short-lived services lean towards Express, while larger multi-team codebases that need modules and dependency injection lean towards NestJS, both running on Node.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "q",
+              "label": "Project context"
+            },
+            {
+              "id": "s",
+              "label": "Small service or script"
+            },
+            {
+              "id": "l",
+              "label": "Large multi-team codebase"
+            },
+            {
+              "id": "e",
+              "label": "Express"
+            },
+            {
+              "id": "n",
+              "label": "NestJS"
+            },
+            {
+              "id": "node",
+              "label": "Node runtime"
+            }
+          ],
+          "edges": [
+            {
+              "from": "q",
+              "to": "s"
+            },
+            {
+              "from": "q",
+              "to": "l"
+            },
+            {
+              "from": "s",
+              "to": "e"
+            },
+            {
+              "from": "l",
+              "to": "n"
+            },
+            {
+              "from": "e",
+              "to": "node"
+            },
+            {
+              "from": "n",
+              "to": "node"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Does NestJS with Fastify change the trade-offs?",
+        "How would you keep business logic framework-independent in either choice?",
+        "How do you migrate an Express service to NestJS incrementally?"
+      ]
+    },
+    {
+      "slug": "nestjs-modules-providers-exports",
+      "title": "How do NestJS modules, providers, imports and exports fit together, and what are dynamic modules?",
+      "topic": "NestJS architecture",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "nestjs",
+        "modules",
+        "providers",
+        "di"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "A module groups related controllers and providers. Providers are registered in a module and are private to it unless exported. Another module can use them only by importing the module that exports them. This gives enforceable boundaries. Dynamic modules take configuration through static methods like forRoot or forRootAsync, returning a module with providers built from options, which is how database, config and queue modules are customised.",
+      "revision": "Providers are module-private unless exported; consumers import the module. Dynamic modules (forRoot, forRootAsync) build providers from configuration.",
+      "detailed": "A NestJS module is the unit of encapsulation. It declares what it contains and what it shares.\n\n## The four arrays\n\n| Property | Meaning |\n|---|---|\n| `controllers` | Route handlers owned by this module |\n| `providers` | Injectable classes and values available inside this module |\n| `imports` | Other modules whose exported providers this module may use |\n| `exports` | Subset of providers (or re-exported modules) visible to importers |\n\n```ts\n@Module({\n  imports: [DatabaseModule],\n  controllers: [OrdersController],\n  providers: [OrdersService, OrdersRepository],\n  exports: [OrdersService],          // OrdersRepository stays private\n})\nexport class OrdersModule {}\n```\n\n{{diagram:modules}}\n\nA provider not exported is invisible outside; injecting it elsewhere fails at startup with a resolution error. That is the boundary mechanism: it stops other modules reaching into your repository.\n\n## Dynamic modules\n\nWhen a module needs configuration, expose a static method returning a `DynamicModule`.\n\n```ts\n@Module({})\nexport class MailModule {\n  static forRootAsync(opts: {\n    imports?: any[]; inject?: any[];\n    useFactory: (...args: any[]) => MailOptions;\n  }): DynamicModule {\n    return {\n      module: MailModule,\n      imports: opts.imports ?? [],\n      providers: [\n        { provide: MAIL_OPTIONS, inject: opts.inject ?? [], useFactory: opts.useFactory },\n        MailService,\n      ],\n      exports: [MailService],\n    };\n  }\n}\n```\n\n`forRoot` takes static options, `forRootAsync` takes a factory so options can come from a config service, and `forFeature` conventionally registers per-module pieces such as entities or queues.\n\n## Global modules\n\n`@Global()` makes exports available everywhere without importing. Use it sparingly (config, logging), because it hides dependencies.\n\n## Common mistakes\n\n- Providing the same service in several modules, creating multiple instances.\n- Making everything global to silence resolution errors.\n- Circular imports between modules instead of extracting a shared module.\n- Exporting repositories so other modules bypass the owning service.",
+      "diagrams": [
+        {
+          "id": "modules",
+          "title": "Module imports and exports",
+          "alt": "The Orders module imports the Database module, owns a service and a private repository, and exports only the service so the Payments module can import Orders and use the service but not the repository.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "db",
+              "label": "DatabaseModule"
+            },
+            {
+              "id": "om",
+              "label": "OrdersModule"
+            },
+            {
+              "id": "os",
+              "label": "OrdersService (exported)"
+            },
+            {
+              "id": "or",
+              "label": "OrdersRepository (private)"
+            },
+            {
+              "id": "pm",
+              "label": "PaymentsModule"
+            }
+          ],
+          "edges": [
+            {
+              "from": "db",
+              "to": "om",
+              "label": "imports"
+            },
+            {
+              "from": "om",
+              "to": "os"
+            },
+            {
+              "from": "om",
+              "to": "or"
+            },
+            {
+              "from": "om",
+              "to": "pm",
+              "label": "exports service"
+            },
+            {
+              "from": "pm",
+              "to": "os",
+              "label": "uses"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you resolve a circular dependency between two modules?",
+        "What is the difference between forRoot and forFeature conventions?",
+        "When is a global module justified?"
+      ]
+    },
+    {
+      "slug": "diagnose-high-cpu-node-flame-graphs",
+      "title": "A Node.js service has high CPU. How do you find the cause using profilers and flame graphs?",
+      "topic": "Performance diagnosis",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "nodejs",
+        "profiling",
+        "flame-graph",
+        "cpu",
+        "performance"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I first confirm whether the CPU is user JavaScript, garbage collection or native code, using metrics and event loop delay. Then I capture a CPU profile in a representative environment, using --inspect with Chrome DevTools, node --cpu-prof, or a tool such as clinic flame or 0x. In the flame graph I look for wide frames at the top, such as JSON parsing, regex, crypto or serialisation. I fix the hot path, then compare profiles before and after.",
+      "revision": "Confirm CPU type, capture a profile (--cpu-prof, --inspect, clinic, 0x), read wide top frames in the flame graph, fix the hot path, re-profile to verify.",
+      "detailed": "High CPU in Node usually means one thread is saturated, which also shows up as event loop lag and rising latency.\n\n## Step by step\n\n{{diagram:cpu}}\n\n1. **Confirm and classify.** Check CPU per process, event loop delay (`perf_hooks.monitorEventLoopDelay`), and GC time. If most time is GC, the problem is allocation, not computation.\n2. **Capture a profile** under realistic load, ideally from a staging replica or one production instance with sampling overhead understood.\n3. **Read the flame graph.** Width is time; the widest frames near the top are where the CPU is spent. Look at self time, not only total.\n4. **Form a hypothesis, change one thing, measure again.**\n\n## Tools\n\n| Tool | Use |\n|---|---|\n| `node --inspect` with Chrome DevTools | Interactive CPU profile and heap tools |\n| `node --cpu-prof` | Writes a `.cpuprofile` file for later analysis |\n| clinic.js (doctor, flame, bubbleprof) | Guided diagnosis and flame graphs |\n| 0x | Flame graph generation from a run |\n| `perf` or eBPF tools | Native frames and system level (platform dependent) |\n\n```ts\nimport { monitorEventLoopDelay } from 'node:perf_hooks';\n\nconst h = monitorEventLoopDelay({ resolution: 20 });\nh.enable();\nsetInterval(() => {\n  logger.info({ p99ms: h.percentile(99) / 1e6 }, 'event loop delay');\n  h.reset();\n}, 10_000);\n```\n\n## Typical culprits\n\n- Large `JSON.parse` or `JSON.stringify` on big payloads.\n- Catastrophic regular expression backtracking.\n- Synchronous crypto or compression (`pbkdf2Sync`, `zlib` sync calls).\n- Per-request work that should be cached or precomputed.\n- Heavy logging serialisation.\n\n## Fixes\n\nMove CPU-bound work to worker threads, cache results, stream instead of buffering, replace backtracking regexes, and batch work. Then confirm in a second profile that the frame shrank.\n\n## Common mistakes\n\n- Profiling an idle or unrepresentative system.\n- Optimising frames that are wide in total but only because they call the real hotspot.\n- Scaling out instead of fixing a single hotspot.\n- Leaving profilers enabled permanently without checking overhead.",
+      "diagrams": [
+        {
+          "id": "cpu",
+          "title": "High CPU diagnosis loop",
+          "alt": "Confirm CPU usage and event loop delay, classify as JavaScript, garbage collection or native, capture a profile under load, read the flame graph for wide frames, apply a fix and re-profile to verify.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "c",
+              "label": "Confirm CPU and loop delay"
+            },
+            {
+              "id": "k",
+              "label": "Classify JS, GC or native"
+            },
+            {
+              "id": "p",
+              "label": "Capture profile under load"
+            },
+            {
+              "id": "f",
+              "label": "Read flame graph"
+            },
+            {
+              "id": "x",
+              "label": "Fix hot path"
+            },
+            {
+              "id": "v",
+              "label": "Re-profile and compare"
+            }
+          ],
+          "edges": [
+            {
+              "from": "c",
+              "to": "k"
+            },
+            {
+              "from": "k",
+              "to": "p"
+            },
+            {
+              "from": "p",
+              "to": "f"
+            },
+            {
+              "from": "f",
+              "to": "x"
+            },
+            {
+              "from": "x",
+              "to": "v"
+            },
+            {
+              "from": "v",
+              "to": "f",
+              "label": "still hot"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you tell GC pressure from computation in a profile?",
+        "How would you detect a catastrophic regex in production?",
+        "When would worker threads be the right fix?"
+      ]
+    },
+    {
+      "slug": "heap-snapshots-gc-diagnosis",
+      "title": "How do you read heap snapshots and diagnose garbage collection problems in a Node.js container?",
+      "topic": "Memory diagnosis",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "nodejs",
+        "heap",
+        "gc",
+        "memory",
+        "v8"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I watch heapUsed, rss and GC pause metrics to see whether memory grows steadily or just spikes. If it grows, I take heap snapshots at intervals, compare them in Chrome DevTools, and sort the comparison by retained size to find objects that keep accumulating, then follow the retainer path to the root, such as a map or listener. I also check that the V8 heap limit matches the container limit, since the old space can be capped below it.",
+      "revision": "Track heap and GC metrics, take snapshots over time, compare retained size and follow retainer paths. Align max-old-space-size with the container memory limit.",
+      "detailed": "Memory problems fall into three groups: a real **leak** (objects stay reachable), **churn** (too many short-lived allocations causing GC pressure), and **limits** (heap cap or container limit too small). Different evidence points to each.\n\n## Signals\n\n| Symptom | Likely meaning |\n|---|---|\n| `heapUsed` climbs after each GC and never falls | Leak: retained objects |\n| Sawtooth with high frequency and long pauses | Churn or heap too small |\n| `rss` high but heap flat | Native memory, buffers or fragmentation |\n| Process killed without a JS error | Container limit hit (out-of-memory kill) |\n\n## Snapshot technique\n\n{{diagram:snap}}\n\n1. Warm up the service so lazy caches fill.\n2. Take snapshot A, apply load for a period, take snapshot B (optionally C).\n3. In DevTools use **Comparison** view, sorted by **retained size** or delta count.\n4. Open a growing constructor and follow the **retainers** upward to the root; common roots are a module-level `Map`, an event listener, a timer, or a closure.\n\n```ts\nimport { writeHeapSnapshot } from 'node:v8';\n\nprocess.on('SIGUSR2', () => {\n  const file = writeHeapSnapshot();          // blocks the loop; use on one instance\n  logger.warn({ file }, 'heap snapshot written');\n});\n```\n\nWriting a snapshot pauses the process and needs extra memory, so take it on a single instance and avoid doing so when memory is nearly exhausted.\n\n## Heap limits in containers\n\nV8 caps the old generation by default based on available memory (behaviour has changed across versions, so check current docs). Set it explicitly, leaving headroom for buffers and native memory.\n\n```text\nnode --max-old-space-size=1536 dist/main.js   # for a 2 GiB container, for example\n```\n\nAlso use `--heapsnapshot-near-heap-limit` (verify availability in your Node version) to capture evidence before a crash.\n\n## Common mistakes\n\n- Reading a single snapshot; growth only shows by comparison.\n- Mistaking a bounded cache for a leak, or an unbounded cache for \"just a cache\".\n- Setting the heap limit equal to the container limit, leaving nothing for native memory.\n- Restarting on a schedule and never finding the cause.",
+      "diagrams": [
+        {
+          "id": "snap",
+          "title": "Heap snapshot comparison workflow",
+          "alt": "Warm up the service, take a first snapshot, apply load, take a second snapshot, compare them by retained size, and follow retainer paths to the root object that keeps memory alive.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "w",
+              "label": "Warm up service"
+            },
+            {
+              "id": "a",
+              "label": "Snapshot A"
+            },
+            {
+              "id": "l",
+              "label": "Apply load"
+            },
+            {
+              "id": "b",
+              "label": "Snapshot B"
+            },
+            {
+              "id": "c",
+              "label": "Compare by retained size"
+            },
+            {
+              "id": "r",
+              "label": "Follow retainer path"
+            },
+            {
+              "id": "fx",
+              "label": "Fix root cause"
+            }
+          ],
+          "edges": [
+            {
+              "from": "w",
+              "to": "a"
+            },
+            {
+              "from": "a",
+              "to": "l"
+            },
+            {
+              "from": "l",
+              "to": "b"
+            },
+            {
+              "from": "b",
+              "to": "c"
+            },
+            {
+              "from": "c",
+              "to": "r"
+            },
+            {
+              "from": "r",
+              "to": "fx"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you distinguish native memory growth from JavaScript heap growth?",
+        "What causes closures to retain large objects unintentionally?",
+        "How would you set heap limits for several replicas on one node?"
+      ]
+    },
+    {
+      "slug": "eventemitter-pitfalls",
+      "title": "What are the common pitfalls of EventEmitter in Node.js?",
+      "topic": "Events",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "nodejs",
+        "eventemitter",
+        "memory-leaks",
+        "errors"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "EventEmitter calls listeners synchronously in registration order, which surprises people expecting async behaviour. Pitfalls include listeners that are never removed and leak memory, the MaxListenersExceededWarning that signals it, an unhandled error event that throws and crashes the process, async listeners whose rejections nobody handles, and emitting before listeners attach. I remove listeners, use once, always register an error handler, and wrap async listeners.",
+      "revision": "Emit is synchronous; remove listeners to avoid leaks, always handle 'error', wrap async listeners, and do not emit before listeners are attached.",
+      "detailed": "`EventEmitter` underlies streams, servers and many libraries. It is simple, which hides several sharp edges.\n\n## Pitfalls and fixes\n\n| Pitfall | Consequence | Fix |\n|---|---|---|\n| Listener never removed | Memory leak; warning after more than 10 listeners per event | `off`, `once`, or an `AbortSignal` |\n| No `'error'` listener | Emitting `'error'` throws and may crash the process | Always attach an error handler |\n| Async listener throws | Rejection is not caught by the emitter | try/catch inside, or a wrapper |\n| Emit is synchronous | A slow listener blocks the emitter | Offload heavy work |\n| Emit before listener attached | Event lost | Attach first, or defer with `nextTick` |\n| Listener order assumptions | Fragile coupling | Do not depend on order |\n\n```ts\nimport { EventEmitter, once } from 'node:events';\n\nclass Job extends EventEmitter {}\nconst job = new Job();\n\njob.on('error', (err) => logger.error({ err }, 'job failed'));\n\njob.on('done', async (id: string) => {\n  try { await notify(id); }\n  catch (err) { logger.error({ err }, 'notify failed'); }\n});\n\n// Await a single event with cancellation\nconst ac = new AbortController();\nconst [result] = await once(job, 'done', { signal: ac.signal });\n```\n\n{{diagram:emit}}\n\n## Leak pattern\n\nRegistering a listener inside a request handler on a long-lived emitter, such as a shared client, adds one listener per request. The warning is a hint, not noise; investigate rather than raising `setMaxListeners` blindly.\n\n## When not to use it\n\nFor work that must survive crashes or run in another process, an in-memory emitter is the wrong tool: use a queue. Emitters are also poor for request/response style flows, where promises are clearer.\n\n## Common mistakes\n\n- Using `setMaxListeners(0)` to silence the warning.\n- Mixing sync and async emission styles.\n- Treating an emitter as a durable event bus.",
+      "diagrams": [
+        {
+          "id": "emit",
+          "title": "EventEmitter synchronous dispatch",
+          "alt": "Calling emit invokes each registered listener synchronously in registration order; an async listener returns a promise that the emitter ignores, so its errors need their own handling.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "e",
+              "label": "emit(event)"
+            },
+            {
+              "id": "l1",
+              "label": "Listener 1 (sync)"
+            },
+            {
+              "id": "l2",
+              "label": "Listener 2 (async)"
+            },
+            {
+              "id": "p",
+              "label": "Returned promise ignored"
+            },
+            {
+              "id": "n",
+              "label": "emit returns"
+            }
+          ],
+          "edges": [
+            {
+              "from": "e",
+              "to": "l1"
+            },
+            {
+              "from": "l1",
+              "to": "l2"
+            },
+            {
+              "from": "l2",
+              "to": "p"
+            },
+            {
+              "from": "l2",
+              "to": "n"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How does the error event behave on streams?",
+        "How can AbortSignal help clean up listeners?",
+        "When is a message queue a better choice than an emitter?"
+      ]
+    },
+    {
+      "slug": "node-cluster-vs-container-replicas",
+      "title": "Should you use the Node.js cluster module or container replicas to use multiple CPU cores?",
+      "topic": "Scaling",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "nodejs",
+        "cluster",
+        "scaling",
+        "kubernetes",
+        "pm2"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Node runs JavaScript on one thread, so one process uses roughly one core. The cluster module forks workers sharing a port on one machine, while container replicas run one process per container and let an orchestrator schedule them. In containerised systems I prefer replicas with one process each, because health checks, resource limits, restarts and autoscaling work per process. Cluster or PM2 still suits plain virtual machines.",
+      "revision": "One Node process uses about one core. Prefer one process per container and scale replicas; use cluster or PM2 on bare VMs. State must be external either way.",
+      "detailed": "To use several cores, you need several processes. The question is who manages them.\n\n## Options\n\n| Option | How it works | Fits |\n|---|---|---|\n| `cluster` module | Primary forks workers that share a listening socket | A VM running one app |\n| PM2 cluster mode | Process manager using cluster | Simple VM deployments |\n| Container replicas | One process per container, orchestrator schedules | Kubernetes, ECS and similar |\n| Worker threads | Threads inside one process | CPU-bound tasks, not request scaling |\n\n{{diagram:scale}}\n\n## Why replicas usually win in containers\n\n- **Resource limits** apply per container, so a CPU limit of one core matches one process.\n- **Health checks and restarts** are per process; with cluster inside a container a dead worker may be hidden behind a healthy primary.\n- **Autoscaling** reacts to per-pod metrics.\n- **Simpler logs and metrics**: one process, one identity.\n\n## What both require\n\nBecause requests can hit any process, state must be external:\n\n- No in-memory sessions; use a shared store or stateless tokens.\n- Caches are per process unless they are in Redis; expect inconsistency.\n- Rate limits and locks need a shared store.\n- Each process has its own database pool, so total connections equal pool size times processes times replicas.\n\n```ts\nimport cluster from 'node:cluster';\nimport { availableParallelism } from 'node:os';\n\nif (cluster.isPrimary) {\n  for (let i = 0; i < availableParallelism(); i++) cluster.fork();\n  cluster.on('exit', () => cluster.fork());   // restart crashed workers\n} else {\n  await startServer();\n}\n```\n\n## Connection arithmetic\n\nIf each process has a pool of 10 and there are 4 workers on 6 replicas, that is 240 potential connections, which can exceed a database limit. Size pools from the database's capacity divided by total processes.\n\n## Common mistakes\n\n- Running cluster inside containers that are already limited to a fraction of a core.\n- Forgetting that WebSocket or sticky-session needs change load balancing.\n- Ignoring that each worker duplicates memory and warm-up caches.",
+      "diagrams": [
+        {
+          "id": "scale",
+          "title": "Cluster versus replicas",
+          "alt": "A load balancer distributes traffic either to cluster workers inside one VM managed by a primary process, or to separate container replicas each running a single Node process under an orchestrator.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "lb",
+              "label": "Load balancer"
+            },
+            {
+              "id": "pr",
+              "label": "Primary process"
+            },
+            {
+              "id": "w1",
+              "label": "Worker on VM"
+            },
+            {
+              "id": "w2",
+              "label": "Worker on VM"
+            },
+            {
+              "id": "c1",
+              "label": "Container replica 1"
+            },
+            {
+              "id": "c2",
+              "label": "Container replica 2"
+            },
+            {
+              "id": "orch",
+              "label": "Orchestrator"
+            }
+          ],
+          "edges": [
+            {
+              "from": "lb",
+              "to": "pr"
+            },
+            {
+              "from": "pr",
+              "to": "w1"
+            },
+            {
+              "from": "pr",
+              "to": "w2"
+            },
+            {
+              "from": "lb",
+              "to": "c1"
+            },
+            {
+              "from": "lb",
+              "to": "c2"
+            },
+            {
+              "from": "orch",
+              "to": "c1",
+              "label": "schedules"
+            },
+            {
+              "from": "orch",
+              "to": "c2",
+              "label": "schedules"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you size database pools across replicas?",
+        "How do you handle graceful shutdown for each model?",
+        "When are worker threads better than more processes?"
+      ]
+    },
+    {
+      "slug": "nestjs-transactions-repository-pattern",
+      "title": "How do you manage database transactions in NestJS while keeping a clean repository pattern?",
+      "topic": "Data access",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "nestjs",
+        "transactions",
+        "repository",
+        "typeorm",
+        "prisma"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "A transaction must span several repository calls, so the connection or transaction handle has to travel with the call. I either pass a transaction object explicitly to repository methods, or use a unit-of-work that runs a callback with a transactional client, or use AsyncLocalStorage-based context. The service owns the transaction boundary, repositories stay simple, and I keep transactions short with no network calls inside.",
+      "revision": "Service owns the transaction boundary; propagate the transactional client explicitly or via AsyncLocalStorage. Keep transactions short and free of remote calls.",
+      "detailed": "The repository pattern hides persistence details. The challenge is that a business operation often touches several repositories and must commit or roll back as one.\n\n## Where the boundary belongs\n\nThe **application service** knows what must be atomic, so it opens the transaction. Repositories should not decide that.\n\n## Three propagation styles\n\n| Style | Idea | Trade-off |\n|---|---|---|\n| Explicit parameter | Pass a transaction handle into every repository method | Clear, verbose |\n| Unit of work callback | `uow.run(tx => ...)` gives repositories bound to the transaction | Clean API, a little ceremony |\n| AsyncLocalStorage context | Store the transaction in async context; repositories read it | Least plumbing, harder to see |\n\n{{diagram:tx}}\n\n```ts\n// Unit of work with a transactional client (ORM-agnostic sketch)\nexport interface Tx { query(sql: string, params?: unknown[]): Promise<any> }\n\n@Injectable()\nexport class UnitOfWork {\n  constructor(private readonly pool: Pool) {}\n  async run<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {\n    const client = await this.pool.connect();\n    try {\n      await client.query('BEGIN');\n      const result = await fn(client);\n      await client.query('COMMIT');\n      return result;\n    } catch (err) {\n      await client.query('ROLLBACK');\n      throw err;\n    } finally {\n      client.release();\n    }\n  }\n}\n\n@Injectable()\nexport class OrdersService {\n  constructor(private uow: UnitOfWork, private orders: OrdersRepo, private stock: StockRepo) {}\n  place(dto: PlaceOrderDto) {\n    return this.uow.run(async (tx) => {\n      await this.stock.reserve(tx, dto.items);\n      return this.orders.insert(tx, dto);\n    });\n  }\n}\n```\n\nMost ORMs offer their own form (for example a transaction callback or a query runner); the same principles apply. Check your ORM's current documentation for the exact API.\n\n## Rules for transactions\n\n- Keep them **short**; they hold locks and pool connections.\n- **No remote calls** (HTTP, email) inside; write an outbox row instead and publish after commit.\n- Handle **retries** for serialisation failures and deadlocks.\n- Release the connection in `finally`.\n\n## Common mistakes\n\n- Opening a transaction in a repository, so two repositories use two connections and cannot be atomic.\n- Using the global pool inside a transaction by accident, escaping it.\n- Swallowing errors so rollback never happens.",
+      "diagrams": [
+        {
+          "id": "tx",
+          "title": "Transaction boundary in a service",
+          "alt": "The application service begins a transaction through the unit of work, calls the stock and orders repositories with the same transactional client, and then commits or rolls back on error before releasing the connection.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "svc",
+              "label": "Application service"
+            },
+            {
+              "id": "uow",
+              "label": "Unit of work BEGIN"
+            },
+            {
+              "id": "r1",
+              "label": "Stock repository"
+            },
+            {
+              "id": "r2",
+              "label": "Orders repository"
+            },
+            {
+              "id": "ok",
+              "label": "COMMIT"
+            },
+            {
+              "id": "ko",
+              "label": "ROLLBACK"
+            },
+            {
+              "id": "rel",
+              "label": "Release connection"
+            }
+          ],
+          "edges": [
+            {
+              "from": "svc",
+              "to": "uow"
+            },
+            {
+              "from": "uow",
+              "to": "r1",
+              "label": "same tx"
+            },
+            {
+              "from": "r1",
+              "to": "r2",
+              "label": "same tx"
+            },
+            {
+              "from": "r2",
+              "to": "ok"
+            },
+            {
+              "from": "r2",
+              "to": "ko",
+              "label": "on error"
+            },
+            {
+              "from": "ok",
+              "to": "rel"
+            },
+            {
+              "from": "ko",
+              "to": "rel"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you test code that uses a unit of work?",
+        "How do you handle deadlock retries?",
+        "Why avoid HTTP calls inside a transaction?"
+      ]
+    },
+    {
+      "slug": "correlation-ids-structured-logging-nestjs",
+      "title": "How do you implement request correlation IDs and structured logging in a NestJS service?",
+      "topic": "Observability",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "nestjs",
+        "logging",
+        "correlation-id",
+        "asynclocalstorage",
+        "observability"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I accept an incoming correlation or trace ID header, or generate one in the first middleware, and store it in AsyncLocalStorage so any code in that request can read it without passing it around. The logger emits JSON with fields such as timestamp, level, message, correlation ID and route, never secrets. I forward the ID on outgoing calls and queue messages, so one request can be traced across services.",
+      "revision": "Middleware sets or accepts an ID, AsyncLocalStorage carries it, JSON logs include it, outgoing calls and messages forward it, and secrets are redacted.",
+      "detailed": "When many requests interleave, plain text logs are nearly useless. A correlation ID joins every log line belonging to one request, across services.\n\n## Design\n\n{{diagram:corr}}\n\n1. **Middleware** reads `x-correlation-id` (or W3C `traceparent`), or generates a UUID.\n2. Store it in **AsyncLocalStorage**, which follows the async call chain.\n3. The **logger** reads the store and adds the ID automatically.\n4. **Outgoing HTTP and messages** carry the ID forward.\n5. The **response** returns the ID so clients can quote it in support requests.\n\n```ts\nimport { AsyncLocalStorage } from 'node:async_hooks';\nimport { randomUUID } from 'node:crypto';\n\nexport const als = new AsyncLocalStorage<{ correlationId: string }>();\n\n@Injectable()\nexport class CorrelationMiddleware implements NestMiddleware {\n  use(req: Request, res: Response, next: NextFunction) {\n    const id = (req.headers['x-correlation-id'] as string) ?? randomUUID();\n    res.setHeader('x-correlation-id', id);\n    als.run({ correlationId: id }, next);\n  }\n}\n\n@Injectable()\nexport class AppLogger {\n  info(msg: string, extra: Record<string, unknown> = {}) {\n    console.log(JSON.stringify({\n      level: 'info', time: new Date().toISOString(), msg,\n      correlationId: als.getStore()?.correlationId, ...extra,\n    }));\n  }\n}\n```\n\nIn production, a library such as pino (often through nestjs-pino) provides fast structured logging; check current docs for configuration.\n\n## Structured log hygiene\n\n| Do | Avoid |\n|---|---|\n| Consistent field names, JSON output | Free-form strings with embedded data |\n| Log levels used meaningfully | Everything at info |\n| Redact tokens, passwords, personal data | Logging whole request bodies |\n| Include route, status, duration, user or tenant ID | Unbounded high-cardinality labels in metrics |\n\n## Why AsyncLocalStorage rather than request-scoped providers\n\nRequest-scoped providers rebuild dependency chains per request and add overhead. AsyncLocalStorage gives request context without changing scopes.\n\n## Common mistakes\n\n- Generating a new ID at each service, breaking the trace.\n- Losing context in code that runs outside the async chain, such as some pooled callbacks; test it.\n- Trusting client-supplied IDs for security decisions.",
+      "diagrams": [
+        {
+          "id": "corr",
+          "title": "Correlation ID propagation",
+          "alt": "An incoming request passes through middleware that sets the correlation ID in AsyncLocalStorage, the logger and outgoing calls read it, and downstream services and queues receive the same ID in headers or message metadata.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "in",
+              "label": "Incoming request"
+            },
+            {
+              "id": "mw",
+              "label": "Middleware sets ID"
+            },
+            {
+              "id": "als",
+              "label": "AsyncLocalStorage"
+            },
+            {
+              "id": "log",
+              "label": "JSON logger"
+            },
+            {
+              "id": "out",
+              "label": "Outgoing HTTP call"
+            },
+            {
+              "id": "q",
+              "label": "Queue message"
+            },
+            {
+              "id": "ds",
+              "label": "Downstream service"
+            }
+          ],
+          "edges": [
+            {
+              "from": "in",
+              "to": "mw"
+            },
+            {
+              "from": "mw",
+              "to": "als"
+            },
+            {
+              "from": "als",
+              "to": "log"
+            },
+            {
+              "from": "als",
+              "to": "out"
+            },
+            {
+              "from": "als",
+              "to": "q"
+            },
+            {
+              "from": "out",
+              "to": "ds",
+              "label": "header"
+            },
+            {
+              "from": "q",
+              "to": "ds",
+              "label": "metadata"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How does W3C traceparent differ from a custom correlation header?",
+        "How would you carry the ID into a BullMQ job?",
+        "How do you avoid logging personal data?"
+      ]
+    },
+    {
+      "slug": "background-jobs-bullmq-nestjs",
+      "title": "How do you design background jobs in a NestJS service using a Redis-backed queue such as BullMQ?",
+      "topic": "Background processing",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "nestjs",
+        "bullmq",
+        "queues",
+        "redis",
+        "background-jobs"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I move slow or unreliable work off the request path onto a queue. The API validates the request, enqueues a job with a stable ID and returns quickly. Workers, often a separate process, consume jobs with limited concurrency, retries with exponential backoff, and a dead-letter strategy for exhausted jobs. Jobs must be idempotent because delivery is at least once. I monitor queue depth, failures and age of the oldest job.",
+      "revision": "Enqueue with a stable job ID, process in workers with limited concurrency, retry with backoff, make handlers idempotent, and monitor depth and failures.",
+      "detailed": "A queue decouples **accepting** work from **doing** it. BullMQ is a common Redis-backed library in the Node ecosystem; the concepts apply to other queues too.\n\n## Flow\n\n{{diagram:queue}}\n\n## Design points\n\n| Concern | Approach |\n|---|---|\n| Job identity | Use a deterministic `jobId` (such as order ID plus action) to dedupe enqueues |\n| Retries | Attempts with exponential backoff; classify permanent errors and do not retry them |\n| Concurrency | Limit per worker to protect downstream systems |\n| Delivery | At least once, so handlers must be idempotent |\n| Failed jobs | Keep for inspection; alert; provide replay |\n| Scheduling | Delayed and repeatable jobs for timed work |\n| Deployment | Run workers separately so API scaling and job scaling are independent |\n| Payload | Small: IDs and references, not whole documents |\n\n```ts\n@Injectable()\nexport class EmailProducer {\n  constructor(@InjectQueue('email') private queue: Queue) {}\n  send(orderId: string) {\n    return this.queue.add('order-confirmation', { orderId }, {\n      jobId: `order-confirmation:${orderId}`,\n      attempts: 5,\n      backoff: { type: 'exponential', delay: 2000 },\n      removeOnComplete: 1000,\n      removeOnFail: false,\n    });\n  }\n}\n\n@Processor('email', { concurrency: 5 })\nexport class EmailProcessor extends WorkerHost {\n  async process(job: Job<{ orderId: string }>) {\n    if (await this.sent.exists(job.data.orderId)) return;  // idempotent\n    await this.mailer.sendConfirmation(job.data.orderId);\n    await this.sent.mark(job.data.orderId);\n  }\n}\n```\n\nThe decorator names above follow @nestjs/bullmq conventions; verify against the current documentation.\n\n## Reliability notes\n\n- Enqueue **after** the database commit, or use an outbox, to avoid jobs that reference uncommitted data.\n- A Redis outage stops enqueueing, so decide whether the API fails or degrades.\n- Persistence settings on Redis affect whether jobs survive a restart.\n- Stalled jobs (worker died) are retried, another reason for idempotency.\n\n## Common mistakes\n\n- Putting large payloads or secrets in jobs.\n- Unlimited concurrency overwhelming a third-party API.\n- No visibility, so a growing backlog is noticed by users first.",
+      "diagrams": [
+        {
+          "id": "queue",
+          "title": "Queue based background job flow",
+          "alt": "The API validates a request and enqueues a job in Redis, workers pull jobs with limited concurrency, successful jobs complete, failures retry with backoff, and exhausted jobs move to a failed set for alerting and replay.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "api",
+              "label": "API request"
+            },
+            {
+              "id": "enq",
+              "label": "Enqueue job with ID"
+            },
+            {
+              "id": "rq",
+              "label": "Redis queue"
+            },
+            {
+              "id": "w",
+              "label": "Worker concurrency N"
+            },
+            {
+              "id": "done",
+              "label": "Completed"
+            },
+            {
+              "id": "retry",
+              "label": "Retry with backoff"
+            },
+            {
+              "id": "dead",
+              "label": "Failed set and alert"
+            }
+          ],
+          "edges": [
+            {
+              "from": "api",
+              "to": "enq"
+            },
+            {
+              "from": "enq",
+              "to": "rq"
+            },
+            {
+              "from": "rq",
+              "to": "w"
+            },
+            {
+              "from": "w",
+              "to": "done",
+              "label": "success"
+            },
+            {
+              "from": "w",
+              "to": "retry",
+              "label": "error"
+            },
+            {
+              "from": "retry",
+              "to": "rq"
+            },
+            {
+              "from": "retry",
+              "to": "dead",
+              "label": "attempts exhausted"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you make a job handler idempotent?",
+        "How would you replay failed jobs safely?",
+        "When would you choose Kafka or a cloud queue instead?"
+      ]
+    },
+    {
+      "slug": "outbox-relay-worker-node-postgres",
+      "title": "How would you implement a transactional outbox and relay worker in Node.js with PostgreSQL?",
+      "topic": "Reliable messaging",
+      "difficulty": "advanced",
+      "type": "coding",
+      "tags": [
+        "outbox",
+        "postgresql",
+        "nodejs",
+        "messaging",
+        "reliability"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "In the same transaction that changes business data, I insert an event row into an outbox table. A separate relay worker polls unpublished rows, claiming batches with FOR UPDATE SKIP LOCKED so several workers do not collide, publishes them to the broker, then marks them sent. Delivery is at least once, so consumers deduplicate using the event ID. Published rows are pruned later.",
+      "revision": "Write the event in the same transaction as the data; a relay claims rows with SKIP LOCKED, publishes, marks sent. At-least-once, so consumers dedupe by event ID.",
+      "detailed": "The dual-write problem: saving to the database and publishing to a broker are two systems, so one can succeed while the other fails. The outbox pattern makes the database the single atomic step.\n\n## Schema\n\n```sql\nCREATE TABLE outbox (\n  id           uuid PRIMARY KEY,\n  aggregate_id text        NOT NULL,\n  type         text        NOT NULL,\n  payload      jsonb       NOT NULL,\n  created_at   timestamptz NOT NULL DEFAULT now(),\n  published_at timestamptz\n);\nCREATE INDEX outbox_unpublished ON outbox (created_at) WHERE published_at IS NULL;\n```\n\n## Write side\n\n```ts\nawait uow.run(async (tx) => {\n  await tx.query('UPDATE orders SET status = $1 WHERE id = $2', ['PAID', orderId]);\n  await tx.query(\n    'INSERT INTO outbox (id, aggregate_id, type, payload) VALUES ($1,$2,$3,$4)',\n    [randomUUID(), orderId, 'OrderPaid', JSON.stringify({ orderId })],\n  );\n});\n```\n\n## Relay worker\n\n{{diagram:outbox}}\n\n```ts\nasync function relayOnce(pool: Pool, publish: (e: OutboxRow) => Promise<void>) {\n  const client = await pool.connect();\n  try {\n    await client.query('BEGIN');\n    const { rows } = await client.query(\n      `SELECT * FROM outbox WHERE published_at IS NULL\n       ORDER BY created_at LIMIT 100 FOR UPDATE SKIP LOCKED`);\n    for (const row of rows) {\n      await publish(row);                       // may throw; batch rolls back\n      await client.query('UPDATE outbox SET published_at = now() WHERE id = $1', [row.id]);\n    }\n    await client.query('COMMIT');\n  } catch (e) { await client.query('ROLLBACK'); throw e; }\n  finally { client.release(); }\n}\n```\n\nIf the process crashes after publishing but before commit, rows are published again, so delivery is **at least once**.\n\n## Design notes\n\n| Topic | Guidance |\n|---|---|\n| Ordering | Per aggregate ordering needs care; a single relay or partitioning by aggregate key |\n| Consumers | Deduplicate with the event ID in an inbox table |\n| Polling vs CDC | Polling is simple; change data capture reduces latency but adds infrastructure |\n| Cleanup | Delete or archive published rows on a schedule |\n| Holding transactions | Long publish calls hold locks; keep batches small |\n\n## Common mistakes\n\n- Publishing inside the business transaction, reintroducing dual write.\n- Assuming exactly-once delivery.\n- Forgetting the partial index, so polling slows as the table grows.",
+      "diagrams": [
+        {
+          "id": "outbox",
+          "title": "Outbox relay flow",
+          "alt": "A business transaction writes data and an outbox row atomically; the relay claims unpublished rows with skip locked, publishes them to the broker, marks them published, and consumers deduplicate by event ID.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "tx",
+              "label": "Business transaction"
+            },
+            {
+              "id": "db",
+              "label": "Tables plus outbox row"
+            },
+            {
+              "id": "rl",
+              "label": "Relay worker SKIP LOCKED"
+            },
+            {
+              "id": "br",
+              "label": "Message broker"
+            },
+            {
+              "id": "mk",
+              "label": "Mark published"
+            },
+            {
+              "id": "cs",
+              "label": "Consumer dedupes by event ID"
+            }
+          ],
+          "edges": [
+            {
+              "from": "tx",
+              "to": "db",
+              "label": "atomic"
+            },
+            {
+              "from": "db",
+              "to": "rl"
+            },
+            {
+              "from": "rl",
+              "to": "br"
+            },
+            {
+              "from": "br",
+              "to": "mk",
+              "label": "success"
+            },
+            {
+              "from": "mk",
+              "to": "db"
+            },
+            {
+              "from": "br",
+              "to": "cs"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you preserve ordering per aggregate?",
+        "When would you choose CDC over polling?",
+        "How should consumers deduplicate?"
+      ],
+      "related": [
+        "saga-orchestrator-node-typescript"
+      ]
+    },
+    {
+      "slug": "saga-orchestrator-node-typescript",
+      "title": "How would you implement an orchestrated saga with compensations in a Node.js and TypeScript service?",
+      "topic": "Distributed workflows",
+      "difficulty": "advanced",
+      "type": "coding",
+      "tags": [
+        "saga",
+        "nodejs",
+        "typescript",
+        "compensation",
+        "orchestration"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I model the saga as an ordered list of steps, each with an action and a compensation. An orchestrator persists the saga state after every step. On failure it runs compensations for completed steps in reverse order. Every action and compensation must be idempotent and retried safely, and state must be stored durably so the orchestrator can resume after a crash. Compensation is a business reversal, not a rollback.",
+      "revision": "Steps with action and compensation, state persisted after each step, reverse compensations on failure, all idempotent and resumable after a crash.",
+      "detailed": "A saga coordinates a business process across services without a distributed transaction. Each local step commits independently; if a later step fails, earlier steps are **compensated** with business-level reversals.\n\n## Orchestrator model\n\n{{diagram:saga}}\n\n```ts\ninterface Step<C> {\n  name: string;\n  action: (ctx: C) => Promise<void>;\n  compensate: (ctx: C) => Promise<void>;\n}\n\ntype SagaStatus = 'RUNNING' | 'COMPENSATING' | 'COMPLETED' | 'FAILED';\n\ninterface SagaState<C> { id: string; ctx: C; completed: string[]; status: SagaStatus }\n\nexport async function runSaga<C>(steps: Step<C>[], state: SagaState<C>, store: SagaStore) {\n  try {\n    for (const step of steps) {\n      if (state.completed.includes(step.name)) continue;      // resume safely\n      await withRetry(() => step.action(state.ctx));\n      state.completed.push(step.name);\n      await store.save(state);                                 // durable progress\n    }\n    state.status = 'COMPLETED';\n  } catch (err) {\n    state.status = 'COMPENSATING';\n    await store.save(state);\n    for (const name of [...state.completed].reverse()) {\n      const step = steps.find((s) => s.name === name)!;\n      await withRetry(() => step.compensate(state.ctx));       // must eventually succeed\n    }\n    state.status = 'FAILED';\n  }\n  await store.save(state);\n}\n```\n\n## Example order saga\n\n| Step | Action | Compensation |\n|---|---|---|\n| Reserve stock | Create reservation | Release reservation |\n| Charge payment | Capture or authorise | Refund or void |\n| Create shipment | Request shipment | Cancel shipment |\n\n## Properties to enforce\n\n- **Idempotency:** each call carries a saga ID plus step name as an idempotency key.\n- **Durability:** state is saved before moving on; a restarted orchestrator resumes.\n- **Retries with limits:** transient errors retry; permanent errors trigger compensation; compensation failures alert a human.\n- **Semantic isolation:** other users may see intermediate states, so use statuses like PENDING and design for it.\n- **Timeouts:** steps that never reply need deadlines.\n\n## Orchestration versus choreography\n\nOrchestration keeps flow logic in one place and is easier to reason about; choreography avoids a central coordinator but spreads the flow across event handlers. Workflow engines can replace hand-written orchestrators; verify current options for your stack.\n\n## Common mistakes\n\n- Compensations that are not idempotent.\n- Treating compensation as a database rollback; a sent email cannot be unsent.\n- Keeping saga state only in memory.",
+      "diagrams": [
+        {
+          "id": "saga",
+          "title": "Saga with compensations",
+          "alt": "The orchestrator runs reserve stock, charge payment and create shipment in order; if a step fails it runs compensations in reverse order, such as refund payment and release stock, persisting state after each step.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "o",
+              "label": "Orchestrator"
+            },
+            {
+              "id": "s1",
+              "label": "Reserve stock"
+            },
+            {
+              "id": "s2",
+              "label": "Charge payment"
+            },
+            {
+              "id": "s3",
+              "label": "Create shipment"
+            },
+            {
+              "id": "c2",
+              "label": "Refund payment"
+            },
+            {
+              "id": "c1",
+              "label": "Release stock"
+            },
+            {
+              "id": "done",
+              "label": "Completed"
+            }
+          ],
+          "edges": [
+            {
+              "from": "o",
+              "to": "s1"
+            },
+            {
+              "from": "s1",
+              "to": "s2"
+            },
+            {
+              "from": "s2",
+              "to": "s3"
+            },
+            {
+              "from": "s3",
+              "to": "done"
+            },
+            {
+              "from": "s3",
+              "to": "c2",
+              "label": "failure"
+            },
+            {
+              "from": "c2",
+              "to": "c1"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you handle a compensation that keeps failing?",
+        "When would you choose choreography instead?",
+        "How do you expose intermediate saga states to users?"
+      ],
+      "related": [
+        "outbox-relay-worker-node-postgres"
+      ]
+    },
+    {
+      "slug": "rate-limiting-idempotent-endpoints-nestjs",
+      "title": "How do you add rate limiting and idempotent endpoints to a NestJS API?",
+      "topic": "API protection",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "nestjs",
+        "rate-limiting",
+        "idempotency",
+        "redis",
+        "api"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "For rate limiting I use a guard backed by a shared store such as Redis, with limits per client, user or IP, and return 429 with a Retry-After header. For idempotency, clients send an Idempotency-Key on unsafe operations; an interceptor stores the key with a request fingerprint and the result, replays the saved response on repeats, and rejects the same key with a different payload. Both need atomic operations in the shared store.",
+      "revision": "Rate limit with a shared-store guard returning 429 and Retry-After; idempotency via key, request fingerprint and stored response, atomically claimed.",
+      "detailed": "Rate limiting protects capacity; idempotency protects correctness when clients retry. They are often added together but solve different problems.\n\n## Rate limiting\n\n| Decision | Options |\n|---|---|\n| Key | API key, user ID, tenant, IP (IP alone is weak behind shared NAT) |\n| Algorithm | Fixed window, sliding window, token bucket |\n| Store | In memory for one process; Redis for several instances |\n| Response | `429 Too Many Requests` with `Retry-After` |\n\nNestJS offers a throttler package whose guard can be applied globally and overridden per route; check its current documentation for storage and configuration. For distributed limits, back it with Redis.\n\n```ts\n@UseGuards(ThrottlerGuard)\n@Throttle({ default: { limit: 10, ttl: 60_000 } })\n@Post('payments')\npay(@Body() dto: PayDto) { /* ... */ }\n```\n\n## Idempotent endpoints\n\n{{diagram:idem}}\n\n```ts\n@Injectable()\nexport class IdempotencyInterceptor implements NestInterceptor {\n  constructor(private store: IdemStore) {}\n  async intercept(ctx: ExecutionContext, next: CallHandler) {\n    const req = ctx.switchToHttp().getRequest();\n    const key = req.headers['idempotency-key'];\n    if (!key) throw new BadRequestException('Idempotency-Key required');\n    const hash = sha256(JSON.stringify(req.body));\n\n    const claim = await this.store.claim(key, hash);       // atomic SET NX\n    if (claim.state === 'done') return of(claim.response); // replay\n    if (claim.state === 'in-progress') throw new ConflictException();\n    if (claim.state === 'mismatch') throw new UnprocessableEntityException('Key reused');\n\n    return next.handle().pipe(tap((res) => this.store.complete(key, res)));\n  }\n}\n```\n\n## Rules\n\n- The claim must be **atomic** (Redis `SET NX` or a unique database constraint).\n- Store the **request fingerprint**; reusing a key with a different body is a client bug.\n- Set a **TTL** on keys.\n- Store **failures carefully**: replay deterministic errors, but let transient ones be retried.\n- For money movement, a database unique constraint on the business key is the final safety net.\n\n## Common mistakes\n\n- Check-then-set without atomicity, letting parallel retries both run.\n- Limiting only by IP.\n- Idempotency stored in process memory behind several replicas.\n- Forgetting `Retry-After`, which makes clients retry blindly.",
+      "diagrams": [
+        {
+          "id": "idem",
+          "title": "Idempotency key flow",
+          "alt": "The request carries an idempotency key; the interceptor atomically claims it, runs the handler on first use and stores the response, replays the stored response on repeats, and rejects the key if the payload differs.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "r",
+              "label": "Request with Idempotency-Key"
+            },
+            {
+              "id": "c",
+              "label": "Atomic claim in store"
+            },
+            {
+              "id": "n",
+              "label": "New key"
+            },
+            {
+              "id": "h",
+              "label": "Run handler"
+            },
+            {
+              "id": "s",
+              "label": "Store response"
+            },
+            {
+              "id": "d",
+              "label": "Done key"
+            },
+            {
+              "id": "rp",
+              "label": "Replay stored response"
+            },
+            {
+              "id": "m",
+              "label": "Payload mismatch 422"
+            }
+          ],
+          "edges": [
+            {
+              "from": "r",
+              "to": "c"
+            },
+            {
+              "from": "c",
+              "to": "n"
+            },
+            {
+              "from": "n",
+              "to": "h"
+            },
+            {
+              "from": "h",
+              "to": "s"
+            },
+            {
+              "from": "c",
+              "to": "d"
+            },
+            {
+              "from": "d",
+              "to": "rp"
+            },
+            {
+              "from": "c",
+              "to": "m"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Which rate limiting algorithm handles bursts best?",
+        "How would you handle a request that crashed mid-processing?",
+        "Why is a database unique constraint still needed?"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,1504 @@
+{
+  "category": "microservices-distributed",
+  "questions": [
+    {
+      "slug": "effectively-once-processing-with-idempotent-consumers",
+      "title": "How do you achieve effectively-once processing with at-least-once delivery?",
+      "topic": "Delivery guarantees",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "idempotency",
+        "sqs",
+        "delivery-guarantees",
+        "node"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "True exactly-once delivery across a network is not realistic, so I combine at-least-once delivery with an idempotent consumer, which gives effectively-once results. Each message carries a stable id. The consumer records that id and applies the business change in the same database transaction, protected by a unique constraint, so a redelivery is detected and skipped. Where the operation is naturally idempotent, such as setting a status, I make it conditional. Calls to external systems get idempotency keys, and acknowledgement happens only after the transaction commits.",
+      "revision": "At-least-once delivery plus an idempotent consumer: record the message id and apply the change in one transaction with a unique constraint; acknowledge after commit.",
+      "detailed": "Delivery guarantees describe the **transport**; correctness is the consumer's job.\n\n## Guarantees compared\n\n| Guarantee | Behaviour | Cost |\n|---|---|---|\n| At-most-once | Send once, never retry | Messages can be lost |\n| At-least-once | Retry until acknowledged | Duplicates are possible |\n| Effectively-once | At-least-once plus idempotent processing | Needs dedupe state or idempotent operations |\n\nBrokers such as SQS standard queues deliver at least once; some products offer deduplication windows, but these end at the broker boundary. The side effects in **your** database and in **other services** still need protection.\n\n## The idempotent consumer\n\n{{diagram:idem}}\n\n```ts\nasync function handle(msg: { id: string; orderId: string }) {\n  await db.tx(async (tx) => {\n    const inserted = await tx.query(\n      \"INSERT INTO processed_messages(id) VALUES($1) ON CONFLICT DO NOTHING\", [msg.id]);\n    if (inserted.rowCount === 0) return;        // already processed\n    await tx.query(\"UPDATE orders SET status='PAID' WHERE id=$1 AND status='PENDING'\", [msg.orderId]);\n  });\n  // acknowledge (delete from queue) only after the transaction commits\n}\n```\n\nThe marker and the effect commit **together**; otherwise a crash between them either loses work or repeats it.\n\n## Other techniques\n\n- **Natural idempotency**: \"set status to PAID\" repeated is harmless; \"add 10 to balance\" is not.\n- **Conditional writes**: update only when the version or current state matches.\n- **Idempotency keys** on outgoing calls to payment and email providers.\n- **Retention** for the processed-ids table, longer than the maximum redelivery window.\n\n## How to answer it\n\nSay plainly that **delivery is at least once and the effect is made once**. Then give the transaction example, because it shows you know where the guarantee really lives. A good closing line is that you would also test it by redelivering every message twice in a test environment and checking that the end state is unchanged.\n\n## Common mistakes\n\n- Checking for the id and writing in separate steps, which races.\n- Acknowledging before the work is durable.\n- Dedupe state in memory, lost on restart or not shared between instances.\n- Forgetting that external side effects, such as emails, are repeated too.",
+      "diagrams": [
+        {
+          "id": "idem",
+          "title": "Idempotent consumer",
+          "alt": "A message from the queue is handled inside a database transaction that inserts its id with a unique constraint. A new id applies the business change, a duplicate is skipped, and the message is acknowledged only after commit.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "q",
+              "label": "Queue (at least once)"
+            },
+            {
+              "id": "c",
+              "label": "Consumer"
+            },
+            {
+              "id": "tx",
+              "label": "Transaction"
+            },
+            {
+              "id": "ins",
+              "label": "Insert message id (unique)"
+            },
+            {
+              "id": "apply",
+              "label": "Apply business change"
+            },
+            {
+              "id": "skip",
+              "label": "Duplicate: skip"
+            },
+            {
+              "id": "ack",
+              "label": "Acknowledge after commit"
+            }
+          ],
+          "edges": [
+            {
+              "from": "q",
+              "to": "c"
+            },
+            {
+              "from": "c",
+              "to": "tx"
+            },
+            {
+              "from": "tx",
+              "to": "ins"
+            },
+            {
+              "from": "ins",
+              "to": "apply",
+              "label": "new"
+            },
+            {
+              "from": "ins",
+              "to": "skip",
+              "label": "seen"
+            },
+            {
+              "from": "apply",
+              "to": "ack"
+            },
+            {
+              "from": "skip",
+              "to": "ack"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Why is exactly-once delivery unrealistic across a network?",
+        "How long should you keep processed message ids?",
+        "How would you make a call to an email provider effectively-once?"
+      ]
+    },
+    {
+      "slug": "ordering-guarantees-and-duplicate-events-in-queues",
+      "title": "What ordering guarantees can you rely on, and how do you cope with duplicates and reordering?",
+      "topic": "Event ordering",
+      "difficulty": "advanced",
+      "type": "conceptual",
+      "tags": [
+        "ordering",
+        "kafka",
+        "sqs-fifo",
+        "events"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Global ordering is expensive and rarely needed; what I usually need is ordering per entity, such as per order or per account. Kafka gives order within a partition, so I key by entity id. SQS FIFO gives order within a message group. Even then, retries, redelivery and multiple producers can cause duplicates or stale events. So I add a version or sequence number to each event, ignore anything older than what I have applied, and make handlers idempotent, rather than trusting the transport alone.",
+      "revision": "Rely on per-key ordering only: partition key in Kafka, message group in SQS FIFO; add versions to events, ignore stale ones and keep handlers idempotent.",
+      "detailed": "Ordering is a **scope question**: ordered relative to what?\n\n## What brokers provide\n\n| Technology | Ordering scope | Caveat |\n|---|---|---|\n| Kafka | Within one partition | Order lost across partitions; rebalances and retries can reorder if misconfigured |\n| SQS FIFO | Within a message group id | Throughput limited per group; a stuck message blocks its group |\n| SQS standard / SNS | Best effort, none guaranteed | Duplicates and reordering expected |\n| Single consumer thread | Order of processing | Limits parallelism |\n\nChoose the **key** carefully: the entity whose events must be ordered, such as orderId. A hot key limits throughput, so avoid keys that concentrate traffic.\n\n## Why transport order is not enough\n\nEvents can still arrive out of order or twice when producers publish from several services, when retries happen, when a consumer fails and reprocesses, or when two paths carry related events.\n\n{{diagram:order}}\n\n## Defensive approach\n\n- Include an **entity version or sequence number** in each event.\n- On receipt, apply only if the version is **greater than the stored version**; ignore older ones.\n- For gaps, either buffer briefly, park the event, or fetch the current state from the source.\n- Use **idempotent handlers** so duplicates change nothing.\n- Prefer events that carry **state** (\"order is now shipped\") over deltas (\"add one\") when order is uncertain, because last-writer-wins by version is easy to apply.\n\n```ts\nif (event.version <= stored.version) return;   // stale or duplicate\nawait save({ ...stored, ...event.state, version: event.version });\n```\n\n## How to answer it\n\nBegin by asking **ordered relative to what**, which shows you understand scope. Then name the per-key tools for the technology in question and add the version check as the defence that does not depend on the broker. If you can, mention a test where events are shuffled deliberately to prove the consumer converges on the same state.\n\n## Common mistakes\n\n- Assuming a queue is ordered because it usually looks ordered in testing.\n- Using a random partition key and expecting per-order sequence.\n- Timestamps as ordering, when clocks differ between services.\n- Letting one poison message block an entire FIFO group without a dead-letter plan.",
+      "diagrams": [
+        {
+          "id": "order",
+          "title": "Handling out-of-order events",
+          "alt": "Events for one entity are keyed to the same partition or group. The consumer compares each event version with the stored version, applying newer ones, ignoring stale or duplicate ones, and fetching current state when a gap appears.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "prod",
+              "label": "Producers"
+            },
+            {
+              "id": "key",
+              "label": "Partition by entity id"
+            },
+            {
+              "id": "cons",
+              "label": "Consumer"
+            },
+            {
+              "id": "cmp",
+              "label": "Compare event version"
+            },
+            {
+              "id": "apply",
+              "label": "Apply newer version"
+            },
+            {
+              "id": "ign",
+              "label": "Ignore stale or duplicate"
+            },
+            {
+              "id": "gap",
+              "label": "Gap: fetch current state"
+            }
+          ],
+          "edges": [
+            {
+              "from": "prod",
+              "to": "key"
+            },
+            {
+              "from": "key",
+              "to": "cons"
+            },
+            {
+              "from": "cons",
+              "to": "cmp"
+            },
+            {
+              "from": "cmp",
+              "to": "apply",
+              "label": "newer"
+            },
+            {
+              "from": "cmp",
+              "to": "ign",
+              "label": "older"
+            },
+            {
+              "from": "cmp",
+              "to": "gap",
+              "label": "missing"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you choose a partition key for an orders topic?",
+        "What happens to a FIFO group when one message keeps failing?",
+        "When would you carry full state in events instead of deltas?"
+      ]
+    },
+    {
+      "slug": "inbox-pattern-with-node-and-aws",
+      "title": "Explain the inbox pattern with a Node and AWS example",
+      "topic": "Reliable messaging",
+      "difficulty": "advanced",
+      "type": "coding",
+      "tags": [
+        "inbox-pattern",
+        "sqs",
+        "postgres",
+        "node"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "The inbox pattern makes a consumer safe against redelivery by storing every incoming message id in an inbox table before, or in the same transaction as, applying its effect. In Node on AWS, a worker polls SQS, inserts the message id into the inbox with a unique constraint, applies the business change in that transaction, commits, then deletes the message from the queue. If the same message arrives again, the insert conflicts and the worker skips it. It pairs naturally with the outbox pattern on the sending side.",
+      "revision": "Inbox table with unique message id, written in the same transaction as the business effect; delete from SQS only after commit; duplicates conflict and are skipped.",
+      "detailed": "The **inbox** is the receiving-side twin of the outbox. The outbox makes publishing reliable; the inbox makes consuming safe.\n\n## Flow\n\n{{diagram:inbox}}\n\n1. A Lambda or ECS worker receives a batch from SQS.\n2. For each message it opens a database transaction.\n3. It inserts the message id into the **inbox** table; a unique constraint makes a second insert fail.\n4. If the insert succeeded, it applies the business change in the same transaction.\n5. It commits, then deletes the message (or reports success to Lambda).\n\n## Example\n\n```ts\nexport async function handler(event: SQSEvent) {\n  const failures: { itemIdentifier: string }[] = [];\n  for (const record of event.Records) {\n    try {\n      await pool.tx(async (tx) => {\n        const r = await tx.query(\n          \"INSERT INTO inbox(message_id, received_at) VALUES($1, now()) ON CONFLICT DO NOTHING\",\n          [record.messageId]);\n        if (r.rowCount === 0) return;                  // duplicate\n        await applyEffect(tx, JSON.parse(record.body));\n      });\n    } catch { failures.push({ itemIdentifier: record.messageId }); }\n  }\n  return { batchItemFailures: failures };              // partial batch response\n}\n```\n\nReturning only the failed items stops successful messages from being retried with the batch.\n\n## Design choices\n\n| Choice | Guidance |\n|---|---|\n| Message id | Use a business or producer-supplied id if the broker's id can change on resend |\n| Retention | Keep inbox rows longer than the maximum redelivery and DLQ replay window |\n| Cleanup | Scheduled purge or a partitioned table dropped by date |\n| Failures | After a few attempts, move to a dead letter queue with an alert |\n| Long work | Keep the transaction short; store the message and process asynchronously if needed |\n\n## Common mistakes\n\n- Using the SQS receipt handle as the dedupe key; it changes on each receive.\n- Writing the inbox row and the effect in different transactions.\n- Never cleaning up the table.\n- Treating the visibility timeout as shorter than the processing time, causing duplicate concurrent work.",
+      "diagrams": [
+        {
+          "id": "inbox",
+          "title": "Inbox pattern with SQS",
+          "alt": "A worker receives a message from SQS and opens a database transaction. It inserts the message id into the inbox table, applies the business change if the id is new, commits, and then deletes the message from the queue.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "sqs",
+              "label": "SQS queue"
+            },
+            {
+              "id": "w",
+              "label": "Lambda or ECS worker"
+            },
+            {
+              "id": "tx",
+              "label": "DB transaction"
+            },
+            {
+              "id": "inb",
+              "label": "Inbox insert (unique id)"
+            },
+            {
+              "id": "eff",
+              "label": "Business change"
+            },
+            {
+              "id": "commit",
+              "label": "Commit"
+            },
+            {
+              "id": "del",
+              "label": "Delete message"
+            }
+          ],
+          "edges": [
+            {
+              "from": "sqs",
+              "to": "w"
+            },
+            {
+              "from": "w",
+              "to": "tx"
+            },
+            {
+              "from": "tx",
+              "to": "inb"
+            },
+            {
+              "from": "inb",
+              "to": "eff",
+              "label": "new id"
+            },
+            {
+              "from": "eff",
+              "to": "commit"
+            },
+            {
+              "from": "commit",
+              "to": "del"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Why is the SQS receipt handle a bad deduplication key?",
+        "How would you clean up the inbox table at scale?",
+        "How do the inbox and outbox patterns work together between two services?"
+      ]
+    },
+    {
+      "slug": "outbox-pattern-with-node-and-dynamodb-streams",
+      "title": "How would you implement the outbox pattern in Node on AWS?",
+      "topic": "Reliable messaging",
+      "difficulty": "advanced",
+      "type": "coding",
+      "tags": [
+        "outbox-pattern",
+        "dynamodb",
+        "postgres",
+        "eventbridge"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "The outbox pattern avoids the dual-write problem of updating a database and publishing an event separately. In one transaction I write the business change and an outbox row. A separate relay then publishes outbox rows to the broker and marks them sent. With PostgreSQL the relay can poll or use change data capture. With DynamoDB I can write both items in a transaction and let DynamoDB Streams trigger a Lambda that publishes to EventBridge or SNS. Delivery is at least once, so consumers must be idempotent.",
+      "revision": "Write state and an outbox row in one transaction; a relay (polling, CDC or DynamoDB Streams) publishes it at least once; consumers dedupe.",
+      "detailed": "The problem: updating the database and publishing a message are **two operations**. If you do one and crash before the other, state and events disagree.\n\n## The pattern\n\n{{diagram:outbox}}\n\n1. In **one transaction**, update the business tables and insert an event into an **outbox** table.\n2. A **relay** reads unsent events and publishes them to the broker.\n3. After a successful publish, the relay marks them sent (or deletes them).\n\n## Implementation options on AWS\n\n| Store | Relay approach | Notes |\n|---|---|---|\n| PostgreSQL / Aurora | Poller using **SELECT ... FOR UPDATE SKIP LOCKED**, or CDC with a tool such as Debezium | Polling is simple; CDC lowers latency and load |\n| DynamoDB | **TransactWriteItems** for state plus outbox item; DynamoDB Streams triggers Lambda | Stream gives ordered per-item changes, 24-hour retention |\n| Either | Publish to SNS, SQS, EventBridge or Kafka | Choose by routing and ordering needs |\n\n```ts\nawait ddb.send(new TransactWriteCommand({ TransactItems: [\n  { Put: { TableName: \"Orders\", Item: order, ConditionExpression: \"attribute_not_exists(pk)\" } },\n  { Put: { TableName: \"Outbox\", Item: { pk: event.id, type: \"OrderPlaced\", payload: event, ttl } } },\n]}));\n```\n\n## Guarantees and limits\n\nThe relay can crash after publishing but before marking sent, so events are delivered **at least once**. Consumers therefore need the inbox or another idempotency approach. Ordering is per aggregate if the relay publishes in sequence for that key, so include a version number. Add monitoring for **outbox age**, and purge or TTL old rows.\n\n## Common mistakes\n\n- Publishing inside the transaction and assuming the commit will succeed.\n- No cleanup, so the outbox grows without bound.\n- Several relays with no locking, causing duplicate and reordered publishing.\n- Treating the outbox as exactly-once.\n- Placing large payloads in the outbox instead of references.",
+      "diagrams": [
+        {
+          "id": "outbox",
+          "title": "Outbox with DynamoDB Streams",
+          "alt": "A service writes the business item and an outbox item in one transaction. DynamoDB Streams triggers a relay Lambda that publishes the event to EventBridge, where idempotent consumers receive it.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "svc",
+              "label": "Service"
+            },
+            {
+              "id": "tx",
+              "label": "Transaction: state + outbox"
+            },
+            {
+              "id": "db",
+              "label": "DynamoDB tables"
+            },
+            {
+              "id": "str",
+              "label": "DynamoDB Streams"
+            },
+            {
+              "id": "relay",
+              "label": "Relay Lambda"
+            },
+            {
+              "id": "bus",
+              "label": "EventBridge or SNS"
+            },
+            {
+              "id": "cons",
+              "label": "Idempotent consumers"
+            }
+          ],
+          "edges": [
+            {
+              "from": "svc",
+              "to": "tx"
+            },
+            {
+              "from": "tx",
+              "to": "db"
+            },
+            {
+              "from": "db",
+              "to": "str"
+            },
+            {
+              "from": "str",
+              "to": "relay"
+            },
+            {
+              "from": "relay",
+              "to": "bus",
+              "label": "publish"
+            },
+            {
+              "from": "bus",
+              "to": "cons"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "What happens if the relay publishes an event but crashes before marking it sent?",
+        "How would you monitor that the outbox is healthy?",
+        "When would you prefer change data capture over polling?"
+      ]
+    },
+    {
+      "slug": "graceful-degradation-design",
+      "title": "How do you design a system to degrade gracefully when dependencies fail?",
+      "topic": "Resilience",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "resilience",
+        "degradation",
+        "fallbacks",
+        "feature-flags"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I start by classifying features as critical or optional, then decide what each does when a dependency fails. Optional features such as recommendations or reviews can disappear, show cached or default content, or load later. Critical paths keep working with timeouts, circuit breakers and fallbacks such as stale cache. I use feature flags to switch features off deliberately, communicate degraded states in the UI, and test failures with fault injection. The goal is a smaller working system, not an all-or-nothing outage.",
+      "revision": "Classify features critical versus optional; use timeouts, circuit breakers, cached or default fallbacks and kill switches; show clear degraded states and test with fault injection.",
+      "detailed": "A system that fails **partially and predictably** is better than one that fails completely.\n\n## Step 1: Rank what matters\n\nList user journeys and mark each dependency as **critical** (the journey cannot work without it) or **optional** (the journey works, with less). For an ecommerce page: price and add to cart are critical; recommendations and reviews are optional.\n\n## Step 2: Decide the fallback\n\n| Failure | Possible fallback |\n|---|---|\n| Recommendation service down | Hide the section, or show popular items from cache |\n| Search slow | Show cached results, drop facets, simplify ranking |\n| Profile service slow | Use cached profile, continue as a guest |\n| Pricing unavailable | Last known price with a warning only if policy allows, otherwise block |\n| Email provider down | Queue and send later |\n\n## Step 3: Make it mechanical\n\n{{diagram:degrade}}\n\n- **Timeouts** shorter than the caller's own timeout, so slowness cannot pile up.\n- **Circuit breakers** that stop calling a failing dependency and probe for recovery.\n- **Bulkheads** so one dependency cannot consume all threads or connections.\n- **Stale-while-revalidate caches** for data that is safe to be slightly old.\n- **Feature flags and kill switches** so operators can disable heavy features during load.\n- **Load shedding** that rejects low-priority work first.\n\n## Step 4: Be honest and test it\n\nShow a clear message when something is reduced, not a blank area. Run **game days** and fault injection to confirm fallbacks work; an untested fallback is usually broken. Alert on fallback usage so degradation is noticed, not hidden.\n\n## How to answer it\n\nUse a concrete journey, such as browsing and buying, and walk through which parts you would drop first and why. That makes the idea of **critical versus optional** tangible. Close with the operational side: flags to switch things off, alerts when fallbacks are in use, and a regular game day to prove the plan works.\n\n## Common mistakes\n\n- Treating every dependency as critical.\n- Fallbacks that call the same failing service again.\n- Serving stale data where correctness matters, such as payments.\n- Never exercising the degraded path until an incident.",
+      "diagrams": [
+        {
+          "id": "degrade",
+          "title": "Graceful degradation flow",
+          "alt": "A request calls a dependency through a timeout and circuit breaker. On failure the system uses a cached or default fallback for optional features, or returns a clear error for critical ones, while alerts record the degraded state.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "req",
+              "label": "Request"
+            },
+            {
+              "id": "to",
+              "label": "Timeout and circuit breaker"
+            },
+            {
+              "id": "dep",
+              "label": "Dependency"
+            },
+            {
+              "id": "ok",
+              "label": "Normal response"
+            },
+            {
+              "id": "fb",
+              "label": "Cached or default fallback"
+            },
+            {
+              "id": "crit",
+              "label": "Critical: clear error"
+            },
+            {
+              "id": "alert",
+              "label": "Alert on degraded state"
+            }
+          ],
+          "edges": [
+            {
+              "from": "req",
+              "to": "to"
+            },
+            {
+              "from": "to",
+              "to": "dep"
+            },
+            {
+              "from": "dep",
+              "to": "ok",
+              "label": "healthy"
+            },
+            {
+              "from": "to",
+              "to": "fb",
+              "label": "optional fails"
+            },
+            {
+              "from": "to",
+              "to": "crit",
+              "label": "critical fails"
+            },
+            {
+              "from": "fb",
+              "to": "alert"
+            },
+            {
+              "from": "crit",
+              "to": "alert"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you decide whether stale data is acceptable?",
+        "How do you test that your fallbacks really work?",
+        "What is the difference between a circuit breaker and a bulkhead?"
+      ]
+    },
+    {
+      "slug": "active-active-vs-active-passive-multi-region",
+      "title": "Compare active-active and active-passive multi-region architectures",
+      "topic": "Multi-region",
+      "difficulty": "advanced",
+      "type": "comparison",
+      "tags": [
+        "multi-region",
+        "active-active",
+        "failover",
+        "aws"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Active-passive runs production in one region with a warm or cold standby elsewhere; failover is simpler and cheaper but recovery takes time and the standby may be under-tested. Active-active serves traffic from several regions at once, giving lower latency and faster recovery, but data consistency becomes the hard problem: conflicting writes, replication lag, and global uniqueness. I choose from the recovery time and data loss targets and the cost, and often start with active-passive with regular failover drills.",
+      "revision": "Active-passive is simpler and cheaper but slower to recover; active-active gives low latency and fast recovery but needs conflict-aware data design. Choose by RTO, RPO and cost.",
+      "detailed": "The decision is driven by **recovery objectives, latency needs and tolerance for complexity**.\n\n## Comparison\n\n| Aspect | Active-passive | Active-active |\n|---|---|---|\n| Traffic | One region serves; standby waits | All regions serve |\n| Failover | Promote standby; minutes or more | Route away; seconds if designed well |\n| Cost | Lower (warm) or lowest (pilot light) | Highest: full capacity in each region |\n| Data | Single writer, replicate to standby | Multiple writers; need conflict handling |\n| Risk | Standby drifts or fails when needed | Subtle consistency bugs |\n| User latency | Far users pay distance | Users served nearby |\n\n## Data is the real difference\n\n{{diagram:regions}}\n\nIn active-passive, replication is one direction, so you accept some data loss (RPO) equal to replication lag. In active-active, two regions may write the same record. Options:\n\n- **Partition by owner**: each customer has a home region, with others reading or forwarding writes there.\n- **Last-writer-wins** with clocks or versions for low-value data.\n- **Mergeable types** (counters, sets) that combine without conflict.\n- **Global tables** such as DynamoDB global tables, accepting their conflict rules.\n\n## Operational needs\n\nHealth-based routing (DNS or global load balancer), regional independence so one region failing does not drag others down, replicated secrets and configuration, and **regular failover drills**. Check dependencies that are single-region, such as an identity provider or payment provider.\n\n## How to answer it\n\nAnchor the choice on **recovery time, data loss tolerance and budget**, and say these should come from the business, not from engineering preference. Then explain why data is the hard part. Many strong answers also recommend starting with active-passive, drilling failover until it is boring, and moving to active-active only for the services that truly need it.\n\n## Common mistakes\n\n- Active-passive with a standby never tested.\n- Calling a design active-active while one shared database is still in one region.\n- Ignoring global uniqueness, such as usernames or order numbers.\n- Failing back carelessly and losing writes made during failover.",
+      "diagrams": [
+        {
+          "id": "regions",
+          "title": "Active-active versus active-passive",
+          "alt": "A global router sends users to region A or region B. In active-passive only the primary writes and replicates one way to the standby. In active-active both regions accept traffic and replicate to each other with conflict handling.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "gr",
+              "label": "Global router"
+            },
+            {
+              "id": "a",
+              "label": "Region A"
+            },
+            {
+              "id": "b",
+              "label": "Region B"
+            },
+            {
+              "id": "da",
+              "label": "Data store A"
+            },
+            {
+              "id": "db",
+              "label": "Data store B"
+            },
+            {
+              "id": "conf",
+              "label": "Conflict rules"
+            }
+          ],
+          "edges": [
+            {
+              "from": "gr",
+              "to": "a"
+            },
+            {
+              "from": "gr",
+              "to": "b"
+            },
+            {
+              "from": "a",
+              "to": "da"
+            },
+            {
+              "from": "b",
+              "to": "db"
+            },
+            {
+              "from": "da",
+              "to": "db",
+              "label": "replication"
+            },
+            {
+              "from": "db",
+              "to": "da",
+              "label": "active-active only"
+            },
+            {
+              "from": "conf",
+              "to": "da"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you handle unique identifiers across two writing regions?",
+        "What would a failover drill involve?",
+        "Which parts of the stack are often still single-region without anyone noticing?"
+      ]
+    },
+    {
+      "slug": "fault-isolation-with-cells-and-bulkheads",
+      "title": "How do you contain failures with fault isolation, cells and blast radius limits?",
+      "topic": "Fault isolation",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "fault-isolation",
+        "cell-architecture",
+        "blast-radius",
+        "resilience"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Fault isolation is about limiting how much one failure can break. I use bulkheads for threads, connections and queues per dependency, separate resources for critical and non-critical work, and per-tenant limits so a noisy customer cannot starve others. At larger scale I use a cell-based design: identical, independent copies of the stack each serving a subset of customers, behind a thin router. A bad deployment or overload then affects one cell, and I roll out changes cell by cell.",
+      "revision": "Limit blast radius with bulkheads, separate pools, per-tenant quotas and cells: independent stack copies behind a thin router, with staged rollouts.",
+      "detailed": "Reliability is not only avoiding failure; it is **shrinking the impact** when failure happens.\n\n## Levels of isolation\n\n| Level | Technique | Protects against |\n|---|---|---|\n| Within a process | Separate thread pools, connection pools, timeouts per dependency | One slow dependency exhausting resources |\n| Between workloads | Separate queues and consumers for critical and bulk work | Batch jobs delaying live traffic |\n| Between tenants | Quotas, rate limits, per-tenant concurrency | Noisy neighbours |\n| Between deployments | Canary, staged and per-region rollouts | A bad release hitting everyone |\n| Between groups of customers | **Cells** | Any shared-fate failure inside a cell |\n\n## Cell-based architecture\n\n{{diagram:cells}}\n\nA **cell** is a complete, independent instance of the service with its own compute, data and queues. A thin **cell router** maps each customer to a cell. Cells share nothing at runtime, so an overload, bad data or poison message affects only that cell's customers.\n\nBenefits: bounded blast radius, simpler capacity planning (scale by adding cells), and safer rollouts. Costs: routing and placement logic, cross-cell queries become harder, and more infrastructure to operate.\n\n## Practical guidance\n\n- Keep the **router simple and highly available**; it is the shared component.\n- Deploy to one cell first, watch, then proceed.\n- Define quotas so a single tenant cannot consume a whole cell.\n- Make shared dependencies explicit; a shared database quietly defeats isolation.\n\n## How to answer it\n\nGive the answer in layers, from threads and pools up to whole cells, so the interviewer hears a progression. Mention that **shared dependencies undermine isolation**, which is the point many candidates miss. A short example of rolling a release to one cell first makes the benefit concrete.\n\n## Common mistakes\n\n- Calling it isolation while all cells share one database or cache.\n- One thread pool for all downstream calls.\n- A smart router that becomes the single point of failure.\n- Equal treatment of critical and background traffic.",
+      "diagrams": [
+        {
+          "id": "cells",
+          "title": "Cell-based isolation",
+          "alt": "A thin cell router maps customers to independent cells. Each cell has its own compute, data and queue, so a failure or bad deployment inside one cell leaves the others unaffected.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "cust",
+              "label": "Customers"
+            },
+            {
+              "id": "router",
+              "label": "Cell router"
+            },
+            {
+              "id": "c1",
+              "label": "Cell 1 stack"
+            },
+            {
+              "id": "c2",
+              "label": "Cell 2 stack"
+            },
+            {
+              "id": "c3",
+              "label": "Cell 3 stack"
+            },
+            {
+              "id": "d1",
+              "label": "Cell 1 data"
+            },
+            {
+              "id": "d2",
+              "label": "Cell 2 data"
+            },
+            {
+              "id": "d3",
+              "label": "Cell 3 data"
+            }
+          ],
+          "edges": [
+            {
+              "from": "cust",
+              "to": "router"
+            },
+            {
+              "from": "router",
+              "to": "c1"
+            },
+            {
+              "from": "router",
+              "to": "c2"
+            },
+            {
+              "from": "router",
+              "to": "c3"
+            },
+            {
+              "from": "c1",
+              "to": "d1"
+            },
+            {
+              "from": "c2",
+              "to": "d2"
+            },
+            {
+              "from": "c3",
+              "to": "d3"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you decide which customers go into which cell?",
+        "How does a cell-based rollout differ from a canary?",
+        "What are the downsides of cells?"
+      ]
+    },
+    {
+      "slug": "rate-limiting-and-backpressure-in-service-calls",
+      "title": "How do rate limiting and backpressure work together to protect services?",
+      "topic": "Overload protection",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "rate-limiting",
+        "backpressure",
+        "load-shedding",
+        "queues"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Rate limiting controls how much work a client is allowed to send, usually per client or API key using token bucket or sliding window algorithms. Backpressure is the signal flowing the other way, telling producers to slow down because the system is full. I combine them: limit at the edge, use bounded queues and concurrency limits inside, return clear 429 or 503 responses with retry guidance, and shed low-priority work first. Clients should back off with jitter, otherwise retries make overload worse.",
+      "revision": "Rate limits cap what clients may send; backpressure tells producers to slow when saturated. Use bounded queues, concurrency limits, 429 or 503 with Retry-After, and load shedding.",
+      "detailed": "Both protect capacity, but they act at different points.\n\n## Difference\n\n| Aspect | Rate limiting | Backpressure |\n|---|---|---|\n| Direction | Policy applied to incoming callers | Feedback from a saturated consumer to producers |\n| Trigger | Quota exceeded | Queue full, latency rising, resources exhausted |\n| Goal | Fairness and abuse protection | Preventing collapse under load |\n| Typical form | Token bucket, sliding window | Bounded queue, reject, slow consumers, flow control |\n\n## Rate limiting\n\nA **token bucket** allows bursts up to the bucket size while enforcing an average rate. Keep counters in a shared store such as Redis, or use the API gateway's built-in throttling, with limits per client, per route and per tenant. Return **429 Too Many Requests** with a **Retry-After** header.\n\n## Backpressure inside the system\n\n{{diagram:pressure}}\n\n- Use **bounded queues**; an unbounded queue only hides overload until memory runs out or latency becomes useless.\n- Apply **concurrency limits** per dependency, so slow downstreams cannot absorb every worker.\n- For streams, slow the producer (pull-based consumption, credits, or pausing consumers).\n- **Shed load** deliberately: drop or reject lowest-priority work first, and return 503 quickly rather than queueing forever.\n- Scale consumers on queue depth or age, but only up to what downstreams can take.\n\n## Client behaviour\n\nClients must respect the signals: exponential backoff with jitter, retry budgets, and no retrying of non-idempotent calls without keys. Otherwise rejected work returns as a retry storm.\n\n## How to answer it\n\nContrast the two in one sentence: limiting is a **policy at the door**, backpressure is a **signal from inside**. Then show the bounded queue as the place where backpressure becomes visible. Finish with client behaviour, because retries without backoff are the most common way limits fail in practice.\n\n## Common mistakes\n\n- Limits only at the edge while internal queues are unbounded.\n- Autoscaling consumers until the database collapses.\n- Rejecting slowly after a long wait, instead of failing fast.\n- The same limit for every client and every route.",
+      "diagrams": [
+        {
+          "id": "pressure",
+          "title": "Rate limiting and backpressure",
+          "alt": "Clients pass through an edge rate limiter into a bounded queue and workers with concurrency limits. When the queue is full the service rejects with 429 or 503, and clients back off with jitter.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "cl",
+              "label": "Clients"
+            },
+            {
+              "id": "rl",
+              "label": "Edge rate limiter"
+            },
+            {
+              "id": "q",
+              "label": "Bounded queue"
+            },
+            {
+              "id": "w",
+              "label": "Workers with concurrency limit"
+            },
+            {
+              "id": "dep",
+              "label": "Downstream dependency"
+            },
+            {
+              "id": "rej",
+              "label": "Reject 429 or 503"
+            },
+            {
+              "id": "bo",
+              "label": "Client backoff with jitter"
+            }
+          ],
+          "edges": [
+            {
+              "from": "cl",
+              "to": "rl"
+            },
+            {
+              "from": "rl",
+              "to": "q",
+              "label": "allowed"
+            },
+            {
+              "from": "rl",
+              "to": "rej",
+              "label": "over limit"
+            },
+            {
+              "from": "q",
+              "to": "w"
+            },
+            {
+              "from": "w",
+              "to": "dep"
+            },
+            {
+              "from": "q",
+              "to": "rej",
+              "label": "full"
+            },
+            {
+              "from": "rej",
+              "to": "bo"
+            },
+            {
+              "from": "bo",
+              "to": "cl"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How does a token bucket differ from a fixed window counter?",
+        "Why can autoscaling consumers make an overload worse?",
+        "How would you apply fair limits across tenants of different sizes?"
+      ]
+    },
+    {
+      "slug": "design-real-time-control-tower",
+      "title": "Design a real-time operational control tower dashboard",
+      "topic": "Real-time analytics",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "control-tower",
+        "streaming",
+        "real-time",
+        "dashboards"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would treat it as a streaming pipeline feeding a query-optimised serving layer. Source systems publish events or change data capture to a durable stream. Stream processors validate, deduplicate, enrich and aggregate them into current-state tables and time-windowed metrics. A serving store such as OpenSearch, a time-series database or cache answers dashboard queries, and updates are pushed to browsers through WebSockets or server-sent events. I keep raw events for replay, define freshness targets, and show data age on every tile.",
+      "revision": "Sources to durable stream, stream processing for dedupe, enrichment and aggregation, a serving store for fast queries, push updates to the UI, raw archive for replay, freshness shown.",
+      "detailed": "This is a **generic reference architecture** for a live operational view across many systems: shipments, orders, machines, or service health.\n\n## Layers\n\n{{diagram:tower}}\n\n| Layer | Role | Typical AWS options |\n|---|---|---|\n| Sources | Operational systems, devices, partner feeds | APIs, database CDC, webhooks |\n| Ingestion | Durable, replayable transport | Kinesis, MSK (Kafka), SQS |\n| Processing | Validate, deduplicate, enrich, aggregate | Flink, Lambda, Kinesis consumers |\n| Serving | Low-latency queries for dashboards | OpenSearch, DynamoDB, a time-series store, Redis |\n| Delivery | Push changes to users | WebSockets or SSE through an API layer |\n| Archive | Raw and curated history for replay and analytics | S3 and a warehouse |\n\n## Two kinds of data\n\n- **Current state** (\"where is each item now?\"): upserted per entity, keyed by id, with version checks.\n- **Metrics over time** (\"events per minute, late deliveries\"): windowed aggregates computed in the stream.\n\nSeparating them keeps queries simple and fast.\n\n## Design principles\n\n1. **Canonical event model**: map each source's format into one schema with event id, entity id, event time, source and version.\n2. **Idempotent, versioned updates** so duplicates and late events are safe.\n3. **Pre-aggregate** what dashboards ask for repeatedly.\n4. **Push only changes** to browsers, and fall back to polling.\n5. **Show freshness** on every tile (data as of a time) and alert when a source goes quiet.\n6. **Authorisation** at the query layer so users see only their scope.\n\n## How to answer it\n\nDraw the layers left to right and name the **two kinds of data**, current state and time-based metrics. Say early that you would define the latency target with stakeholders. Then mention freshness indicators and replay, which show that you are thinking about running the system, not just building it.\n\n## Common mistakes\n\n- Querying operational databases directly from the dashboard.\n- Promising \"real-time\" without defining the latency target.\n- No raw archive, making bugs unrecoverable.\n- Pushing every raw event to the browser.\n- Ignoring silent source failures; no events looks like no problems.",
+      "diagrams": [
+        {
+          "id": "tower",
+          "title": "Control tower reference architecture",
+          "alt": "Source systems feed a durable event stream. Stream processors validate, deduplicate, enrich and aggregate events into a serving store and a raw archive. A query and push API delivers live updates to dashboards.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "src",
+              "label": "Source systems"
+            },
+            {
+              "id": "str",
+              "label": "Durable event stream"
+            },
+            {
+              "id": "proc",
+              "label": "Stream processing"
+            },
+            {
+              "id": "state",
+              "label": "Current-state and metric store"
+            },
+            {
+              "id": "arch",
+              "label": "Raw archive for replay"
+            },
+            {
+              "id": "api",
+              "label": "Query and push API"
+            },
+            {
+              "id": "ui",
+              "label": "Dashboards"
+            }
+          ],
+          "edges": [
+            {
+              "from": "src",
+              "to": "str"
+            },
+            {
+              "from": "str",
+              "to": "proc"
+            },
+            {
+              "from": "str",
+              "to": "arch"
+            },
+            {
+              "from": "proc",
+              "to": "state"
+            },
+            {
+              "from": "state",
+              "to": "api"
+            },
+            {
+              "from": "api",
+              "to": "ui",
+              "label": "push"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you choose between OpenSearch, a time-series database and DynamoDB for serving?",
+        "How would you secure data so each user sees only their region or customers?",
+        "What would you show on a tile when a source feed has gone silent?"
+      ]
+    },
+    {
+      "slug": "late-and-duplicated-events-in-streaming-dashboards",
+      "title": "How do you handle delayed or duplicated events in a real-time analytics pipeline?",
+      "topic": "Streaming correctness",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "streaming",
+        "late-events",
+        "deduplication",
+        "watermarks"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I assume events will arrive late, twice and out of order. Every event gets a unique id and an event time separate from arrival time. Deduplication uses the id within a retention window or idempotent upserts. For windowed metrics I use watermarks to decide when a window is closed, allow a lateness period, and emit corrections when later events arrive. Current-state updates compare version numbers so older events cannot overwrite newer state. Very late data is routed to a side output and reconciled by a batch correction.",
+      "revision": "Use event ids and event time; dedupe by id or idempotent upserts; watermarks with allowed lateness and corrections; version checks for state; side output and batch for very late data.",
+      "detailed": "In distributed systems **arrival order is not event order**. A dashboard that ignores this will flicker, double count or quietly drift.\n\n## Principles\n\n- Give every event an **event id** (for dedupe), an **event time** (when it happened) and a **processing time** (when you saw it).\n- Aggregate by **event time**, not arrival time.\n- Make writes **idempotent**.\n\n## Duplicates\n\n| Technique | Use |\n|---|---|\n| Idempotent upsert by entity id and version | Current-state tables |\n| Dedupe store keyed by event id with a TTL | Counters and sums that would double count |\n| Deterministic aggregate ids | Recomputing a window yields the same row, not a new one |\n\nThe TTL should exceed the longest plausible redelivery or replay gap.\n\n## Late and out-of-order events\n\n{{diagram:late}}\n\nA **watermark** is the stream processor's estimate that no earlier events are still expected. Windows close when the watermark passes their end, plus an **allowed lateness** period. Choices when a late event arrives:\n\n1. **Within lateness**: update the window and emit a corrected result (upsert, not append).\n2. **Beyond lateness**: send to a **side output** or dead-letter store, count it in a \"late events\" metric, and fix totals in a later batch reconciliation.\n\nFor current state, apply the event only if its version or event time is newer than what is stored; otherwise ignore it.\n\n## Communicate the trade-off\n\nA longer lateness window gives more accurate numbers but delays final results. Many dashboards show a provisional figure that is **marked as still settling**, then final.\n\n## How to answer it\n\nState the three assumptions up front: **events are late, duplicated and out of order**. Then show how event ids, event time, watermarks and versions each address one of them. It also helps to say that you would publish a metric for late and dropped events, so the problem stays visible.\n\n## Common mistakes\n\n- Using arrival time for windows.\n- Appending corrections as new rows, double counting.\n- Unlimited dedupe state growth.\n- No visibility into how many events arrive late or are dropped.",
+      "diagrams": [
+        {
+          "id": "late",
+          "title": "Late event handling",
+          "alt": "Events carry ids and event times into a stream processor. Duplicates are discarded, on-time events update windows, late events within the allowed lateness correct earlier results, and very late events go to a side output for batch reconciliation.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "ev",
+              "label": "Incoming events"
+            },
+            {
+              "id": "dd",
+              "label": "Deduplicate by id"
+            },
+            {
+              "id": "wm",
+              "label": "Watermark and windows"
+            },
+            {
+              "id": "upd",
+              "label": "Update or correct result"
+            },
+            {
+              "id": "side",
+              "label": "Side output for very late events"
+            },
+            {
+              "id": "batch",
+              "label": "Batch reconciliation"
+            },
+            {
+              "id": "store",
+              "label": "Serving store"
+            }
+          ],
+          "edges": [
+            {
+              "from": "ev",
+              "to": "dd"
+            },
+            {
+              "from": "dd",
+              "to": "wm"
+            },
+            {
+              "from": "wm",
+              "to": "upd",
+              "label": "on time or within lateness"
+            },
+            {
+              "from": "wm",
+              "to": "side",
+              "label": "too late"
+            },
+            {
+              "from": "side",
+              "to": "batch"
+            },
+            {
+              "from": "upd",
+              "to": "store"
+            },
+            {
+              "from": "batch",
+              "to": "store",
+              "label": "corrects"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you choose the allowed lateness period?",
+        "What would you show users while a window is still settling?",
+        "How would you measure how many events arrive late?"
+      ]
+    },
+    {
+      "slug": "keep-dashboards-responsive-with-materialised-views",
+      "title": "How do you keep real-time dashboards responsive using materialised views and pre-aggregation?",
+      "topic": "Dashboard performance",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "materialised-views",
+        "pre-aggregation",
+        "dashboards",
+        "caching"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Dashboards should read small, precomputed results rather than scan raw events. I identify the queries the dashboard repeats, then maintain materialised views or rollup tables, such as counts per region per minute, updated incrementally by the stream processor. Time-bucketed rollups at several granularities serve different zoom levels, with raw data only for drill-down. I add caching for popular views, limit query ranges and cardinality, and push deltas to browsers instead of making every client re-query.",
+      "revision": "Precompute what dashboards ask repeatedly: incremental materialised views and multi-granularity rollups, with caching, bounded queries, and drill-down to raw data on demand.",
+      "detailed": "A dashboard feels fast when the expensive work happens **before** the user asks.\n\n## Why raw queries fail\n\nScanning millions of events on each refresh, for hundreds of viewers, multiplies cost and latency. Load grows with **viewers x refresh rate**, not with events alone.\n\n## Pre-aggregation approaches\n\n| Approach | How it works | Good for |\n|---|---|---|\n| Streaming rollups | Processor updates counters per key and time bucket as events arrive | Live counts and rates |\n| Materialised view | Database maintains a stored query result, refreshed incrementally or on schedule | Joins and group-bys that change moderately |\n| Multi-granularity rollups | Minute, hour and day tables | Zoomable charts |\n| Current-state table | One row per entity, upserted | \"What is happening now?\" lists and maps |\n| Cache | Short-lived cache of popular query results | Many viewers on the same view |\n\n{{diagram:views}}\n\n## Practical rules\n\n- Start from the **dashboard's actual queries** and design the rollup keys to match.\n- Control **cardinality**: rolling up by user id or order id defeats the purpose. Limit dimensions.\n- Keep raw events in cheap storage for **drill-down**, loaded on demand and with limits.\n- Use **incremental** updates; full recomputation on every refresh does not scale.\n- Push changed values to clients through SSE or WebSockets, and let one cache serve many viewers.\n- Cap time ranges and result sizes, and paginate tables.\n\n## Trade-offs\n\nPre-aggregation fixes the questions you can answer quickly. New questions may need a new rollup or a slower query on raw data. Keep the rollup logic versioned so it can be **rebuilt from the raw archive** after a bug fix.\n\n## Common mistakes\n\n- Pointing the dashboard at the transactional database.\n- Rollups with high-cardinality dimensions.\n- No way to rebuild aggregates after a logic change.\n- Every browser polling the same expensive query.",
+      "diagrams": [
+        {
+          "id": "views",
+          "title": "Pre-aggregation for dashboards",
+          "alt": "The event stream feeds a stream processor that updates minute, hour and day rollups and a current-state table. Dashboards read the small rollups through a cache, and drill-down queries reach raw storage only on demand.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "str",
+              "label": "Event stream"
+            },
+            {
+              "id": "proc",
+              "label": "Stream processor"
+            },
+            {
+              "id": "min",
+              "label": "Minute rollups"
+            },
+            {
+              "id": "hr",
+              "label": "Hour and day rollups"
+            },
+            {
+              "id": "cur",
+              "label": "Current-state table"
+            },
+            {
+              "id": "cache",
+              "label": "Query cache"
+            },
+            {
+              "id": "dash",
+              "label": "Dashboard"
+            },
+            {
+              "id": "raw",
+              "label": "Raw storage (drill-down)"
+            }
+          ],
+          "edges": [
+            {
+              "from": "str",
+              "to": "proc"
+            },
+            {
+              "from": "proc",
+              "to": "min"
+            },
+            {
+              "from": "proc",
+              "to": "hr"
+            },
+            {
+              "from": "proc",
+              "to": "cur"
+            },
+            {
+              "from": "min",
+              "to": "cache"
+            },
+            {
+              "from": "hr",
+              "to": "cache"
+            },
+            {
+              "from": "cur",
+              "to": "cache"
+            },
+            {
+              "from": "cache",
+              "to": "dash"
+            },
+            {
+              "from": "dash",
+              "to": "raw",
+              "label": "drill-down"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you rebuild a rollup after finding a bug in its logic?",
+        "How do you prevent high-cardinality dimensions from exploding storage?",
+        "When is a cache better than another rollup?"
+      ]
+    },
+    {
+      "slug": "slow-downstream-service-must-not-affect-platform",
+      "title": "How do you stop one slow downstream service from affecting the whole platform?",
+      "topic": "Dependency isolation",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "timeouts",
+        "circuit-breaker",
+        "bulkhead",
+        "decoupling"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I decouple and bound every dependency. Prefer asynchronous ingestion through a queue or stream so a slow consumer builds a backlog rather than blocking producers. For synchronous calls I set strict timeouts, limit concurrency per dependency with bulkheads, add circuit breakers, and serve cached or last-known data when it fails. Each downstream gets its own consumer group and resources, so a lagging one cannot slow the others. I monitor lag and per-dependency latency, and the dashboard marks that source as stale.",
+      "revision": "Decouple with queues or streams, set timeouts, bulkheads and circuit breakers per dependency, serve last-known data, give each consumer its own resources, and flag stale sources.",
+      "detailed": "One slow service becomes a platform outage when callers **wait**, hold threads and pile up retries.\n\n## How the damage spreads\n\nA slow dependency raises response time, which holds connections and threads longer, which exhausts pools, which makes unrelated requests fail. Retries then multiply load on the already struggling service.\n\n## Defences\n\n{{diagram:slow}}\n\n| Defence | Effect |\n|---|---|\n| **Asynchronous decoupling** | Producers publish to a stream or queue and carry on; a slow consumer only grows its own backlog |\n| **Separate consumer groups** | Each downstream reads independently, so lag is not shared |\n| **Timeouts** | Bound waiting, shorter than the caller's own deadline |\n| **Bulkheads** | Limited threads or connections per dependency |\n| **Circuit breaker** | Stop calling a failing dependency; probe for recovery |\n| **Retry budgets and jitter** | Prevent retry storms |\n| **Fallbacks** | Last known value, cached data or omitted widget |\n| **Load shedding** | Reject low-priority work early |\n\n## Applied to a control tower\n\nSource feeds enter through the stream, so a slow reporting store only delays its own consumer. Enrichment calls to a slow reference-data service use a **local cache** with short stale tolerance, a timeout and a breaker. The dashboard continues with the data it has and marks that tile **\"as of 10:42\"**.\n\n## Observability\n\nTrack consumer lag, per-dependency latency percentiles, breaker state, queue age and error rates, with alerts on **lag growth** rather than only on errors.\n\n## How to answer it\n\nExplain the failure chain first, from slow call to exhausted pool to wider outage, because it motivates each defence. Then prioritise: **decouple with a stream where possible**, bound everything that must be synchronous, and make degraded data visible to users. Mention lag alerts as the early warning.\n\n## Common mistakes\n\n- Synchronous chains where one slow link blocks everything.\n- Shared thread pools for all calls.\n- Retrying aggressively into a failing service.\n- No signal to users that data is stale.",
+      "diagrams": [
+        {
+          "id": "slow",
+          "title": "Isolating a slow downstream",
+          "alt": "Producers publish to a stream. Each downstream service has its own consumer group, so a slow one builds only its own backlog. Synchronous calls pass through timeouts, bulkheads and circuit breakers, and the dashboard falls back to last-known data.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "prod",
+              "label": "Producers"
+            },
+            {
+              "id": "str",
+              "label": "Event stream"
+            },
+            {
+              "id": "ca",
+              "label": "Consumer group A (healthy)"
+            },
+            {
+              "id": "cb",
+              "label": "Consumer group B (slow, backlog)"
+            },
+            {
+              "id": "cbk",
+              "label": "Timeout, bulkhead, breaker"
+            },
+            {
+              "id": "ref",
+              "label": "Slow reference service"
+            },
+            {
+              "id": "ui",
+              "label": "Dashboard with stale marker"
+            }
+          ],
+          "edges": [
+            {
+              "from": "prod",
+              "to": "str"
+            },
+            {
+              "from": "str",
+              "to": "ca"
+            },
+            {
+              "from": "str",
+              "to": "cb"
+            },
+            {
+              "from": "ca",
+              "to": "ui"
+            },
+            {
+              "from": "ca",
+              "to": "cbk"
+            },
+            {
+              "from": "cbk",
+              "to": "ref"
+            },
+            {
+              "from": "cbk",
+              "to": "ui",
+              "label": "fallback"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you detect that a consumer is silently falling behind?",
+        "When is a circuit breaker not enough?",
+        "How would you decide what to serve when a dependency is down?"
+      ]
+    },
+    {
+      "slug": "reconcile-inconsistent-data-from-multiple-systems",
+      "title": "How do you reconcile inconsistent data coming from multiple source systems?",
+      "topic": "Data reconciliation",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "reconciliation",
+        "data-quality",
+        "source-of-truth",
+        "mdm"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "First I decide which system is the source of truth for each field, since there is rarely one for everything. I map every feed to a canonical model with stable entity keys and keep the source and timestamp with each value. Conflicts are resolved by explicit rules such as authority, recency or confidence, and unresolved ones are flagged rather than hidden. A scheduled reconciliation compares systems and produces a discrepancy report. I surface data quality on the dashboard and fix problems at the source.",
+      "revision": "Define source of truth per field, map to a canonical model with stable keys and provenance, apply explicit conflict rules, flag unresolved cases, run scheduled reconciliation reports.",
+      "detailed": "Different systems disagree for good reasons: different update timing, different definitions, manual edits, and bugs. Reconciliation is a **process**, not a one-off fix.\n\n## Step 1: Ownership\n\nFor each business field, name the **system of record**. Status may come from the warehouse system, address from the customer system, price from the pricing system. Write this down as a data ownership table.\n\n## Step 2: Canonical model and keys\n\n| Need | Approach |\n|---|---|\n| Common identity | A canonical entity id and a mapping table from each system's ids |\n| Common definitions | A shared glossary, such as what \"delivered\" means |\n| Provenance | Store source system, event time and received time with each value |\n| Versioning | Keep history so you can explain what changed |\n\n## Step 3: Conflict rules\n\n{{diagram:reconcile}}\n\n- **Authority**: trust the owning system for its fields.\n- **Recency**: newest event time wins, for fields with no clear owner.\n- **Confidence or priority**: a verified source outranks a manual entry.\n- **Unresolved**: mark as **conflicted**, show both values and route to an owner.\n\n## Step 4: Detect and repair\n\nRun scheduled reconciliation jobs that compare counts and key fields between systems, producing a **discrepancy report** with age and owner. Feed fixes back to the source system; do not silently patch only the analytics copy, or the problem returns on the next sync. Track the **discrepancy rate** as a metric.\n\n## Showing it honestly\n\nDisplay data-quality status and conflicts in the UI instead of showing a confident single number that hides disagreement.\n\n## How to answer it\n\nOpen with **ownership**, since most inconsistency is caused by unclear authority. Then describe the canonical model, rules and reports. A good closing point is that reconciliation should lead to fixes at the source and a falling discrepancy rate, not an ever-growing report.\n\n## Common mistakes\n\n- Overwriting data without provenance.\n- Declaring a single \"golden\" source for everything.\n- Fixing symptoms in the dashboard only.\n- No owner for discrepancies, so reports pile up unread.",
+      "diagrams": [
+        {
+          "id": "reconcile",
+          "title": "Reconciliation flow",
+          "alt": "Feeds from several systems are mapped to a canonical model with provenance. Conflict rules choose a winner or flag a conflict, a scheduled reconciliation job produces a discrepancy report, and fixes go back to the owning source system.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "a",
+              "label": "System A feed"
+            },
+            {
+              "id": "b",
+              "label": "System B feed"
+            },
+            {
+              "id": "c",
+              "label": "System C feed"
+            },
+            {
+              "id": "map",
+              "label": "Canonical model and keys"
+            },
+            {
+              "id": "rules",
+              "label": "Conflict rules"
+            },
+            {
+              "id": "flag",
+              "label": "Flagged conflicts"
+            },
+            {
+              "id": "rep",
+              "label": "Discrepancy report"
+            },
+            {
+              "id": "fix",
+              "label": "Fix at source"
+            }
+          ],
+          "edges": [
+            {
+              "from": "a",
+              "to": "map"
+            },
+            {
+              "from": "b",
+              "to": "map"
+            },
+            {
+              "from": "c",
+              "to": "map"
+            },
+            {
+              "from": "map",
+              "to": "rules"
+            },
+            {
+              "from": "rules",
+              "to": "flag",
+              "label": "unresolved"
+            },
+            {
+              "from": "flag",
+              "to": "rep"
+            },
+            {
+              "from": "rep",
+              "to": "fix"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you map identifiers across systems that have no common key?",
+        "When is recency the wrong conflict rule?",
+        "How would you track whether reconciliation is improving data quality?"
+      ]
+    },
+    {
+      "slug": "communicate-real-time-data-limits-to-executives",
+      "title": "How do you explain the limits of real-time data to executives?",
+      "topic": "Stakeholder communication",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "communication",
+        "freshness",
+        "expectations",
+        "stakeholders"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I replace the word real-time with measurable promises: how old the data may be, how complete it is, and how accurate. I explain that latency, late events, source delays and reconciliation mean live figures are provisional, and that tighter freshness costs more. I show examples from the dashboard, such as an as-of timestamp and a settling indicator, and offer options at different cost levels. I ask what decision the number supports, because that decides how fresh it really needs to be.",
+      "revision": "Swap real-time for explicit freshness, completeness and accuracy promises; explain provisional numbers and cost; tie freshness to the decision it supports.",
+      "detailed": "\"Real-time\" means different things to different people. The fix is to **make the promise specific**.\n\n## Translate into three properties\n\n| Property | Question it answers | Example promise |\n|---|---|---|\n| Freshness | How old can the number be? | 95 percent of updates visible within 30 seconds |\n| Completeness | How much of the data has arrived? | Figures can rise as late events arrive, typically within 10 minutes |\n| Accuracy | How sure are we it is right? | Final totals are confirmed by the nightly reconciliation |\n\n## Explain why in plain language\n\n- Data travels through several systems; each step adds delay.\n- Some sources send in batches or go offline, so events arrive late.\n- Systems sometimes disagree, and reconciling takes time.\n- Faster and more complete usually costs more and adds operational risk.\n\nAn analogy helps: a live scoreboard shows the current score quickly, but the **official result** is confirmed afterwards.\n\n## Show it in the product\n\n{{diagram:limits}}\n\n- An **\"as of\" timestamp** on every tile.\n- A visible indicator for **provisional** versus confirmed figures.\n- A warning when a source is late or silent.\n- A link from a headline number to its definition and source.\n\n## Offer choices, not refusals\n\nPresent tiers: for example, 30-second operational view, 5-minute management view, daily audited report. Ask which **decisions** need which tier; a safety or dispatch decision may justify seconds, while a weekly performance review does not.\n\n## How to answer it\n\nKeep the conversation anchored on **decisions and cost**. Offer two or three tiers and ask which decisions need which one. Avoid jargon such as watermarks; talk about as-of times and confirmed versus provisional numbers. Executives usually respond well to an honest range of options with prices attached.\n\n## Common mistakes\n\n- Saying \"yes, real-time\" without a number.\n- Hiding provisional status and then explaining a correction in a meeting.\n- Giving a technical lecture instead of a decision-focused conversation.\n- Promising accuracy and freshness together without cost trade-offs.",
+      "diagrams": [
+        {
+          "id": "limits",
+          "title": "Freshness tiers for stakeholders",
+          "alt": "Three tiers of reporting are shown: a live operational view with seconds of delay and provisional figures, a management view refreshed every few minutes, and a daily audited report with reconciled totals.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "src",
+              "label": "Source events"
+            },
+            {
+              "id": "live",
+              "label": "Live view: seconds, provisional"
+            },
+            {
+              "id": "mgmt",
+              "label": "Management view: minutes"
+            },
+            {
+              "id": "audit",
+              "label": "Daily audited report: reconciled"
+            },
+            {
+              "id": "asof",
+              "label": "As-of timestamp and status shown"
+            }
+          ],
+          "edges": [
+            {
+              "from": "src",
+              "to": "live"
+            },
+            {
+              "from": "live",
+              "to": "mgmt",
+              "label": "settles"
+            },
+            {
+              "from": "mgmt",
+              "to": "audit",
+              "label": "reconciled"
+            },
+            {
+              "from": "live",
+              "to": "asof"
+            },
+            {
+              "from": "mgmt",
+              "to": "asof"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you respond to an executive who insists on zero delay?",
+        "What would you show on a tile whose data is provisional?",
+        "How do you tie a freshness target to a business decision?"
+      ]
+    },
+    {
+      "slug": "near-real-time-vs-batch-processing-choice",
+      "title": "When would you choose near-real-time processing over batch?",
+      "topic": "Streaming versus batch",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "streaming",
+        "batch",
+        "lambda-architecture",
+        "cost"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I choose by the decision latency the business needs. If people act on the data within seconds or minutes, as in dispatch, fraud or incident response, I use streaming. If the use is reporting, finance or training data, batch is simpler, cheaper and easier to make correct. Often I combine them: a streaming path for fast provisional figures and a batch path that recomputes accurate totals from the raw archive. Streaming adds state, ordering, replay and operational complexity, so it needs to earn its place.",
+      "revision": "Pick by decision latency: streaming for actions within seconds or minutes, batch for reporting and finance; combine a fast provisional path with a batch correction path.",
+      "detailed": "Latency is a **requirement with a price**. The question is how soon someone must act.\n\n## Comparison\n\n| Aspect | Batch | Near-real-time / streaming |\n|---|---|---|\n| Latency | Minutes to hours or days | Seconds to minutes |\n| Complexity | Lower: bounded inputs, simple retries | Higher: state, windows, ordering, late data |\n| Correctness | Easier to make complete and exact | Provisional first, corrected later |\n| Cost | Pay when it runs; efficient at scale | Always-on infrastructure |\n| Replay | Rerun the job | Needs retained stream and careful state handling |\n| Good for | Finance, reporting, model training | Operations, alerts, personalisation, fraud |\n\n## Decision guide\n\n1. **What action does the number trigger?** If none soon, batch.\n2. **What does a wrong or late number cost?** High cost of delay favours streaming; high cost of error favours batch.\n3. **How big and how messy is the data?** Large joins and history are cheaper in batch.\n4. **Can the team operate streaming?** Monitoring lag, state and replays is a real skill.\n\n## Combining both\n\n{{diagram:both}}\n\nA common design sends events to a stream for a **fast path** that updates dashboards with provisional values, and archives them to object storage. A **batch path** recomputes authoritative results from the archive on a schedule and overwrites the provisional ones. This gives speed and accuracy and a way to repair stream bugs.\n\n## Middle ground\n\nMicro-batching, for example every minute, delivers \"near-real-time\" with much simpler operations. Many use cases need minutes, not seconds.\n\n## How to answer it\n\nStart with the question **what action follows the number and how soon**. Then give one example where streaming is justified and one where batch is better, so the answer is balanced. Mention micro-batching and the combined fast-plus-batch design as practical middle options.\n\n## Common mistakes\n\n- Building streaming because it sounds modern.\n- Streaming results nobody looks at until the morning.\n- No batch reconciliation to check the streaming path.\n- Underestimating the operational cost of stateful stream jobs.",
+      "diagrams": [
+        {
+          "id": "both",
+          "title": "Fast path and batch path",
+          "alt": "Events go to a stream that feeds a fast path producing provisional dashboard values, and are also archived. A scheduled batch job recomputes authoritative results from the archive and overwrites the provisional values.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "ev",
+              "label": "Events"
+            },
+            {
+              "id": "str",
+              "label": "Stream"
+            },
+            {
+              "id": "fast",
+              "label": "Fast path: provisional values"
+            },
+            {
+              "id": "arch",
+              "label": "Archive storage"
+            },
+            {
+              "id": "batch",
+              "label": "Batch recompute"
+            },
+            {
+              "id": "serve",
+              "label": "Serving store and dashboards"
+            }
+          ],
+          "edges": [
+            {
+              "from": "ev",
+              "to": "str"
+            },
+            {
+              "from": "str",
+              "to": "fast"
+            },
+            {
+              "from": "str",
+              "to": "arch"
+            },
+            {
+              "from": "arch",
+              "to": "batch"
+            },
+            {
+              "from": "fast",
+              "to": "serve",
+              "label": "provisional"
+            },
+            {
+              "from": "batch",
+              "to": "serve",
+              "label": "authoritative"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you decide between a one-minute micro-batch and a true streaming job?",
+        "How does the batch path help detect bugs in the streaming path?",
+        "What costs do teams usually miss when adopting streaming?"
+      ]
+    },
+    {
+      "slug": "data-freshness-slos-and-replay",
+      "title": "How do you define data freshness SLOs and replay data after an incident?",
+      "topic": "Freshness and replay",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "slo",
+        "freshness",
+        "replay",
+        "observability"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I define freshness as the age of the newest data visible to users, measured end to end from event time to being queryable, and set a target on a percentile, such as 95 percent within 30 seconds. I measure it with watermark lag, consumer lag and heartbeat events from each source, and alert on burn rate. For recovery I keep raw events in a retained stream and an archive so I can replay through the same idempotent pipeline into a fresh or corrected view, then switch over.",
+      "revision": "Freshness SLO on end-to-end event-to-queryable age at a percentile, measured by lag and heartbeats; recover by replaying retained raw events through an idempotent pipeline.",
+      "detailed": "A freshness SLO turns \"is the data live?\" into something you can **measure, alert on and defend**.\n\n## Defining the SLO\n\n| Element | Example |\n|---|---|\n| Indicator (SLI) | Time from event occurrence to being queryable on the dashboard |\n| Objective | 95 percent of events within 30 seconds; 99 percent within 2 minutes |\n| Window | Rolling 28 days |\n| Scope | Per source and per dashboard, since sources differ |\n\nAlso consider a **completeness SLI**, such as the percentage of expected events present after a set delay.\n\n## Measuring\n\n- **Consumer lag** and **watermark lag** per stage.\n- **Heartbeat or synthetic events** injected at sources and traced end to end; silence is detected even when no real events flow.\n- Per-source \"last event received\" times.\n- Alerts on **error budget burn rate**, not single spikes.\n\n## Replay\n\n{{diagram:replay}}\n\nReplay needs three things prepared in advance:\n\n1. **Retention**: keep the raw stream long enough for realistic incidents, and archive raw events to object storage for longer history.\n2. **Idempotent, deterministic processing**: the same events produce the same results, with no double counting.\n3. **Safe cut-over**: rebuild into a **new view or table**, validate it against the old, then switch readers, rather than overwriting in place.\n\nReplay also fixes bugs: correct the logic, replay the affected window, and compare results.\n\n## Operating it\n\nThrottle replays so they do not starve live traffic, tag replayed events so downstream systems can recognise them, and make sure side effects such as notifications are **suppressed** during replay.\n\n## How to answer it\n\nDefine the indicator precisely, **event time to queryable**, and say where you would measure it. Then cover heartbeats for silent sources and burn-rate alerts. For replay, stress retention, idempotency and a validated cut-over; those three phrases summarise a safe recovery.\n\n## Common mistakes\n\n- Measuring freshness only at the stream, not at the dashboard.\n- No heartbeat, so a dead source looks healthy.\n- Non-idempotent processors that double count on replay.\n- Replaying in place with no validation or rollback.",
+      "diagrams": [
+        {
+          "id": "replay",
+          "title": "Replay into a new view",
+          "alt": "Raw events are retained in a stream and archive. After an incident or logic fix, a replay job reads the raw events through the same idempotent pipeline into a new view, which is validated against the old one before readers are switched over.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "raw",
+              "label": "Retained stream and archive"
+            },
+            {
+              "id": "rp",
+              "label": "Replay job (throttled)"
+            },
+            {
+              "id": "pipe",
+              "label": "Idempotent pipeline"
+            },
+            {
+              "id": "new",
+              "label": "New view or table"
+            },
+            {
+              "id": "val",
+              "label": "Validate against old view"
+            },
+            {
+              "id": "sw",
+              "label": "Switch readers"
+            }
+          ],
+          "edges": [
+            {
+              "from": "raw",
+              "to": "rp"
+            },
+            {
+              "from": "rp",
+              "to": "pipe"
+            },
+            {
+              "from": "pipe",
+              "to": "new"
+            },
+            {
+              "from": "new",
+              "to": "val"
+            },
+            {
+              "from": "val",
+              "to": "sw",
+              "label": "matches"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you inject heartbeat events to detect a silent source?",
+        "How do you stop replayed events from triggering duplicate notifications?",
+        "How long should raw event retention be and how would you decide?"
+      ]
+    }
+  ]
+}

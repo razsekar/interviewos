@@ -1,0 +1,1500 @@
+{
+  "category": "aws-cloud",
+  "questions": [
+    {
+      "slug": "secure-graphql-endpoint-on-aws",
+      "title": "Design a secure GraphQL endpoint on AWS",
+      "topic": "Scenarios",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "graphql",
+        "security",
+        "waf",
+        "cloudfront",
+        "api"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would put CloudFront and AWS WAF at the edge, route to an Application Load Balancer, and run the Node GraphQL server on ECS Fargate in private subnets. Authentication happens before resolvers, using JWTs from Cognito or another identity provider. Authorisation is enforced per field and per object in the resolvers, not just at the gateway. GraphQL needs its own controls: query depth and complexity limits, persisted queries, rate limits, and introspection disabled in production. Logs and traces carry a correlation ID, never tokens.",
+      "revision": "Edge WAF and rate limits, JWT validation, per-field authorisation, depth and cost limits, persisted queries, private subnets, secrets in Secrets Manager.",
+      "detailed": "A single GraphQL endpoint hides many operations behind one URL, so URL-based controls are weak. Protection has to understand the **query**, not only the path.\n\n## Request flow\n\n{{diagram:gql-secure}}\n\n1. The browser calls the API hostname, resolved by Route 53 to CloudFront.\n2. WAF evaluates managed rules and a rate-based rule; blocked requests never reach the origin.\n3. CloudFront forwards POST requests (not cached) to an ALB, ideally with a secret origin header or a prefix-list restriction so the ALB cannot be bypassed.\n4. The Node server in a private subnet validates the JWT (signature, issuer, audience, expiry).\n5. Resolvers authorise per object and field, then call the database and cache.\n\n## Security controls\n\n| Risk | Control |\n|---|---|\n| Expensive nested queries | Depth limit, complexity or cost scoring, timeouts |\n| Arbitrary query abuse | Persisted queries or an allow-list for first-party clients |\n| Schema discovery | Disable introspection and suggestions in production |\n| Broken object-level access | Check ownership inside resolvers, use DataLoader with tenant-scoped keys |\n| Batching abuse | Cap batch size and aliases per request |\n| Credential theft | Short-lived tokens, secrets in Secrets Manager, least-privilege task role |\n\n## Failure modes\n\n- **WAF false positives** block legitimate queries; start in count mode, then enforce.\n- **Rate limits** by IP penalise shared corporate networks; also limit per user at the application layer.\n- **Partial errors**: GraphQL returns HTTP 200 with an errors array, so alarms must read error counts from logs or metrics, not only status codes.\n\n## Trade-offs and cost\n\nAPI Gateway is possible but adds per-request cost and payload limits; an ALB with Fargate suits a long-lived Node server. WAF is billed per web ACL, rule and request, so keep the rule set purposeful (verify current AWS pricing).\n\n## Common mistakes\n\n- Relying on the gateway for authorisation while resolvers trust any caller.\n- Leaving introspection and verbose stack traces on in production.\n- Rate limiting requests rather than query cost.\n- Logging the full query variables, which may contain personal data.",
+      "followUps": [
+        "How would you rate limit by query cost instead of request count?",
+        "Why are persisted queries useful for security as well as performance?",
+        "How would you apply authorisation consistently across hundreds of resolvers?"
+      ],
+      "diagrams": [
+        {
+          "id": "gql-secure",
+          "title": "Secure GraphQL request flow",
+          "alt": "Client requests pass through Route 53, CloudFront and WAF, then an Application Load Balancer to a Node GraphQL service on Fargate in private subnets, which validates tokens, authorises each resolver, and reads from a database and cache.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "cl",
+              "label": "Browser"
+            },
+            {
+              "id": "r53",
+              "label": "Route 53"
+            },
+            {
+              "id": "cf",
+              "label": "CloudFront"
+            },
+            {
+              "id": "waf",
+              "label": "WAF rules and rate limit"
+            },
+            {
+              "id": "alb",
+              "label": "ALB"
+            },
+            {
+              "id": "gq",
+              "label": "GraphQL on Fargate (private)"
+            },
+            {
+              "id": "jw",
+              "label": "JWT validation"
+            },
+            {
+              "id": "db",
+              "label": "Database and cache"
+            }
+          ],
+          "edges": [
+            {
+              "from": "cl",
+              "to": "r53"
+            },
+            {
+              "from": "r53",
+              "to": "cf"
+            },
+            {
+              "from": "cf",
+              "to": "waf"
+            },
+            {
+              "from": "waf",
+              "to": "alb",
+              "label": "allowed"
+            },
+            {
+              "from": "alb",
+              "to": "gq"
+            },
+            {
+              "from": "gq",
+              "to": "jw"
+            },
+            {
+              "from": "gq",
+              "to": "db",
+              "label": "resolver auth"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "nextjs-on-aws-deployment",
+      "title": "How would you deploy a Next.js application on AWS?",
+      "topic": "Scenarios",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "nextjs",
+        "ssr",
+        "ecs",
+        "cloudfront",
+        "amplify"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "It depends on how much server rendering the app needs. A fully static export can sit in S3 behind CloudFront. For SSR, I would run the Next.js server as a container on ECS Fargate behind an ALB, with CloudFront in front for static assets and cacheable pages. Amplify Hosting is the managed option for smaller teams, and Lambda-based adapters exist but add cold starts and tooling to verify. Static assets go to S3 and CloudFront with hashed filenames, and environment secrets stay out of the client bundle.",
+      "revision": "Static export: S3 plus CloudFront. SSR: container on Fargate behind ALB and CloudFront, or Amplify Hosting. Hashed assets cached long; secrets stay server-side.",
+      "detailed": "Next.js can render on the server, on a build step, or in the browser, and the deployment choice follows the rendering modes in use.\n\n## Options\n\n| Option | Fits | Watch for |\n|---|---|---|\n| S3 + CloudFront (static export) | Marketing and docs with no SSR or ISR | No server features, rewrites need CloudFront config |\n| ECS Fargate + ALB + CloudFront | SSR, API routes, ISR with steady traffic | You own scaling, images and the ISR cache location |\n| Amplify Hosting | Small teams wanting Git-driven deploys | Less control; check current feature support |\n| Lambda adapter (community or vendor tooling) | Spiky traffic, scale to zero | Cold starts, package limits, tooling maturity; verify current docs |\n\n## Reference flow (container option)\n\n{{diagram:next-flow}}\n\n1. CloudFront serves hashed files under `/_next/static` from S3 or from the origin with a long TTL.\n2. Dynamic requests go to the ALB and then to Next.js tasks in private subnets.\n3. The server calls the backend or GraphQL API and reads secrets from Secrets Manager via its task role.\n4. Cache headers decide what CloudFront may store; personalised responses use `Cache-Control: private` or bypass the cache.\n\n## Deployment approach\n\nBuild a multi-stage image in CI, push to ECR, and update the ECS service with a rolling or blue-green deployment. Use a health check route, minimum healthy percentage, and automatic rollback on failed deployments.\n\n## Failure modes and security\n\n- **Stale ISR or shared cache** across tasks: if ISR writes to local disk, each task has a different cache; use a shared cache handler or revalidate through CDN.\n- **Secrets in `NEXT_PUBLIC_` variables** are shipped to browsers.\n- **Cache poisoning** if the cache key ignores headers that change the response.\n\n## Cost\n\nFargate is billed per vCPU and memory per second; CloudFront and data transfer usually dominate for asset-heavy sites. Verify current AWS pricing.\n\n## Common mistakes\n\n- Caching authenticated HTML at the CDN.\n- Running a single task with no health checks.\n- Forgetting that build-time environment values are baked into the bundle.",
+      "followUps": [
+        "How does ISR behave when several containers serve the same app?",
+        "When would you choose Amplify over ECS?",
+        "How would you avoid caching personalised pages at the CDN?"
+      ],
+      "diagrams": [
+        {
+          "id": "next-flow",
+          "title": "Next.js on ECS with CloudFront",
+          "alt": "Browsers reach CloudFront, which serves static hashed assets from S3 and forwards dynamic requests to an ALB and Next.js tasks on Fargate in private subnets, which call backend APIs and read secrets from Secrets Manager.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "u",
+              "label": "Browser"
+            },
+            {
+              "id": "cf",
+              "label": "CloudFront"
+            },
+            {
+              "id": "s3",
+              "label": "S3 static assets"
+            },
+            {
+              "id": "alb",
+              "label": "ALB"
+            },
+            {
+              "id": "nx",
+              "label": "Next.js tasks on Fargate"
+            },
+            {
+              "id": "api",
+              "label": "Backend API"
+            },
+            {
+              "id": "sm",
+              "label": "Secrets Manager"
+            }
+          ],
+          "edges": [
+            {
+              "from": "u",
+              "to": "cf"
+            },
+            {
+              "from": "cf",
+              "to": "s3",
+              "label": "static"
+            },
+            {
+              "from": "cf",
+              "to": "alb",
+              "label": "dynamic"
+            },
+            {
+              "from": "alb",
+              "to": "nx"
+            },
+            {
+              "from": "nx",
+              "to": "api"
+            },
+            {
+              "from": "nx",
+              "to": "sm",
+              "label": "task role"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "fargate-vs-eks-vs-lambda-for-mern",
+      "title": "ECS Fargate vs EKS vs Lambda for a MERN backend: how do you select?",
+      "topic": "Compute",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "ecs",
+        "eks",
+        "lambda",
+        "fargate",
+        "compute"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "For most MERN backends I start with ECS on Fargate: containers, no servers to patch, simple scaling and a gentle learning curve. I choose Lambda for spiky, event-driven or low-traffic workloads where per-request billing and scale-to-zero matter, accepting cold starts, time limits and connection management for databases. I choose EKS when the organisation already standardises on Kubernetes, needs its ecosystem or portability, and has the team to operate it. The decision is mostly about operational capacity, not raw features.",
+      "revision": "Default to Fargate for steady APIs, Lambda for spiky event work, EKS only when Kubernetes capabilities and team skills justify the overhead.",
+      "detailed": "## Comparison\n\n| Aspect | ECS on Fargate | EKS | Lambda |\n|---|---|---|---|\n| Unit | Container task | Pod | Function |\n| Operational load | Low | High (upgrades, add-ons, networking) | Lowest |\n| Scaling | Task count by target tracking | HPA, cluster autoscaling or Karpenter | Per request, concurrency limits |\n| Long-lived connections | Fine (WebSockets, pools) | Fine | Awkward; time limit applies |\n| Cold start | Task start in tens of seconds | Similar plus node provisioning | Milliseconds to seconds |\n| Portability | AWS specific | High | Low |\n| Cost shape | Pay while running | Control plane fee plus nodes (verify current pricing) | Pay per invocation and duration |\n\n## How I would decide\n\n1. **Traffic shape**: steady load favours containers; idle most of the day favours Lambda.\n2. **Connection model**: Express with MongoDB pools or WebSockets suits containers. Lambda needs connection reuse or a proxy-like approach.\n3. **Team skills**: Kubernetes adds networking, RBAC, ingress, upgrades and add-on management.\n4. **Ecosystem needs**: service mesh, operators or custom schedulers point to EKS.\n5. **Limits**: Lambda has execution time, payload and package limits; verify current AWS docs.\n\n{{diagram:compute-choice}}\n\n## Failure modes\n\n- Fargate: a bad image fails health checks and the deployment circuit breaker should roll back.\n- Lambda: concurrency spikes can exhaust database connections.\n- EKS: version upgrades and add-on drift cause outages if untested.\n\n## Trade-offs\n\nFargate costs more per vCPU than well-packed EC2 nodes but removes patching. EKS shines at scale and with many teams. A mixed estate is normal: Fargate for the API, Lambda for image processing and webhooks.\n\n## Common mistakes\n\n- Choosing EKS because it is fashionable for a three-service system.\n- Using Lambda for a chatty API with heavy cold-start dependencies.\n- Ignoring that EKS still needs ALB integration, IAM roles for service accounts and observability setup.",
+      "followUps": [
+        "How would you migrate from ECS to EKS later if needed?",
+        "How do you stop Lambda exhausting MongoDB connections?",
+        "What triggers would make you revisit the compute choice?"
+      ],
+      "diagrams": [
+        {
+          "id": "compute-choice",
+          "title": "Compute selection flow",
+          "alt": "A decision flow starting from the workload: spiky event-driven work leads to Lambda, existing Kubernetes needs and skills lead to EKS, and otherwise steady containerised APIs lead to ECS on Fargate.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "w",
+              "label": "Backend workload"
+            },
+            {
+              "id": "spiky",
+              "label": "Spiky or event driven?"
+            },
+            {
+              "id": "k8s",
+              "label": "Kubernetes skills and needs?"
+            },
+            {
+              "id": "lam",
+              "label": "Lambda"
+            },
+            {
+              "id": "eks",
+              "label": "EKS"
+            },
+            {
+              "id": "fg",
+              "label": "ECS on Fargate"
+            }
+          ],
+          "edges": [
+            {
+              "from": "w",
+              "to": "spiky"
+            },
+            {
+              "from": "spiky",
+              "to": "lam",
+              "label": "yes"
+            },
+            {
+              "from": "spiky",
+              "to": "k8s",
+              "label": "no"
+            },
+            {
+              "from": "k8s",
+              "to": "eks",
+              "label": "yes"
+            },
+            {
+              "from": "k8s",
+              "to": "fg",
+              "label": "no"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "rds-aurora-vs-dynamodb-for-mern",
+      "title": "RDS or Aurora vs DynamoDB: how do you choose a database for a MERN system on AWS?",
+      "topic": "Databases",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "rds",
+        "aurora",
+        "dynamodb",
+        "documentdb",
+        "mongodb",
+        "database"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I choose by access patterns. If the data is relational with joins, transactions and ad hoc reporting, I use RDS or Aurora PostgreSQL. If access is key-based, very high scale and predictable, DynamoDB fits, but I must design tables around queries. A MERN team that already models documents in MongoDB can use MongoDB Atlas or Amazon DocumentDB, though DocumentDB is MongoDB-compatible rather than identical, so I verify feature support first. Migrating the data model is the real cost, not the service.",
+      "revision": "Relational and ad hoc queries: RDS or Aurora. Key-based predictable access at scale: DynamoDB. Document model: Atlas or DocumentDB after compatibility checks.",
+      "detailed": "## Comparison\n\n| Aspect | RDS / Aurora | DynamoDB | DocumentDB / MongoDB Atlas |\n|---|---|---|---|\n| Model | Relational, SQL | Key-value and document, key design first | Document, MongoDB API |\n| Queries | Flexible joins, ad hoc | Query by key and index only | Rich queries and aggregation |\n| Scaling | Vertical plus read replicas; Aurora storage autoscaling | Horizontal, on-demand or provisioned capacity | Replica sets and sharding (service-specific) |\n| Transactions | Full ACID | Limited transactions, item-level focus | Multi-document, check service support |\n| Ops | Patching windows, failover | Fully managed | Managed |\n\n## Decision guide\n\n1. List the top access patterns with expected rates.\n2. Ask whether reporting or ad hoc filters will change often.\n3. Check consistency needs: money and stock usually favour relational transactions.\n4. Consider the team: DynamoDB single-table design has a learning curve.\n5. For MERN, the application layer is database-agnostic if a repository layer isolates queries.\n\n{{diagram:db-choice}}\n\n## Failure modes\n\n- **DynamoDB hot partitions** from poor key choice, or throttling when capacity is exceeded.\n- **RDS failover** takes a short interruption, so clients need retry with backoff.\n- **DocumentDB gaps**: unsupported operators or driver behaviour surprise teams that expected full MongoDB.\n\n## Security and cost\n\nEncrypt with KMS, keep databases in private subnets, restrict by security group and IAM authentication where supported. DynamoDB on-demand suits unpredictable loads, provisioned suits steady ones; Aurora and RDS bill for instances and storage (verify current pricing).\n\n## Common mistakes\n\n- Picking DynamoDB for a domain that needs flexible reporting.\n- Treating DocumentDB as a drop-in MongoDB without testing.\n- Skipping a load test of the real access patterns before committing.",
+      "followUps": [
+        "How would you model orders in DynamoDB for lookup by customer and by status?",
+        "What would make you stay on MongoDB Atlas instead of moving to AWS-native databases?",
+        "How do you keep a MERN data layer portable between databases?"
+      ],
+      "diagrams": [
+        {
+          "id": "db-choice",
+          "title": "Database selection flow",
+          "alt": "A decision flow: relational joins and ad hoc reporting lead to RDS or Aurora, known key-based access at high scale leads to DynamoDB, and a document model with MongoDB API needs leads to Atlas or DocumentDB after compatibility checks.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "a",
+              "label": "Access patterns"
+            },
+            {
+              "id": "j",
+              "label": "Joins, transactions, ad hoc reports?"
+            },
+            {
+              "id": "k",
+              "label": "Known key based access at high scale?"
+            },
+            {
+              "id": "rds",
+              "label": "RDS or Aurora"
+            },
+            {
+              "id": "ddb",
+              "label": "DynamoDB"
+            },
+            {
+              "id": "doc",
+              "label": "Atlas or DocumentDB"
+            }
+          ],
+          "edges": [
+            {
+              "from": "a",
+              "to": "j"
+            },
+            {
+              "from": "j",
+              "to": "rds",
+              "label": "yes"
+            },
+            {
+              "from": "j",
+              "to": "k",
+              "label": "no"
+            },
+            {
+              "from": "k",
+              "to": "ddb",
+              "label": "yes"
+            },
+            {
+              "from": "k",
+              "to": "doc",
+              "label": "no, documents"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "secrets-manager-vs-parameter-store",
+      "title": "Secrets Manager vs Systems Manager Parameter Store: what is the difference?",
+      "topic": "Security",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "secrets-manager",
+        "ssm",
+        "parameter-store",
+        "kms",
+        "security"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Both store configuration encrypted with KMS and are read through IAM. Secrets Manager is purpose-built for secrets: it supports automatic rotation for supported databases and custom rotation through Lambda, cross-Region replication and has a per-secret cost. Parameter Store is simpler and has a standard tier with no per-parameter charge, which suits plain configuration and low-risk values. I would use Secrets Manager for database credentials and API keys that must rotate, and Parameter Store for non-secret configuration, verifying current pricing and limits.",
+      "revision": "Secrets Manager for rotating credentials; Parameter Store for configuration and simple encrypted values. Both use KMS and IAM least privilege.",
+      "detailed": "## Comparison\n\n| Aspect | Secrets Manager | Parameter Store |\n|---|---|---|\n| Purpose | Secrets that need lifecycle management | Configuration and simple secrets |\n| Rotation | Built-in for supported databases, Lambda for others | No native rotation; you build it |\n| Encryption | KMS | SecureString with KMS |\n| Cost | Per secret per month plus API calls | Standard tier without per-parameter charge; advanced tier is paid (verify current pricing) |\n| Replication | Cross-Region replica secrets | Not native |\n| Size | Larger values supported | Smaller limits by tier; check docs |\n\n## Typical usage in a MERN deployment\n\n- **Secrets Manager**: MongoDB or PostgreSQL credentials, third-party API keys, JWT signing keys that rotate.\n- **Parameter Store**: feature toggles, log levels, non-sensitive URLs, AMI IDs.\n\n{{diagram:secrets-flow}}\n\n## Delivery to the app\n\nECS can inject secrets into container environment variables at task start using the task execution role. Alternatively, the app fetches at startup using the task role via the AWS SDK and caches in memory with a refresh interval. Environment injection does not update running tasks after rotation, so design a restart or refresh.\n\n## Security controls\n\n- Grant each task role access to only its own secret ARNs.\n- Use a customer-managed KMS key for sensitive secrets and restrict key use by policy.\n- Log retrievals in CloudTrail and alert on unusual access.\n- Never print secrets in logs or build output.\n\n## Failure modes\n\n- Rotation changes a password while old tasks hold the old value, leading to authentication failures; use dual-user rotation strategies where supported.\n- Throttling if every request calls the API; cache values.\n- The secret store being unreachable at startup; fail fast with clear logs.\n\n## Common mistakes\n\n- Putting secrets into plain-text task definition environment values.\n- Using one wide IAM policy such as `secretsmanager:*` on all resources.\n- Assuming rotation is automatic without configuring it and testing the application reconnect path.",
+      "followUps": [
+        "How would you handle a rotated database password in running containers?",
+        "How do you stop developers reading production secrets?",
+        "How would you migrate secrets out of environment files?"
+      ],
+      "diagrams": [
+        {
+          "id": "secrets-flow",
+          "title": "Secret delivery to a container",
+          "alt": "A task role grants an ECS task read access to a specific secret in Secrets Manager and configuration in Parameter Store, both encrypted with KMS, and CloudTrail records each retrieval.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "t",
+              "label": "ECS task with task role"
+            },
+            {
+              "id": "sm",
+              "label": "Secrets Manager"
+            },
+            {
+              "id": "ps",
+              "label": "Parameter Store"
+            },
+            {
+              "id": "k",
+              "label": "KMS key"
+            },
+            {
+              "id": "ct",
+              "label": "CloudTrail"
+            },
+            {
+              "id": "db",
+              "label": "Database"
+            }
+          ],
+          "edges": [
+            {
+              "from": "t",
+              "to": "sm",
+              "label": "get secret"
+            },
+            {
+              "from": "t",
+              "to": "ps",
+              "label": "get config"
+            },
+            {
+              "from": "sm",
+              "to": "k",
+              "label": "decrypt"
+            },
+            {
+              "from": "ps",
+              "to": "k",
+              "label": "decrypt"
+            },
+            {
+              "from": "sm",
+              "to": "ct"
+            },
+            {
+              "from": "t",
+              "to": "db",
+              "label": "connect"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "kms-envelope-encryption-basics",
+      "title": "What is AWS KMS and how does envelope encryption work?",
+      "topic": "Security",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "kms",
+        "encryption",
+        "envelope-encryption",
+        "security"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "KMS manages cryptographic keys and records their use. Services like S3, RDS, EBS and Secrets Manager call KMS so that data is encrypted at rest without the application handling raw keys. Envelope encryption means KMS generates a data key; the service encrypts the data with that key, then stores the data key encrypted under a KMS key. KMS never needs to see the large data. Key policies and grants control who can use a key, and CloudTrail logs every use.",
+      "revision": "KMS protects key material. Envelope encryption: a data key encrypts data, the KMS key encrypts the data key. Key policy plus IAM control use; CloudTrail audits.",
+      "detailed": "## Core ideas\n\n- A **KMS key** (formerly CMK) never leaves KMS in plaintext; you call Encrypt, Decrypt or GenerateDataKey.\n- **AWS managed keys** are created per service with limited control. **Customer managed keys** let you set policy, rotation and disable or schedule deletion.\n- **Key policy** is the primary access control; IAM policies work only if the key policy allows it.\n\n## Envelope encryption\n\n{{diagram:kms-envelope}}\n\n1. The service asks KMS for a data key.\n2. KMS returns a plaintext data key and the same key encrypted under the KMS key.\n3. The service encrypts the data locally, then discards the plaintext key.\n4. It stores the encrypted data key beside the ciphertext.\n5. To read, it asks KMS to decrypt the data key, then decrypts the data.\n\nThis avoids sending large payloads to KMS, which has request size and rate quotas (verify current limits).\n\n## Where it appears in a MERN stack\n\n| Service | Use |\n|---|---|\n| S3 | SSE-KMS for sensitive buckets |\n| RDS and Aurora | Storage and snapshot encryption |\n| Secrets Manager | Secret values |\n| CloudWatch Logs | Optional log group encryption |\n\n## Security controls\n\nUse separate keys per environment or data class, restrict `kms:Decrypt` to specific roles, enable automatic rotation where appropriate, and alert on key disabling or deletion attempts.\n\n## Failure modes and cost\n\n- **A disabled or deleted key** makes data unreadable; deletion has a waiting period, which is a safety net.\n- **Throttling** when many small calls hit one key; S3 bucket keys reduce KMS calls.\n- **Cross-account access** needs both key policy and IAM permission.\n- Customer managed keys cost per key per month plus requests (verify current pricing).\n\n## Common mistakes\n\n- Granting `kms:*` to application roles.\n- Sharing one key across all environments, which blurs blast radius.\n- Assuming encryption at rest protects against an application with valid credentials reading the data.",
+      "followUps": [
+        "What is the difference between key policies and grants?",
+        "How does S3 bucket key reduce KMS cost and throttling?",
+        "What does encryption at rest not protect against?"
+      ],
+      "diagrams": [
+        {
+          "id": "kms-envelope",
+          "title": "Envelope encryption flow",
+          "alt": "An application or AWS service requests a data key from KMS, receives a plaintext and an encrypted copy, encrypts data locally, stores the encrypted data key with the ciphertext, and later asks KMS to decrypt the data key.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "svc",
+              "label": "Service or application"
+            },
+            {
+              "id": "kms",
+              "label": "KMS key"
+            },
+            {
+              "id": "pk",
+              "label": "Plaintext data key"
+            },
+            {
+              "id": "ek",
+              "label": "Encrypted data key"
+            },
+            {
+              "id": "ct",
+              "label": "Ciphertext in storage"
+            }
+          ],
+          "edges": [
+            {
+              "from": "svc",
+              "to": "kms",
+              "label": "GenerateDataKey"
+            },
+            {
+              "from": "kms",
+              "to": "pk"
+            },
+            {
+              "from": "kms",
+              "to": "ek"
+            },
+            {
+              "from": "pk",
+              "to": "ct",
+              "label": "encrypt data"
+            },
+            {
+              "from": "ek",
+              "to": "ct",
+              "label": "stored beside"
+            },
+            {
+              "from": "ct",
+              "to": "kms",
+              "label": "Decrypt data key on read"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "cloudwatch-cloudtrail-xray-roles",
+      "title": "CloudWatch vs CloudTrail vs X-Ray: what does each tell you?",
+      "topic": "Observability",
+      "difficulty": "beginner",
+      "type": "comparison",
+      "tags": [
+        "cloudwatch",
+        "cloudtrail",
+        "xray",
+        "observability",
+        "audit"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "They answer different questions. CloudWatch tells me how the system is behaving through metrics, logs and alarms. CloudTrail tells me who did what to my AWS account by recording API calls, which is essential for audit and security investigation. X-Ray, or an OpenTelemetry-based tracing setup, shows where time is spent across services in a single request. In an incident I would use alarms and logs to spot the problem, traces to locate the slow dependency, and CloudTrail to see whether a configuration change caused it.",
+      "revision": "CloudWatch: behaviour (metrics, logs, alarms). CloudTrail: account activity (who changed what). X-Ray: request path and latency across services.",
+      "detailed": "## What each one answers\n\n| Tool | Question | Data |\n|---|---|---|\n| CloudWatch Metrics | Is it healthy and how loaded? | CPU, latency, error counts, custom metrics |\n| CloudWatch Logs | What happened inside the app? | Structured application logs, Logs Insights queries |\n| CloudWatch Alarms | Who needs to know? | Threshold or anomaly alarms to SNS or incident tools |\n| CloudTrail | Who called which AWS API, when, from where? | Management events, optional data events |\n| X-Ray | Which hop made this request slow? | Trace segments, service map |\n\n{{diagram:obs-trio}}\n\n## Practical setup for a MERN app\n\n- Emit **structured JSON logs** with a request or trace ID from the Node service.\n- Alarm on ALB 5xx rate, target response time, task CPU and memory, queue age, and database connections.\n- Enable a **multi-Region organisation trail** to an S3 bucket in a separate security account, with log file validation.\n- Instrument with the X-Ray SDK or OpenTelemetry and propagate trace headers through GraphQL and downstream calls.\n\n## Using them together\n\nA latency alarm fires, traces reveal a slow database call, logs show a lock timeout, and CloudTrail shows a parameter group change an hour earlier.\n\n## Failure modes and cost\n\n- **Log volume** can dominate cost; set retention and avoid debug logging in production.\n- **High-cardinality custom metrics** are expensive.\n- **Sampling** hides rare errors if set too low; tune it.\n- CloudTrail data events can be costly at high volume (verify current pricing).\n\n## Common mistakes\n\n- Treating CloudTrail as application logging.\n- Alarms with no owner or runbook.\n- Logging personal data or tokens into CloudWatch Logs.\n- Having no correlation ID, so logs and traces cannot be joined.",
+      "followUps": [
+        "How would you alarm on GraphQL errors that return HTTP 200?",
+        "Why store CloudTrail logs in a separate account?",
+        "When would you choose OpenTelemetry over the X-Ray SDK?"
+      ],
+      "diagrams": [
+        {
+          "id": "obs-trio",
+          "title": "Observability tools together",
+          "alt": "CloudWatch alarms notify on symptoms, X-Ray traces locate the slow dependency, CloudWatch Logs give detail, and CloudTrail shows recent configuration changes that may explain the incident.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "app",
+              "label": "Node services"
+            },
+            {
+              "id": "cw",
+              "label": "CloudWatch metrics and alarms"
+            },
+            {
+              "id": "lg",
+              "label": "CloudWatch Logs"
+            },
+            {
+              "id": "xr",
+              "label": "X-Ray traces"
+            },
+            {
+              "id": "ct",
+              "label": "CloudTrail"
+            },
+            {
+              "id": "on",
+              "label": "On-call engineer"
+            }
+          ],
+          "edges": [
+            {
+              "from": "app",
+              "to": "cw"
+            },
+            {
+              "from": "app",
+              "to": "lg"
+            },
+            {
+              "from": "app",
+              "to": "xr"
+            },
+            {
+              "from": "cw",
+              "to": "on",
+              "label": "alarm"
+            },
+            {
+              "from": "on",
+              "to": "xr",
+              "label": "find slow hop"
+            },
+            {
+              "from": "on",
+              "to": "lg",
+              "label": "read detail"
+            },
+            {
+              "from": "on",
+              "to": "ct",
+              "label": "check changes"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "waf-shield-layered-protection",
+      "title": "How do WAF and Shield protect a web application, and what do they not cover?",
+      "topic": "Security",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "waf",
+        "shield",
+        "ddos",
+        "cloudfront",
+        "security"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Shield protects against network and transport layer DDoS attacks; Shield Standard is included automatically, and Shield Advanced is a paid tier with extra detection, response support and cost protection that I would verify against current documentation. WAF inspects HTTP requests and applies rules such as managed rule groups, rate-based rules and IP or geo matching. Together at CloudFront or an ALB they reduce abuse, but they do not fix insecure code, broken authorisation or leaked credentials, so application controls remain essential.",
+      "revision": "Shield handles volumetric DDoS; WAF filters HTTP requests by rules and rate. Neither replaces secure application code.",
+      "detailed": "## Responsibilities\n\n| Layer | Control | Notes |\n|---|---|---|\n| Network and transport | AWS Shield Standard | Automatic for AWS edge and Regional endpoints |\n| Enhanced DDoS | Shield Advanced | Optional paid protection with response support; check scope and cost |\n| HTTP | AWS WAF | Managed rules, custom rules, rate limits, bot control options |\n| Application | Your code | Input validation, authorisation, query limits |\n\n{{diagram:waf-layers}}\n\n## Placement\n\nAttach WAF to **CloudFront** for global sites, or to the **ALB** or **API Gateway** for Regional ones. Place WAF at the edge so malicious traffic is dropped before origin capacity is used. Restrict the origin so it accepts traffic only from CloudFront, otherwise attackers can bypass the edge.\n\n## Rule strategy\n\n1. Start with AWS managed rule groups for common exploits and known bad inputs.\n2. Run new rules in **count mode** and review sampled requests.\n3. Add rate-based rules for login, search and GraphQL endpoints.\n4. Add a custom rule for size limits or required headers.\n5. Log WAF events to S3 or CloudWatch Logs and review regularly.\n\n## Failure modes\n\n- **False positives** block customers, such as legitimate large JSON bodies being inspected only up to a limit; check current inspection limits.\n- **Bypass** through a directly exposed ALB or origin IP.\n- **Rate rules** by IP affect users behind shared NAT.\n- Application-layer DDoS from many IPs may need bot controls and caching.\n\n## Cost\n\nWAF charges for web ACLs, rules and requests inspected, so rule count matters. Shield Advanced has a significant monthly commitment (verify current pricing).\n\n## Common mistakes\n\n- Believing WAF replaces input validation.\n- Enforcing new managed rules without a count-mode trial.\n- Forgetting origin lock-down.\n- No alerting on sudden spikes in blocked requests.",
+      "followUps": [
+        "How would you protect login endpoints from credential stuffing?",
+        "How do you stop clients bypassing CloudFront and hitting the ALB directly?",
+        "When is Shield Advanced worth considering?"
+      ],
+      "diagrams": [
+        {
+          "id": "waf-layers",
+          "title": "Layered edge protection",
+          "alt": "Internet traffic passes Shield network protection at the edge, then WAF HTTP rules and rate limits at CloudFront, then to an origin that only accepts CloudFront traffic, where application authorisation and validation provide the final layer.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "net",
+              "label": "Internet traffic"
+            },
+            {
+              "id": "sh",
+              "label": "Shield DDoS protection"
+            },
+            {
+              "id": "cf",
+              "label": "CloudFront"
+            },
+            {
+              "id": "waf",
+              "label": "WAF rules and rate limits"
+            },
+            {
+              "id": "alb",
+              "label": "ALB restricted to CloudFront"
+            },
+            {
+              "id": "app",
+              "label": "Application validation and authorisation"
+            }
+          ],
+          "edges": [
+            {
+              "from": "net",
+              "to": "sh"
+            },
+            {
+              "from": "sh",
+              "to": "cf"
+            },
+            {
+              "from": "cf",
+              "to": "waf"
+            },
+            {
+              "from": "waf",
+              "to": "alb",
+              "label": "allowed"
+            },
+            {
+              "from": "alb",
+              "to": "app"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "acm-tls-termination-on-aws",
+      "title": "How do ACM certificates and TLS termination work on AWS?",
+      "topic": "Networking & Security",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "acm",
+        "tls",
+        "https",
+        "cloudfront",
+        "alb"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "AWS Certificate Manager issues and renews public certificates that attach to CloudFront, ALB and API Gateway, so I do not manage certificate files on servers. TLS usually terminates at CloudFront and again at the ALB. Traffic from the ALB to containers can be plain HTTP inside a private subnet, or re-encrypted if policy requires end-to-end encryption. For CloudFront the certificate must be requested in us-east-1. DNS validation through Route 53 allows automatic renewal.",
+      "revision": "ACM issues and auto-renews certificates for CloudFront, ALB and API Gateway. Terminate TLS at the edge and ALB; re-encrypt to targets if policy demands. CloudFront certs live in us-east-1.",
+      "detailed": "## How it works\n\n1. Request a public certificate in ACM for the domain names.\n2. Prove ownership with **DNS validation** (a CNAME in Route 53). Keep the record so renewal continues.\n3. Attach the certificate to the CloudFront distribution, ALB listener or API Gateway custom domain.\n4. Choose a modern TLS security policy and redirect HTTP to HTTPS.\n\n{{diagram:tls-hops}}\n\n## Where TLS terminates\n\n| Hop | Typical setup |\n|---|---|\n| Browser to CloudFront | ACM certificate, TLS 1.2 or newer policy |\n| CloudFront to ALB | HTTPS to the origin with an ACM certificate on the ALB |\n| ALB to container | HTTP in private subnet, or HTTPS with a self-managed certificate for end-to-end encryption |\n| Service to database | TLS enabled using the database CA bundle |\n\n## Key points\n\n- ACM public certificates are free to use with integrated services, but you cannot export their private keys; verify current terms.\n- CloudFront requires the certificate in **us-east-1**; ALB certificates must be in the ALB's Region.\n- Private certificates for internal mTLS need ACM Private CA, a paid service.\n\n## Failure modes\n\n- **Validation record deleted** so renewal fails and the certificate expires; monitor ACM expiry events through EventBridge or CloudWatch.\n- **Hostname mismatch** if the origin certificate does not cover the name CloudFront uses.\n- **Mixed content** when pages load HTTP assets.\n\n## Security trade-offs\n\nPlain HTTP behind the ALB is acceptable for many designs, but regulated workloads often require encryption in transit throughout. That adds certificate management for containers, which service meshes or sidecars can ease.\n\n## Common mistakes\n\n- Requesting the CloudFront certificate in the wrong Region.\n- Leaving old TLS versions enabled.\n- No alarm for certificate expiry.\n- Forgetting database connections need TLS too.",
+      "followUps": [
+        "How would you implement mutual TLS between internal services?",
+        "What happens if ACM cannot renew a certificate?",
+        "Why does CloudFront need a certificate in us-east-1?"
+      ],
+      "diagrams": [
+        {
+          "id": "tls-hops",
+          "title": "TLS hops on AWS",
+          "alt": "Browser connects to CloudFront over TLS using an ACM certificate, CloudFront connects to the ALB over HTTPS with another ACM certificate, the ALB forwards to containers in private subnets, and the application connects to the database over TLS.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "b",
+              "label": "Browser"
+            },
+            {
+              "id": "cf",
+              "label": "CloudFront ACM cert us-east-1"
+            },
+            {
+              "id": "alb",
+              "label": "ALB ACM cert"
+            },
+            {
+              "id": "ct",
+              "label": "Containers private subnet"
+            },
+            {
+              "id": "db",
+              "label": "Database TLS"
+            }
+          ],
+          "edges": [
+            {
+              "from": "b",
+              "to": "cf",
+              "label": "TLS"
+            },
+            {
+              "from": "cf",
+              "to": "alb",
+              "label": "HTTPS"
+            },
+            {
+              "from": "alb",
+              "to": "ct",
+              "label": "HTTP or HTTPS"
+            },
+            {
+              "from": "ct",
+              "to": "db",
+              "label": "TLS"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "scale-ecommerce-for-sale-event",
+      "title": "How would you prepare an ecommerce application for a flash sale?",
+      "topic": "Scenarios",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "ecommerce",
+        "scaling",
+        "cache",
+        "queue",
+        "sale"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would treat it as a planned load event. Put the catalogue behind CloudFront and Redis so reads rarely hit the database, pre-scale ECS tasks and database capacity ahead of time instead of relying only on reactive scaling, and protect checkout with a queue or admission control so stock updates stay correct. I would load test realistic journeys, set rate limits and WAF rules, define alarms and a rollback plan, and add graceful degradation such as disabling recommendations before the checkout path.",
+      "revision": "Cache reads, pre-scale, protect checkout with queueing and idempotent stock updates, load test journeys, and degrade non-critical features first.",
+      "detailed": "A sale concentrates traffic into minutes, so reactive autoscaling alone is often too slow. Plan around the **critical path**: browse, add to basket, pay.\n\n## Architecture\n\n{{diagram:sale-arch}}\n\n## Request flow\n\n1. Browse and search requests hit CloudFront; catalogue and images are cached with sensible TTLs.\n2. Dynamic API calls go through WAF, ALB and Fargate tasks.\n3. Product reads use Redis; cache misses go to the database or search service.\n4. Checkout creates an order, reserves stock with a conditional atomic update, and puts payment and fulfilment work on SQS.\n5. Workers process payment confirmation and emails asynchronously.\n\n## Preparation\n\n| Area | Action |\n|---|---|\n| Compute | Raise minimum task count before the event; keep target tracking as a safety net |\n| Database | Scale instance class or use read replicas; check connection limits and add pooling |\n| Cache | Warm hot keys; use short TTLs for price and stock |\n| Edge | Cache static and catalogue responses; raise origin shield or tune TTLs |\n| Limits | Check service quotas ahead; quota increases can take time (verify current AWS docs) |\n| Testing | Load test browse-to-pay journeys at higher than expected peak |\n\n## Protecting stock correctness\n\nNever decrement stock with read-then-write. Use a conditional update or database transaction, make order creation **idempotent** with a client token, and expire reservations that are not paid.\n\n## Failure modes\n\n- **Thundering herd** on cache expiry; use jittered TTLs and request coalescing.\n- **Database connection exhaustion** as tasks scale; pool and cap.\n- **Third-party payment latency**; use timeouts, retries with backoff and a pending state.\n- **Bots** buying stock; use WAF rate limits and bot controls, plus a waiting room if needed.\n\n## Trade-offs and cost\n\nPre-scaling costs money for idle capacity, but a short pre-scale is usually cheaper than lost sales. Scale back after the event.\n\n## Common mistakes\n\n- Testing the home page only.\n- Leaving search and recommendations on the critical path.\n- Forgetting a rollback and feature-flag plan.\n- Discovering account quotas during the event.",
+      "followUps": [
+        "How would you implement a virtual waiting room?",
+        "How do you prevent overselling under concurrent checkout?",
+        "Which features would you disable first under overload?"
+      ],
+      "diagrams": [
+        {
+          "id": "sale-arch",
+          "title": "Flash sale architecture",
+          "alt": "Traffic flows through CloudFront and WAF to an ALB and Fargate API tasks that read from Redis and the database; checkout writes the order and stock reservation, then sends payment and fulfilment work to an SQS queue processed by workers.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "u",
+              "label": "Shoppers"
+            },
+            {
+              "id": "cf",
+              "label": "CloudFront cache"
+            },
+            {
+              "id": "waf",
+              "label": "WAF rate limits"
+            },
+            {
+              "id": "alb",
+              "label": "ALB"
+            },
+            {
+              "id": "api",
+              "label": "API tasks on Fargate"
+            },
+            {
+              "id": "rd",
+              "label": "Redis cache"
+            },
+            {
+              "id": "db",
+              "label": "Database"
+            },
+            {
+              "id": "q",
+              "label": "SQS order queue"
+            },
+            {
+              "id": "wk",
+              "label": "Workers"
+            }
+          ],
+          "edges": [
+            {
+              "from": "u",
+              "to": "cf"
+            },
+            {
+              "from": "cf",
+              "to": "waf"
+            },
+            {
+              "from": "waf",
+              "to": "alb"
+            },
+            {
+              "from": "alb",
+              "to": "api"
+            },
+            {
+              "from": "api",
+              "to": "rd",
+              "label": "reads"
+            },
+            {
+              "from": "api",
+              "to": "db",
+              "label": "order and stock"
+            },
+            {
+              "from": "api",
+              "to": "q",
+              "label": "async work"
+            },
+            {
+              "from": "q",
+              "to": "wk"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "process-order-events-asynchronously",
+      "title": "How would you process ecommerce order events asynchronously on AWS?",
+      "topic": "Messaging & Async",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "sqs",
+        "sns",
+        "eventbridge",
+        "idempotency",
+        "orders",
+        "dlq"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "After an order is saved, I publish an OrderCreated event. SNS or EventBridge fans it out to independent SQS queues for payment, inventory, email and analytics, so each consumer scales and fails separately. Each queue has a dead-letter queue, visibility timeout longer than processing time, and idempotent consumers because delivery is at least once. To avoid losing events between the database write and publish, I use a transactional outbox. Alarms watch queue age and DLQ depth.",
+      "revision": "Outbox plus publish, fan out via SNS or EventBridge to per-consumer SQS queues with DLQs, idempotent handlers, and alarms on queue age.",
+      "detailed": "## Flow\n\n{{diagram:order-events}}\n\n1. The API writes the order and an **outbox** row in one database transaction.\n2. A publisher reads the outbox and publishes `OrderCreated` to SNS or EventBridge.\n3. Subscriptions fan out to separate SQS queues per consumer.\n4. Workers poll, process and delete messages; failures return after the visibility timeout.\n5. After the configured receive count, messages move to a DLQ for inspection.\n\n## Service roles\n\n| Service | Role here |\n|---|---|\n| SNS | Simple fan-out, topic filtering by attributes |\n| EventBridge | Content-based routing, schema registry, many targets and SaaS sources |\n| SQS | Durable buffer per consumer; standard for throughput, FIFO for ordering |\n| DLQ | Quarantine for poison messages |\n\n## Design points\n\n- **At-least-once delivery** means duplicates will happen. Consumers record processed event IDs or use conditional writes.\n- **Ordering**: standard queues do not guarantee it. Use FIFO with a message group ID per order if ordering matters, accepting throughput limits (verify current quotas).\n- **Visibility timeout** must exceed worst-case handling time, or messages are processed twice concurrently.\n- **Backpressure**: scale workers on queue depth or age, not CPU alone.\n- **Schema versioning**: add fields compatibly; include an event version.\n\n## Security\n\nEncrypt queues with KMS, scope publish and subscribe permissions in IAM and queue policies, and avoid personal data in event payloads when an ID is enough.\n\n## Failure modes\n\n- Publisher crashes after the database commit: the outbox solves this.\n- Poison message loops: the DLQ and maximum receive count stop it.\n- DLQ ignored: alarm and set a replay procedure (SQS redrive).\n- Downstream outage: queue absorbs; message retention must outlast it.\n\n## Cost\n\nSQS, SNS and EventBridge charge per request or event; batching reduces cost (verify current pricing).\n\n## Common mistakes\n\n- Treating the queue as exactly once.\n- Putting a large payload in the message instead of a reference.\n- One shared queue for unrelated consumers.\n- No replay or redrive plan.",
+      "followUps": [
+        "How does a transactional outbox work in MongoDB or PostgreSQL?",
+        "When would you choose FIFO queues despite lower throughput?",
+        "How would you replay failed events safely?"
+      ],
+      "diagrams": [
+        {
+          "id": "order-events",
+          "title": "Order event pipeline",
+          "alt": "The API saves the order and an outbox record, a publisher sends the event to SNS or EventBridge, which fans out to separate SQS queues for payment, inventory and email; workers consume each queue and failed messages go to dead-letter queues.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "api",
+              "label": "Order API"
+            },
+            {
+              "id": "db",
+              "label": "Database with outbox"
+            },
+            {
+              "id": "pub",
+              "label": "Outbox publisher"
+            },
+            {
+              "id": "bus",
+              "label": "SNS or EventBridge"
+            },
+            {
+              "id": "q1",
+              "label": "Payment queue"
+            },
+            {
+              "id": "q2",
+              "label": "Inventory queue"
+            },
+            {
+              "id": "q3",
+              "label": "Email queue"
+            },
+            {
+              "id": "w",
+              "label": "Consumers"
+            },
+            {
+              "id": "dlq",
+              "label": "Dead-letter queues"
+            }
+          ],
+          "edges": [
+            {
+              "from": "api",
+              "to": "db",
+              "label": "order plus outbox"
+            },
+            {
+              "from": "db",
+              "to": "pub"
+            },
+            {
+              "from": "pub",
+              "to": "bus",
+              "label": "OrderCreated"
+            },
+            {
+              "from": "bus",
+              "to": "q1"
+            },
+            {
+              "from": "bus",
+              "to": "q2"
+            },
+            {
+              "from": "bus",
+              "to": "q3"
+            },
+            {
+              "from": "q1",
+              "to": "w"
+            },
+            {
+              "from": "q2",
+              "to": "w"
+            },
+            {
+              "from": "q3",
+              "to": "w"
+            },
+            {
+              "from": "w",
+              "to": "dlq",
+              "label": "repeated failure"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "resilient-database-architecture-on-aws",
+      "title": "How would you design a resilient database layer on AWS?",
+      "topic": "Databases",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "aurora",
+        "rds",
+        "multi-az",
+        "backup",
+        "resilience",
+        "rds-proxy"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would use a managed engine such as Aurora or RDS in a Multi-AZ configuration, in private subnets, so a standby or replica can take over after an instance or AZ failure. Reads can be offloaded to replicas, and a connection pooler such as RDS Proxy helps during failover and Lambda or autoscaling bursts. I would enable automated backups with point-in-time recovery, test restores, encrypt with KMS, and define RTO and RPO. Clients must retry with backoff, because failover still causes a brief interruption.",
+      "revision": "Multi-AZ managed database in private subnets, replicas for reads, pooling, PITR backups with restore tests, encryption, and client retries.",
+      "detailed": "## Layers of resilience\n\n{{diagram:db-resilience}}\n\n| Failure | Mitigation |\n|---|---|\n| Instance or host | Multi-AZ automatic failover |\n| AZ outage | Standby or Aurora replica in another AZ |\n| Read overload | Read replicas, caching |\n| Connection storms | Pooling, RDS Proxy, sensible max connections |\n| Bad deployment or deletion | Point-in-time recovery, snapshots, deletion protection |\n| Regional outage | Cross-Region replica, Aurora Global Database or snapshot copy (verify current features) |\n| Corruption or ransomware | Backups in a separate account or vault with immutability options |\n\n## Design\n\n1. Place the database in **private subnets** across at least two AZs, with a security group that allows only the application's security group.\n2. Choose Aurora when you want fast failover and shared storage, or standard RDS Multi-AZ for simpler needs. Failover times vary; verify current documentation.\n3. Use the **cluster endpoint** for writes and a **reader endpoint** for reads; never hard-code instance hostnames.\n4. Enable automated backups with a retention period matching the RPO and recovery policy, and take pre-release manual snapshots for risky migrations.\n5. Enable encryption, IAM authentication where practical, deletion protection and enhanced monitoring.\n\n## Application behaviour\n\nThe app must handle failover: short connection errors, DNS changes and pool refresh. Use retries with exponential backoff and jitter for idempotent operations. Keep transactions short.\n\n## Monitoring\n\nAlarm on replica lag, free storage, connection count, CPU, burst or IOPS metrics, and failover events through RDS event subscriptions.\n\n## Trade-offs and cost\n\nMulti-AZ roughly doubles the instance cost for standard RDS. Replicas add cost but also read capacity. Cross-Region adds data transfer and operational complexity.\n\n## Common mistakes\n\n- Confusing Multi-AZ (availability) with read replicas (scale) or backups (recovery).\n- Never testing a restore.\n- Running migrations that lock large tables during peak hours.\n- Allowing a public database endpoint for convenience.",
+      "followUps": [
+        "What is the difference between Multi-AZ and read replicas?",
+        "How would you test that your restore actually works?",
+        "What does RDS Proxy help with and what does it not solve?"
+      ],
+      "diagrams": [
+        {
+          "id": "db-resilience",
+          "title": "Resilient database layout",
+          "alt": "Application tasks in two availability zones connect through a pooler to a primary database with a standby or replica in another zone, readers serve read traffic, backups and snapshots go to a separate vault, and an optional cross-Region replica supports regional recovery.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "app",
+              "label": "App tasks in two AZs"
+            },
+            {
+              "id": "px",
+              "label": "Pooler or RDS Proxy"
+            },
+            {
+              "id": "pr",
+              "label": "Primary in AZ A"
+            },
+            {
+              "id": "sb",
+              "label": "Standby or replica in AZ B"
+            },
+            {
+              "id": "rd",
+              "label": "Read replicas"
+            },
+            {
+              "id": "bk",
+              "label": "Backups and PITR"
+            },
+            {
+              "id": "vl",
+              "label": "Separate backup vault"
+            },
+            {
+              "id": "xr",
+              "label": "Cross-Region replica optional"
+            }
+          ],
+          "edges": [
+            {
+              "from": "app",
+              "to": "px"
+            },
+            {
+              "from": "px",
+              "to": "pr",
+              "label": "writes"
+            },
+            {
+              "from": "px",
+              "to": "rd",
+              "label": "reads"
+            },
+            {
+              "from": "pr",
+              "to": "sb",
+              "label": "replication"
+            },
+            {
+              "from": "pr",
+              "to": "bk"
+            },
+            {
+              "from": "bk",
+              "to": "vl",
+              "label": "copy"
+            },
+            {
+              "from": "pr",
+              "to": "xr",
+              "label": "async"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "backup-restore-pilot-light-warm-standby-active-active",
+      "title": "Backup and restore, pilot light, warm standby and active-active: how do you pick a DR strategy?",
+      "topic": "Reliability & Scaling",
+      "difficulty": "advanced",
+      "type": "comparison",
+      "tags": [
+        "disaster-recovery",
+        "backup",
+        "pilot-light",
+        "warm-standby",
+        "active-active"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "These four patterns trade recovery speed against cost and complexity. Backup and restore is cheapest but slowest. Pilot light keeps data replicated and core pieces ready but compute off. Warm standby runs a scaled-down but working copy that can be scaled up. Active-active serves traffic from multiple Regions and has the lowest recovery time with the highest cost and data consistency complexity. I pick from the business's RTO, RPO and budget, then rehearse the failover regularly.",
+      "revision": "Backup/restore (hours), pilot light (tens of minutes), warm standby (minutes), active-active (near zero). Choose from RTO, RPO and budget, and rehearse.",
+      "detailed": "Disaster recovery is a business decision first: how long can we be down (**RTO**) and how much data can we lose (**RPO**)?\n\n## Strategies\n\n| Strategy | What runs in the recovery Region | Typical recovery | Relative cost |\n|---|---|---|---|\n| Backup and restore | Nothing; backups copied | Hours | Lowest |\n| Pilot light | Replicated data, core infrastructure defined, compute off | Tens of minutes | Low |\n| Warm standby | Scaled-down full stack | Minutes | Medium |\n| Active-active | Full stack serving traffic | Seconds to minutes | Highest |\n\nTimes are indicative; they depend on automation and rehearsal.\n\n{{diagram:dr-ladder}}\n\n## AWS building blocks\n\n- **AWS Backup** with cross-Region and cross-account copies and vault lock options.\n- **S3 cross-Region replication** for assets.\n- **Aurora Global Database** or cross-Region read replicas for databases (verify current RPO and failover behaviour).\n- **DynamoDB global tables** for multi-Region writes with conflict handling.\n- **Route 53** health checks and failover or latency routing; Application Recovery Controller for advanced routing control.\n- **Infrastructure as Code** so the recovery stack is reproducible.\n\n## Example choice\n\nA content site with a 24-hour RTO and 1-hour RPO fits backup and restore. A checkout service with a 15-minute RTO and 5-minute RPO fits warm standby. A payments platform with near-zero tolerance considers active-active and accepts the complexity.\n\n## Failure modes\n\n- **Untested runbooks** and expired credentials.\n- **Configuration drift** between Regions.\n- **Data conflicts** in active-active when two Regions write the same item.\n- **Hidden dependencies** such as a third-party service, DNS or secrets only in the primary Region.\n- **Failback** is harder than failover.\n\n## Trade-offs\n\nEach step up roughly multiplies cost and operational load. Many systems tier it: critical services warm standby, others backup and restore.\n\n## Common mistakes\n\n- Buying active-active without stating an RTO.\n- Backing up but never restoring.\n- Forgetting to replicate secrets, certificates and KMS keys.\n- Assuming Multi-AZ equals disaster recovery for a regional failure.",
+      "followUps": [
+        "How do you decide conflict resolution in an active-active design?",
+        "How would you run a DR game day?",
+        "How do you handle failback after a regional failover?"
+      ],
+      "diagrams": [
+        {
+          "id": "dr-ladder",
+          "title": "DR strategy ladder",
+          "alt": "Four disaster recovery strategies arranged from lowest to highest cost and fastest recovery: backup and restore, pilot light, warm standby, and active-active.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "b",
+              "label": "Backup and restore hours"
+            },
+            {
+              "id": "p",
+              "label": "Pilot light tens of minutes"
+            },
+            {
+              "id": "w",
+              "label": "Warm standby minutes"
+            },
+            {
+              "id": "a",
+              "label": "Active-active near zero"
+            }
+          ],
+          "edges": [
+            {
+              "from": "b",
+              "to": "p",
+              "label": "more cost, faster"
+            },
+            {
+              "from": "p",
+              "to": "w",
+              "label": "more cost, faster"
+            },
+            {
+              "from": "w",
+              "to": "a",
+              "label": "more cost, faster"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "investigate-sudden-aws-cost-increase",
+      "title": "How would you investigate a sudden increase in an AWS bill?",
+      "topic": "Scenarios",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "cost",
+        "finops",
+        "cost-explorer",
+        "budgets",
+        "tagging"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would start in Cost Explorer, group by service, linked account, Region and usage type, and compare daily costs to find when the change began. Then I drill into the top contributor, such as NAT gateway data processing, CloudWatch Logs ingestion, data transfer, a forgotten environment, or a scaling loop. I correlate with CloudTrail and deployments, tags and Cost Anomaly Detection. Fix the cause, add budgets and anomaly alerts, and enforce tagging so the next spike is visible quickly.",
+      "revision": "Cost Explorer by service, usage type, account and tag; find the start date; correlate with changes; fix; add budgets, anomaly alerts and tagging.",
+      "detailed": "## Investigation flow\n\n{{diagram:cost-investigation}}\n\n1. **Scope**: when did it start, which account and Region, and is it one-off or recurring?\n2. **Cost Explorer**: group daily cost by service, then by usage type, linked account, Region and tag.\n3. **Pinpoint**: open the top delta line, for example data processing or log ingestion.\n4. **Correlate**: check CloudTrail, deployment history and autoscaling activity around the start date.\n5. **Contain**: stop or scale down the offending resource, with approval.\n6. **Prevent**: budgets, anomaly detection, tag policies and review.\n\n## Common causes in a MERN stack\n\n| Symptom | Likely cause |\n|---|---|\n| NAT gateway cost jump | Heavy traffic through NAT to S3 or ECR; add VPC gateway or interface endpoints |\n| CloudWatch Logs growth | Debug logging, no retention, noisy health checks |\n| Data transfer out | Missing CDN caching, cross-AZ chatter, large API responses |\n| EC2 or Fargate growth | Autoscaling loop, forgotten dev environment, oversized tasks |\n| Database cost | Larger instance, provisioned IOPS, snapshots piling up |\n| Lambda | Retry loop or recursive trigger |\n| S3 requests or storage | Lifecycle rules missing, versioning without expiry |\n\n## Tools\n\nCost Explorer, Cost and Usage Report with Athena for detail, AWS Budgets, Cost Anomaly Detection, Compute Optimizer and Trusted Advisor. Availability of some checks depends on support plan; verify current AWS docs.\n\n## Controls to add\n\n- Mandatory tags such as owner, environment and service.\n- Budgets with alerts at percentages of forecast.\n- Lifecycle and retention policies as code.\n- Non-production schedules to switch off outside working hours.\n- Service control policies restricting expensive Regions or instance types where policy allows.\n\n## Failure modes\n\nCost data lags by hours, so a spike may not appear immediately. Untagged spend cannot be attributed. Cutting resources blindly can cause outages; confirm owners first.\n\n## Common mistakes\n\n- Looking only at the total instead of usage types.\n- Deleting resources without checking dependencies.\n- Reserving or buying savings plans before removing waste.\n- No budget owner.",
+      "followUps": [
+        "How do VPC endpoints reduce NAT gateway charges?",
+        "How would you attribute shared cluster costs to teams?",
+        "When do Savings Plans make sense?"
+      ],
+      "diagrams": [
+        {
+          "id": "cost-investigation",
+          "title": "Cost spike investigation",
+          "alt": "A cost alert leads to Cost Explorer grouping by service and usage type, identifying the top delta, correlating with CloudTrail and deployments, containing the cause, then adding budgets, anomaly alerts and tagging.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "al",
+              "label": "Cost alert or bill surprise"
+            },
+            {
+              "id": "ce",
+              "label": "Cost Explorer by service and usage type"
+            },
+            {
+              "id": "top",
+              "label": "Top delta line"
+            },
+            {
+              "id": "co",
+              "label": "Correlate CloudTrail and deploys"
+            },
+            {
+              "id": "fx",
+              "label": "Contain and fix"
+            },
+            {
+              "id": "pv",
+              "label": "Budgets, anomaly alerts, tags"
+            }
+          ],
+          "edges": [
+            {
+              "from": "al",
+              "to": "ce"
+            },
+            {
+              "from": "ce",
+              "to": "top"
+            },
+            {
+              "from": "top",
+              "to": "co"
+            },
+            {
+              "from": "co",
+              "to": "fx"
+            },
+            {
+              "from": "fx",
+              "to": "pv"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "iam-policy-evaluation-and-boundaries",
+      "title": "How does IAM policy evaluation work, and what are SCPs and permission boundaries?",
+      "topic": "Networking & Security",
+      "difficulty": "advanced",
+      "type": "conceptual",
+      "tags": [
+        "iam",
+        "scp",
+        "permission-boundary",
+        "policies",
+        "security"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "An IAM request is denied by default. Access is allowed only if an applicable policy allows it and nothing applicable explicitly denies it. Identity-based policies attach to users and roles, resource-based policies attach to resources such as S3 buckets or KMS keys, and session policies narrow temporary credentials. Service control policies in AWS Organizations and permission boundaries set maximum permissions; they do not grant access by themselves. An explicit deny always wins, which makes it the tool for guardrails.",
+      "revision": "Default deny; explicit deny wins; allow needs a grant. SCPs and permission boundaries are ceilings, not grants.",
+      "detailed": "## Evaluation logic\n\n1. Start with **implicit deny**.\n2. If any applicable policy has an **explicit deny**, the request is denied.\n3. Organisation **SCPs** must allow the action for the account.\n4. Where used, the **permission boundary** and **session policy** must also allow it.\n5. An identity-based or resource-based policy must **allow** it. For same-account access, a resource policy can grant on its own; cross-account access needs both sides to allow.\n\n{{diagram:iam-eval}}\n\n## Policy types\n\n| Type | Attached to | Purpose |\n|---|---|---|\n| Identity-based | User, group, role | Grants permissions |\n| Resource-based | S3, KMS, SQS, etc. | Grants access, including cross-account |\n| Permission boundary | User or role | Maximum permissions an identity can have |\n| SCP | Organisation, OU, account | Maximum permissions in accounts |\n| Session policy | Assumed session | Further restricts temporary credentials |\n\n## Examples in practice\n\n- An ECS task role allows `s3:GetObject` on one bucket prefix only.\n- A boundary lets a platform team delegate role creation to developers while capping what those roles can do.\n- An SCP denies disabling CloudTrail or using unapproved Regions.\n- A bucket policy denies requests that are not over TLS.\n\n## Debugging\n\nUse CloudTrail to see the denied call, IAM Access Analyzer to find unused or external access, the policy simulator, and the access last used data to prune permissions. Error messages indicate whether an explicit deny was involved.\n\n## Failure modes\n\n- Overly broad wildcards such as `Resource: \"*\"` combined with `iam:PassRole`, a privilege escalation path.\n- A boundary or SCP silently blocking an action that an identity policy allows.\n- Confused-deputy issues across accounts; use `aws:SourceArn` or external IDs where relevant.\n\n## Common mistakes\n\n- Thinking an SCP grants permissions.\n- Using long-lived access keys instead of roles.\n- Giving administrators to pipelines.\n- Never reviewing unused permissions.",
+      "followUps": [
+        "Why is iam:PassRole sensitive?",
+        "How would you grant a pipeline deploy access without long-lived keys?",
+        "How do you debug an AccessDenied that policies appear to allow?"
+      ],
+      "diagrams": [
+        {
+          "id": "iam-eval",
+          "title": "IAM evaluation order",
+          "alt": "A request is checked for explicit denies first, then organisation SCPs, then permission boundaries and session policies, and finally needs an allow in an identity or resource policy; otherwise it is implicitly denied.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "rq",
+              "label": "Request"
+            },
+            {
+              "id": "dn",
+              "label": "Explicit deny anywhere?"
+            },
+            {
+              "id": "scp",
+              "label": "SCP allows?"
+            },
+            {
+              "id": "pb",
+              "label": "Boundary and session allow?"
+            },
+            {
+              "id": "al",
+              "label": "Identity or resource policy allows?"
+            },
+            {
+              "id": "ok",
+              "label": "Allowed"
+            },
+            {
+              "id": "no",
+              "label": "Denied"
+            }
+          ],
+          "edges": [
+            {
+              "from": "rq",
+              "to": "dn"
+            },
+            {
+              "from": "dn",
+              "to": "no",
+              "label": "yes"
+            },
+            {
+              "from": "dn",
+              "to": "scp",
+              "label": "no"
+            },
+            {
+              "from": "scp",
+              "to": "no",
+              "label": "no"
+            },
+            {
+              "from": "scp",
+              "to": "pb",
+              "label": "yes"
+            },
+            {
+              "from": "pb",
+              "to": "no",
+              "label": "no"
+            },
+            {
+              "from": "pb",
+              "to": "al",
+              "label": "yes"
+            },
+            {
+              "from": "al",
+              "to": "ok",
+              "label": "yes"
+            },
+            {
+              "from": "al",
+              "to": "no",
+              "label": "no"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "cognito-vs-self-managed-auth-on-aws",
+      "title": "Amazon Cognito vs self-managed JWT authentication for a MERN application",
+      "topic": "Security",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "cognito",
+        "jwt",
+        "authentication",
+        "oauth",
+        "api-gateway"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Cognito user pools give managed sign-up, sign-in, MFA, social and enterprise federation, and issue standards-based JWTs that an API Gateway authoriser or a Node middleware can verify. Self-managed authentication in Node gives full control over flows and data but makes me responsible for password storage, MFA, rate limiting, breach handling and token security. I would favour a managed identity provider unless requirements such as custom flows or portability outweigh the lock-in, and I would verify Cognito feature limits and pricing first.",
+      "revision": "Prefer a managed IdP such as Cognito for standard flows; self-manage only for special needs. Verify JWTs on the server either way.",
+      "detailed": "## Comparison\n\n| Aspect | Cognito user pools | Self-managed in Node |\n|---|---|---|\n| Sign-up, sign-in, MFA | Provided | You build and maintain |\n| Federation (OIDC, SAML, social) | Supported | Libraries plus your own work |\n| Tokens | ID, access and refresh tokens as JWTs | You design format and rotation |\n| Customisation | Hosted UI, Lambda triggers; some limits | Unlimited |\n| Portability | Moderate lock-in; export limits apply | Highest |\n| Compliance and security upkeep | Shared with AWS | Entirely yours |\n| Cost | Based on monthly active users, tiers vary (verify current pricing) | Engineering time plus database |\n\n## Reference flow\n\n{{diagram:auth-flow}}\n\n1. The React app redirects to the hosted UI or uses an authorisation code flow with PKCE.\n2. Cognito authenticates the user and returns tokens.\n3. The SPA calls the API with the access token in the Authorization header.\n4. API Gateway's JWT authoriser, or Node middleware, validates signature, issuer, audience and expiry using the published JWKS.\n5. Resolvers or routes check roles, scopes and resource ownership.\n\n## Security notes\n\n- Use the authorisation code flow with PKCE; avoid implicit flow.\n- Keep access tokens short-lived and refresh tokens protected, preferably in HttpOnly secure cookies via a backend-for-frontend rather than local storage.\n- Authorisation is still your code's responsibility; groups and scopes help but do not replace ownership checks.\n\n## Failure modes\n\n- Token validation skipped or accepting any issuer.\n- Cognito service quotas or throttling at login peaks; check current limits.\n- Lock-in making later migration of password hashes difficult.\n- Lambda trigger errors blocking sign-in.\n\n## Common mistakes\n\n- Storing tokens in local storage on an XSS-prone page.\n- Treating the ID token as an API access token.\n- No plan for account recovery and MFA reset.\n- Trusting client-sent role claims.",
+      "followUps": [
+        "How would a backend-for-frontend improve token handling?",
+        "What would make you leave Cognito for another identity provider?",
+        "How do you authorise per tenant in a multi-tenant API?"
+      ],
+      "diagrams": [
+        {
+          "id": "auth-flow",
+          "title": "Authentication flow with Cognito",
+          "alt": "The React app signs in through Cognito using the authorisation code flow with PKCE, receives tokens, and calls the API; the gateway or Node middleware validates the JWT against Cognito's signing keys before resolvers authorise the request.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "spa",
+              "label": "React app"
+            },
+            {
+              "id": "cg",
+              "label": "Cognito user pool"
+            },
+            {
+              "id": "tk",
+              "label": "Tokens"
+            },
+            {
+              "id": "gw",
+              "label": "API Gateway or Node middleware"
+            },
+            {
+              "id": "jk",
+              "label": "JWKS keys"
+            },
+            {
+              "id": "api",
+              "label": "Resolvers and routes"
+            }
+          ],
+          "edges": [
+            {
+              "from": "spa",
+              "to": "cg",
+              "label": "code flow with PKCE"
+            },
+            {
+              "from": "cg",
+              "to": "tk"
+            },
+            {
+              "from": "tk",
+              "to": "spa"
+            },
+            {
+              "from": "spa",
+              "to": "gw",
+              "label": "Bearer token"
+            },
+            {
+              "from": "gw",
+              "to": "jk",
+              "label": "verify signature"
+            },
+            {
+              "from": "gw",
+              "to": "api",
+              "label": "authorised request"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

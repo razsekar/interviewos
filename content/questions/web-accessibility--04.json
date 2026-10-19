@@ -1,0 +1,755 @@
+{
+  "category": "web-accessibility",
+  "questions": [
+    {
+      "slug": "wcag-versions-2-0-2-1-2-2-and-what-changed",
+      "title": "How did WCAG evolve from 2.0 to 2.2, and which version should a project target?",
+      "topic": "WCAG Fundamentals",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "wcag",
+        "wcag-2-2",
+        "standards",
+        "compliance"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "WCAG 2.0 arrived in 2008, 2.1 added mobile, low-vision and cognitive criteria, and 2.2 added nine more success criteria, six of them at A or AA, and removed 4.1.1 Parsing as obsolete. Newer versions are designed to be backwards compatible, so meeting 2.2 AA also meets 2.1 and 2.0 AA, apart from that parsing note. I normally target 2.2 AA unless a contract or law names an older version, and I confirm the legal reference with compliance because regulations often lag behind the latest standard.",
+      "revision": "2.1 extended 2.0 for mobile and cognitive needs; 2.2 adds focus, target size, dragging, help, redundant entry and authentication criteria. Target 2.2 AA unless law names otherwise.",
+      "detailed": "WCAG is published by the W3C. Each version is intended to be **backwards compatible**: content that conforms to 2.2 should also meet earlier versions' requirements, with the exception that 4.1.1 Parsing was removed in 2.2 as no longer useful with modern browsers and assistive technology.\n\n## Timeline\n\n| Version | Approximate date | Headline additions |\n|---|---|---|\n| 2.0 | 2008 | The POUR structure, technology-neutral criteria |\n| 2.1 | 2018 | Mobile, low vision, cognitive: reflow, text spacing, orientation, input purpose, status messages, pointer gestures, content on hover or focus |\n| 2.2 | 2023 | Nine new criteria; removal of 4.1.1 |\n\n## New in WCAG 2.2\n\n| Criterion | Level |\n|---|---|\n| 2.4.11 Focus Not Obscured (Minimum) | AA |\n| 2.4.12 Focus Not Obscured (Enhanced) | AAA |\n| 2.4.13 Focus Appearance | AAA |\n| 2.5.7 Dragging Movements | AA |\n| 2.5.8 Target Size (Minimum), 24 by 24 CSS pixels with exceptions | AA |\n| 3.2.6 Consistent Help | A |\n| 3.3.7 Redundant Entry | A |\n| 3.3.8 Accessible Authentication (Minimum) | AA |\n| 3.3.9 Accessible Authentication (Enhanced) | AAA |\n\nSo six new criteria apply at A or AA. Check the W3C text for exact wording and exceptions.\n\n## Which to target\n\n- **Default:** WCAG 2.2 Level AA.\n- **Legal context:** laws and procurement rules often cite a specific version (for example EN 301 549 references WCAG 2.1 in its current form, and updates may follow). Verify with legal advice; do not assume.\n- **Level AAA** is not generally required as a whole; adopt individual AAA criteria where they help.\n\n## Architectural implications\n\nDesign tokens should carry minimum target sizes and focus styles; layout components must not let sticky headers hide focused elements; authentication flows should permit password managers and paste.\n\n## Common mistakes\n\n- Citing \"WCAG 2.1 AA compliance\" for a new build when 2.2 is available and cheaply met.\n- Assuming AAA is mandatory or that AA covers all user needs.\n- Forgetting that conformance applies to complete pages and processes, not isolated components.",
+      "followUps": [
+        "Is meeting WCAG enough to guarantee usability for disabled users?",
+        "How do conformance levels A, AA and AAA differ?",
+        "Why was 4.1.1 Parsing removed?"
+      ]
+    },
+    {
+      "slug": "focus-management-on-spa-route-changes-in-react",
+      "title": "How do you manage focus and announce page changes on SPA route changes in React and Next.js?",
+      "topic": "Keyboard and Focus",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "focus",
+        "routing",
+        "spa",
+        "nextjs",
+        "screen-reader"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "In a full page load the browser resets focus and the screen reader announces the new title. A client-side route change does neither, so keyboard users stay on the old link and screen reader users hear nothing. I move focus on navigation to the new page's main heading, given tabindex of minus one, or to a skip target, update document.title, and optionally announce through a polite live region. Next.js has a built-in route announcer, but I still verify the focus position with a screen reader because behaviour differs by version and assistive technology.",
+      "revision": "On client-side navigation, update the title, move focus to the new h1 (tabindex -1) and optionally announce via a polite live region. Test with a screen reader.",
+      "detailed": "Native navigation tells assistive technology that a new page has loaded. In a SPA the document is the same, so the application must supply those cues.\n\n{{diagram:route-focus}}\n\n## What must happen\n\n| Need | Technique |\n|---|---|\n| Unique, descriptive page title | Update `document.title` per route (WCAG 2.4.2) |\n| Keyboard focus continues logically | Move focus to the new content's heading or container |\n| Screen reader hears the change | Focus move on a heading often suffices; a live region can supplement |\n| User can bypass repeated blocks | Skip link to `main` (WCAG 2.4.1) |\n| Back and forward restore position | Preserve or restore focus and scroll thoughtfully |\n\n## React example\n\n```tsx\nimport { useEffect, useRef } from \"react\";\nimport { useLocation } from \"react-router-dom\";\n\nexport function RouteFocus({ title }: { title: string }) {\n  const headingRef = useRef<HTMLHeadingElement>(null);\n  const { pathname } = useLocation();\n  const first = useRef(true);\n\n  useEffect(() => {\n    document.title = `${title} | Shop`;\n    if (first.current) { first.current = false; return; } // do not steal focus on first load\n    headingRef.current?.focus();\n  }, [pathname, title]);\n\n  return <h1 ref={headingRef} tabIndex={-1}>{title}</h1>;\n}\n```\n\n`tabIndex={-1}` makes the heading programmatically focusable without adding it to the tab order. Avoid a visible oversized outline on the heading if it confuses sighted users, but do not remove focus indication from interactive elements.\n\n## Next.js notes\n\nThe App Router includes a route announcer that reads the new page's title or first `h1`. Treat it as a baseline: behaviour has varied across versions, and it does not decide where keyboard focus lands, so test your own flow.\n\n## Edge cases\n\n- Modal or drawer routes: focus into the dialog, return on close.\n- Same-page updates such as filters: use a live region for result counts rather than moving focus.\n- Error pages and redirects need the same treatment.\n\n## Common mistakes\n\n- Leaving focus on the clicked link that has since unmounted, so focus drops to the body.\n- Moving focus on initial load and skipping the page's natural start.\n- Identical titles for every route.\n- Relying on a single browser and screen reader pair when verifying.",
+      "followUps": [
+        "How would you handle focus when a filter changes the product list?",
+        "What happens to focus when the focused element is removed?",
+        "Why use tabIndex -1 rather than 0?"
+      ],
+      "diagrams": [
+        {
+          "id": "route-focus",
+          "title": "Route change accessibility steps",
+          "alt": "A user activates a link, the router renders the new view, the app updates the document title, moves focus to the new heading, and a screen reader announces the new page.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "User activates link"
+            },
+            {
+              "id": "n1",
+              "label": "Router renders new view"
+            },
+            {
+              "id": "n2",
+              "label": "Update document title"
+            },
+            {
+              "id": "n3",
+              "label": "Focus moves to h1"
+            },
+            {
+              "id": "n4",
+              "label": "Screen reader announces page"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "live-regions-announcing-dynamic-content-in-react",
+      "title": "How do you announce dynamic content such as toasts, search results and form status using live regions?",
+      "topic": "Screen Readers",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "aria-live",
+        "status-messages",
+        "react",
+        "screen-reader"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Screen readers only read what has focus or changes inside a live region. For status messages that do not take focus, such as items added to a basket, results updated or saving complete, WCAG 4.1.3 expects them to be announced. I render a persistent container with role status, which is polite, or role alert for urgent errors, and then update its text. The region must exist in the DOM before the content changes. I keep messages short, avoid announcing everything, and test with real screen readers because timing is inconsistent.",
+      "revision": "Use a persistent role=status (polite) or role=alert (assertive) container and change its text. Render it before updating, keep messages short, and test with screen readers.",
+      "detailed": "WCAG 2.1 **4.1.3 Status Messages (AA)** requires that status messages can be programmatically determined and presented by assistive technology **without receiving focus**.\n\n{{diagram:live-region}}\n\n## Options\n\n| Mechanism | Behaviour | Use for |\n|---|---|---|\n| `role=\"status\"` (implicit `aria-live=\"polite\"`) | Announced when the user is idle | Added to basket, filters applied, saved |\n| `role=\"alert\"` (assertive) | Interrupts | Blocking errors, session expiring |\n| `aria-live=\"polite\"` on a container | Same as status, more flexible | Custom regions |\n| `aria-atomic` | Read the whole region or only the change | Counters |\n| Moving focus | Not a live region; use for dialogs and new pages | Major context changes |\n\n## React implementation\n\n```tsx\nimport { useState } from \"react\";\n\nexport function BasketButton({ name }: { name: string }) {\n  const [message, setMessage] = useState(\"\");\n\n  function add() {\n    // ... add to basket\n    setMessage(`${name} added to basket`);\n  }\n\n  return (\n    <>\n      <button type=\"button\" onClick={add}>Add to basket</button>\n      <div role=\"status\" className=\"visually-hidden\">{message}</div>\n    </>\n  );\n}\n```\n\nMount the status container at app or layout level so it persists. An element that is inserted **together with** its text is frequently not announced, because the region did not exist beforehand.\n\n## Practical rules\n\n1. Announce outcomes, not decorative changes.\n2. Keep text brief and meaningful: \"12 results\" beats a paragraph.\n3. Clear or change text so repeated identical messages can re-announce; some implementations need a small variation or a toggled node.\n4. Do not put `aria-live` on large, frequently updating regions such as tickers.\n5. Toasts that disappear must give users enough time (WCAG 2.2.1) or be persistent, and must not hold the only copy of an error.\n\n## Common mistakes\n\n- Using `role=\"alert\"` for everything, creating a noisy experience.\n- Injecting a new live region with its message in one render.\n- Visually hiding the message with `display: none`, which removes it from the accessibility tree; use a visually-hidden class.\n- Assuming one screen reader's output generalises to all.",
+      "followUps": [
+        "When would you use role=alert instead of role=status?",
+        "Why might a live region message not be announced?",
+        "How do you announce the number of search results after filtering?"
+      ],
+      "diagrams": [
+        {
+          "id": "live-region",
+          "title": "Live region announcement",
+          "alt": "An action updates state; React changes the text inside a persistent status container; the browser exposes the change to the accessibility tree and the screen reader speaks the message politely.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "User action"
+            },
+            {
+              "id": "n1",
+              "label": "State update"
+            },
+            {
+              "id": "n2",
+              "label": "Text changes in persistent role=status"
+            },
+            {
+              "id": "n3",
+              "label": "Accessibility tree update"
+            },
+            {
+              "id": "n4",
+              "label": "Screen reader speaks message"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "accessible-tables-and-data-grids-in-react",
+      "title": "How do you build accessible tables and data grids in React?",
+      "topic": "Components",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "tables",
+        "data-grid",
+        "aria-grid",
+        "react"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "For data, I start with a native table: caption, th elements with scope, thead, tbody, so screen readers can navigate by cell and announce headers. That covers most needs. I only reach for the ARIA grid pattern when users need spreadsheet-style interaction such as arrow-key navigation and cell editing, and then I take on the full keyboard contract with roving tabindex. Sorting is exposed via aria-sort on a button inside the header, and responsive layouts must not strip table semantics. Virtualised grids need aria-rowcount and aria-rowindex.",
+      "revision": "Use a native table with caption and scoped headers by default. Use ARIA grid only for interactive spreadsheet behaviour, with arrow keys, roving tabindex, aria-sort and rowcount for virtualisation.",
+      "detailed": "## Table or grid?\n\n| Need | Choose |\n|---|---|\n| Read tabular data | Native `<table>` |\n| Sort, filter, paginate with ordinary controls | Native table plus buttons |\n| Cell-by-cell navigation and in-place editing | ARIA `grid` pattern |\n| Layout | Not a table: use CSS |\n\n## Native table essentials\n\n```tsx\n<table>\n  <caption>Orders placed in October</caption>\n  <thead>\n    <tr>\n      <th scope=\"col\" aria-sort=\"descending\">\n        <button type=\"button\" onClick={sortByDate}>Date</button>\n      </th>\n      <th scope=\"col\">Order</th>\n      <th scope=\"col\" className=\"num\">Total</th>\n    </tr>\n  </thead>\n  <tbody>\n    {orders.map(o => (\n      <tr key={o.id}>\n        <th scope=\"row\">{o.id}</th>\n        <td>{o.date}</td>\n        <td className=\"num\">{o.total}</td>\n      </tr>\n    ))}\n  </tbody>\n</table>\n```\n\n- `caption` gives the table an accessible name.\n- `scope` clarifies header relationships; complex tables with multi-level headers may need `id` and `headers`.\n- Sorting: place a real button in the header and set `aria-sort` on the header cell for the active column only.\n- Do not change `display` on table elements in ways that drop semantics; some browsers remove table roles when CSS alters display, so add explicit roles or test.\n\n## ARIA grid\n\nThe grid pattern turns the widget into an application-like surface:\n\n1. One tab stop for the grid; **arrow keys** move between cells (roving `tabindex`), Home and End, Ctrl+Home and Ctrl+End jump.\n2. Enter or F2 enters edit mode, Escape exits.\n3. Roles: `grid`, `row`, `columnheader`, `rowheader`, `gridcell`.\n4. Virtualised rows: set `aria-rowcount` and `aria-rowindex`, because the DOM contains only a subset.\n5. Selection: `aria-selected` and clear instructions.\n\nPrefer a mature grid library with documented accessibility, and verify it against the ARIA Authoring Practices and real screen readers rather than trusting marketing claims.\n\n## Common mistakes\n\n- Building tables from `div`s without roles.\n- Using a grid role for a simple read-only table, which forces extra keyboard complexity.\n- Icon-only sort controls with no accessible name.\n- Mobile card layouts that lose header-to-value association.\n- Infinite scrolling that traps keyboard users away from footer controls.",
+      "followUps": [
+        "When is a data grid really needed?",
+        "How do you make a responsive table accessible on mobile?",
+        "How do you expose sorting state to screen readers?"
+      ]
+    },
+    {
+      "slug": "captions-transcripts-and-audio-description-for-media",
+      "title": "What are the WCAG requirements for alt text, captions, transcripts and audio description on media?",
+      "topic": "Content",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "captions",
+        "transcripts",
+        "media",
+        "alt-text"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "For images, alt text conveys the purpose, empty alt marks decoration, and complex images need a longer description. For prerecorded video with audio, AA requires synchronised captions and audio description, or a media alternative; transcripts are not strictly the AA requirement for video but are good practice and needed for audio-only content. Live video needs captions at AA. I also make player controls keyboard accessible, avoid autoplay with sound, and treat auto-generated captions as a first draft that needs review.",
+      "revision": "Alt text for purpose, empty alt for decoration. Prerecorded video needs captions and audio description at AA; audio-only needs a transcript. Review auto-captions and keep players keyboard accessible.",
+      "detailed": "## Requirements at a glance\n\n| Content | WCAG requirement | Level |\n|---|---|---|\n| Image conveying information | Text alternative (1.1.1) | A |\n| Decorative image | Empty `alt=\"\"` so it is skipped | A |\n| Prerecorded audio only | Transcript or equivalent (1.2.1) | A |\n| Prerecorded video only (no audio) | Transcript or audio track (1.2.1) | A |\n| Prerecorded video with audio | Captions (1.2.2) | A |\n| Prerecorded video | Audio description or media alternative (1.2.3), audio description (1.2.5) | A and AA |\n| Live video with audio | Captions (1.2.4) | AA |\n| Sign language, extended audio description | 1.2.6, 1.2.7 | AAA |\n\nCheck current text for exceptions, for example media that is itself an alternative to text.\n\n## Good practice by type\n\n- **Alt text:** describe function or meaning in context, not \"image of\". A product photo in a card whose link text already names the product may need `alt=\"\"`. Charts need a short alt plus a data table or summary nearby.\n- **Captions:** include speaker identification and meaningful non-speech sounds. Auto-generated captions need human correction, especially for names and technical terms.\n- **Transcripts:** useful for search, translation, deaf-blind users who use braille displays and anyone who cannot play audio.\n- **Audio description:** narrates visual-only information; where the script already describes visuals, a separate track may not be needed.\n\n## Player requirements\n\n- Keyboard-operable controls with accessible names and visible focus.\n- No autoplay of audio longer than three seconds without a way to pause or control volume (1.4.2).\n- Pause, stop or hide control for moving content that lasts more than five seconds (2.2.2).\n- Avoid flashing content that exceeds thresholds (2.3.1).\n\n```tsx\n<video controls preload=\"metadata\">\n  <source src=\"/demo.mp4\" type=\"video/mp4\" />\n  <track kind=\"captions\" src=\"/demo.en.vtt\" srclang=\"en\" label=\"English\" default />\n</video>\n```\n\n## Common mistakes\n\n- Treating an auto-caption as finished.\n- Alt text that repeats adjacent text, so it is read twice.\n- Text embedded in images with no alternative.\n- Third-party embeds with inaccessible controls.\n- Forgetting that live events and webinars need captions.",
+      "followUps": [
+        "When should alt text be empty?",
+        "Do I need both captions and a transcript?",
+        "How would you describe a complex chart for screen reader users?"
+      ]
+    },
+    {
+      "slug": "accessible-react-checkout-form-with-error-summary",
+      "title": "How would you build an accessible address form in React with validation, an error summary and autocomplete?",
+      "topic": "Forms",
+      "difficulty": "intermediate",
+      "type": "coding",
+      "tags": [
+        "forms",
+        "validation",
+        "react",
+        "autocomplete",
+        "error-summary"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Every field gets a visible label tied by htmlFor and id, the correct input type and an autocomplete token. Required fields are marked in text, not colour alone. On submit I validate, and if there are errors I render an error summary with role alert or focus it, listing links to each invalid field, and set aria-invalid and aria-describedby on each field so the message is read with it. Errors say what is wrong and how to fix it. I avoid validating on every keystroke, and never rely on placeholder text as the label.",
+      "revision": "Visible labels, correct types and autocomplete, aria-invalid plus aria-describedby per field, and a focused error summary with links on failed submit. Never placeholder-as-label.",
+      "detailed": "Relevant WCAG criteria include 1.3.1 Info and Relationships, 1.3.5 Identify Input Purpose, 3.3.1 Error Identification, 3.3.2 Labels or Instructions, 3.3.3 Error Suggestion, 4.1.2 Name, Role, Value, and in 2.2 also 3.3.7 Redundant Entry.\n\n## Example\n\n```tsx\nimport { useRef, useState } from \"react\";\n\ntype Errors = Partial<Record<\"name\" | \"postcode\", string>>;\n\nexport function AddressForm() {\n  const [errors, setErrors] = useState<Errors>({});\n  const summaryRef = useRef<HTMLDivElement>(null);\n\n  function onSubmit(e: React.FormEvent<HTMLFormElement>) {\n    e.preventDefault();\n    const data = new FormData(e.currentTarget);\n    const next: Errors = {};\n    if (!String(data.get(\"name\")).trim()) next.name = \"Enter your full name\";\n    if (!/^[A-Za-z0-9 ]{5,8}$/.test(String(data.get(\"postcode\"))))\n      next.postcode = \"Enter a postcode, for example SW1A 1AA\";\n    setErrors(next);\n    if (Object.keys(next).length) setTimeout(() => summaryRef.current?.focus(), 0);\n  }\n\n  return (\n    <form onSubmit={onSubmit} noValidate>\n      {Object.keys(errors).length > 0 && (\n        <div ref={summaryRef} tabIndex={-1} role=\"alert\" className=\"error-summary\">\n          <h2>There is a problem</h2>\n          <ul>\n            {Object.entries(errors).map(([id, msg]) => (\n              <li key={id}><a href={`#${id}`}>{msg}</a></li>\n            ))}\n          </ul>\n        </div>\n      )}\n\n      <label htmlFor=\"name\">Full name <span>(required)</span></label>\n      <input id=\"name\" name=\"name\" autoComplete=\"name\" required\n        aria-invalid={!!errors.name}\n        aria-describedby={errors.name ? \"name-err\" : undefined} />\n      {errors.name && <p id=\"name-err\" className=\"error\">Error: {errors.name}</p>}\n\n      <label htmlFor=\"postcode\">Postcode <span>(required)</span></label>\n      <input id=\"postcode\" name=\"postcode\" autoComplete=\"postal-code\" required\n        aria-invalid={!!errors.postcode}\n        aria-describedby={errors.postcode ? \"postcode-err\" : \"postcode-hint\"} />\n      <p id=\"postcode-hint\">For example SW1A 1AA</p>\n      {errors.postcode && <p id=\"postcode-err\" className=\"error\">Error: {errors.postcode}</p>}\n\n      <button type=\"submit\">Continue to payment</button>\n    </form>\n  );\n}\n```\n\nThe summary links must target focusable fields (anchors to an `id` move focus in most browsers; in a SPA you may need to call `.focus()` in a click handler).\n\n## Checklist\n\n| Point | Why |\n|---|---|\n| Visible `<label>`, not placeholder | Placeholders vanish and often fail contrast |\n| `autocomplete` tokens | Meets 1.3.5; helps users with motor and cognitive disabilities |\n| Text cue for required and for errors | Colour alone fails 1.4.1 |\n| Error text includes the fix | 3.3.3 |\n| `noValidate` with custom validation | Native bubbles are inconsistent across assistive technology, so choose one approach deliberately |\n| Group related inputs with `fieldset` and `legend` | Radio sets and address blocks |\n| Do not clear entered data on error | 3.3.7 spirit |\n\n## Common mistakes\n\n- Setting `aria-invalid` before the user has interacted.\n- Error messages not associated with the field.\n- Moving focus to the first field without any explanation of why.\n- Disabling the submit button, hiding why it is unavailable.",
+      "followUps": [
+        "Should you validate on blur, on change or on submit?",
+        "How does autocomplete help accessibility?",
+        "How do you group radio buttons accessibly?"
+      ]
+    },
+    {
+      "slug": "common-inaccessible-react-patterns-and-fixes",
+      "title": "What are the most common inaccessible React patterns and how do you fix them?",
+      "topic": "Components",
+      "difficulty": "intermediate",
+      "type": "coding",
+      "tags": [
+        "react",
+        "aria",
+        "buttons",
+        "labels",
+        "anti-patterns"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "The usual suspects are clickable divs, icon-only buttons without names, inputs without labels, links used as buttons or buttons used as links, custom selects built from divs, focus outlines removed globally, and images without alt text. The fix is almost always native HTML: a button for actions, an anchor for navigation, a label for inputs, and an aria-label or visually hidden text for icon-only controls. I back that with an eslint jsx-a11y rule set and component library defaults so the right thing is also the easy thing.",
+      "revision": "Use native elements: button for actions, a for navigation, label for inputs; name icon-only buttons; keep focus outlines; enforce with eslint-plugin-jsx-a11y.",
+      "detailed": "Most issues come from reproducing native behaviour badly. A native `<button>` already supplies focus, Enter and Space activation, role and disabled handling.\n\n## Before and after\n\n```tsx\n// Bad: no role, not focusable, no keyboard support\n<div className=\"btn\" onClick={save}>Save</div>\n\n// Good\n<button type=\"button\" onClick={save}>Save</button>\n\n// Bad: icon-only button with no name\n<button onClick={close}><CloseIcon /></button>\n\n// Good: name the control, hide the decorative icon\n<button type=\"button\" onClick={close} aria-label=\"Close\">\n  <CloseIcon aria-hidden=\"true\" focusable=\"false\" />\n</button>\n\n// Bad: placeholder as label\n<input placeholder=\"Email\" />\n\n// Good\n<label htmlFor=\"email\">Email</label>\n<input id=\"email\" type=\"email\" autoComplete=\"email\" />\n\n// Bad: link that is really an action, and vice versa\n<a href=\"#\" onClick={openMenu}>Menu</a>\n<button onClick={() => navigate(\"/pricing\")}>Pricing</button>\n\n// Good: navigation uses <a href>, actions use <button>\n```\n\n## Catalogue\n\n| Pattern | Problem | Fix |\n|---|---|---|\n| Clickable `div` or `span` | No keyboard, no role | `<button>` |\n| Icon-only controls | No accessible name | `aria-label` or visually hidden text |\n| `outline: none` globally | Focus invisible (2.4.7) | Style `:focus-visible` visibly |\n| `<img>` without `alt` | Name falls back to filename | Meaningful alt or `alt=\"\"` |\n| Positive `tabIndex` values | Breaks natural order | Use DOM order and `0` or `-1` only |\n| Custom select from divs | No semantics or arrow keys | Native `<select>` or a vetted component |\n| Hover-only menus or tooltips | Not keyboard or touch reachable | Also on focus, dismissible and persistent (1.4.13) |\n| Redundant or wrong ARIA roles | Overrides good semantics | Remove ARIA, use native element |\n| Duplicate `id`s in repeated components | Broken label and `aria-describedby` links | Use React's `useId` |\n| Colour-only state | Fails 1.4.1 | Add icon or text |\n\n## Making it stick\n\n- **eslint-plugin-jsx-a11y** catches many static issues in development.\n- Shared components (Button, IconButton, TextField) that require a name or label via TypeScript props.\n- Code review checklist and Storybook accessibility checks.\n\n## Common mistakes\n\n- Adding `role=\"button\"` and `tabIndex={0}` to a div but forgetting Space key handling.\n- Fixing symptoms with `aria-label` that contradicts visible text (violates label in name, 2.5.3).\n- Thinking linters prove accessibility; they only catch a subset.",
+      "followUps": [
+        "What is the first rule of ARIA?",
+        "Why must the accessible name contain the visible label text?",
+        "How does useId help accessibility?"
+      ]
+    },
+    {
+      "slug": "accessibility-testing-tools-axe-jest-axe-lighthouse-playwright",
+      "title": "Which accessibility testing tools would you use, and why do automated scans cover only part of WCAG?",
+      "topic": "Testing",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "axe",
+        "jest-axe",
+        "lighthouse",
+        "playwright",
+        "testing"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I layer tools. ESLint jsx-a11y catches issues while coding, jest-axe checks rendered components in unit tests, Playwright with axe scans real pages and flows in CI, Lighthouse gives a quick audit, and browser extensions help during development. But automated rules can only detect objectively testable failures, commonly cited as roughly a third of issues. They cannot judge whether alt text is meaningful, focus order makes sense, or an interaction is usable with a screen reader. So automation is a regression net, and manual testing is required before claiming anything about conformance.",
+      "revision": "Layer eslint jsx-a11y, jest-axe, Playwright axe and Lighthouse. They catch only machine-checkable failures, so manual keyboard and screen reader testing is still required.",
+      "detailed": "{{diagram:a11y-test-layers}}\n\n## Tool roles\n\n| Tool | Where it runs | Good for | Limits |\n|---|---|---|---|\n| eslint-plugin-jsx-a11y | Editor and CI | Static JSX mistakes | No runtime context |\n| jest-axe or similar | Unit and component tests | Rendered component markup | Misses page-level and interaction issues |\n| Playwright with `@axe-core/playwright` | End-to-end in CI | Real pages, states after interaction | Only scans the state you reach |\n| Lighthouse | DevTools, CI | Quick overview, trend scores | Subset of axe rules; a score of 100 is not conformance |\n| Browser extensions | Manual | Guided checks, colour contrast | Same engine limits |\n| Storybook addon | Design system | Per-component feedback | Components only |\n\n```ts\n// Playwright with axe\nimport { test, expect } from \"@playwright/test\";\nimport AxeBuilder from \"@axe-core/playwright\";\n\ntest(\"checkout page has no detectable WCAG A/AA violations\", async ({ page }) => {\n  await page.goto(\"/checkout\");\n  const results = await new AxeBuilder({ page })\n    .withTags([\"wcag2a\", \"wcag2aa\", \"wcag21aa\", \"wcag22aa\"])\n    .analyze();\n  expect(results.violations).toEqual([]);\n});\n```\n\nTag names depend on the axe version, so confirm which WCAG 2.2 rules your installed version supports.\n\n## Why automation is not enough\n\nTools can detect missing alt attributes, low contrast on rendered text, missing labels, duplicate ids and invalid ARIA. They cannot determine:\n\n- whether alt text is accurate or appropriate;\n- whether focus order and reading order make sense;\n- whether a custom widget actually works with a keyboard and a screen reader;\n- whether error messages are understandable;\n- whether captions are correct;\n- states they never reach (open menus, error states, modals).\n\nA passing scan therefore means \"no automatically detectable failures in the tested states\", **not** \"WCAG conformant\". Never claim conformance from tool output alone; use it to prevent regressions and combine it with manual evaluation.\n\n## Practical setup\n\n1. Fail the build on new serious or critical violations, with a documented, time-boxed baseline for known ones.\n2. Scan key journeys in several states, at mobile and desktop widths, with zoom.\n3. Record manual results in the same tracker.\n\n## Common mistakes\n\n- Treating a Lighthouse score as a compliance badge.\n- Suppressing rules to turn the build green.\n- Only testing the initial page state.",
+      "followUps": [
+        "Why can a Lighthouse score of 100 still hide serious barriers?",
+        "How would you introduce axe into a legacy pipeline without blocking all builds?",
+        "Which issues can axe never detect?"
+      ],
+      "diagrams": [
+        {
+          "id": "a11y-test-layers",
+          "title": "Layers of accessibility testing",
+          "alt": "Linting and component tests run during development, end-to-end axe scans run in CI, and manual keyboard, screen reader and user testing happen before release, together covering what each layer misses.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Lint while coding"
+            },
+            {
+              "id": "n1",
+              "label": "Component tests with jest-axe"
+            },
+            {
+              "id": "n2",
+              "label": "E2E scans with Playwright and axe"
+            },
+            {
+              "id": "n3",
+              "label": "Manual keyboard testing"
+            },
+            {
+              "id": "n4",
+              "label": "Screen reader testing"
+            },
+            {
+              "id": "n5",
+              "label": "Release evidence"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            },
+            {
+              "from": "n4",
+              "to": "n5"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "manual-keyboard-and-screen-reader-test-procedure",
+      "title": "What is your manual procedure for testing a page with a keyboard and a screen reader?",
+      "topic": "Testing",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "manual-testing",
+        "keyboard",
+        "screen-reader",
+        "nvda",
+        "voiceover"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I start with the keyboard alone: unplug the mouse, tab through the whole page checking that every interactive element is reachable, the order is logical, focus is always visible, nothing traps me, and Enter, Space, Escape and arrows work as expected. Then I test with a screen reader, NVDA with Firefox or Chrome on Windows, VoiceOver with Safari on macOS and iOS, checking headings, landmarks, names, roles, states, form errors and announcements. I also zoom to 200 percent and 400 percent. Findings go in with steps, expected result and WCAG reference.",
+      "revision": "Keyboard first: reach, order, visible focus, no traps, expected keys. Then NVDA or VoiceOver for structure, names, states and announcements. Add zoom checks and record steps with WCAG references.",
+      "detailed": "{{diagram:manual-test-flow}}\n\n## Keyboard pass\n\n| Check | Expected |\n|---|---|\n| Tab and Shift+Tab | Every control reachable; order matches visual and reading order |\n| Focus indicator | Always visible, not hidden under sticky headers (2.4.7, 2.4.11) |\n| Enter and Space | Buttons and links activate correctly |\n| Arrow keys | Work in radio groups, tabs, menus, listboxes as per ARIA patterns |\n| Escape | Closes dialogs, menus, popovers; focus returns to the trigger |\n| No keyboard trap | You can always leave a component (2.1.2) |\n| Skip link | First Tab reveals it and it works |\n| Route changes and dynamic updates | Focus lands somewhere sensible |\n\n## Screen reader pass\n\nCommon pairings (verify against your audience): NVDA with Firefox or Chrome, JAWS with Chrome or Edge, VoiceOver with Safari, TalkBack on Android.\n\n1. Browse by **headings** and **landmarks**: is there one `h1`, a logical outline, `main`, `nav` with names?\n2. Read the page in order: does anything useful get skipped, or decorative noise get read?\n3. Tab through controls: name, role, state (expanded, selected, checked, invalid) announced?\n4. Complete a form with errors: are errors announced and associated?\n5. Trigger dynamic updates: toasts, filters, loading states, route changes.\n6. Operate custom widgets using the expected screen reader modes and keys.\n\n## Visual and other checks\n\n- Zoom to 200 percent, then check reflow at a 320 CSS pixel width (400 percent zoom) with no two-dimensional scrolling (1.4.10).\n- Increase text spacing and check nothing clips (1.4.12).\n- Check high contrast or forced colours mode and prefers-reduced-motion.\n- Voice control: can you activate controls by their visible names?\n\n## Recording results\n\nFor each issue note URL, steps, environment (browser, assistive technology and versions), actual and expected behaviour, impacted WCAG criterion, severity and a suggested fix. Keep a retest log.\n\n## Common mistakes\n\n- Testing with only one screen reader and generalising.\n- Using the screen reader's virtual cursor to \"fix\" what a keyboard-only user cannot reach.\n- Testing only happy paths.\n- Judging by what the speech output sounds like without checking the underlying accessible names.",
+      "followUps": [
+        "Which screen reader and browser pairings would you cover?",
+        "How do you test with voice control?",
+        "What severity scale would you use for findings?"
+      ],
+      "diagrams": [
+        {
+          "id": "manual-test-flow",
+          "title": "Manual accessibility test sequence",
+          "alt": "Testers start with keyboard-only navigation, then check visible focus, then screen reader structure and forms, then zoom, reflow and contrast, and finally log findings with WCAG references.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Keyboard-only pass"
+            },
+            {
+              "id": "n1",
+              "label": "Focus visibility and order"
+            },
+            {
+              "id": "n2",
+              "label": "Screen reader structure and names"
+            },
+            {
+              "id": "n3",
+              "label": "Forms and dynamic updates"
+            },
+            {
+              "id": "n4",
+              "label": "Zoom, reflow, contrast"
+            },
+            {
+              "id": "n5",
+              "label": "Log findings with WCAG refs"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            },
+            {
+              "from": "n4",
+              "to": "n5"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "audit-a-react-ecommerce-checkout-against-wcag-aa",
+      "title": "How would you audit a React ecommerce checkout against WCAG 2.2 AA?",
+      "topic": "Auditing",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "audit",
+        "checkout",
+        "ecommerce",
+        "wcag-2-2",
+        "react"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I scope the audit to the complete checkout process, because conformance applies to whole journeys: basket, sign-in or guest, delivery, payment, confirmation. I define the browser and assistive technology matrix, run automated scans on each step and state, then do manual keyboard, screen reader, zoom and contrast testing, and review third-party payment components. Findings are mapped to success criteria, rated by user impact, and tracked with fix owners. The output is an evidence-backed report, not a pass claim from a scan.",
+      "revision": "Scope the whole journey, set a test matrix, scan every state, test manually with keyboard, screen reader and zoom, map findings to WCAG criteria and severity, then retest after fixes.",
+      "detailed": "{{diagram:checkout-audit}}\n\n## Step list\n\n1. **Scope the journey.** Basket, sign-in or guest, address, delivery options, payment, review, confirmation, error and empty states, plus emails and account pages if in scope. WCAG conformance claims cover complete processes.\n2. **Define the matrix.** Browsers, one or two screen readers, mobile and desktop, zoom and reflow settings.\n3. **Automated pass.** axe or similar on every step and state, including validation errors.\n4. **Manual keyboard pass.** Full purchase using only the keyboard.\n5. **Screen reader pass.** Complete the purchase with NVDA or VoiceOver.\n6. **Visual checks.** Contrast, focus visibility, reflow, text spacing, target size, motion.\n7. **Third parties.** Payment iframes, address lookups, 3-D Secure, consent banners, chat widgets.\n8. **Triage and report.** Criterion, evidence, severity, recommendation, owner.\n9. **Fix and retest.** Verify fixes in the same matrix; add regression tests.\n\n## Checklist\n\n| Area | Items to verify |\n|---|---|\n| Structure | One `h1` per step, landmarks, progress indicator exposed as text (\"Step 2 of 4\") |\n| Forms | Labels, autocomplete tokens, required cues, error summary, errors fixed by suggestion (3.3.1, 3.3.3) |\n| Redundant entry | Billing equals delivery option, no re-asking for known data (3.3.7) |\n| Authentication | No cognitive function test without alternative; paste and password managers allowed (3.3.8) |\n| Basket | Quantity steppers named, remove buttons name the product, updates announced (4.1.3) |\n| Delivery options | Radio group in `fieldset` with `legend`; prices and dates in text |\n| Payment | Card fields labelled with `autocomplete` (`cc-number`, `cc-exp`); errors clear |\n| Keyboard | Visible focus not obscured by sticky basket summary (2.4.11); no traps |\n| Targets | Controls at least 24 by 24 CSS pixels or spaced (2.5.8) |\n| Dragging | No drag-only interactions (2.5.7) |\n| Help | Help or contact link in consistent location (3.2.6) |\n| Time limits | Session timeout warning with extension (2.2.1) |\n| Contrast | Text 4.5:1, large text and UI components 3:1 (1.4.3, 1.4.11) |\n| Reflow | Usable at 320 CSS pixels width (1.4.10) |\n| Confirmation | Order status announced; focus moved to confirmation heading |\n\n## Reporting\n\nState clearly what was tested, when, with which tools and what was **not** tested. Avoid declaring \"conformant\" unless every in-scope criterion has been evaluated and met; otherwise describe it as partial conformance with known issues.\n\n## Common mistakes\n\n- Auditing components in Storybook but not the real flow.\n- Ignoring the third-party payment frame, which is still part of your user's experience.\n- Testing only the success path.\n- One-off audit with no regression tests.",
+      "followUps": [
+        "How do you handle an inaccessible third-party payment widget?",
+        "What belongs in an accessibility conformance report?",
+        "How do you prioritise findings?"
+      ],
+      "diagrams": [
+        {
+          "id": "checkout-audit",
+          "title": "Checkout audit workflow",
+          "alt": "The audit scopes the journey and test matrix, runs automated scans, then manual keyboard, screen reader and visual testing, reviews third-party components, triages findings against WCAG, and retests after fixes.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Scope journey and matrix"
+            },
+            {
+              "id": "n1",
+              "label": "Automated scans per step"
+            },
+            {
+              "id": "n2",
+              "label": "Manual keyboard and screen reader"
+            },
+            {
+              "id": "n3",
+              "label": "Visual and third-party review"
+            },
+            {
+              "id": "n4",
+              "label": "Triage against WCAG"
+            },
+            {
+              "id": "n5",
+              "label": "Fix and retest"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            },
+            {
+              "from": "n4",
+              "to": "n5"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "accessibility-audit-blocks-release-approval",
+      "title": "Scenario: an accessibility audit blocks release approval. What do you do?",
+      "topic": "Governance",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "audit",
+        "release",
+        "remediation",
+        "governance",
+        "scenario"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I first read the findings and separate blockers from the rest: issues that stop users completing core tasks, such as keyboard traps or unlabeled payment fields, versus minor ones. I agree severity and a fix plan with the auditor and product owner, fix blockers, retest, and record accepted residual risk with owners and dates for the remainder. I avoid arguing the audit down or shipping on the strength of a green automated scan. If the date must hold, the options are reducing scope, a feature flag or a time-boxed documented exception approved by the right people.",
+      "revision": "Triage into blockers and non-blockers, agree a fix plan with the auditor, fix and retest blockers, and document time-boxed residual risk. Never override the audit with automated results.",
+      "detailed": "{{diagram:audit-block}}\n\n## Triage\n\n| Severity | Description | Release treatment |\n|---|---|---|\n| Blocker | Users with a disability cannot complete a core task (keyboard trap, unlabeled payment field, inaccessible error) | Fix before release or remove or flag the feature |\n| Major | Task possible but with significant difficulty | Fix soon; time-boxed exception only with explicit approval |\n| Minor | Inconvenience or best-practice gap | Backlog with owner and date |\n\nConfirm each finding is reproducible and mapped to a WCAG success criterion and environment. Challenge findings with evidence, not with test scores.\n\n## Plan\n\n1. **Meet with the auditor, product, design and legal or compliance** as needed; agree what \"approved\" means.\n2. **Group by root cause.** Many findings usually share a few causes: a shared button component, a modal, a colour token. Fixing the component clears many issues.\n3. **Estimate and sequence.** Blockers first; show a realistic date.\n4. **Options if the date is fixed:** reduce scope, disable the affected feature with a flag, ship an accessible alternative path, or take a documented time-boxed exception with a named approver and remediation date. Legal exposure and user harm are for the accountable owners to weigh; engineers should present facts clearly.\n5. **Fix and retest** with the original methods (manual keyboard and screen reader steps), plus add regression tests.\n6. **Communicate** status to stakeholders and update the accessibility statement if the product has one.\n\n## Preventing a repeat\n\n- Shift left: design annotations, component-level reviews and linting.\n- Automated scans in CI, but manual checks at defined milestones.\n- Include accessibility acceptance criteria in the definition of done.\n- Early audits on prototypes, not only at release.\n\n## Common mistakes\n\n- Claiming conformance because axe or Lighthouse passed.\n- Treating all findings as equal, which stalls everything.\n- Fixing individual instances rather than root causes.\n- Verbal exceptions with no owner, date or record.\n- Blaming the auditor instead of learning from the findings.",
+      "followUps": [
+        "How do you decide between delaying and shipping with an exception?",
+        "How would you stop the same issue recurring?",
+        "What do you tell non-technical stakeholders?"
+      ],
+      "diagrams": [
+        {
+          "id": "audit-block",
+          "title": "Responding to a blocking audit",
+          "alt": "The team triages findings into blockers and non-blockers, groups them by root cause, fixes and retests blockers, records time-boxed exceptions for the rest, and obtains release approval.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Audit blocks release"
+            },
+            {
+              "id": "n1",
+              "label": "Triage by severity and criterion"
+            },
+            {
+              "id": "n2",
+              "label": "Group by root cause"
+            },
+            {
+              "id": "n3",
+              "label": "Fix blockers and retest"
+            },
+            {
+              "id": "n4",
+              "label": "Record time-boxed exceptions"
+            },
+            {
+              "id": "n5",
+              "label": "Approval and regression tests"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            },
+            {
+              "from": "n4",
+              "to": "n5"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "reflow-zoom-text-spacing-and-motion-preferences",
+      "title": "How do you support zoom, reflow, text spacing and reduced motion in a React app?",
+      "topic": "Visual Design",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "reflow",
+        "zoom",
+        "css",
+        "reduced-motion",
+        "responsive"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Users with low vision zoom to 200 percent or more, so layouts must reflow into a single column at a 320 CSS pixel width without horizontal scrolling for most content. I use relative units, fluid layouts and avoid fixed heights that clip text. Users may override text spacing, so containers must tolerate it. Zoom must not be disabled in the viewport meta tag. For motion, I respect prefers-reduced-motion, provide pause controls for moving content, and avoid flashing. I test by zooming the browser, not only by resizing the window.",
+      "revision": "Use relative units and fluid layouts so content reflows at 320 CSS pixels without two-dimensional scroll, tolerate text-spacing overrides, never disable zoom, and honour prefers-reduced-motion.",
+      "detailed": "## Relevant criteria\n\n| Criterion | Level | Requirement |\n|---|---|---|\n| 1.4.4 Resize Text | AA | Text resizable to 200 percent without loss of content |\n| 1.4.10 Reflow | AA | No two-dimensional scrolling at 320 CSS pixel width (equivalent to 400 percent zoom at 1280), except content such as data tables, maps and diagrams that need two dimensions |\n| 1.4.12 Text Spacing | AA | No loss of content when users set line height, paragraph, letter and word spacing within stated values |\n| 1.4.13 Content on Hover or Focus | AA | Dismissible, hoverable, persistent |\n| 2.2.2 Pause, Stop, Hide | A | Controls for moving content over five seconds |\n| 2.3.1 Three Flashes | A | Nothing flashes more than three times per second beyond thresholds |\n| 2.3.3 Animation from Interactions | AAA | Motion triggered by interaction can be disabled; supported in practice by reduced-motion CSS |\n\n## Implementation\n\n```css\n/* Fluid, wrapping layout */\n.layout { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr)); gap: 1rem; }\n\n/* Avoid fixed heights that clip enlarged text */\n.card { min-height: 0; padding: 1rem; overflow-wrap: anywhere; }\n\n/* Respect motion preference */\n@media (prefers-reduced-motion: reduce) {\n  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }\n}\n```\n\n```tsx\nimport { useEffect, useState } from \"react\";\nexport function usePrefersReducedMotion() {\n  const [reduced, setReduced] = useState(false);\n  useEffect(() => {\n    const mq = window.matchMedia(\"(prefers-reduced-motion: reduce)\");\n    setReduced(mq.matches);\n    const on = (e: MediaQueryListEvent) => setReduced(e.matches);\n    mq.addEventListener(\"change\", on);\n    return () => mq.removeEventListener(\"change\", on);\n  }, []);\n  return reduced;\n}\n```\n\n## Practices\n\n- Use `rem` and `em` for type and spacing so browser font settings apply; avoid `user-scalable=no` or `maximum-scale=1` in the viewport meta tag.\n- Sticky headers and cookie banners can consume the whole viewport at high zoom; allow them to collapse or become non-sticky (2.4.11).\n- Truncating text with ellipsis can hide content; offer the full text.\n- Carousels and auto-playing animations need pause controls and should not auto-advance when reduced motion is requested.\n- Test by zooming the browser to 400 percent and with a text-spacing bookmarklet or extension.\n\n## Common mistakes\n\n- Fixed pixel heights and `overflow: hidden` on text containers.\n- Testing responsiveness only by dragging the window.\n- Treating reduced motion as turning off all feedback instead of replacing large movement with subtle alternatives.",
+      "followUps": [
+        "How does reflow differ from responsive design?",
+        "Which content is exempt from the reflow requirement?",
+        "How do you handle sticky headers at high zoom?"
+      ]
+    },
+    {
+      "slug": "accessible-authentication-and-login-flows-wcag-2-2",
+      "title": "What does WCAG 2.2 Accessible Authentication require, and how do you design an accessible login?",
+      "topic": "Forms",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "authentication",
+        "wcag-2-2",
+        "login",
+        "passkeys",
+        "forms"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Success criterion 3.3.8 at AA says an authentication step must not require a cognitive function test, such as remembering a password, solving a puzzle or transcribing characters, unless there is an alternative or a mechanism that helps, such as a password manager, copy and paste, or an object-recognition or personal-content exception. In practice I allow paste and autofill, use proper autocomplete attributes, offer passkeys or email magic links as alternatives, avoid image CAPTCHAs without alternatives, and keep error messages clear without revealing whether the account exists.",
+      "revision": "3.3.8: do not require a cognitive function test without an alternative or aid. Allow paste and password managers, use autocomplete, offer passkeys or magic links, avoid puzzle CAPTCHAs.",
+      "detailed": "**WCAG 2.2 criterion 3.3.8 Accessible Authentication (Minimum), Level AA** requires that no step of an authentication process depends on a cognitive function test, unless at least one of these holds: an alternative method that does not need one, a mechanism to assist the user, recognition of objects, or recognition of non-text content the user provided. Read the W3C text for the precise exceptions and definitions.\n\n{{diagram:accessible-login}}\n\n## What counts as a cognitive function test\n\nRemembering a password or a code, solving a puzzle or arithmetic CAPTCHA, transcribing distorted characters. Copying a one-time code **is** acceptable when it can be pasted or filled automatically.\n\n## Design choices\n\n| Choice | Effect |\n|---|---|\n| Allow paste in password fields | Meets the \"mechanism to assist\" path |\n| Use `autocomplete=\"username\"` and `current-password` or `one-time-code` | Password managers and OTP autofill work |\n| Do not block password managers with odd field structures | Many sites break them with custom widgets |\n| Offer passkeys or security keys | Alternative without memorisation |\n| Email magic link or device-based prompt | Alternative route |\n| CAPTCHA | Prefer risk-based, invisible approaches; if used, provide accessible alternatives that do not rely on a cognitive test |\n| Inactivity timeouts | Warn and allow extension (2.2.1) |\n\n```tsx\n<form onSubmit={signIn}>\n  <label htmlFor=\"user\">Email address</label>\n  <input id=\"user\" name=\"username\" type=\"email\" autoComplete=\"username\" required />\n  <label htmlFor=\"pw\">Password</label>\n  <input id=\"pw\" name=\"password\" type=\"password\" autoComplete=\"current-password\" required />\n  <button type=\"submit\">Sign in</button>\n</form>\n```\n\n## Related criteria\n\n- **3.3.7 Redundant Entry (A):** do not ask users to re-enter information already provided in the same process, unless essential or for security.\n- **3.3.1 and 3.3.3:** identify errors and suggest corrections; keep account-enumeration safety by using wording such as \"email or password is incorrect\".\n- **3.2.6 Consistent Help:** keep help mechanisms in the same relative place.\n\n## Security alignment\n\nAccessibility and security usually agree here: password managers and passkeys improve both. Rate limiting and MFA remain necessary; choose phishing-resistant, low-cognitive-load factors.\n\n## Common mistakes\n\n- Disabling paste \"for security\".\n- Splitting a one-time code across six inputs that break autofill.\n- Image-only CAPTCHAs with no alternative.\n- Timeouts that wipe the form with no warning.",
+      "followUps": [
+        "Why is blocking paste on password fields an accessibility problem?",
+        "How would you design MFA without a cognitive function test?",
+        "What is the difference between 3.3.7 and 3.3.8?"
+      ],
+      "diagrams": [
+        {
+          "id": "accessible-login",
+          "title": "Accessible login options",
+          "alt": "A user can sign in by password with a password manager and paste, by a passkey, or by an email link, all avoiding a memory or puzzle test, and each leads to a verified session.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "User starts sign-in"
+            },
+            {
+              "id": "n1",
+              "label": "Password with autofill and paste"
+            },
+            {
+              "id": "n2",
+              "label": "Passkey"
+            },
+            {
+              "id": "n3",
+              "label": "Email magic link"
+            },
+            {
+              "id": "n4",
+              "label": "Verified session"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n0",
+              "to": "n2"
+            },
+            {
+              "from": "n0",
+              "to": "n3"
+            },
+            {
+              "from": "n1",
+              "to": "n4"
+            },
+            {
+              "from": "n2",
+              "to": "n4"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "custom-widgets-roving-tabindex-and-the-first-rule-of-aria",
+      "title": "How do ARIA roles, states and properties work, and how do you build a keyboard-accessible tabs widget in React?",
+      "topic": "ARIA",
+      "difficulty": "advanced",
+      "type": "coding",
+      "tags": [
+        "aria",
+        "tabs",
+        "roving-tabindex",
+        "react",
+        "keyboard"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "The first rule of ARIA is: if a native element does the job, use it, because ARIA changes only the accessibility tree, not behaviour. When I must build a custom widget like tabs, I follow the ARIA Authoring Practices pattern: tablist, tab and tabpanel roles, aria-selected and aria-controls, one tab stop with roving tabindex, arrow keys moving between tabs, Home and End jumping, and the panel labelled by its tab. ARIA states must be kept in sync with real state in React, and I test with a screen reader because roles promise behaviour that I then have to implement.",
+      "revision": "Prefer native elements. For custom widgets follow the APG pattern: roles, aria-selected and aria-controls, roving tabindex, arrow keys plus Home and End, and keep ARIA state in sync.",
+      "detailed": "ARIA has **roles** (what it is), **states** (changing conditions such as `aria-expanded`, `aria-selected`) and **properties** (relationships such as `aria-labelledby`, `aria-controls`). It adds meaning but **no behaviour**: `role=\"button\"` on a div does not make it focusable or respond to Space.\n\n## Rules of ARIA, summarised\n\n1. Use a native element or attribute when one exists.\n2. Do not change native semantics unless you must.\n3. All interactive ARIA controls must be keyboard operable.\n4. Do not hide focusable elements with `aria-hidden` or `role=\"presentation\"`.\n5. Every interactive element needs an accessible name.\n\n## Tabs example\n\n```tsx\nimport { useRef, useState, KeyboardEvent } from \"react\";\n\nconst tabs = [\n  { id: \"overview\", label: \"Overview\", body: \"Overview content\" },\n  { id: \"specs\", label: \"Specifications\", body: \"Specs content\" },\n  { id: \"reviews\", label: \"Reviews\", body: \"Reviews content\" },\n];\n\nexport function Tabs() {\n  const [active, setActive] = useState(0);\n  const refs = useRef<(HTMLButtonElement | null)[]>([]);\n\n  function onKeyDown(e: KeyboardEvent) {\n    const last = tabs.length - 1;\n    let next = active;\n    if (e.key === \"ArrowRight\") next = active === last ? 0 : active + 1;\n    else if (e.key === \"ArrowLeft\") next = active === 0 ? last : active - 1;\n    else if (e.key === \"Home\") next = 0;\n    else if (e.key === \"End\") next = last;\n    else return;\n    e.preventDefault();\n    setActive(next);\n    refs.current[next]?.focus();\n  }\n\n  return (\n    <div>\n      <div role=\"tablist\" aria-label=\"Product information\" onKeyDown={onKeyDown}>\n        {tabs.map((t, i) => (\n          <button key={t.id} id={`tab-${t.id}`} role=\"tab\" type=\"button\"\n            ref={el => (refs.current[i] = el)}\n            aria-selected={i === active} aria-controls={`panel-${t.id}`}\n            tabIndex={i === active ? 0 : -1}\n            onClick={() => setActive(i)}>{t.label}</button>\n        ))}\n      </div>\n      {tabs.map((t, i) => (\n        <div key={t.id} id={`panel-${t.id}`} role=\"tabpanel\"\n          aria-labelledby={`tab-${t.id}`} hidden={i !== active} tabIndex={0}>\n          {t.body}\n        </div>\n      ))}\n    </div>\n  );\n}\n```\n\n## Key ideas\n\n| Idea | Detail |\n|---|---|\n| Roving tabindex | Only the active tab has `tabIndex=0`; Tab leaves the widget, arrows move within |\n| Automatic vs manual activation | Selecting on arrow focus is simple; use manual activation if panels are slow to load |\n| Syncing state | `aria-selected` derives from React state, never separate |\n| Hidden panels | Use `hidden` so inactive panels leave the accessibility tree |\n\n## Common mistakes\n\n- Adding `role=\"tab\"` without arrow-key handling.\n- Using `aria-label` to override visible text.\n- Setting `aria-hidden=\"true\"` on focusable content.\n- Copying an APG pattern partially, which creates promises the widget does not keep.\n- Using ARIA when a simple list of links would serve better.",
+      "followUps": [
+        "When is a disclosure better than tabs?",
+        "What is roving tabindex versus aria-activedescendant?",
+        "What does aria-hidden do and when is it dangerous?"
+      ]
+    }
+  ]
+}

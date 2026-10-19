@@ -1,0 +1,1126 @@
+{
+  "category": "ecommerce-architecture",
+  "questions": [
+    {
+      "slug": "graphql-schema-for-catalogue-cart-checkout",
+      "title": "Design the GraphQL schema and API contracts for catalogue, cart and checkout",
+      "topic": "GraphQL API design",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "graphql",
+        "api-design",
+        "nextjs",
+        "aws"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would put a GraphQL gateway in front of catalogue, cart, pricing and order services, so a Next.js storefront can fetch exactly what a page needs in one round trip. Queries serve catalogue and cart reads. Mutations are intent-based, such as addToCart, applyPromoCode and placeOrder, and return typed payloads with user errors rather than generic failures. Each domain service owns its data and exposes its own contract. I use cursor pagination, versioned additive changes, persisted queries, depth and cost limits, and DataLoader to avoid N+1 calls.",
+      "revision": "One GraphQL gateway over domain services; intent-based mutations with typed payloads, cursor pagination, additive evolution, query cost limits and DataLoader batching.",
+      "detailed": "A GraphQL layer suits a storefront because product pages, listings and carts combine data from several services. The aim is **one contract for the front end, many owners behind it**.\n\n## Platform shape\n\nThe Next.js app (server rendering for SEO pages, client components for cart) talks to a GraphQL gateway running on Node and TypeScript, for example behind CloudFront and an API gateway or load balancer. The gateway resolves fields by calling catalogue, pricing, inventory, cart and order services. Federation lets each service own its part of the schema; a simple gateway with resolvers is fine at smaller scale.\n\n{{diagram:schema}}\n\n## Schema principles\n\n```graphql\ntype Query {\n  product(slug: String!): Product\n  products(filter: ProductFilter, first: Int = 24, after: String): ProductConnection!\n  cart(id: ID!): Cart\n}\ntype Mutation {\n  addToCart(input: AddToCartInput!): CartPayload!\n  applyPromoCode(input: PromoInput!): CartPayload!\n  placeOrder(input: PlaceOrderInput!): PlaceOrderPayload!\n}\ntype PlaceOrderPayload { order: Order  userErrors: [UserError!]! }\n```\n\n| Concern | Approach |\n|---|---|\n| Mutations | Named after business intent, one input object, payload with the changed object and **userErrors** |\n| Lists | Cursor connections, not offsets, so deep pages stay cheap and stable |\n| Money | Integer minor units plus currency code, never floats |\n| Evolution | Add fields, deprecate rather than remove, track field usage |\n| Performance | DataLoader batching, persisted queries, query depth and cost limits |\n| Security | Auth in context, field-level checks, no trust in client-sent prices |\n\n## API contracts\n\nTreat the schema as a contract: generate TypeScript types from it, run schema checks in CI against recorded client operations, and publish error codes. The gateway never accepts a price from the client; **placeOrder** re-prices on the server and rejects if the total differs from what was shown.\n\n## Common mistakes\n\n- Exposing database tables as types, which couples clients to storage.\n- Generic **updateCart** mutations that hide intent and make validation hard.\n- Letting any client query be arbitrarily deep or expensive.\n- Using offset pagination on large catalogues.\n- Returning HTTP errors for expected business failures such as out of stock.",
+      "diagrams": [
+        {
+          "id": "schema",
+          "title": "GraphQL gateway over domain services",
+          "alt": "A Next.js storefront sends queries and mutations to a GraphQL gateway, which resolves fields by calling catalogue, pricing, inventory, cart and order services, each owning its own data store.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "web",
+              "label": "Next.js storefront"
+            },
+            {
+              "id": "gw",
+              "label": "GraphQL gateway"
+            },
+            {
+              "id": "cat",
+              "label": "Catalogue service"
+            },
+            {
+              "id": "price",
+              "label": "Pricing service"
+            },
+            {
+              "id": "inv",
+              "label": "Inventory service"
+            },
+            {
+              "id": "cart",
+              "label": "Cart service"
+            },
+            {
+              "id": "ord",
+              "label": "Order service"
+            }
+          ],
+          "edges": [
+            {
+              "from": "web",
+              "to": "gw",
+              "label": "query / mutation"
+            },
+            {
+              "from": "gw",
+              "to": "cat"
+            },
+            {
+              "from": "gw",
+              "to": "price"
+            },
+            {
+              "from": "gw",
+              "to": "inv"
+            },
+            {
+              "from": "gw",
+              "to": "cart"
+            },
+            {
+              "from": "gw",
+              "to": "ord"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "When would you choose federation over a single gateway schema?",
+        "How do you prevent expensive queries from overloading the backend?",
+        "How would you version the API for a mobile app that cannot update quickly?"
+      ]
+    },
+    {
+      "slug": "product-catalogue-and-category-navigation-design",
+      "title": "How would you model the product catalogue and category navigation?",
+      "topic": "Catalogue design",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "catalogue",
+        "categories",
+        "caching",
+        "nextjs"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would separate the product, which holds shared content, from variants or SKUs, which hold size, colour, price and stock. Categories form a tree, but products can sit in several places, so I store the relationship rather than a single parent. The write model sits in a database owned by the catalogue service. Reads are served from a denormalised, cached projection, and navigation trees are cached aggressively and rebuilt on change. Next.js can statically generate or incrementally revalidate category and product pages.",
+      "revision": "Product plus variants, categories as a many-to-many tree, write model separate from a cached read projection, ISR in Next.js for category and product pages.",
+      "detailed": "Catalogue data is **read thousands of times for every write**, so design for cheap reads while keeping a clean source of truth.\n\n## Data model\n\n| Entity | Holds | Notes |\n|---|---|---|\n| Product | Name, description, brand, images, attributes | Shared across variants |\n| Variant / SKU | Size, colour, barcode, price reference, stock reference | The thing actually bought |\n| Category | Name, slug, parent, display order | Tree; a product may belong to several |\n| Attribute definition | Filterable fields and types | Drives facets in search |\n\nKeep price and stock **out of the product record** where they change often; reference them from pricing and inventory services so catalogue edits do not collide with them.\n\n## Navigation\n\nStore categories with a parent id and a materialised path (for example **/men/shoes/running**) so subtree lookups are one query. The menu tree is small and identical for most users, so cache it at the CDN and in memory and invalidate on category edits. Slugs should be stable, with redirects when they change, because they are also SEO URLs.\n\n{{diagram:catalogue}}\n\n## Serving pages\n\n- Listing and product pages use **incremental static regeneration** or short-lived CDN caching, with on-demand revalidation when a product changes.\n- Personalised or volatile parts, such as stock badge and price for logged-in segments, load client-side or through a small API call.\n- Changes publish an event that updates the search index and invalidates caches.\n\n## How to answer it\n\nStart with the **read-to-write ratio** and say that it drives the design: a normalised write model, a denormalised read model, and caches in front. Then walk one example, such as a trainer that comes in five sizes and three colours, to show the product and variant split clearly. Finish by naming the trade-off: the projection is eventually consistent, so a price or stock change may take a short time to appear, and you accept that for browse pages while checkout always re-checks.\n\n## Common mistakes\n\n- One giant product row mixing content, price and stock.\n- A single parent category, which breaks when merchandising wants cross-listing.\n- Deep category trees fetched with recursive queries on every request.\n- Changing slugs without redirects and losing search ranking.\n- Treating the search index as the source of truth.",
+      "diagrams": [
+        {
+          "id": "catalogue",
+          "title": "Catalogue write and read paths",
+          "alt": "Merchandisers edit products in the catalogue service database. Changes emit events that update a read projection and the search index and invalidate caches, while the Next.js storefront reads cached pages from the CDN.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "admin",
+              "label": "Admin edits"
+            },
+            {
+              "id": "db",
+              "label": "Catalogue database"
+            },
+            {
+              "id": "ev",
+              "label": "Change event"
+            },
+            {
+              "id": "proj",
+              "label": "Read projection"
+            },
+            {
+              "id": "idx",
+              "label": "Search index"
+            },
+            {
+              "id": "cdn",
+              "label": "CDN cache"
+            },
+            {
+              "id": "web",
+              "label": "Next.js pages"
+            }
+          ],
+          "edges": [
+            {
+              "from": "admin",
+              "to": "db"
+            },
+            {
+              "from": "db",
+              "to": "ev"
+            },
+            {
+              "from": "ev",
+              "to": "proj"
+            },
+            {
+              "from": "ev",
+              "to": "idx"
+            },
+            {
+              "from": "ev",
+              "to": "cdn",
+              "label": "invalidate"
+            },
+            {
+              "from": "proj",
+              "to": "web"
+            },
+            {
+              "from": "cdn",
+              "to": "web"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you model products with very different attribute sets?",
+        "How do you handle a category rename without hurting SEO?",
+        "What would you cache at the CDN and what would you leave dynamic?"
+      ]
+    },
+    {
+      "slug": "search-and-filtering-with-opensearch",
+      "title": "Design product search and faceted filtering with OpenSearch or Elasticsearch",
+      "topic": "Search",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "search",
+        "opensearch",
+        "elasticsearch",
+        "facets"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would treat the search index as a derived read model fed from the catalogue by events, never as the source of truth. Documents hold analysed text, keyword fields for facets, numeric price and availability, and a popularity signal. Queries combine full text matching with filters, aggregations for facet counts, boosting and sort. I tune analysers for synonyms, stemming and typos, use search-as-you-type for suggestions, and reindex through a versioned index behind an alias so mapping changes are safe.",
+      "revision": "Search index is a derived read model; text plus keyword filters and aggregations for facets; synonyms and typo tolerance; reindex into a new index behind an alias.",
+      "detailed": "Search is where relevance, speed and freshness compete. The index exists to answer queries quickly, so shape documents for **how people search**, not how the database stores data.\n\n## Index design\n\n| Field type | Used for | Example |\n|---|---|---|\n| Text (analysed) | Full text matching with stemming and synonyms | title, description |\n| Keyword | Exact filters and facet counts | brand, colour, size |\n| Numeric | Range filters and sorting | price, rating |\n| Boolean / date | Availability, new arrivals | inStock, publishedAt |\n| Rank signal | Boosting | sales velocity, rating |\n\nStore only what search needs, plus the id to fetch full detail elsewhere.\n\n## Query shape\n\n```json\n{\n  \"query\": { \"bool\": {\n    \"must\":   [{ \"multi_match\": { \"query\": \"running shoes\", \"fields\": [\"title^3\",\"description\"], \"fuzziness\": \"AUTO\" }}],\n    \"filter\": [{ \"term\": { \"brand\": \"acme\" }}, { \"range\": { \"price\": { \"lte\": 10000 }}}]\n  }},\n  \"aggs\": { \"brands\": { \"terms\": { \"field\": \"brand\" }}, \"colours\": { \"terms\": { \"field\": \"colour\" }}}\n}\n```\n\nFilters do not affect scoring and are cacheable, so keep exact constraints in **filter**, not **must**.\n\n## Keeping it fresh\n\nThe catalogue emits change events; an indexer consumes them and updates documents. For mapping or analyser changes, build a new index, backfill it, then switch an **alias** atomically, which allows rollback.\n\n{{diagram:search}}\n\n## Relevance and operations\n\n- Tune synonyms, stemming, typo tolerance and field boosts using real query logs.\n- Measure zero-result rate and click-through, not just latency.\n- Size shards for the data, avoid too many tiny shards, and monitor heap and query latency.\n\n## Common mistakes\n\n- Using the search index as the system of record.\n- Putting filters inside scored queries and losing caching.\n- Faceting on analysed text fields.\n- Reindexing in place with no rollback path.\n- Tuning relevance by opinion instead of query data.",
+      "diagrams": [
+        {
+          "id": "search",
+          "title": "Search indexing and query path",
+          "alt": "Catalogue changes produce events consumed by an indexer that writes to a versioned search index behind an alias. The storefront queries the alias through a search API that returns results and facet counts.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "cat",
+              "label": "Catalogue service"
+            },
+            {
+              "id": "ev",
+              "label": "Change events"
+            },
+            {
+              "id": "idxr",
+              "label": "Indexer"
+            },
+            {
+              "id": "v2",
+              "label": "Index v2"
+            },
+            {
+              "id": "alias",
+              "label": "Search alias"
+            },
+            {
+              "id": "api",
+              "label": "Search API"
+            },
+            {
+              "id": "web",
+              "label": "Storefront"
+            }
+          ],
+          "edges": [
+            {
+              "from": "cat",
+              "to": "ev"
+            },
+            {
+              "from": "ev",
+              "to": "idxr"
+            },
+            {
+              "from": "idxr",
+              "to": "v2"
+            },
+            {
+              "from": "v2",
+              "to": "alias"
+            },
+            {
+              "from": "web",
+              "to": "api"
+            },
+            {
+              "from": "api",
+              "to": "alias",
+              "label": "query"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you roll out a mapping change without downtime?",
+        "How do you handle synonyms and misspellings?",
+        "How do you measure whether search relevance is improving?"
+      ]
+    },
+    {
+      "slug": "search-becomes-slow-scenario",
+      "title": "Search has become slow in production. How do you investigate and fix it?",
+      "topic": "Search performance",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "search",
+        "performance",
+        "scenario",
+        "opensearch"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would first measure where the time goes: client, gateway, search API, or the cluster itself. Then I check cluster health, CPU, heap, garbage collection, shard sizes and slow query logs. Common causes are expensive queries such as leading wildcards or deep pagination, too many aggregations, oversized or too many shards, heavy indexing competing with queries, and cache misses. Fixes are cheaper queries, filter caching, result caching for popular terms, better shard layout, separating indexing load, and scaling nodes last.",
+      "revision": "Localise latency first, then check slow logs, shards, heap and indexing load; fix query cost, caching and shard layout before adding nodes.",
+      "detailed": "Treat it as a diagnosis, not a guess. \"Search is slow\" can mean the **cluster**, the **query**, or something **around** it.\n\n## Step 1: Localise\n\nCompare end-to-end latency with the time reported inside the search response (the **took** value). If took is small but users wait, look at the API, serialisation, network or front end. Check p95 and p99, not averages, and whether it started with a release, a data load or a traffic change.\n\n{{diagram:slow}}\n\n## Step 2: Inspect the cluster\n\n| Signal | What it suggests |\n|---|---|\n| High CPU on data nodes | Expensive queries or heavy indexing |\n| Heap pressure, long garbage collection | Too many shards, large aggregations, fielddata on text |\n| Slow query log entries | Specific costly queries |\n| Uneven shard load | Hot shard or poor routing |\n| Rejected requests, queue growth | Thread pool saturation |\n\n## Common causes and fixes\n\n- **Expensive queries**: leading wildcards, regex, deep pagination. Use search-after cursors and prefix fields.\n- **Heavy aggregations**: limit facet sizes, pre-compute where possible.\n- **Shard layout**: many tiny shards waste memory; huge shards slow recovery. Rebalance sensibly.\n- **Indexing contention**: bulk reindexing during peak. Throttle, schedule off-peak, or use dedicated nodes.\n- **Cache misses**: move exact constraints to filters, add a short-lived cache for popular queries and suggestions.\n- **Capacity**: only after the above, scale nodes or add replicas for read throughput.\n\n## Protect users meanwhile\n\nSet query timeouts, return partial results where acceptable, degrade facets before degrading results, and add a circuit breaker so slow search does not hold up the whole storefront.\n\n## Common mistakes\n\n- Adding nodes before finding the expensive query.\n- Watching averages while p99 is the complaint.\n- Running a full reindex at peak hours.\n- Having no slow log or query sampling in place before the incident.",
+      "diagrams": [
+        {
+          "id": "slow",
+          "title": "Locating search latency",
+          "alt": "Latency is split into client, gateway, search API and cluster. The cluster is then inspected through slow logs, shard layout, heap and indexing load to find the cause before changing capacity.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "u",
+              "label": "User sees slow search"
+            },
+            {
+              "id": "gw",
+              "label": "Gateway and API time"
+            },
+            {
+              "id": "took",
+              "label": "Cluster took time"
+            },
+            {
+              "id": "slowlog",
+              "label": "Slow query log"
+            },
+            {
+              "id": "shards",
+              "label": "Shard layout and heap"
+            },
+            {
+              "id": "idx",
+              "label": "Indexing load"
+            },
+            {
+              "id": "fix",
+              "label": "Fix query, cache, layout, then scale"
+            }
+          ],
+          "edges": [
+            {
+              "from": "u",
+              "to": "gw"
+            },
+            {
+              "from": "gw",
+              "to": "took"
+            },
+            {
+              "from": "took",
+              "to": "slowlog"
+            },
+            {
+              "from": "took",
+              "to": "shards"
+            },
+            {
+              "from": "took",
+              "to": "idx"
+            },
+            {
+              "from": "slowlog",
+              "to": "fix"
+            },
+            {
+              "from": "shards",
+              "to": "fix"
+            },
+            {
+              "from": "idx",
+              "to": "fix"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Why is deep offset pagination a problem and what replaces it?",
+        "How would you keep search degraded but usable during an incident?",
+        "What metrics would you alert on for a search cluster?"
+      ]
+    },
+    {
+      "slug": "promotion-causes-traffic-spike-scenario",
+      "title": "A promotion goes live and causes a traffic spike. How do you design for it?",
+      "topic": "Promotions under load",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "promotions",
+        "scaling",
+        "caching",
+        "scenario"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would plan before the launch and protect the checkout path first. Push as much as possible to the CDN, statically generate campaign pages, and cache catalogue reads. Pre-scale or use autoscaling with warm capacity, and load test the promotional journey. Put rate limits and a queue or waiting room in front of checkout, shed non-essential features such as recommendations, and protect the database with read replicas and caching. Promotion rules are pre-computed and cached so evaluation is cheap, and I watch error budgets live.",
+      "revision": "CDN and static campaign pages, pre-scaled capacity, cached promotion rules, waiting room and rate limits on checkout, shed optional features, load test beforehand.",
+      "detailed": "A promotion is a **predictable spike with an unpredictable shape**. You know roughly when it starts, so most of the work is preparation.\n\n## Before launch\n\n- **Load test the real journey**: landing, listing, product, cart, checkout, using realistic ratios, not just the home page.\n- **Pre-scale** compute and database capacity ahead of the start time. Autoscaling alone reacts too late for a step change.\n- **Warm caches** for campaign products and category pages.\n- Agree a **kill switch** list of optional features to disable.\n\n## Absorb at the edge\n\nCampaign pages should be static or incrementally regenerated and served by the CDN. Product data is cached with short expiry. Only cart, checkout and account calls reach origin.\n\n{{diagram:spike}}\n\n## Protect the core\n\n| Layer | Technique |\n|---|---|\n| Edge | CDN, bot filtering, rate limits per client |\n| Application | Cached promotion rules, stateless services, connection pool limits |\n| Checkout | Waiting room or queue to admit users at a safe rate |\n| Data | Read replicas, cache-aside, avoiding hot rows for stock counters |\n| Dependencies | Timeouts, circuit breakers, bulkheads around payment and tax |\n\nPrecompute eligibility and discount tables when the campaign is published so request-time evaluation is a lookup, not a rules run.\n\n## During the event\n\nWatch checkout success rate, p99 latency, queue depth and payment errors. Degrade in order: recommendations, reviews, personalisation, then search facets, while keeping browse, cart and pay alive. Communicate with the user honestly through a waiting-room page rather than errors.\n\n## How to answer it\n\nStructure the answer as **before, during, after**. Before: rehearse and pre-scale. During: protect checkout, shed optional features, watch a handful of live indicators. After: review the graphs, record what broke, and turn the findings into the next runbook. Mentioning that you would agree success measures with the business, such as checkout completion rate, shows you think beyond servers.\n\n## Common mistakes\n\n- Testing the home page only.\n- Relying on autoscaling for an instant step change.\n- Evaluating complex promotion rules for every request.\n- A single stock counter row that every buyer updates.\n- No rehearsed way to switch features off.",
+      "diagrams": [
+        {
+          "id": "spike",
+          "title": "Absorbing a promotion spike",
+          "alt": "Visitors hit a CDN serving static campaign pages. Cart and checkout traffic passes through rate limiting and a waiting room to stateless services backed by caches and replicas, with payment protected by circuit breakers.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "users",
+              "label": "Campaign visitors"
+            },
+            {
+              "id": "cdn",
+              "label": "CDN and static pages"
+            },
+            {
+              "id": "rl",
+              "label": "Rate limit and bot filter"
+            },
+            {
+              "id": "wr",
+              "label": "Waiting room"
+            },
+            {
+              "id": "app",
+              "label": "Stateless services"
+            },
+            {
+              "id": "cache",
+              "label": "Cache and replicas"
+            },
+            {
+              "id": "pay",
+              "label": "Payment provider with circuit breaker"
+            }
+          ],
+          "edges": [
+            {
+              "from": "users",
+              "to": "cdn"
+            },
+            {
+              "from": "cdn",
+              "to": "rl",
+              "label": "cart and checkout"
+            },
+            {
+              "from": "rl",
+              "to": "wr"
+            },
+            {
+              "from": "wr",
+              "to": "app",
+              "label": "admitted"
+            },
+            {
+              "from": "app",
+              "to": "cache"
+            },
+            {
+              "from": "app",
+              "to": "pay"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How does a waiting room differ from simple rate limiting?",
+        "How would you stop a stock counter becoming a hot row?",
+        "Which features would you disable first and why?"
+      ]
+    },
+    {
+      "slug": "cart-anonymous-to-logged-in-merge",
+      "title": "How do you design the cart for anonymous and logged-in users, including merging?",
+      "topic": "Cart design",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "cart",
+        "sessions",
+        "merge",
+        "redis"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would give every visitor a cart immediately, identified by a signed anonymous cart id in a cookie, stored server-side in a fast store such as Redis or DynamoDB with a time to live. When the user logs in, I merge the anonymous cart into their saved cart with clear rules: add quantities, cap by stock and limits, keep the newer price, and delete the anonymous cart. The merge must be idempotent. Prices and promotions are recalculated on read, so the cart stores intent, not totals.",
+      "revision": "Server-side cart keyed by signed anonymous id; on login merge idempotently with defined quantity rules, then recalculate prices and promotions on read.",
+      "detailed": "The cart should work from the **first click** and survive login, device changes and retries.\n\n## Storage\n\n| Option | Strength | Weakness |\n|---|---|---|\n| Browser only | Simple | Lost on device change, easy to tamper |\n| Server-side, keyed by anonymous id | Works across tabs, can be merged | Needs expiry and cleanup |\n| Server-side, keyed by user id | Persists across devices | Requires login |\n\nUse a server-side cart in **DynamoDB or Redis** with a TTL for anonymous carts and longer retention for logged-in carts. The anonymous id is a random, signed value in a secure, http-only cookie.\n\n## What the cart stores\n\nStore **lines**: variant id, quantity, and when it was added, plus applied promo codes. Do **not** store trusted prices or totals. Pricing, promotions, tax and stock are recomputed when the cart is read and again at checkout.\n\n## Merging on login\n\n{{diagram:merge}}\n\nDefine the rules explicitly and make the operation safe to repeat:\n\n- Same variant in both carts: **sum the quantities**, then cap at stock and per-customer limits (or take the larger, if business prefers).\n- Different variants: keep both.\n- Promo codes: keep those still valid and eligible.\n- Prices: always the current price, with a message when it changed.\n- After success, **delete or mark the anonymous cart merged**, so a retry does nothing twice.\n\n```ts\nasync function mergeCarts(anonId: string, userId: string) {\n  const anon = await carts.get(anonId);\n  if (!anon || anon.mergedInto) return carts.get(userId);   // idempotent\n  const merged = combineLines(await carts.get(userId), anon);\n  await carts.putWithCondition(userId, merged);\n  await carts.markMerged(anonId, userId);\n  return merged;\n}\n```\n\n## Common mistakes\n\n- Trusting prices stored in the cart or sent by the browser.\n- Merging on every request instead of once at login.\n- Doubling quantities when the login request is retried.\n- Never expiring anonymous carts.\n- Losing the cart when a user logs in on a different device.",
+      "diagrams": [
+        {
+          "id": "merge",
+          "title": "Cart merge at login",
+          "alt": "An anonymous cart identified by a cookie and a saved user cart are combined at login by a merge step that applies quantity and stock rules, recalculates prices, and marks the anonymous cart as merged.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "anon",
+              "label": "Anonymous cart"
+            },
+            {
+              "id": "login",
+              "label": "User logs in"
+            },
+            {
+              "id": "merge",
+              "label": "Merge with rules"
+            },
+            {
+              "id": "saved",
+              "label": "Saved user cart"
+            },
+            {
+              "id": "price",
+              "label": "Recalculate prices and promotions"
+            },
+            {
+              "id": "done",
+              "label": "Anonymous cart marked merged"
+            }
+          ],
+          "edges": [
+            {
+              "from": "login",
+              "to": "merge"
+            },
+            {
+              "from": "anon",
+              "to": "merge"
+            },
+            {
+              "from": "saved",
+              "to": "merge"
+            },
+            {
+              "from": "merge",
+              "to": "price"
+            },
+            {
+              "from": "price",
+              "to": "done"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "What happens if the user logs in on two devices at once?",
+        "How would you handle an item that is out of stock at merge time?",
+        "Why not keep the cart only in browser local storage?"
+      ]
+    },
+    {
+      "slug": "checkout-payment-idempotency-and-duplicate-callbacks",
+      "title": "How do you make checkout payment safe with idempotency and duplicate callbacks?",
+      "topic": "Payment integration",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "payments",
+        "idempotency",
+        "webhooks",
+        "checkout"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would never charge or finalise an order twice. The client sends an idempotency key with the payment request, and the server stores it with the result so a retry returns the same outcome. Payment provider callbacks are treated as at-least-once: I verify the signature, record the provider event id in a table with a unique constraint, and process each event once. State transitions are guarded so a repeated or late callback cannot move an order backwards. A reconciliation job finds orders stuck between states.",
+      "revision": "Idempotency key per payment attempt, unique provider event ids, signature checks, guarded state transitions, and reconciliation for stuck orders.",
+      "detailed": "Money flows demand that **repeats are harmless**. Networks retry, users double-click and providers deliver callbacks more than once.\n\n## Outbound: idempotency key\n\n1. Checkout creates an **order in a pending state** and a **payment attempt** with a unique key.\n2. The key is sent to the provider and stored locally.\n3. A retry with the same key returns the **stored result**, never a second charge.\n\n## Inbound: duplicate callbacks\n\n{{diagram:callback}}\n\n```ts\napp.post(\"/webhooks/payments\", async (req, res) => {\n  const event = verifySignature(req);                  // reject if invalid\n  try {\n    await db.insert(\"processed_events\", { id: event.id }); // unique constraint\n  } catch (e) { if (isUniqueViolation(e)) return res.sendStatus(200); throw e; }\n  await orders.applyPaymentEvent(event);                // guarded transition\n  res.sendStatus(200);\n});\n```\n\nRecord the event and apply its effect in **one transaction** where possible, so a crash cannot leave the event recorded but unapplied.\n\n## Guarded state machine\n\n| Current state | Event | Result |\n|---|---|---|\n| pending | payment succeeded | paid |\n| paid | payment succeeded (duplicate) | no change |\n| paid | payment failed (late, out of order) | ignore, flag for review |\n| cancelled | payment succeeded | refund and alert |\n\nTransitions use conditional updates, such as updating only when the current status matches the expected value.\n\n## Safety nets\n\n- Return a quick success response and do heavy work asynchronously.\n- A **reconciliation job** compares orders with the provider's records and repairs stuck ones.\n- Keep an audit trail of every attempt and event.\n\n## How to answer it\n\nLead with the principle that **every step must be safe to repeat**, then show both directions: the key you send and the events you receive. Mention the database unique constraint as the real guard, not an in-memory check, and add reconciliation as the safety net for cases no code path predicted. That combination of prevention and repair is what interviewers usually look for.\n\n## Common mistakes\n\n- Treating the browser redirect as proof of payment.\n- Checking \"seen this event?\" and then inserting, which races under concurrency.\n- Generating a new idempotency key on every retry.\n- Letting an older event overwrite a newer state.\n- Not verifying callback signatures.",
+      "diagrams": [
+        {
+          "id": "callback",
+          "title": "Payment callback processing",
+          "alt": "The provider sends a callback that is signature-verified, then inserted into a processed events table with a unique constraint. New events pass through a guarded order state transition, while duplicates are acknowledged without effect.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "prov",
+              "label": "Payment provider"
+            },
+            {
+              "id": "sig",
+              "label": "Verify signature"
+            },
+            {
+              "id": "dedupe",
+              "label": "Insert event id (unique)"
+            },
+            {
+              "id": "dup",
+              "label": "Duplicate: acknowledge only"
+            },
+            {
+              "id": "state",
+              "label": "Guarded order transition"
+            },
+            {
+              "id": "order",
+              "label": "Order paid"
+            },
+            {
+              "id": "recon",
+              "label": "Reconciliation job"
+            }
+          ],
+          "edges": [
+            {
+              "from": "prov",
+              "to": "sig",
+              "label": "callback"
+            },
+            {
+              "from": "sig",
+              "to": "dedupe"
+            },
+            {
+              "from": "dedupe",
+              "to": "dup",
+              "label": "seen"
+            },
+            {
+              "from": "dedupe",
+              "to": "state",
+              "label": "new"
+            },
+            {
+              "from": "state",
+              "to": "order"
+            },
+            {
+              "from": "recon",
+              "to": "order",
+              "label": "repairs"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "What do you do if a callback never arrives?",
+        "How do you handle a callback that arrives before the order record is committed?",
+        "How would you test duplicate and out-of-order callbacks?"
+      ]
+    },
+    {
+      "slug": "reviews-and-ratings-design",
+      "title": "How would you design product reviews and ratings?",
+      "topic": "Reviews and ratings",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "reviews",
+        "ratings",
+        "moderation",
+        "aggregation"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would store reviews in their own service, linked to product and verified purchase, with a moderation status. Writes go through validation, spam and profanity checks, and optionally human review before publishing. Average rating and star distribution are pre-aggregated per product and updated incrementally or by event, so product pages do not scan every review. Reads are paginated and cacheable, with sort by helpfulness or recency. I also handle one review per customer per product, edits, reporting abuse and removal on request.",
+      "revision": "Separate reviews service with verified-purchase flag and moderation; pre-aggregated ratings per product; paginated cached reads; one review per customer.",
+      "detailed": "Reviews look simple but combine **user content, trust and heavy reads**.\n\n## Data and rules\n\n| Field | Purpose |\n|---|---|\n| productId, userId, orderId | Link and verify purchase |\n| rating, title, body | The content |\n| status | pending, published, rejected, removed |\n| helpfulVotes, reportCount | Ranking and abuse handling |\n| createdAt, editedAt | Ordering and audit |\n\nEnforce **one review per user per product** with a unique key. Mark \"verified purchase\" by checking the order history when the review is created.\n\n## Write path\n\n{{diagram:review}}\n\n1. Authenticate the user and verify eligibility.\n2. Validate and sanitise text (reject script content, trim length).\n3. Run automated checks for spam, profanity and duplicates.\n4. Publish, or send to a moderation queue for risky cases.\n5. Emit an event so aggregates and the search index update.\n\n## Read path\n\nDo not compute averages on every page view. Keep per-product **count, sum and star distribution** and update them incrementally when reviews publish, change or are removed, or rebuild them from events. Serve review lists paginated by cursor, cached at the edge, sorted by recency or helpfulness.\n\n## Trust and safety\n\n- Allow users to report reviews; escalate when thresholds are crossed.\n- Rate limit submissions and watch for coordinated bursts.\n- Support deletion of personal data on request.\n- Show moderation outcomes consistently and keep an audit log.\n\n## How to answer it\n\nSay first that reads vastly outnumber writes, so the **aggregate is precomputed**. Then cover trust: verified purchase, moderation and abuse reporting. A short example helps: a product with thousands of reviews shows a stored average and star counts instantly, while the review list loads a page at a time. Close by mentioning privacy and deletion requests, which are easy to forget.\n\n## Common mistakes\n\n- Averaging all rows at read time.\n- Allowing anyone to review without any purchase signal.\n- Storing unsanitised HTML and creating an injection risk.\n- Updating aggregates by read-modify-write without concurrency control.\n- Letting edits bypass moderation.",
+      "diagrams": [
+        {
+          "id": "review",
+          "title": "Review write path",
+          "alt": "A review submission is authenticated, validated, checked for spam, then published or sent to moderation. Publishing emits an event that updates the product rating aggregate and the search index.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "user",
+              "label": "Customer submits review"
+            },
+            {
+              "id": "val",
+              "label": "Validate and sanitise"
+            },
+            {
+              "id": "spam",
+              "label": "Spam and abuse checks"
+            },
+            {
+              "id": "mod",
+              "label": "Moderation queue"
+            },
+            {
+              "id": "pub",
+              "label": "Published review"
+            },
+            {
+              "id": "ev",
+              "label": "Review event"
+            },
+            {
+              "id": "agg",
+              "label": "Rating aggregate and search index"
+            }
+          ],
+          "edges": [
+            {
+              "from": "user",
+              "to": "val"
+            },
+            {
+              "from": "val",
+              "to": "spam"
+            },
+            {
+              "from": "spam",
+              "to": "mod",
+              "label": "risky"
+            },
+            {
+              "from": "spam",
+              "to": "pub",
+              "label": "clean"
+            },
+            {
+              "from": "mod",
+              "to": "pub",
+              "label": "approved"
+            },
+            {
+              "from": "pub",
+              "to": "ev"
+            },
+            {
+              "from": "ev",
+              "to": "agg"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you stop fake or incentivised reviews?",
+        "How would you update the average rating safely under concurrent writes?",
+        "How would you handle reviews for product variants?"
+      ]
+    },
+    {
+      "slug": "order-notifications-design",
+      "title": "Design the notification system for order emails, SMS and push",
+      "topic": "Notifications",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "notifications",
+        "events",
+        "sqs",
+        "sns"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would make notifications a separate service driven by domain events such as order placed, shipped and refunded. The service decides which channels to use from customer preferences, renders templates, and hands messages to providers through queues, one per channel, so a slow email provider does not block SMS. Each notification has an idempotency key to avoid duplicates, retries with backoff, a dead letter queue, and a status record. Marketing messages respect consent, quiet hours and unsubscribe, while transactional messages are prioritised.",
+      "revision": "Event-driven notification service; per-channel queues, templates, preferences and consent, idempotency keys, retries with dead letters, transactional priority.",
+      "detailed": "Notifications are a classic place for **duplicates, delays and tangled dependencies**. Keep them decoupled from order processing.\n\n## Flow\n\n{{diagram:notify}}\n\n1. Order, shipping and payment services publish **domain events** (for example to SNS or EventBridge).\n2. The notification service consumes them and looks up the **customer's preferences and consent**.\n3. It chooses channels, renders a **template** with the data, and enqueues one message per channel.\n4. Channel workers call the email, SMS or push provider and record the outcome.\n\n## Key design points\n\n| Concern | Approach |\n|---|---|\n| Decoupling | Orders never call providers directly; failures do not affect checkout |\n| Duplicates | Idempotency key such as orderId + event type + channel, checked before sending |\n| Retries | Exponential backoff with jitter, then dead letter queue and alert |\n| Priority | Separate queues or priorities for transactional versus marketing |\n| Templates | Versioned, localised, with safe variable escaping |\n| Preferences | Per-channel opt-in, quiet hours, unsubscribe links |\n| Visibility | Status per message: queued, sent, delivered, bounced, failed |\n\n## Provider concerns\n\nUse provider webhooks to learn about bounces and complaints and suppress bad addresses. Keep a secondary provider or fallback for critical messages such as password resets and order confirmations. Respect provider rate limits with worker concurrency controls.\n\n## How to answer it\n\nFrame it as **events in, messages out, with decisions in the middle**: preference lookup, channel choice and templating. Explain that each channel has its own queue so one failing provider cannot delay the others. Mention the idempotency key early, because duplicate confirmation emails are the failure customers notice first.\n\n## Common mistakes\n\n- Sending directly in the checkout request path.\n- No idempotency, so a retried event sends a second confirmation.\n- Mixing bulk marketing with transactional traffic in one queue.\n- Ignoring consent and regional rules.\n- Putting personal data in logs.",
+      "diagrams": [
+        {
+          "id": "notify",
+          "title": "Notification pipeline",
+          "alt": "Domain events reach the notification service, which checks preferences and renders templates, then places messages on separate email, SMS and push queues. Workers send through providers and report delivery status.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "ev",
+              "label": "Order events"
+            },
+            {
+              "id": "svc",
+              "label": "Notification service"
+            },
+            {
+              "id": "pref",
+              "label": "Preferences and consent"
+            },
+            {
+              "id": "qe",
+              "label": "Email queue"
+            },
+            {
+              "id": "qs",
+              "label": "SMS queue"
+            },
+            {
+              "id": "qp",
+              "label": "Push queue"
+            },
+            {
+              "id": "prov",
+              "label": "Providers and delivery status"
+            }
+          ],
+          "edges": [
+            {
+              "from": "ev",
+              "to": "svc"
+            },
+            {
+              "from": "svc",
+              "to": "pref"
+            },
+            {
+              "from": "svc",
+              "to": "qe"
+            },
+            {
+              "from": "svc",
+              "to": "qs"
+            },
+            {
+              "from": "svc",
+              "to": "qp"
+            },
+            {
+              "from": "qe",
+              "to": "prov"
+            },
+            {
+              "from": "qs",
+              "to": "prov"
+            },
+            {
+              "from": "qp",
+              "to": "prov"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you avoid sending a confirmation twice if the event is redelivered?",
+        "How would you prioritise a password reset over a marketing campaign?",
+        "What do you do when an email provider is down?"
+      ]
+    },
+    {
+      "slug": "fraud-prevention-in-checkout",
+      "title": "How would you add fraud prevention to checkout without hurting genuine customers?",
+      "topic": "Fraud prevention",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "fraud",
+        "risk",
+        "checkout",
+        "security"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would layer defences and score risk rather than block bluntly. Use the payment provider's tools such as card verification, address checks and strong customer authentication. Add my own signals: velocity checks by device, IP, card and account, mismatches between billing and shipping, order value and unusual baskets. A rules engine produces a risk score that approves, challenges with extra authentication, holds for manual review, or declines. I track false positives and chargebacks, and keep the decision explainable and auditable.",
+      "revision": "Layered defence: provider checks, velocity and device signals, risk score leading to approve, challenge, review or decline; measure false positives and chargebacks.",
+      "detailed": "Fraud control is a balance between **loss** and **lost sales**. Blocking too much hurts revenue as surely as fraud does.\n\n## Layers\n\n| Layer | Examples |\n|---|---|\n| Provider | Card verification, address check, 3-D Secure or strong authentication |\n| Velocity | Many attempts from one device, IP, card or account in a short time |\n| Behaviour | Very fast checkout, many failed cards, new account with a large order |\n| Order | High-value or resale-prone items, billing and shipping mismatch |\n| Network | Known bad IPs, disposable email domains, proxy use |\n| Account | Takeover signs: password reset followed by address change and order |\n\n## Decision flow\n\n{{diagram:fraud}}\n\nThe checkout calls a **risk service** with the signals and receives a score and a decision: **approve**, **challenge** (extra authentication), **review** (hold fulfilment), or **decline**. The service should respond within a tight latency budget and fail open or closed by an explicit policy, depending on order value.\n\n## Operating it\n\n- Keep rules **configurable** so analysts can adjust without a release.\n- Record every decision with the reasons for audit and appeals.\n- Feed outcomes such as chargebacks and confirmed good orders back into the rules or a model.\n- Track **false positive rate**, approval rate, chargeback rate and review queue time.\n- Hold shipment, not the whole order flow, for review cases, and keep customer messaging neutral.\n\n## Protect the edges too\n\nRate limit login, card testing and promo endpoints, add bot detection, and avoid storing card data yourself; rely on the provider's tokens to stay out of heavy compliance scope.\n\n## Common mistakes\n\n- Blocking by a single signal such as country.\n- No feedback loop from chargebacks.\n- Unexplained declines with no review path.\n- Running fraud checks synchronously with no timeout.\n- Storing raw card numbers.",
+      "diagrams": [
+        {
+          "id": "fraud",
+          "title": "Checkout risk decision",
+          "alt": "Checkout sends device, account and order signals to a risk service that returns a score. The decision is approve, challenge with extra authentication, hold for manual review, or decline, and outcomes feed back into the rules.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "co",
+              "label": "Checkout"
+            },
+            {
+              "id": "sig",
+              "label": "Signals: device, velocity, order"
+            },
+            {
+              "id": "risk",
+              "label": "Risk service and score"
+            },
+            {
+              "id": "ok",
+              "label": "Approve"
+            },
+            {
+              "id": "ch",
+              "label": "Challenge"
+            },
+            {
+              "id": "rev",
+              "label": "Manual review"
+            },
+            {
+              "id": "dec",
+              "label": "Decline"
+            },
+            {
+              "id": "fb",
+              "label": "Chargeback feedback"
+            }
+          ],
+          "edges": [
+            {
+              "from": "co",
+              "to": "sig"
+            },
+            {
+              "from": "sig",
+              "to": "risk"
+            },
+            {
+              "from": "risk",
+              "to": "ok",
+              "label": "low"
+            },
+            {
+              "from": "risk",
+              "to": "ch",
+              "label": "medium"
+            },
+            {
+              "from": "risk",
+              "to": "rev",
+              "label": "high"
+            },
+            {
+              "from": "risk",
+              "to": "dec",
+              "label": "very high"
+            },
+            {
+              "from": "fb",
+              "to": "risk",
+              "label": "tunes"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you measure false positives?",
+        "What would you do on a card testing attack?",
+        "Should the risk service fail open or closed, and why?"
+      ]
+    },
+    {
+      "slug": "admin-portal-design-for-ecommerce",
+      "title": "How would you design the admin portal for catalogue, orders and promotions?",
+      "topic": "Admin portal",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "admin",
+        "rbac",
+        "audit",
+        "react"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would build the admin portal as a separate React application with its own API layer, kept apart from the storefront for security and scaling. Access uses single sign-on with role-based permissions and, where needed, approval workflows. Every change is written to an audit log with who, what and when. Bulk edits and imports run as background jobs with progress and error reports. Risky actions such as price changes or refunds can need a second approver, and edits publish through events rather than writing storefront caches directly.",
+      "revision": "Separate admin app and API; SSO with RBAC and approvals; audit log for every change; bulk operations as background jobs; publish changes through events.",
+      "detailed": "The admin portal is **internal but powerful**: one mistaken bulk change can reprice a whole catalogue.\n\n## Separation\n\nRun it as a different deployment, domain and API surface from the storefront. Scale needs differ, a compromise of one should not expose the other, and you can restrict admin access by network or identity provider.\n\n## Core design points\n\n| Area | Approach |\n|---|---|\n| Authentication | Single sign-on with the company identity provider, multi-factor |\n| Authorisation | Roles (merchandiser, support, finance) with fine-grained permissions, checked on the server |\n| Change control | Draft, review and publish for prices and promotions; optional second approver |\n| Audit | Immutable log: user, action, before and after values, time, reason |\n| Bulk work | CSV or API import validated first, run as background jobs with a result report |\n| Scheduling | Start and end times for promotions and price changes |\n| Search and filters | Fast lookups of orders, customers, products |\n\n## Publishing changes\n\n{{diagram:admin}}\n\nAdmin changes are written to the owning service, which publishes **events** that update search, caches and downstream systems. The portal never edits storefront caches or indexes directly.\n\n## Safety features\n\n- Preview a promotion or price change before publishing.\n- Dry-run imports that show errors and the number of affected items.\n- Easy rollback by restoring a previous version.\n- Mask sensitive customer data and log who viewed it.\n- Limit refund and discount amounts by role.\n\n## How to answer it\n\nOpen with the point that the admin portal is a **separate trust zone** with its own identity and permissions. Give one concrete safeguard, such as requiring a second approver for any price change affecting more than a set number of products. Then explain the audit log, since being able to answer who changed what and when is the question every incident review asks.\n\n## Common mistakes\n\n- Checking permissions only in the UI.\n- No audit trail for price or promotion edits.\n- Synchronous bulk updates that time out and leave data half-changed.\n- Sharing the storefront session or API for admin actions.\n- Direct database edits by support staff.",
+      "diagrams": [
+        {
+          "id": "admin",
+          "title": "Admin change publishing",
+          "alt": "Admin users sign in through single sign-on and the admin API checks roles. Changes go through review and approval to the owning service, which writes an audit log and emits events that update search, caches and the storefront.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "user",
+              "label": "Admin user via SSO"
+            },
+            {
+              "id": "api",
+              "label": "Admin API with RBAC"
+            },
+            {
+              "id": "appr",
+              "label": "Review and approval"
+            },
+            {
+              "id": "svc",
+              "label": "Owning service"
+            },
+            {
+              "id": "audit",
+              "label": "Audit log"
+            },
+            {
+              "id": "ev",
+              "label": "Change events"
+            },
+            {
+              "id": "down",
+              "label": "Search, caches, storefront"
+            }
+          ],
+          "edges": [
+            {
+              "from": "user",
+              "to": "api"
+            },
+            {
+              "from": "api",
+              "to": "appr"
+            },
+            {
+              "from": "appr",
+              "to": "svc"
+            },
+            {
+              "from": "svc",
+              "to": "audit"
+            },
+            {
+              "from": "svc",
+              "to": "ev"
+            },
+            {
+              "from": "ev",
+              "to": "down"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you implement an approval workflow for price changes?",
+        "How do you run a 100,000-row import safely?",
+        "How would you expose audit data to compliance teams?"
+      ]
+    },
+    {
+      "slug": "ecommerce-analytics-events-pipeline",
+      "title": "How would you capture analytics events from an ecommerce site?",
+      "topic": "Analytics events",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "analytics",
+        "events",
+        "kinesis",
+        "tracking"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would define a small, versioned event schema covering views, searches, add to cart, checkout steps and purchases, each with a consistent session, user and product identifier. The browser and server send events to a collector that validates and buffers them into a stream such as Kinesis or Kafka. From there they land in object storage and a warehouse for analysis, and feed near-real-time dashboards. I separate business-critical figures like revenue, taken from orders, from behavioural tracking, and I respect consent and privacy rules.",
+      "revision": "Versioned event schema, collector into a stream, land in storage and warehouse, near-real-time views; revenue from orders, behaviour from events; honour consent.",
+      "detailed": "Analytics answers \"what are customers doing and where do they drop off?\". It needs **consistent events**, not just lots of them.\n\n## Event design\n\nDefine a catalogue of events with a shared envelope:\n\n```json\n{\n  \"event\": \"add_to_cart\",\n  \"version\": 2,\n  \"eventId\": \"uuid\",\n  \"occurredAt\": \"2026-03-01T10:15:30Z\",\n  \"sessionId\": \"s_123\",\n  \"userId\": null,\n  \"properties\": { \"productId\": \"p_9\", \"variantId\": \"v_3\", \"price\": 1999, \"currency\": \"GBP\" }\n}\n```\n\nInclude an **event id** for de-duplication, a **client timestamp and a server receive time**, and a **schema version** so changes do not break consumers.\n\n## Pipeline\n\n{{diagram:events}}\n\n| Stage | Role |\n|---|---|\n| Client and server emitters | Browser for behaviour, server for trusted facts such as orders |\n| Collector | Validates schema, drops bots, buffers |\n| Stream | Durable, replayable transport |\n| Storage and warehouse | Raw archive plus modelled tables |\n| Serving | Dashboards, funnels, experiments |\n\n## Quality and privacy\n\n- Validate against a registry and reject or quarantine bad events.\n- Expect **duplicates and late events**; de-duplicate on event id and use event time for reporting.\n- Take revenue from the **order system**, not from browser events, which ad blockers can drop.\n- Capture and enforce **consent**, avoid personal data in properties, and honour deletion requests.\n\n## How to answer it\n\nBegin with the questions the business wants answered, such as funnel drop-off, search effectiveness and campaign return, because they decide which events matter. Then describe the pipeline from collector to warehouse. Be clear about the boundary: **orders are truth for revenue**, events are truth for behaviour, and the two are reconciled rather than mixed.\n\n## Common mistakes\n\n- Free-form event names that differ across teams.\n- Treating browser events as the source of financial truth.\n- No schema versioning, so a change silently breaks reports.\n- Ignoring late and duplicate events.\n- Collecting personal data without consent controls.",
+      "diagrams": [
+        {
+          "id": "events",
+          "title": "Analytics event pipeline",
+          "alt": "Browser and server emitters send events to a collector that validates and buffers them into a stream. The stream feeds raw storage, a warehouse and near-real-time dashboards.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "web",
+              "label": "Browser events"
+            },
+            {
+              "id": "srv",
+              "label": "Server events"
+            },
+            {
+              "id": "col",
+              "label": "Collector and validation"
+            },
+            {
+              "id": "str",
+              "label": "Event stream"
+            },
+            {
+              "id": "raw",
+              "label": "Raw storage"
+            },
+            {
+              "id": "wh",
+              "label": "Warehouse models"
+            },
+            {
+              "id": "dash",
+              "label": "Dashboards and funnels"
+            }
+          ],
+          "edges": [
+            {
+              "from": "web",
+              "to": "col"
+            },
+            {
+              "from": "srv",
+              "to": "col"
+            },
+            {
+              "from": "col",
+              "to": "str"
+            },
+            {
+              "from": "str",
+              "to": "raw"
+            },
+            {
+              "from": "str",
+              "to": "wh"
+            },
+            {
+              "from": "str",
+              "to": "dash"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you handle ad blockers dropping browser events?",
+        "How would you version an event schema safely?",
+        "How do you keep analytics compliant with consent rules?"
+      ]
+    }
+  ]
+}

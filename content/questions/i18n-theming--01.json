@@ -1,0 +1,1274 @@
+{
+  "category": "i18n-theming",
+  "questions": [
+    {
+      "slug": "i18n-vs-l10n-difference",
+      "title": "What is the difference between internationalisation (i18n) and localisation (l10n)?",
+      "topic": "Foundations",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "i18n",
+        "l10n",
+        "fundamentals"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Internationalisation is engineering the product so it can support any locale without code changes: externalised strings, locale-aware formatting, flexible layouts, Unicode everywhere. Localisation is adapting it for a specific market: translating text, choosing currency and date conventions, adjusting imagery, legal copy and payment methods. I do i18n once, up front, and l10n repeatedly per market. Retrofitting i18n after hard-coding English strings and layouts is far more expensive than designing for it early.",
+      "revision": "i18n makes software locale-ready once; l10n adapts content, formats and conventions for each market. Do i18n early because retrofitting is costly.",
+      "detailed": "Internationalisation (often written i18n, for the 18 letters between i and n) is an **engineering activity**. Localisation (l10n) is a **per-market adaptation activity**. Teams that blur the two end up translating strings inside code.\n\n## What each covers\n\n| Aspect | i18n (build once) | l10n (repeat per locale) |\n|---|---|---|\n| Text | Strings externalised into resource files with keys | Translated values for each locale |\n| Formatting | Use of `Intl` or library formatters, never manual string building | Locale choices such as 24-hour time or lakh grouping |\n| Layout | Flexible containers, logical CSS, RTL support | Visual checks for each language |\n| Data | Unicode storage, UTC timestamps, currency codes | Local tax, address and phone formats |\n| Content | Support for locale-specific variants | Imagery, examples, legal text, payment methods |\n\n{{diagram:flow}}\n\n## Typical i18n checklist\n\n- No concatenated sentences; use full messages with placeholders.\n- No text inside images unless variants exist.\n- Allow for expansion: German and Finnish can run 30 percent or more longer than English, while some CJK text is shorter.\n- Do not assume name order, address shape, or a single phone format.\n- Store a locale and a time zone per user, separate from country.\n\n## Related terms\n\n**Globalisation (g11n)** is the umbrella. **Translation** is just one part of localisation. **Transcreation** adapts marketing copy creatively rather than literally.\n\n## Common mistakes\n\n- Treating localisation as \"send the JSON to a translator\" without context or screenshots.\n- Assuming language equals country; Spanish is spoken in many countries with different formats.\n- Hard-coding `en-US` date and currency formats in components.\n- Building i18n after launch, which touches every screen.",
+      "followUps": [
+        "Where would you draw the line between a developer task and a translator task?",
+        "What is pseudo-localisation and when would you use it?",
+        "Why is language not the same as locale?"
+      ],
+      "related": [
+        "locale-detection-and-selection",
+        "translation-resource-management"
+      ],
+      "diagrams": [
+        {
+          "id": "flow",
+          "title": "i18n then l10n flow",
+          "alt": "Engineers perform internationalisation once to produce a locale-ready product. Each market then goes through localisation, which adds translations, formats and regional content before release.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Locale-ready product (i18n)"
+            },
+            {
+              "id": "n1",
+              "label": "Translate strings"
+            },
+            {
+              "id": "n2",
+              "label": "Apply formats and regional content"
+            },
+            {
+              "id": "n3",
+              "label": "Test per locale"
+            },
+            {
+              "id": "n4",
+              "label": "Release market (l10n)"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "locale-detection-and-selection",
+      "title": "How do you detect and select a user's locale in a web application?",
+      "topic": "Locale handling",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "locale",
+        "accept-language",
+        "routing",
+        "i18n"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I layer signals in priority order: an explicit URL locale segment first, then a saved user preference, then a cookie, then the Accept-Language header, and finally a default. Detection suggests a locale; it must never trap the user, so I always offer a visible switcher and persist the choice. Country from IP is for regional defaults like currency, not language. For crawlability each locale needs its own stable URL rather than content that varies silently by header.",
+      "revision": "Order: URL locale, saved preference, cookie, Accept-Language, default. Always offer a switcher, persist the choice, and keep locale in the URL for SEO.",
+      "detailed": "Locale selection is a **priority chain** where explicit choices beat inferred ones.\n\n## Signals\n\n| Signal | Strength | Notes |\n|---|---|---|\n| URL segment (`/de/`) | Explicit | Shareable, cacheable, crawlable |\n| Signed-in user setting | Explicit | Stored server-side; follows the user across devices |\n| Cookie | Explicit, remembered | Set when the user picks a language |\n| `Accept-Language` header | Inferred | Browser preference with weights, such as `de-DE,de;q=0.9,en;q=0.8` |\n| IP geolocation | Weak | Good for country or currency defaults, poor for language |\n| Default | Fallback | Business decision |\n\n{{diagram:chain}}\n\n## Matching\n\nParse the header, sort by quality value, and match against supported locales with fallback from `de-AT` to `de`. Libraries such as `@formatjs/intl-localematcher` or `negotiator` handle this (verify current docs for the API you use).\n\n```ts\nimport Negotiator from 'negotiator';\nimport { match } from '@formatjs/intl-localematcher';\n\nconst supported = ['en', 'de', 'ar'];\n\nexport function pickLocale(acceptLanguage: string | null): string {\n  const requested = new Negotiator({\n    headers: { 'accept-language': acceptLanguage ?? '' },\n  }).languages();\n  return match(requested, supported, 'en');\n}\n```\n\n## Design rules\n\n- Redirect from `/` to a locale path once, then respect the URL thereafter.\n- Never redirect repeatedly based on IP; crawlers and VPN users suffer.\n- Keep language, region and currency as **separate settings**; a German speaker in India may want INR.\n- Add `Vary: Accept-Language` if the response differs by header.\n\n## Common mistakes\n\n- Forcing a locale by IP with no way back.\n- Serving different languages at the same URL, which confuses caches and search engines.\n- Treating the first language in the header as a country.\n- Forgetting to persist the choice, so every visit redetects.",
+      "followUps": [
+        "How would you handle a bot with no Accept-Language header?",
+        "Should currency follow language or country?",
+        "How do you cache pages that vary by locale?"
+      ],
+      "related": [
+        "i18n-vs-l10n-difference",
+        "multilingual-seo-hreflang"
+      ],
+      "diagrams": [
+        {
+          "id": "chain",
+          "title": "Locale resolution order",
+          "alt": "Locale resolution checks the URL segment first, then the saved user setting, then a cookie, then the Accept-Language header, and finally uses the default locale if nothing else matches.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "URL segment"
+            },
+            {
+              "id": "n1",
+              "label": "User setting"
+            },
+            {
+              "id": "n2",
+              "label": "Cookie"
+            },
+            {
+              "id": "n3",
+              "label": "Accept-Language"
+            },
+            {
+              "id": "n4",
+              "label": "Default locale"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1",
+              "label": "else"
+            },
+            {
+              "from": "n1",
+              "to": "n2",
+              "label": "else"
+            },
+            {
+              "from": "n2",
+              "to": "n3",
+              "label": "else"
+            },
+            {
+              "from": "n3",
+              "to": "n4",
+              "label": "else"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "translation-resource-management",
+      "title": "How do you manage translation resources, workflows and fallbacks at scale?",
+      "topic": "Translation workflow",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "translation",
+        "workflow",
+        "fallbacks",
+        "tooling"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I keep messages as keyed resource files per locale, with English source and descriptions for translators. Keys are stable and semantic, strings are whole sentences with placeholders, and a translation management system syncs with the repository through CI. Pull requests check for missing keys, invalid placeholders and ICU syntax. Fallback goes from regional locale to language to default, with a visible metric for missing keys. Pseudo-localisation catches hard-coded text early.",
+      "revision": "Keyed per-locale files, translator context, TMS synced via CI, automated placeholder checks, and a defined fallback chain with missing-key monitoring.",
+      "detailed": "Translation is a **content pipeline**, so it deserves the same automation as code.\n\n## Resource structure\n\n```json\n{\n  \"cart.itemCount\": \"{count, plural, one {# item} other {# items}}\",\n  \"cart.checkout\": \"Proceed to checkout\"\n}\n```\n\n- Use **stable semantic keys**, not the English text as key, so copy edits do not orphan translations.\n- Namespace by feature to enable lazy loading.\n- Add a **description** or screenshot for ambiguous words (\"Book\" as noun versus verb).\n\n## Workflow\n\n{{diagram:pipeline}}\n\n1. Developers add keys with English source.\n2. CI extracts new or changed keys and pushes them to a translation management system (TMS).\n3. Translators work with context, glossaries and translation memory.\n4. Completed translations return as a pull request.\n5. CI validates and merges; a build publishes bundles.\n\n## Automated checks\n\n| Check | Catches |\n|---|---|\n| Missing keys per locale | Untranslated screens |\n| Placeholder parity | `{name}` dropped or renamed |\n| ICU syntax parse | Broken plural rules |\n| Unused keys | Dead strings |\n| Length warnings | Likely overflow |\n\n## Fallback strategy\n\nResolve `pt-BR` to `pt` to default `en`. Log missing-key events in production so gaps are visible, and never show raw keys to users in release builds if a fallback exists.\n\n## Common mistakes\n\n- Concatenating fragments, which no language can reorder.\n- Reusing one string for different meanings.\n- Shipping all locale bundles to every user.\n- Having no review step, so a translator's typo reaches production.",
+      "followUps": [
+        "Why prefer semantic keys over English text as keys?",
+        "How do you handle urgent copy changes in a market?",
+        "What would you measure for translation health?"
+      ],
+      "related": [
+        "icu-message-format-plurals-gender",
+        "i18n-vs-l10n-difference"
+      ],
+      "diagrams": [
+        {
+          "id": "pipeline",
+          "title": "Translation pipeline",
+          "alt": "Developers add keys in source files, continuous integration syncs them to a translation management system, translators work with context, translations return as a pull request, validation runs, and bundles are published.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Add keys in code"
+            },
+            {
+              "id": "n1",
+              "label": "CI extracts and pushes to TMS"
+            },
+            {
+              "id": "n2",
+              "label": "Translators with context"
+            },
+            {
+              "id": "n3",
+              "label": "Pull request with translations"
+            },
+            {
+              "id": "n4",
+              "label": "Validate placeholders and ICU"
+            },
+            {
+              "id": "n5",
+              "label": "Publish bundles"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            },
+            {
+              "from": "n4",
+              "to": "n5"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "icu-message-format-plurals-gender",
+      "title": "What is ICU message format and how does it handle plurals and gender?",
+      "topic": "Messages",
+      "difficulty": "intermediate",
+      "type": "coding",
+      "tags": [
+        "icu",
+        "plurals",
+        "gender",
+        "formatjs"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "ICU message format lets one string express variation: plural categories, select for gender or other enumerations, and formatted arguments. Plural rules are language specific; English has one and other, Arabic has six categories, Polish has few and many. Translators write the correct forms per language, so developers must not build plurals with a conditional on count equals one. Selects should include an other fallback, and messages stay whole sentences.",
+      "revision": "ICU messages use plural and select with CLDR categories per language. Never hand-roll count conditions; always include an other branch.",
+      "detailed": "ICU MessageFormat is the common syntax used by FormatJS, next-intl, i18next (via plugin) and others. Check each library's current docs for exact support.\n\n## Plural categories (CLDR)\n\n| Language | Categories |\n|---|---|\n| English | one, other |\n| French | one, many, other |\n| Polish | one, few, many, other |\n| Arabic | zero, one, two, few, many, other |\n| Japanese | other |\n\n## Examples\n\n```text\n{count, plural,\n  =0 {Your basket is empty}\n  one {# item in your basket}\n  other {# items in your basket}}\n\n{gender, select,\n  female {She updated her profile}\n  male {He updated his profile}\n  other {They updated their profile}}\n```\n\nNested plural inside select is valid but gets hard to maintain; consider rewording to avoid gendered text where possible.\n\n## Usage in React (FormatJS style)\n\n```tsx\nimport { FormattedMessage } from 'react-intl';\n\nexport function CartBadge({ count }: { count: number }) {\n  return (\n    <FormattedMessage\n      id=\"cart.itemCount\"\n      defaultMessage=\"{count, plural, one {# item} other {# items}}\"\n      values={{ count }}\n    />\n  );\n}\n```\n\n{{diagram:icu}}\n\n## Rich text\n\nUse tags, such as `<b>{name}</b>`, as placeholders mapped to components, instead of splitting sentences.\n\n## Common mistakes\n\n- `count === 1 ? 'item' : 'items'`, which fails in many languages.\n- Omitting the `other` branch.\n- Using `=1` where `one` is correct; some languages use `one` for 21 as well.\n- Splitting a sentence around a link so word order cannot change.\n- Interpolating pre-formatted numbers instead of passing numbers for the formatter.",
+      "followUps": [
+        "Why is the other branch mandatory?",
+        "How would you test plural forms for Arabic?",
+        "How do you avoid gender in UI text?"
+      ],
+      "related": [
+        "translation-resource-management",
+        "intl-formatting-dates-numbers-currency"
+      ],
+      "diagrams": [
+        {
+          "id": "icu",
+          "title": "ICU message resolution",
+          "alt": "A message with a count argument is parsed, the plural rule for the active locale chooses a category such as one or few, the matching branch is selected, and the number is formatted into the final string.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Message with arguments"
+            },
+            {
+              "id": "n1",
+              "label": "Locale plural rules"
+            },
+            {
+              "id": "n2",
+              "label": "Choose category"
+            },
+            {
+              "id": "n3",
+              "label": "Select branch"
+            },
+            {
+              "id": "n4",
+              "label": "Format number"
+            },
+            {
+              "id": "n5",
+              "label": "Final text"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            },
+            {
+              "from": "n4",
+              "to": "n5"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "intl-formatting-dates-numbers-currency",
+      "title": "How do you format dates, numbers and currencies with the Intl API?",
+      "topic": "Formatting",
+      "difficulty": "intermediate",
+      "type": "coding",
+      "tags": [
+        "intl",
+        "dates",
+        "currency",
+        "numbers"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I use the built-in Intl objects: NumberFormat for numbers and currency, DateTimeFormat for dates and times, RelativeTimeFormat, PluralRules, ListFormat. They apply the locale's grouping, decimal marks, symbol placement and calendar. Currency comes from the data, not the locale, so a euro price displays differently in German and French formats. I never format by string concatenation, and I create formatters once and reuse them because construction is comparatively costly.",
+      "revision": "Use Intl.NumberFormat, DateTimeFormat and relatives with a locale; currency code comes from data. Reuse formatter instances.",
+      "detailed": "Intl is built into modern browsers and Node, giving **CLDR-backed formatting** without large libraries.\n\n## Examples\n\n```ts\nconst price = 1234567.89;\n\nnew Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(price);\n// \"₹12,34,567.89\"  (lakh grouping)\n\nnew Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(price);\n// \"1.234.567,89 €\"\n\nnew Intl.NumberFormat('en', { notation: 'compact' }).format(1_250_000);\n// \"1.3M\"\n\nconst date = new Date('2026-03-05T14:30:00Z');\nnew Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Europe/London' }).format(date);\n\nnew Intl.RelativeTimeFormat('es', { numeric: 'auto' }).format(-1, 'day'); // \"ayer\"\n```\n\n## Key points\n\n| Concern | Guidance |\n|---|---|\n| Currency | Pass ISO 4217 code from the order; never infer from locale |\n| Minor units | Store integer minor units; JPY has 0 decimals, KWD has 3 |\n| Dates | Store UTC; pass `timeZone` explicitly |\n| Calendars | Locale may pick another calendar, such as Buddhist in `th-TH` |\n| Lists | `Intl.ListFormat` handles \"A, B and C\" |\n| Performance | Cache formatter instances per locale and options |\n\n{{diagram:fmt}}\n\n## Choosing styles\n\nPrefer `dateStyle` and `timeStyle` presets over hand-picked fields, because the locale then chooses an idiomatic arrangement. Use `formatToParts` when you need to style a piece, such as a smaller currency symbol, without parsing the output string. Use `Intl.PluralRules` alongside messages when you must pick behaviour, not text, based on a count.\n\n## Common mistakes\n\n- `'$' + price.toFixed(2)`.\n- Using floating-point for money.\n- Parsing user input with `parseFloat` when the locale uses commas as decimals.\n- Hard-coding `MM/DD/YYYY`.\n- Assuming output is identical across engines; verify edge cases with tests, and check browser support tables for newer options.",
+      "followUps": [
+        "How do you parse a localised number typed by a user?",
+        "Why store money as minor units?",
+        "How would you memoise formatters in React?"
+      ],
+      "related": [
+        "time-zones-and-utc-storage",
+        "icu-message-format-plurals-gender"
+      ],
+      "diagrams": [
+        {
+          "id": "fmt",
+          "title": "Formatting inputs",
+          "alt": "Raw values such as a number, currency code and UTC timestamp are combined with the active locale and time zone and passed to an Intl formatter, which produces the display string for the user.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Raw value and currency code"
+            },
+            {
+              "id": "n1",
+              "label": "Active locale"
+            },
+            {
+              "id": "n2",
+              "label": "Intl formatter"
+            },
+            {
+              "id": "n3",
+              "label": "Display string"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "time-zones-and-utc-storage",
+      "title": "How should you handle time zones, and why store timestamps in UTC?",
+      "topic": "Time",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "time-zones",
+        "utc",
+        "dst",
+        "dates"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I store instants in UTC, usually ISO 8601 with a Z suffix, and convert only at the edges for display using the user's or venue's IANA time zone such as Asia/Kolkata. Offsets are not zones, because daylight saving changes them. For future local events, like a 9am appointment, I store the local date-time plus the zone, not a UTC instant, since rules can change. I test around DST transitions.",
+      "revision": "Store instants in UTC, display in an IANA zone, never rely on fixed offsets, and store local time plus zone for future scheduled events.",
+      "detailed": "Time bugs are among the most common i18n defects.\n\n## Rules\n\n1. **Instants in UTC.** Server and database store a point in time unambiguously.\n2. **IANA zone names**, not offsets or abbreviations. `IST` is ambiguous (India, Israel, Ireland).\n3. **Convert at the edge** for display.\n4. **Future local events** (a clinic appointment at 09:00 Berlin time) should keep local time and zone, because governments change DST rules.\n\n{{diagram:tz}}\n\n## Example\n\n```ts\nconst instant = '2026-03-29T00:30:00Z';\n\nconst fmt = (tz: string) =>\n  new Intl.DateTimeFormat('en-GB', {\n    dateStyle: 'short', timeStyle: 'long', timeZone: tz,\n  }).format(new Date(instant));\n\nfmt('Europe/London'); // clocks change on this date\nfmt('Asia/Kolkata');  // no DST\n```\n\n## Traps\n\n| Trap | Why |\n|---|---|\n| `new Date('2026-03-05')` | Parsed as UTC midnight, displays as previous day west of UTC |\n| Adding 24 hours for \"tomorrow\" | DST days are 23 or 25 hours long |\n| Storing local time without zone | Ambiguous during the repeated autumn hour |\n| Using server time zone | Breaks when deployed elsewhere |\n| Date-only values (birthdays) | Should be a plain date, not an instant |\n\n## Tooling\n\n`Intl.DateTimeFormat` formats well. For arithmetic, libraries such as date-fns-tz, Luxon or the Temporal API (check current browser support and polyfill status) are safer than raw `Date`.\n\n## Common mistakes\n\n- Treating a birthday as a UTC timestamp.\n- Comparing dates as strings in local formats.\n- Not testing around DST changes and for half-hour offset zones such as India or Nepal's 45 minutes.",
+      "followUps": [
+        "How would you schedule a recurring 9am meeting across DST changes?",
+        "How do you store a date of birth?",
+        "What is the Temporal API meant to fix?"
+      ],
+      "related": [
+        "intl-formatting-dates-numbers-currency",
+        "ecommerce-india-europe-middle-east"
+      ],
+      "diagrams": [
+        {
+          "id": "tz",
+          "title": "Time handling flow",
+          "alt": "User input in a local zone is converted to a UTC instant for storage and processing. When displayed, the UTC instant is converted to the viewer IANA time zone and formatted for their locale.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Local input with zone"
+            },
+            {
+              "id": "n1",
+              "label": "Convert to UTC"
+            },
+            {
+              "id": "n2",
+              "label": "Store and process"
+            },
+            {
+              "id": "n3",
+              "label": "Convert to viewer zone"
+            },
+            {
+              "id": "n4",
+              "label": "Format for locale"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "rtl-languages-logical-css",
+      "title": "How do you support right-to-left languages and use logical CSS properties?",
+      "topic": "RTL",
+      "difficulty": "intermediate",
+      "type": "coding",
+      "tags": [
+        "rtl",
+        "css",
+        "logical-properties",
+        "arabic"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I set dir and lang on the html element, then write CSS with logical properties like margin-inline-start, padding-inline, inset-inline-end and text-align: start, so layout mirrors automatically. Flexbox and grid follow direction already. I mirror directional icons such as arrows but not logos, media controls or numerals in some cases. Mixed content needs bidi isolation, and I test with real Arabic or Hebrew text, not just flipped English.",
+      "revision": "Set dir and lang, use logical CSS properties (inline-start/end), mirror directional icons only, isolate bidi text, and test with real RTL content.",
+      "detailed": "RTL support (Arabic, Hebrew, Persian, Urdu) is mostly a **CSS architecture** choice.\n\n## Setup\n\n```html\n<html lang=\"ar\" dir=\"rtl\">\n```\n\nSet it per document from the active locale, not with a JavaScript toggle after load.\n\n## Physical versus logical properties\n\n| Physical | Logical |\n|---|---|\n| `margin-left` | `margin-inline-start` |\n| `padding-right` | `padding-inline-end` |\n| `left: 0` | `inset-inline-start: 0` |\n| `text-align: left` | `text-align: start` |\n| `border-top-left-radius` | `border-start-start-radius` |\n| `width` / `height` | `inline-size` / `block-size` |\n\n```css\n.card { padding-inline: 1rem; margin-inline-start: auto; }\n.badge { inset-inline-end: 0.5rem; }\n.arrow { transform: scaleX(var(--flip, 1)); }\n[dir='rtl'] { --flip: -1; }\n```\n\n{{diagram:rtl}}\n\n## What to mirror\n\n- **Mirror:** navigation chevrons, back arrows, progress direction, sliders, layout order.\n- **Do not mirror:** logos, photos, clocks, most media playback icons, and phone numbers or code (these remain left-to-right).\n\n## Bidirectional text\n\nUse `<bdi>` or `unicode-bidi: isolate` around user-generated content such as names, so punctuation does not jump. Numbers inside Arabic text may use Eastern Arabic digits depending on locale.\n\n## Testing\n\nUse CSS logical linting (stylelint plugins exist; verify current names), visual regression snapshots in `dir=rtl`, and native-speaker review.\n\n## Common mistakes\n\n- Using `[dir=rtl]` overrides for every rule instead of logical properties.\n- Mirroring everything, including brand marks.\n- Absolute positioning with `left` and `right`.\n- Forgetting canvas, charts and third-party widgets that do not follow direction.",
+      "followUps": [
+        "How do you handle icons that mix directional and non-directional meaning?",
+        "What is bidi isolation?",
+        "How would you retrofit a codebase full of margin-left?"
+      ],
+      "related": [
+        "translations-overflow-layout",
+        "unicode-encoding-normalisation-collation"
+      ],
+      "diagrams": [
+        {
+          "id": "rtl",
+          "title": "RTL support approach",
+          "alt": "The locale sets the lang and dir attributes on the html element. CSS written with logical properties then mirrors automatically, with a small set of directional icons flipped and bidirectional text isolated.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Locale ar-EG"
+            },
+            {
+              "id": "n1",
+              "label": "html lang and dir=rtl"
+            },
+            {
+              "id": "n2",
+              "label": "Logical CSS properties"
+            },
+            {
+              "id": "n3",
+              "label": "Flip directional icons"
+            },
+            {
+              "id": "n4",
+              "label": "Isolate bidi text"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "unicode-encoding-normalisation-collation",
+      "title": "What should developers know about Unicode, encoding, normalisation and locale-aware sorting?",
+      "topic": "Text",
+      "difficulty": "advanced",
+      "type": "conceptual",
+      "tags": [
+        "unicode",
+        "normalisation",
+        "collation",
+        "search"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Use UTF-8 end to end: database, API, HTML meta charset, and files. A user-perceived character can be several code points, so string length and slicing can break emoji or accents. Normalise to NFC before comparing or storing, and use NFKC carefully for search keys. Sorting must use locale collation, such as Intl.Collator, because byte order puts Z before a and ignores language rules. Search should fold case and accents deliberately.",
+      "revision": "UTF-8 everywhere, normalise to NFC, treat graphemes not code units as characters, and use Intl.Collator for locale-aware sorting and comparison.",
+      "detailed": "## Encoding\n\nUTF-8 should be the default in the database (for example `utf8mb4` in MySQL, since MySQL's older `utf8` is limited to 3 bytes), HTTP `Content-Type` charset, HTML `<meta charset=\"utf-8\">` and file I/O.\n\n## Characters are layered\n\n| Level | Example |\n|---|---|\n| Code unit | JavaScript UTF-16 unit |\n| Code point | U+00E9 (é) |\n| Grapheme cluster | \"e\" + combining acute, family emoji from multiple code points |\n\n```ts\n'é'.length;               // 1 (precomposed)\n'e\\u0301'.length;         // 2 (decomposed), looks identical\n'é' === 'e\\u0301';        // false\n'é'.normalize('NFC') === 'e\\u0301'.normalize('NFC'); // true\n[...new Intl.Segmenter('en', { granularity: 'grapheme' }).segment('👨‍👩‍👧')].length; // 1\n```\n\n## Normalisation forms\n\n- **NFC**: composed, the usual storage form.\n- **NFD**: decomposed, useful for stripping accents in search keys.\n- **NFKC/NFKD**: compatibility folding (full-width digits, ligatures); lossy, so use for matching only.\n\n## Collation\n\n```ts\nconst collator = new Intl.Collator('sv', { sensitivity: 'base', numeric: true });\n['z', 'ä', 'a'].sort(collator.compare); // Swedish puts ä after z\n```\n\n{{diagram:norm}}\n\nDatabases need matching collations (for example ICU collations in PostgreSQL); verify your database's support.\n\n## Search\n\nFold case and optionally accents, but remember some folds are wrong for some languages (Turkish dotless i). Consider analyzers in your search engine.\n\n## Common mistakes\n\n- Truncating strings by `slice` and splitting an emoji.\n- Comparing usernames without normalising, enabling lookalike duplicates.\n- Sorting with default `Array.sort()`.\n- Assuming one character equals one byte, which breaks length limits.",
+      "followUps": [
+        "Why might two visually identical usernames be different?",
+        "How would you do accent-insensitive search?",
+        "What is the Turkish i problem?"
+      ],
+      "related": [
+        "rtl-languages-logical-css",
+        "intl-formatting-dates-numbers-currency"
+      ],
+      "diagrams": [
+        {
+          "id": "norm",
+          "title": "Text normalisation pipeline",
+          "alt": "Input text is decoded as UTF-8, normalised to NFC for storage and comparison, and for search a folded key is derived by case and accent folding, while display sorting uses a locale collator.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "UTF-8 input"
+            },
+            {
+              "id": "n1",
+              "label": "Normalise NFC"
+            },
+            {
+              "id": "n2",
+              "label": "Store"
+            },
+            {
+              "id": "n3",
+              "label": "Derive folded search key"
+            },
+            {
+              "id": "n4",
+              "label": "Sort with locale collator"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "multilingual-seo-hreflang",
+      "title": "How do you do SEO for a multilingual site (hreflang and URL strategy)?",
+      "topic": "SEO",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "seo",
+        "hreflang",
+        "urls",
+        "canonical"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Each language or region version gets its own crawlable URL, using subdirectories, subdomains or country domains, with subdirectories usually simplest to maintain. Every version declares reciprocal hreflang annotations for all alternates plus x-default, and a self-referencing canonical. Content must be genuinely translated and server-rendered, not swapped client side. I avoid auto-redirecting by IP or header for crawlers and I include localised URLs in sitemaps.",
+      "revision": "Separate crawlable URLs per locale, reciprocal hreflang with x-default, self-canonicals, server-rendered translated content, and no forced redirects.",
+      "detailed": "Search engines need to **find each locale as its own page** and understand how pages relate.\n\n## URL strategies\n\n| Strategy | Example | Trade-off |\n|---|---|---|\n| Subdirectory | `example.com/de/` | Easy to maintain, shares domain authority |\n| Subdomain | `de.example.com` | Separate hosting possible, treated more separately |\n| ccTLD | `example.de` | Strong geo signal, costly to run |\n| Query parameter | `?lang=de` | Weak, generally avoided |\n\n## hreflang\n\n```html\n<link rel=\"canonical\" href=\"https://example.com/de/produkte/\" />\n<link rel=\"alternate\" hreflang=\"en-GB\" href=\"https://example.com/en-gb/products/\" />\n<link rel=\"alternate\" hreflang=\"de\" href=\"https://example.com/de/produkte/\" />\n<link rel=\"alternate\" hreflang=\"x-default\" href=\"https://example.com/products/\" />\n```\n\n{{diagram:hreflang}}\n\nRules:\n- Annotations must be **reciprocal**; page A lists B and B lists A, or they may be ignored.\n- Use valid language-region codes (`en-GB`, not `en-UK`).\n- Include the page itself.\n- Annotations may live in HTML, HTTP headers or the sitemap; pick one source of truth.\n\n## Content and rendering\n\n- Translate the title, meta description, headings, alt text and structured data.\n- Render server side or statically so crawlers see translated content.\n- Do not auto-redirect based on IP; offer a banner suggestion instead.\n- Localise slugs if it helps users, with a stable mapping.\n\n## Common mistakes\n\n- Machine-translated pages with no review, which can be treated as low quality.\n- Non-reciprocal hreflang.\n- Canonical pointing every locale to English.\n- Language chosen by cookie at one URL.\n- Mixing languages on one page.\n\nVerify current search engine documentation, as guidance evolves.",
+      "followUps": [
+        "Subdirectory or ccTLD for a new market?",
+        "How do you handle a page that exists in only some locales?",
+        "How would you validate hreflang at scale?"
+      ],
+      "related": [
+        "locale-detection-and-selection",
+        "react-nextjs-localisation-strategies"
+      ],
+      "diagrams": [
+        {
+          "id": "hreflang",
+          "title": "hreflang relationships",
+          "alt": "Each locale page contains a self-referencing canonical, alternate links to every other locale page and an x-default link. The English, German and Arabic pages reference each other reciprocally.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "English page"
+            },
+            {
+              "id": "n1",
+              "label": "German page"
+            },
+            {
+              "id": "n2",
+              "label": "Arabic page"
+            },
+            {
+              "id": "n3",
+              "label": "x-default page"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "react-nextjs-localisation-strategies",
+      "title": "What are the main localisation strategies for React and Next.js apps?",
+      "topic": "React i18n",
+      "difficulty": "advanced",
+      "type": "comparison",
+      "tags": [
+        "react",
+        "nextjs",
+        "next-intl",
+        "react-i18next"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "In React I choose between react-i18next, FormatJS react-intl and, in Next.js, next-intl. The deciding factors are ICU support, type-safe keys, server component support, bundle size and how messages load. In the App Router I prefer locale in the URL segment, messages loaded per request on the server, and only needed namespaces sent to the client. Versions and APIs change quickly, so I verify current docs before committing.",
+      "revision": "Pick by ICU support, type safety, server component support and bundle strategy. Locale in the URL segment, server-loaded messages, minimal client payload.",
+      "detailed": "Library APIs change often; treat the following as principles and **verify current documentation** for the versions you use.\n\n## Options\n\n| Library | Strengths | Watch for |\n|---|---|---|\n| react-i18next / i18next | Large ecosystem, namespaces, plugins, lazy loading | ICU needs a plugin; key typing needs setup |\n| react-intl (FormatJS) | ICU-native, extraction tooling | Heavier API, fewer framework integrations |\n| next-intl | Next.js routing, server and client components, ICU, typed messages | Tied to Next.js |\n| Lingui | Compile-time message extraction, small runtime | Build setup |\n\n## Next.js App Router approach\n\n{{diagram:next}}\n\n1. **Locale segment**: `app/[locale]/...`, with middleware to negotiate and redirect from `/`.\n2. **Server-side messages**: load the locale's messages in the layout; server components translate without shipping a library to the browser.\n3. **Client components** receive only the subset they need through a provider.\n4. **Static generation**: generate params per locale for cacheable pages.\n\n```tsx\n// app/[locale]/layout.tsx (next-intl style; verify current API)\nimport { NextIntlClientProvider } from 'next-intl';\nimport { getMessages } from 'next-intl/server';\n\nexport default async function LocaleLayout({\n  children, params,\n}: { children: React.ReactNode; params: Promise<{ locale: string }> }) {\n  const { locale } = await params;\n  const messages = await getMessages();\n  return (\n    <html lang={locale} dir={locale === 'ar' ? 'rtl' : 'ltr'}>\n      <body>\n        <NextIntlClientProvider messages={messages}>{children}</NextIntlClientProvider>\n      </body>\n    </html>\n  );\n}\n```\n\n## Decision points\n\n- **Type-safe keys** catch missing translations at compile time.\n- **Bundle size**: split messages by route or namespace.\n- **Hydration**: formatting dates on server and client with different zones causes mismatches; pass a fixed `timeZone`.\n\n## Common mistakes\n\n- Loading every locale into the client bundle.\n- Detecting locale only on the client, causing a flash of wrong language.\n- Mismatched server and client formatting.\n- Putting locale in cookie only, hurting SEO.",
+      "followUps": [
+        "How would you avoid hydration mismatch with dates?",
+        "When is Lingui a better fit?",
+        "How do you test missing translations in CI?"
+      ],
+      "related": [
+        "multilingual-seo-hreflang",
+        "icu-message-format-plurals-gender"
+      ],
+      "diagrams": [
+        {
+          "id": "next",
+          "title": "Next.js localised request flow",
+          "alt": "Middleware negotiates the locale and redirects to a locale path. The locale layout loads messages on the server, renders server components, and passes only required messages to client components.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Request"
+            },
+            {
+              "id": "n1",
+              "label": "Middleware negotiates locale"
+            },
+            {
+              "id": "n2",
+              "label": "Locale route segment"
+            },
+            {
+              "id": "n3",
+              "label": "Load messages on server"
+            },
+            {
+              "id": "n4",
+              "label": "Server components render"
+            },
+            {
+              "id": "n5",
+              "label": "Client provider with subset"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            },
+            {
+              "from": "n4",
+              "to": "n5"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "theming-design-tokens-css-variables",
+      "title": "How do you build a theming system with design tokens and CSS variables?",
+      "topic": "Theming",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "theming",
+        "design-tokens",
+        "css-variables",
+        "scss"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I define design tokens in layers: primitive values such as a blue-500 colour, semantic tokens such as color-action-primary that map to primitives, and component tokens where needed. Tokens compile to CSS custom properties so themes switch by overriding variables on a root attribute with no rebuild. SCSS handles authoring helpers, while runtime theming uses variables. Components only consume semantic tokens, so adding a brand or dark theme is a mapping change.",
+      "revision": "Layer tokens: primitive, semantic, component. Compile to CSS variables, switch themes by overriding semantic values, and let components use semantic tokens only.",
+      "detailed": "A theme is a **mapping from semantic roles to values**.\n\n## Token layers\n\n| Layer | Example | Used by |\n|---|---|---|\n| Primitive | `--blue-600: #1d4ed8` | Token files only |\n| Semantic | `--color-action: var(--blue-600)` | Components |\n| Component | `--button-bg: var(--color-action)` | One component |\n\n{{diagram:tokens}}\n\n```css\n:root {\n  --blue-600: #1d4ed8;\n  --grey-900: #111827;\n  --color-action: var(--blue-600);\n  --color-text: var(--grey-900);\n  --space-2: 0.5rem;\n}\n\n[data-theme='brand-b'] {\n  --color-action: #0f766e;\n}\n\n.button {\n  background: var(--button-bg, var(--color-action));\n  padding-inline: var(--space-2);\n}\n```\n\n## CSS variables versus SCSS variables\n\n| | SCSS variable | CSS custom property |\n|---|---|---|\n| Resolved | Build time | Runtime |\n| Theme switching | Needs separate builds | Instant, no reload |\n| Inherited and scoped | No | Yes |\n| Usable in JS | No | Yes via `getComputedStyle` |\n\nUse SCSS for mixins, maps and functions that generate tokens, and CSS variables for what changes at runtime.\n\n## Tooling\n\nTools such as Style Dictionary (verify current version and config format) transform a token JSON source into CSS, SCSS, iOS and Android outputs, so design and code stay aligned.\n\n## Architecture advice\n\n- Name by **role**, not value (`--color-danger`, not `--red`).\n- Define spacing, type scale, radii, shadows, motion and z-index as tokens, not only colours.\n- Document tokens and deprecate rather than delete.\n\n## Common mistakes\n\n- Components referencing primitives directly, so a theme cannot change them.\n- Hundreds of one-off tokens.\n- Theming by overriding component CSS with higher specificity.\n- Forgetting contrast checks when a new theme is added.",
+      "followUps": [
+        "How do you version and deprecate tokens?",
+        "How would you theme a third-party component?",
+        "How do you keep Figma and code tokens in sync?"
+      ],
+      "related": [
+        "dark-mode-and-high-contrast",
+        "css-modules-vs-css-in-js-vs-scss"
+      ],
+      "diagrams": [
+        {
+          "id": "tokens",
+          "title": "Token layers",
+          "alt": "Primitive tokens hold raw values. Semantic tokens map roles to primitives. Component tokens map to semantic tokens. Components consume only the semantic or component layer, and a theme overrides the semantic mappings.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Primitive tokens"
+            },
+            {
+              "id": "n1",
+              "label": "Semantic tokens"
+            },
+            {
+              "id": "n2",
+              "label": "Component tokens"
+            },
+            {
+              "id": "n3",
+              "label": "Components"
+            },
+            {
+              "id": "n4",
+              "label": "Rendered UI"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "css-modules-vs-css-in-js-vs-scss",
+      "title": "CSS Modules versus CSS-in-JS versus SCSS: how do you decide?",
+      "topic": "Styling strategy",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "css-modules",
+        "css-in-js",
+        "scss",
+        "styling"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I compare them on scoping, runtime cost, server component compatibility, theming, and team skills. CSS Modules give local scoping with zero runtime and work well with Next.js server components. SCSS adds nesting, mixins and tokens but is global unless combined with modules. Runtime CSS-in-JS offers dynamic props and co-location but adds runtime cost and conflicts with server components, while zero-runtime options compile away. I often combine SCSS Modules with CSS variables.",
+      "revision": "CSS Modules: scoped, zero runtime. SCSS: authoring power, global by default. Runtime CSS-in-JS: dynamic but costly. Combine modules with CSS variables for theming.",
+      "detailed": "There is no universal winner; compare on **criteria**.\n\n| Criterion | CSS Modules | SCSS (plain) | Runtime CSS-in-JS | Zero-runtime CSS-in-JS |\n|---|---|---|---|---|\n| Scoping | Local class names | Global | Generated unique | Generated unique |\n| Runtime cost | None | None | Style injection on render | None |\n| Server components | Fine | Fine | Often problematic | Fine |\n| Dynamic styling | Via CSS variables | Via variables | Props directly | Via variables |\n| Theming | CSS variables | Variables, maps | Theme provider | Variables |\n| Tooling | Built into major bundlers | Sass compiler | Library | Build plugin |\n| Learning curve | Low | Low | Medium | Medium |\n\n{{diagram:decide}}\n\n## Example: CSS Module with dynamic value\n\n```tsx\nimport styles from './Badge.module.scss';\n\nexport function Badge({ tone, children }: { tone: 'info' | 'danger'; children: React.ReactNode }) {\n  return <span className={styles[tone]}>{children}</span>;\n}\n```\n\n```scss\n.info { background: var(--color-info-bg); color: var(--color-info-text); }\n.danger { @extend .info; background: var(--color-danger-bg); }\n```\n\n## Decision guidance\n\n- **Server-rendered, performance sensitive, many teams:** CSS Modules with SCSS and CSS variables.\n- **Highly dynamic component library with runtime theming:** consider CSS-in-JS, but measure cost and check framework compatibility.\n- **Utility-first alternative:** Tailwind is another option with its own trade-offs.\n- Do not mix three approaches without a rule.\n\nLibrary maturity and framework support change; verify current compatibility.\n\n## Common mistakes\n\n- Choosing by trend rather than constraints.\n- Runtime CSS-in-JS in a large list without measuring.\n- Using global SCSS with deep nesting, creating specificity wars.\n- Migrating everything at once instead of by component.",
+      "followUps": [
+        "How would you migrate from runtime CSS-in-JS incrementally?",
+        "How do CSS Modules handle global styles?",
+        "Where does Tailwind fit in this comparison?"
+      ],
+      "related": [
+        "theming-design-tokens-css-variables",
+        "global-css-conflicts-brand-consistency"
+      ],
+      "diagrams": [
+        {
+          "id": "decide",
+          "title": "Styling decision flow",
+          "alt": "Teams first consider server rendering and runtime cost constraints, then dynamic styling needs, and then team skills. Most paths lead to CSS Modules with variables, with CSS-in-JS only where dynamic needs justify it.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Project constraints"
+            },
+            {
+              "id": "n1",
+              "label": "Server rendering and runtime cost"
+            },
+            {
+              "id": "n2",
+              "label": "Dynamic styling needs"
+            },
+            {
+              "id": "n3",
+              "label": "Team conventions"
+            },
+            {
+              "id": "n4",
+              "label": "Choose and document rule"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "dark-mode-and-high-contrast",
+      "title": "How do you implement dark mode and high-contrast support?",
+      "topic": "Theming",
+      "difficulty": "intermediate",
+      "type": "coding",
+      "tags": [
+        "dark-mode",
+        "high-contrast",
+        "accessibility",
+        "prefers-color-scheme"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I define semantic colour tokens and provide dark values under prefers-color-scheme plus a data-theme override for user choice. I store the choice and apply it before first paint to avoid a flash. For high contrast I respect prefers-contrast and forced-colors, using system colours and keeping borders and focus rings visible. I set color-scheme so form controls and scrollbars adapt, and I check contrast ratios for every theme, not just the default.",
+      "revision": "Semantic tokens with dark values, prefers-color-scheme plus manual override, no flash, color-scheme set, and support for prefers-contrast and forced-colors.",
+      "detailed": "Dark mode is a **second token mapping**, not an inverted stylesheet.\n\n## Implementation\n\n```css\n:root {\n  color-scheme: light dark;\n  --bg: #ffffff;\n  --text: #111827;\n  --border: #d1d5db;\n}\n\n@media (prefers-color-scheme: dark) {\n  :root:not([data-theme='light']) { --bg: #0b1220; --text: #e5e7eb; --border: #374151; }\n}\n:root[data-theme='dark'] { --bg: #0b1220; --text: #e5e7eb; --border: #374151; }\n\n@media (prefers-contrast: more) {\n  :root { --border: currentColor; --text: #000; }\n}\n\n@media (forced-colors: active) {\n  .button { border: 1px solid ButtonText; }\n  :focus-visible { outline: 2px solid Highlight; }\n}\n```\n\n{{diagram:theme}}\n\n## Avoid the flash\n\nApply the stored theme with a tiny inline script in `<head>` before paint, or via a cookie read on the server.\n\n```html\n<script>\n  try { var t = localStorage.getItem('theme'); if (t) document.documentElement.dataset.theme = t; } catch (e) {}\n</script>\n```\n\n## Details people forget\n\n| Item | Note |\n|---|---|\n| Elevation | Use lighter surfaces, not heavier shadows, in dark mode |\n| Images and logos | Provide dark variants or transparent assets |\n| Pure black and white | Can cause halation; slightly softened values are comfortable |\n| Charts, code blocks, third-party widgets | Need dark palettes too |\n| Contrast | WCAG AA: 4.5:1 text, 3:1 large text and UI components; check each theme |\n| Forced colours | Do not rely on background colours or images to convey state |\n\n## Common mistakes\n\n- Using `filter: invert()` on the whole page.\n- Ignoring the user's explicit choice in favour of system preference.\n- Forgetting focus indicators in dark theme.\n- Testing only the default theme for accessibility.",
+      "followUps": [
+        "How do you avoid a flash of the wrong theme in SSR?",
+        "What does forced-colors mode do to your CSS?",
+        "How do you test contrast across themes automatically?"
+      ],
+      "related": [
+        "theming-design-tokens-css-variables",
+        "global-css-conflicts-brand-consistency"
+      ],
+      "diagrams": [
+        {
+          "id": "theme",
+          "title": "Theme selection",
+          "alt": "The page reads the stored user choice first, then the system colour scheme preference. The chosen theme sets a root attribute, and contrast and forced-colour media queries refine the semantic token values.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Stored user choice"
+            },
+            {
+              "id": "n1",
+              "label": "System preference"
+            },
+            {
+              "id": "n2",
+              "label": "Set data-theme before paint"
+            },
+            {
+              "id": "n3",
+              "label": "Semantic tokens resolve"
+            },
+            {
+              "id": "n4",
+              "label": "Contrast and forced-colours refine"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "global-css-conflicts-brand-consistency",
+      "title": "How do you avoid global CSS conflicts and keep brand consistency across themes?",
+      "topic": "CSS architecture",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "css-architecture",
+        "brand",
+        "specificity",
+        "themes"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I limit global CSS to a reset, tokens and base typography, and scope everything else with CSS Modules, naming conventions or cascade layers. Specificity stays low and flat, and components never reach into each other's internals. Brand consistency comes from shared tokens and a component library, with themes allowed to change token values within governed ranges. Visual regression tests and linting enforce it, and contrast checks run per theme.",
+      "revision": "Keep global CSS minimal, scope components, use cascade layers and flat specificity, share tokens, and enforce with linting and visual regression tests.",
+      "detailed": "Conflicts arise when **many authors share one global namespace**.\n\n## Containment tactics\n\n| Tactic | Effect |\n|---|---|\n| CSS Modules or scoped naming (BEM) | Class names cannot collide |\n| `@layer` ordering | Predictable cascade between reset, base, components, overrides |\n| Low specificity, no IDs, no `!important` | Overrides stay possible |\n| Component-owned styles only | No styling another component's internals |\n| Shadow DOM or iframes for third-party widgets | Hard isolation |\n| Stylelint rules | Block banned patterns in CI |\n\n```css\n@layer reset, tokens, base, components, utilities;\n\n@layer components {\n  .card { border-radius: var(--radius-2); }\n}\n```\n\n{{diagram:layers}}\n\n## Brand consistency across themes\n\n- Define **brand invariants**: logo clear space, typography scale, spacing grid, accessibility minimums.\n- Define **theme variables** that may change: palette, radius, density.\n- Expose themes only through tokens; a theme file must not contain component selectors.\n- Provide a documented component library (for example Storybook) as the single source.\n- Add **visual regression** and contrast checks per theme in CI.\n\n## Governance\n\nReview token changes like API changes. A design-system team owns tokens and publishes versions; product teams consume and request changes rather than fork styles.\n\n## Common mistakes\n\n- Overriding library classes with long selectors.\n- Letting each team add global styles.\n- Adding themes by copying whole stylesheets.\n- No ownership, so tokens drift.\n- Using `!important` as a first resort.",
+      "followUps": [
+        "How do cascade layers interact with specificity?",
+        "How would you integrate a third-party widget safely?",
+        "What belongs in a design-system release process?"
+      ],
+      "related": [
+        "css-modules-vs-css-in-js-vs-scss",
+        "theming-design-tokens-css-variables"
+      ],
+      "diagrams": [
+        {
+          "id": "layers",
+          "title": "Cascade layer order",
+          "alt": "Styles are organised in layers evaluated from lowest to highest priority: reset, tokens, base, components and utilities. Later layers win regardless of selector specificity within earlier layers.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "reset"
+            },
+            {
+              "id": "n1",
+              "label": "tokens"
+            },
+            {
+              "id": "n2",
+              "label": "base"
+            },
+            {
+              "id": "n3",
+              "label": "components"
+            },
+            {
+              "id": "n4",
+              "label": "utilities"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "ecommerce-india-europe-middle-east",
+      "title": "Scenario: an ecommerce platform launches in India, Europe and the Middle East. What changes?",
+      "topic": "Scenario",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "ecommerce",
+        "scenario",
+        "currency",
+        "tax",
+        "rtl"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I treat it as market configuration plus i18n. Currency, tax-inclusive or exclusive price display, and rounding are per market and per order. Address forms vary: India uses PIN codes and states, Europe has country-specific formats, the Gulf often lacks postal codes and uses landmarks. Dates, numbers and RTL layout follow locale. Checkout offers local payments such as UPI, SEPA or cash on delivery, with local compliance such as GST and VAT.",
+      "revision": "Make market a config: currency, tax display, address schema, payments, legal. Layer locale formatting and RTL on top, and test each checkout path.",
+      "detailed": "Separate **market** (commercial rules) from **locale** (language and formatting).\n\n## Per-market differences\n\n| Area | India | Europe | Middle East (Gulf) |\n|---|---|---|---|\n| Currency | INR, lakh grouping | EUR and others (SEK, PLN) | AED, SAR, others |\n| Price display | Tax-inclusive (GST) typical | VAT-inclusive for consumers, required in many countries | VAT-inclusive typical; verify per country |\n| Address | PIN code, state, landmark | Country-specific order and postcode | Often no postcode, area and landmark, Arabic and English |\n| Payments | UPI, cards, wallets, cash on delivery | Cards, SEPA, iDEAL, Klarna and others | Cards, local wallets, cash on delivery |\n| Language and layout | English and regional languages | Many languages | Arabic RTL and English |\n| Week and dates | Day-first | Day-first, 24-hour | Week start varies; Hijri display optional |\n\nTax and legal rules change, so confirm with finance and legal advisers.\n\n{{diagram:market}}\n\n## Design approach\n\n1. **Market config service**: currency, tax mode, shipping options, payment methods, legal text, address schema.\n2. **Price model**: store net, tax rate and gross in minor units with currency; compute per market; show tax-inclusive or exclusive according to the market rules.\n3. **Address schema-driven forms**: required fields, labels and validation per country, with autocomplete where available.\n4. **Locale layer**: Intl formatting, ICU messages, RTL with logical CSS.\n5. **Checkout**: methods and flows per market, including 3-D Secure, redirect payments and COD verification.\n6. **Operations**: returns, invoices with local tax fields, customer support hours.\n\n## Testing\n\nTest matrix of market by locale by device; pseudo-locale and RTL screenshots; payment sandboxes; rounding tests.\n\n## Common mistakes\n\n- Deriving currency from language.\n- Floating-point money.\n- Requiring a postcode or state everywhere.\n- Hard-coding left-to-right checkout components.\n- Showing prices ex-tax where consumer law expects inclusive prices.",
+      "followUps": [
+        "How would you model prices that differ by market?",
+        "How do you validate addresses globally without being too strict?",
+        "How would you roll this out incrementally?"
+      ],
+      "related": [
+        "intl-formatting-dates-numbers-currency",
+        "rtl-languages-logical-css",
+        "time-zones-and-utc-storage"
+      ],
+      "diagrams": [
+        {
+          "id": "market",
+          "title": "Market and locale layering",
+          "alt": "A user request resolves to a market configuration giving currency, tax display, address schema and payments, and to a locale giving language, formatting and direction. Together they render product and checkout pages.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Request"
+            },
+            {
+              "id": "n1",
+              "label": "Resolve market config"
+            },
+            {
+              "id": "n2",
+              "label": "Resolve locale"
+            },
+            {
+              "id": "n3",
+              "label": "Price and tax calculation"
+            },
+            {
+              "id": "n4",
+              "label": "Address and payment forms"
+            },
+            {
+              "id": "n5",
+              "label": "Localised checkout page"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            },
+            {
+              "from": "n4",
+              "to": "n5"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "translations-overflow-layout",
+      "title": "Scenario: translations overflow the layout in another language. How do you fix and prevent it?",
+      "topic": "Scenario",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "layout",
+        "scenario",
+        "translation",
+        "css"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "First reproduce with the actual locale and capture which components break. Then fix structurally: let containers grow, allow wrapping, use min-width and gap instead of fixed widths, use flex and grid with minmax, and truncate with a tooltip only where acceptable. Avoid fixed-height buttons. To prevent recurrence I add pseudo-localisation with long strings to Storybook and visual tests, plus length warnings in the translation tool.",
+      "revision": "Reproduce in the locale, replace fixed sizes with flexible layout, wrap or truncate deliberately, and prevent with pseudo-localisation and visual tests.",
+      "detailed": "Text expansion is predictable, so the fix should be systemic.\n\n## Diagnose\n\n- Capture screenshots per locale and note component, viewport and string.\n- Check whether the cause is **layout** (fixed width, nowrap) or **content** (an overlong translation or missing context).\n- Look at German, Finnish, Russian (long words) and languages with taller glyphs such as Thai or Arabic (line-height).\n\n## Fix patterns\n\n| Problem | Fix |\n|---|---|\n| Fixed-width button | `min-inline-size` with padding, allow growth |\n| Single-line nav overflows | Wrap, or collapse into a menu at a breakpoint |\n| Long unbroken words | `overflow-wrap: anywhere`, `hyphens: auto` with correct `lang` |\n| Fixed-height card | Use `min-block-size` |\n| Tabs and table headers | Allow multi-line or abbreviate with tooltips |\n| Icon plus label rows | Flex with `gap`, label `min-width: 0` |\n\n```css\n.btn { display: inline-flex; gap: 0.5rem; min-inline-size: 6rem; padding-inline: 1rem; }\n.title { overflow-wrap: anywhere; hyphens: auto; }\n.card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); }\n.truncate { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }\n```\n\n{{diagram:fix}}\n\n## Prevention\n\n1. **Pseudo-localisation** (for example turning \"Save\" into \"[Šåvé]\") expands strings about 30 to 40 percent to reveal problems before translation.\n2. Storybook stories and visual regression in long-text and RTL variants.\n3. Length hints in the translation tool and warnings in CI.\n4. Design reviews that include expanded text mock-ups.\n5. Give translators context and permission to shorten.\n\n## Common mistakes\n\n- Asking translators to shorten everything to fit a broken layout.\n- Truncating critical information such as price or error messages.\n- Using `overflow: hidden` to hide the problem.\n- Testing only English in screenshots.",
+      "followUps": [
+        "When is truncation acceptable?",
+        "How does pseudo-localisation work?",
+        "What would you do for a button label that must stay one line?"
+      ],
+      "related": [
+        "rtl-languages-logical-css",
+        "translation-resource-management"
+      ],
+      "diagrams": [
+        {
+          "id": "fix",
+          "title": "Overflow fix workflow",
+          "alt": "The team reproduces the overflow in the target locale, identifies whether layout or content causes it, applies flexible layout fixes, and adds pseudo-localisation and visual tests to prevent recurrence.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Reproduce in locale"
+            },
+            {
+              "id": "n1",
+              "label": "Identify layout or content cause"
+            },
+            {
+              "id": "n2",
+              "label": "Apply flexible CSS"
+            },
+            {
+              "id": "n3",
+              "label": "Add pseudo-locale visual tests"
+            },
+            {
+              "id": "n4",
+              "label": "Monitor in CI"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

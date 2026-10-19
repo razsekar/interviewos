@@ -1,0 +1,1388 @@
+{
+  "category": "mern-rapid-fire",
+  "questions": [
+    {
+      "slug": "useeffect-fetch-race-condition",
+      "title": "Why can useEffect fetching cause a race condition and how do you prevent it?",
+      "topic": "React",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "react",
+        "hooks",
+        "async"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Each render can start its own request, and responses may return out of order. If the user types quickly or navigates, an older, slower response can arrive last and overwrite newer state. I prevent it with a cleanup function that aborts the request using AbortController or sets an ignore flag, so stale results are discarded. In practice I would rather not hand-roll this: a data library such as React Query, RTK Query or SWR handles cancellation, deduplication, caching and retries, and Server Components remove much of it.",
+      "revision": "Responses can return out of order; cancel or ignore stale requests in the effect cleanup, or use a data-fetching library that does it for you.",
+      "detailed": "The effect runs after every change in its dependencies, and nothing guarantees that network responses finish in the order they were sent.\n\n## Key points\n\n- Request A starts for query 'a', request B for 'ab'; if A returns last, the screen shows results for the wrong input.\n- The effect cleanup runs before the next effect and on unmount, which is the right place to abort or flag the request as stale.\n- AbortController cancels the network call; an ignore flag only discards the result, so the request still costs bandwidth.\n- Handle the abort error explicitly so it is not shown as a failure to the user.\n- In Strict Mode development, effects run twice, which exposes missing cleanup early; treat that as a feature.\n\n## Trade-off\n\nHand-written effects give full control but duplicate logic in every component. A query library adds a dependency and a caching model to learn, but gives deduplication, stale-while-revalidate and consistent loading and error states.\n\n## Common mistake\n\nSetting state after an await without checking whether the component is still current, or silencing the Strict Mode double-fetch instead of fixing the missing cleanup.\n\n## Likely follow-up\n\n**Is aborting enough on its own?** Not always. Abort stops the client waiting, but the server may still process a write. For mutations I use idempotency keys and optimistic concurrency, not just cancellation.\n\n## Worked scenario\n\nPicture a search box that fires a request on every keystroke. The user types 'sh' then 'shoes'; the 'sh' request is slow and lands after the 'shoes' response, so the list shows results for the wrong term. The fix is small: create an AbortController inside the effect, pass its signal to fetch, and call abort in the cleanup. Catch the AbortError and ignore it. Add a debounce of a couple of hundred milliseconds to cut traffic as well. In a review I would also ask whether a query keyed by the search term removes the whole class of bug.\n\n## Rehearse these\n\n- How does React Query deduplicate requests?\n- What does Strict Mode double-invoking effects teach you?\n- When would you fetch on the server instead?",
+      "followUps": [
+        "How does React Query deduplicate requests?",
+        "What does Strict Mode double-invoking effects teach you?",
+        "When would you fetch on the server instead?"
+      ]
+    },
+    {
+      "slug": "react-rerender-causes-and-fixes",
+      "title": "What actually causes unnecessary React re-renders and how do you fix them in order?",
+      "topic": "React",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "react",
+        "performance",
+        "memo"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "A component re-renders when its state changes, its parent renders, or a context it consumes changes. Re-rendering is cheap unless the tree is large or the work is heavy, so I measure first with the React Profiler. Then I fix in order: move state down or lift content up so fewer components are affected, split contexts, pass stable props, and only then use memo, useMemo or useCallback where the profiler shows a real cost. Virtualise long lists and consider the React Compiler where adopted.",
+      "revision": "Measure with the Profiler, then restructure state and context first; memoisation is a targeted last step, not a default.",
+      "detailed": "Rendering is React calling your function; it is only a problem when it is frequent, slow, or causes expensive commits.\n\n## Key points\n\n- State colocation: keep state in the lowest component that needs it so siblings do not re-render.\n- Children-as-props: components passed as children keep their element identity when the wrapper's state changes.\n- Context: any consumer re-renders when the value changes, so split by update frequency or use selector-based stores.\n- React.memo only helps if props are referentially stable; inline objects and functions defeat it.\n- Lists: virtualise (windowing) and give stable keys rather than optimising each row.\n\n## Trade-off\n\nMemoisation reduces renders but adds comparison cost and code noise, and stale closures become easier to introduce. Restructuring costs design effort up front but is more robust.\n\n## Common mistake\n\nWrapping everything in useMemo and useCallback without measuring, which adds complexity while the real cause, such as a context value that changes every render, remains.\n\n## Likely follow-up\n\n**Does the React Compiler remove the need for this?** It automates much memoisation where it is enabled and the code follows the rules of React, but it does not fix poor state placement or huge lists, so the reasoning still matters. Check the current version's support before relying on it.\n\n## Worked scenario\n\nSuppose a dashboard header shows a clock that updates every second, and the whole page lags. The profiler shows every widget re-rendering because the clock state sits in the page component. Moving the clock into its own small component fixes it with no memoisation at all. A second case: a context value built as an inline object, such as value equal to a fresh object literal, re-renders all consumers on every parent render. Wrapping it in useMemo, or splitting rarely changing values from fast-changing ones, cures that. Only after those two changes would I consider memo on an expensive chart.\n\n## Rehearse these\n\n- How do you profile a slow interaction?\n- Why does a new object in context cause re-renders?\n- When is useMemo harmful?",
+      "followUps": [
+        "How do you profile a slow interaction?",
+        "Why does a new object in context cause re-renders?",
+        "When is useMemo harmful?"
+      ]
+    },
+    {
+      "slug": "react-controlled-vs-uncontrolled-forms",
+      "title": "Controlled vs uncontrolled inputs: how do you choose for a large form?",
+      "topic": "React",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "react",
+        "forms",
+        "performance"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "A controlled input keeps its value in React state, which makes validation and derived UI easy but re-renders on every keystroke. An uncontrolled input lets the DOM hold the value and reads it on submit or via refs, which is faster for big forms. For large forms I use a library such as React Hook Form, which registers inputs as uncontrolled and validates with a schema, and I use controlled inputs only where the UI must react instantly, such as masked or dependent fields.",
+      "revision": "Use uncontrolled, schema-validated forms for scale and controlled inputs only where the UI must react per keystroke.",
+      "detailed": "The choice is about who owns the value and how often React must know about it.\n\n## Key points\n\n- Controlled: single source of truth in React, easy conditional logic, but renders on each change.\n- Uncontrolled: DOM owns the value, minimal re-renders, read on submit or on blur.\n- Schema validation (Zod, Yup) shared with the server keeps rules consistent and testable.\n- Accessibility is unchanged: labels, error association with aria-describedby, and focus management on submit failure.\n- Server Actions or API errors must map back to field-level messages.\n\n## Trade-off\n\nControlled gives the simplest mental model; uncontrolled gives performance but sometimes awkward dynamic behaviour. Libraries bridge the two at the cost of an abstraction.\n\n## Common mistake\n\nStoring every field in a global store, so each keystroke triggers app-wide updates and the form feels slow on low-end devices.\n\n## Likely follow-up\n\n**How do you validate on both client and server?** Define one schema, use it in the client for fast feedback and again on the server as the authority, and return structured field errors so the UI can display them accessibly.\n\n## Worked scenario\n\nTake a fifty-field onboarding form. With every input controlled and kept in a top-level state object, each keystroke re-renders all fifty fields, which becomes visible on a mid-range phone. Registering the inputs as uncontrolled through React Hook Form, and validating with a shared Zod schema on blur and submit, removes nearly all of that work. Keep one controlled exception: a postcode field that formats as the user types. When the server rejects the submission, map its field errors back to the form, move focus to the first invalid field, and link the message with aria-describedby.\n\n## Rehearse these\n\n- How do you handle dynamic field arrays?\n- How would you announce errors to screen readers?\n- What does useActionState change for forms?",
+      "followUps": [
+        "How do you handle dynamic field arrays?",
+        "How would you announce errors to screen readers?",
+        "What does useActionState change for forms?"
+      ]
+    },
+    {
+      "slug": "react-error-boundaries-limits",
+      "title": "What do React error boundaries catch, and what do they miss?",
+      "topic": "React",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "react",
+        "errors",
+        "resilience"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Error boundaries catch errors thrown during rendering, in lifecycle methods and in constructors of the tree beneath them, and show a fallback instead of unmounting the whole app. They do not catch errors in event handlers, asynchronous code such as promises or timeouts, server-side rendering, or errors in the boundary itself. So I combine them: boundaries per feature area, try/catch in handlers, a global handler for unhandled rejections, and reporting to a monitoring tool with release information.",
+      "revision": "Boundaries catch render-time errors below them only; handle events and async errors separately and report everything with context.",
+      "detailed": "Boundaries are a containment tool for rendering failures, not a general exception mechanism.\n\n## Key points\n\n- Place boundaries at meaningful seams: route, widget, third-party embed, so one failure does not blank the page.\n- Event handlers and async code need try/catch or promise handling; surface errors into state if the UI should react.\n- Offer a retry that resets boundary state, for example by changing a key.\n- Log with component stack, user session id (not personal data) and release version.\n- In Next.js, error.js files provide route-level boundaries; check the current conventions for your version.\n\n## Trade-off\n\nFine-grained boundaries limit blast radius but add fallback UI to design and maintain; a single top-level boundary is simple but yields a blank page for any failure.\n\n## Common mistake\n\nRelying on one root boundary and assuming it covers failed fetches, which are async and would never reach it.\n\n## Likely follow-up\n\n**How do boundaries relate to Suspense?** Suspense handles waiting, boundaries handle failure. Together a route can show a skeleton while loading and a recoverable message if the data call throws.\n\n## Worked scenario\n\nConsider a product page with a reviews widget fed by a flaky third-party service. If a malformed review makes rendering throw, a boundary wrapped around only the widget shows 'Reviews are unavailable' while the price and Add to basket button keep working. A boundary at the root would have blanked the whole page. But a failed fetch inside an effect is not caught at all, so the widget should store the error in state and render the fallback itself. Report both paths to monitoring with the release number, and give the fallback a retry button that changes the boundary key.\n\n## Rehearse these\n\n- How do you test an error boundary?\n- What should the fallback show for accessibility?\n- Where do you send the error report?",
+      "followUps": [
+        "How do you test an error boundary?",
+        "What should the fallback show for accessibility?",
+        "Where do you send the error report?"
+      ]
+    },
+    {
+      "slug": "react-server-vs-client-components",
+      "title": "How do you decide between Server and Client Components?",
+      "topic": "React",
+      "difficulty": "advanced",
+      "type": "comparison",
+      "tags": [
+        "react",
+        "rsc",
+        "nextjs"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I default to Server Components because they run on the server, can read data directly, and send no component JavaScript to the browser. I make a component a Client Component only when it needs state, effects, browser APIs or event handlers, and I push that boundary as far down the tree as possible so only small interactive leaves ship JavaScript. Props crossing the boundary must be serialisable, and secrets must stay in server code. The trade-off is a more complex mental model and caching rules.",
+      "revision": "Server by default, client only for interactivity, with the client boundary pushed to small leaves and secrets kept server-side.",
+      "detailed": "Server Components move work and bundle weight to the server; Client Components provide interactivity.\n\n## Key points\n\n- Server: data access, heavy libraries, zero client bundle, secrets stay on the server.\n- Client: useState, useEffect, event handlers, browser APIs, context providers.\n- Composition: a Server Component can pass Server Components as children to a Client Component, keeping them server-rendered.\n- Props across the boundary must be serialisable; functions and class instances cannot cross.\n- Caching and revalidation behaviour is framework-specific and changes between versions, so confirm against current docs.\n\n## Trade-off\n\nYou gain smaller bundles and simpler data access, but you add server load, a more complex mental model, and some library incompatibilities with server rendering.\n\n## Common mistake\n\nMarking a high-level layout as a Client Component for one button, which pulls the whole subtree into the client bundle.\n\n## Likely follow-up\n\n**Where do context providers go?** In a thin Client Component wrapper placed high in the tree that accepts children, so the rest of the tree can remain server-rendered.\n\n## Worked scenario\n\nImagine a product detail page with a long description, a gallery, a reviews list and an Add to basket button. Only the button and the gallery carousel need state, so they become small Client Components; the description and reviews stay as Server Components that query data directly and ship no JavaScript. A common failure is adding a theme toggle at the layout level and marking the whole layout as client, pulling every child into the bundle. The fix is to keep the layout on the server and render a tiny client toggle inside it, passing server-rendered content through children.\n\n## Rehearse these\n\n- Can a Client Component import a Server Component?\n- How do you stop server-only code leaking to the client?\n- What is hydration cost?",
+      "followUps": [
+        "Can a Client Component import a Server Component?",
+        "How do you stop server-only code leaking to the client?",
+        "What is hydration cost?"
+      ]
+    },
+    {
+      "slug": "rtk-vs-rtk-query-vs-react-query",
+      "title": "When do you use Redux Toolkit, RTK Query or React Query, and when none?",
+      "topic": "Redux Toolkit",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "redux-toolkit",
+        "state",
+        "data-fetching"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I separate server state from client state. Server state, meaning cached API data, belongs in a query library: RTK Query if the app already uses Redux Toolkit, otherwise React Query or SWR. Client state such as UI flows, wizard progress or cross-feature coordination can use Redux Toolkit slices when many distant components share it. Local component state, URL parameters and form libraries cover the rest. Putting everything in one global store is the common mistake, because it duplicates caching logic and causes needless re-renders.",
+      "revision": "Server state goes in a query cache, shared client state in slices, everything else in local state or the URL.",
+      "detailed": "The question is who owns the data: the server, the user session, or one component.\n\n## Key points\n\n- RTK Query: cache, tags for invalidation, generated hooks, integrates with the Redux store and devtools.\n- React Query: framework-agnostic, strong defaults for stale time, retries and background refetch.\n- Redux slices: predictable updates, middleware, time-travel debugging, good for complex cross-cutting flows.\n- URL state: filters, pagination and sort belong in the URL so they are shareable and bookmarkable.\n- In Next.js with Server Components, much server state moves to the server and the client cache shrinks.\n\n## Trade-off\n\nA single tool is simpler to learn; two tools match the problem better but need clear team conventions about what lives where.\n\n## Common mistake\n\nCopying fetched data into a Redux slice, then trying to keep it in sync with the server manually.\n\n## Likely follow-up\n\n**How do you invalidate cache after a mutation?** With RTK Query, mutations invalidate tags so affected queries refetch; with React Query, invalidate query keys. Optimistic updates need a rollback path on failure.\n\n## Worked scenario\n\nA shop app has a product list, a basket and a multi-step checkout wizard. The product list is server state: fetch it with a query hook, tag it, and invalidate the tag after an admin edit. The basket is shared client state across the header, page and checkout, so a slice is reasonable. The wizard step lives in local state or the URL. Filters and page number go in query parameters so a shared link reproduces the view. A mistake would be copying the fetched products into a slice, which creates a second copy that drifts from the cache.\n\n## Rehearse these\n\n- What is normalised state and when do you need it?\n- How do you do optimistic updates safely?\n- What belongs in the URL?",
+      "followUps": [
+        "What is normalised state and when do you need it?",
+        "How do you do optimistic updates safely?",
+        "What belongs in the URL?"
+      ]
+    },
+    {
+      "slug": "rtk-selectors-memoization",
+      "title": "Why do selectors matter in Redux Toolkit, and what goes wrong without them?",
+      "topic": "Redux Toolkit",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "redux-toolkit",
+        "selectors",
+        "performance"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "useSelector re-renders a component whenever the selected value changes by reference. If a selector builds a new array or object each time, the component re-renders on every store update even when nothing relevant changed. I keep state normalised, write small selectors that return existing references, and use createSelector to memoise derived data. Selectors also centralise the state shape, so components do not depend on its structure. I avoid selecting the whole slice and I test selectors as pure functions.",
+      "revision": "Selectors return stable references and memoise derived data, preventing needless re-renders and hiding state shape from components.",
+      "detailed": "useSelector compares results with strict equality, so reference stability is the whole game.\n\n## Key points\n\n- A selector that maps or filters inline returns a new array each call and forces re-render.\n- createSelector recomputes only when its input selectors return new references.\n- Normalised state with entity adapters gives stable lookups by id and simpler updates.\n- Parameterised selectors need per-instance memoisation or a factory to avoid cache thrashing.\n- Colocate selectors with the slice so a state-shape change is a one-file edit.\n\n## Trade-off\n\nMemoised selectors add indirection and a learning curve; the benefit is predictable performance and a single place to change state shape.\n\n## Common mistake\n\nSelecting a large object just to read one field, so any change in that object re-renders the component.\n\n## Likely follow-up\n\n**Is shallowEqual a substitute?** It can reduce re-renders for small flat results, but it costs a comparison each time and hides the real fix, which is returning stable references and selecting minimal data.\n\n## Worked scenario\n\nA header badge needs the count of unread notifications. Written as a selector that filters the whole list inline and returns its length, it is cheap and returns a number, so it re-renders only when the count changes. Written to return the filtered array, it returns a new array on every store update and the badge re-renders constantly. The remedy is either to select the count, or to define the filtered list with createSelector over the notifications input so the output reference stays the same until notifications change. Test the selector with fixed input state and assert reference equality across two calls.\n\n## Rehearse these\n\n- What is an entity adapter?\n- How do you test selectors?\n- How do you spot over-rendering from the store?",
+      "followUps": [
+        "What is an entity adapter?",
+        "How do you test selectors?",
+        "How do you spot over-rendering from the store?"
+      ]
+    },
+    {
+      "slug": "rtk-async-thunks-vs-listener-middleware",
+      "title": "How do you handle side effects in Redux Toolkit: thunks, listeners or sagas?",
+      "topic": "Redux Toolkit",
+      "difficulty": "advanced",
+      "type": "comparison",
+      "tags": [
+        "redux-toolkit",
+        "middleware",
+        "side-effects"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "For most apps I use RTK Query for data fetching, async thunks for simple one-off flows, and the listener middleware for reactive logic such as 'when this action happens, do that'. Sagas or observables are justified only for complex long-running orchestration, cancellation and debouncing across many events, and they add real learning cost. I keep reducers pure, put side effects in middleware, make effects idempotent, and handle errors explicitly so a failed call leaves state consistent and visible to the user.",
+      "revision": "Prefer RTK Query, then thunks and listener middleware; use sagas only for complex long-running orchestration.",
+      "detailed": "Reducers must stay pure, so anything asynchronous or external lives in middleware or components.\n\n## Key points\n\n- createAsyncThunk gives pending, fulfilled and rejected actions plus built-in cancellation support.\n- Listener middleware reacts to actions or state changes, supports debounce and cancellation, with plain async functions.\n- Sagas offer fine control of concurrency and long-lived workflows but need generators and specialist knowledge.\n- Errors need a state representation, not only a console log, so the UI can show and retry.\n- Make side effects idempotent so a retry or double dispatch is safe.\n\n## Trade-off\n\nSimpler tools cover most cases and keep onboarding easy; sagas give power but concentrate knowledge in a few people.\n\n## Common mistake\n\nTriggering API calls inside reducers or inside deeply nested effects with no cancellation, creating races and duplicates.\n\n## Likely follow-up\n\n**How do you cancel an in-flight thunk?** Use the abort signal supplied to the thunk, wired to the fetch call, and check the signal state before dispatching dependent updates.\n\n## Worked scenario\n\nSuppose saving a basket should also trigger an analytics event and a refreshed stock check. A thunk that does all three inside one function grows tangled. With a listener, the save action stays small and a separate listener reacts to its fulfilled action, runs the stock check, and cancels any earlier running check when a newer save arrives. A debounce of several hundred milliseconds protects the stock service. Each listener is a plain async function that is straightforward to test by dispatching the action against a test store and awaiting the result.\n\n## Rehearse these\n\n- When would you pick sagas?\n- How do you debounce search?\n- How do you test middleware?",
+      "followUps": [
+        "When would you pick sagas?",
+        "How do you debounce search?",
+        "How do you test middleware?"
+      ]
+    },
+    {
+      "slug": "nextjs-rendering-strategies-choice",
+      "title": "How do you choose between SSG, ISR, SSR and client rendering in Next.js?",
+      "topic": "Next.js",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "nextjs",
+        "rendering",
+        "performance",
+        "seo"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I choose per route by how fresh and personalised the data must be. Static generation suits content that rarely changes: fastest and cheapest from a CDN. Incremental regeneration suits catalogue or marketing pages that can be a little stale. Server rendering suits personalised or fast-changing pages that need SEO. Client rendering suits authenticated dashboards behind login. A product page might be static with revalidation for the shell and client-fetched price and stock for freshness. I check current framework docs because caching defaults have changed between versions.",
+      "revision": "Pick per route by freshness and personalisation: static or revalidated for public content, server for personalised SEO pages, client for private dashboards.",
+      "detailed": "Rendering mode trades freshness, cost, latency and SEO against each other.\n\n## Key points\n\n- Static: built ahead, CDN-served, lowest latency, stale until rebuilt or revalidated.\n- ISR or time-based revalidation: static speed with bounded staleness; on-demand revalidation for editorial or inventory events.\n- Server rendering: fresh and personalised per request but costs compute and adds time to first byte.\n- Client rendering: no server cost per page, weaker first paint and SEO unless carefully handled.\n- Mix within a page: static shell plus streamed or client-fetched dynamic parts.\n\n## Trade-off\n\nStatic is cheap and fast but stale; dynamic is fresh but costly and less cache-friendly. Hybrid pages add complexity in reasoning about what is cached.\n\n## Common mistake\n\nServer-rendering every page by default, then wondering why the origin is slow and expensive under campaign traffic.\n\n## Likely follow-up\n\n**How do you keep price and stock fresh on a cached product page?** Cache the descriptive content and fetch price and availability separately, either streamed from the server or client-side, with on-demand revalidation when pricing events occur.\n\n## Worked scenario\n\nConsider four pages in one shop. The About page is fully static. The category page is regenerated every few minutes, since editors change merchandising slowly. The product page is static for its description and images, while price and stock are fetched fresh on the server and streamed in. The account page is personalised and behind login, so it renders per request, or on the client after authentication. The failure to avoid is making the category page fully dynamic: under a campaign it sends every visitor to the origin and the database, and time to first byte climbs with load.\n\n## Rehearse these\n\n- What does streaming give you?\n- How do you revalidate on demand?\n- How does rendering choice affect Core Web Vitals?",
+      "followUps": [
+        "What does streaming give you?",
+        "How do you revalidate on demand?",
+        "How does rendering choice affect Core Web Vitals?"
+      ]
+    },
+    {
+      "slug": "nextjs-rsc-vs-bff",
+      "title": "When is Server Components data fetching worse than a BFF?",
+      "topic": "Next.js",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "nextjs",
+        "bff",
+        "architecture",
+        "rsc"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Server Components are great when one web app owns its data needs, but a dedicated BFF is better when several clients such as web, mobile and partners need the same aggregation, when logic needs independent scaling, deployment and ownership, or when you need a stable contract and shared caching and rate limiting. Putting orchestration inside page components couples UI and backend release cycles and can create waterfalls. I would use Server Components for web-specific composition and a shared BFF or gateway for cross-client aggregation.",
+      "revision": "Use a BFF when many clients share aggregation, scaling or contracts; Server Components suit web-only composition that releases with the UI.",
+      "detailed": "Both are server-side aggregation layers; the difference is who owns and reuses them.\n\n## Key points\n\n- Multiple clients: mobile cannot call page components, so duplicating aggregation logic drifts.\n- Independent scaling and release: a BFF can deploy and scale without redeploying the web app.\n- Cross-cutting concerns: auth token exchange, rate limiting, caching and observability are easier in one service.\n- Waterfalls: sequential awaits in nested components lengthen response time; parallelise or aggregate downstream.\n- Team ownership: a frontend team may own the BFF while platform teams own the domain services.\n\n## Trade-off\n\nServer Components reduce moving parts and speed delivery for one web app; a BFF adds a service to run but gives reuse and clear boundaries.\n\n## Common mistake\n\nLetting components call a dozen microservices directly, spreading business rules and auth handling across the UI layer.\n\n## Likely follow-up\n\n**Can you use both?** Yes: Server Components call the BFF for shared aggregates and compose web-specific pieces locally, keeping the BFF contract stable for other clients.\n\n## Worked scenario\n\nA retailer has a website, a mobile app and a partner feed that all need a product with price, stock and promotions. If the aggregation lives in a page component, the mobile team reimplements it and the two drift apart; promotion rules then differ per client. A shared BFF or API layer owns the aggregation, caches it, enforces rate limits and publishes one versioned contract. The web app's Server Components call it and add web-only composition, such as layout choices and SEO metadata. If one component awaits three services in sequence, parallelise them with Promise.all or move the join into the BFF.\n\n## Rehearse these\n\n- How do you avoid request waterfalls?\n- Who owns the BFF?\n- How do you cache BFF responses?",
+      "followUps": [
+        "How do you avoid request waterfalls?",
+        "Who owns the BFF?",
+        "How do you cache BFF responses?"
+      ]
+    },
+    {
+      "slug": "nextjs-caching-layers-staleness",
+      "title": "What caching layers exist in a Next.js application and how do you avoid serving stale data?",
+      "topic": "Next.js",
+      "difficulty": "advanced",
+      "type": "conceptual",
+      "tags": [
+        "nextjs",
+        "caching",
+        "cdn",
+        "revalidation"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "There are several layers: the browser cache, the CDN or edge cache, the framework's server-side data and page caches, and the origin or database caches. Staleness appears when layers disagree. I define a freshness requirement per data type, set cache headers and revalidation intervals accordingly, and use on-demand revalidation by tag or path when the source changes, for example from a CMS or inventory webhook. Because defaults changed across versions, I verify behaviour in the target version and test it, rather than assuming.",
+      "revision": "Layers: browser, CDN, framework caches, origin. Define freshness per data type and use time-based plus on-demand revalidation, verified per version.",
+      "detailed": "Caching is a contract about acceptable staleness, not just a performance switch.\n\n## Key points\n\n- Classify data: static content, slowly changing catalogue, near-real-time stock, never-cache personal data.\n- Use revalidation intervals for bounded staleness and tag or path invalidation for event-driven freshness.\n- Never cache personalised responses at a shared layer without varying on the right key.\n- Cache keys must include locale, currency and market if output differs.\n- Test by observing headers and cache status in a staging environment that mirrors production.\n\n## Trade-off\n\nAggressive caching gives speed and resilience but risks stale prices or content; short TTLs reduce staleness but raise origin load.\n\n## Common mistake\n\nCaching a response that included user-specific data, so one customer sees another's content.\n\n## Likely follow-up\n\n**How do you invalidate after a CMS publish?** A webhook calls a protected revalidation endpoint that invalidates the affected tags or paths, with retry and logging so missed events are noticed.\n\n## Worked scenario\n\nTake a price change published in a CMS at noon. The browser may hold the page for a minute, the CDN for ten, and the framework data cache for an hour, so customers see three different prices. The remedy is to decide the acceptable staleness for price, shorten or bypass the layers that exceed it, and add a webhook that triggers on-demand revalidation by product tag. If the webhook is lost, a scheduled revalidation bounds the damage. To debug a stale page, inspect the response headers and cache status at each layer in a staging environment rather than guessing which layer is at fault.\n\n## Rehearse these\n\n- What goes in Vary?\n- How do you protect the revalidation endpoint?\n- How do you debug a stale page?",
+      "followUps": [
+        "What goes in Vary?",
+        "How do you protect the revalidation endpoint?",
+        "How do you debug a stale page?"
+      ]
+    },
+    {
+      "slug": "nextjs-middleware-use-and-limits",
+      "title": "What belongs in Next.js middleware, and what should never go there?",
+      "topic": "Next.js",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "nextjs",
+        "middleware",
+        "edge",
+        "security"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Middleware runs before a request completes, so it suits lightweight, fast decisions: redirects, locale detection, rewrites for experiments, simple header changes and optimistic checks that a session cookie exists. It should not do heavy computation, database queries or be the only authorisation layer, because runtime constraints apply and a bypass would expose data. I treat middleware as a convenience gate and enforce authorisation again in the data access layer and APIs, close to the resource.",
+      "revision": "Middleware for cheap routing decisions; always enforce real authorisation in the data layer, never only in middleware.",
+      "detailed": "Middleware is a fast pre-filter, not a security boundary.\n\n## Key points\n\n- Good fits: locale redirects, A/B bucketing, bot headers, canonical host redirects, cookie presence checks.\n- Runtime limits: often an edge runtime with restricted Node APIs, so some libraries will not work.\n- Keep it fast: it runs on many requests, so added latency hits every page.\n- Defence in depth: check permissions in server actions, route handlers and data functions.\n- Version-specific: check how your framework version names and runs this layer.\n\n## Trade-off\n\nEdge-side checks reduce latency and origin load but limit what you can do; deep checks in the origin are heavier but authoritative.\n\n## Common mistake\n\nRelying on middleware alone to protect admin routes, then discovering an alternative path or header bypasses it.\n\n## Likely follow-up\n\n**Can middleware validate a JWT?** It can verify a signature with edge-compatible libraries, which is useful for early rejection, but fine-grained authorisation still belongs where data is accessed.\n\n## Worked scenario\n\nA team protects the admin area by checking for a session cookie in middleware and redirecting if it is missing. That is a good fast redirect, but a forged cookie only needs to exist, so the real check must happen in the route handler or data function that loads the admin data, verifying the session and the role. Another use is locale detection: read the first-visit language header, redirect to the locale prefix and set a cookie. Keep both cheap, because they run on every matched request, and use a matcher so static assets are excluded.\n\n## Rehearse these\n\n- How do you do locale routing?\n- Why avoid DB calls here?\n- How do you test it?",
+      "followUps": [
+        "How do you do locale routing?",
+        "Why avoid DB calls here?",
+        "How do you test it?"
+      ]
+    },
+    {
+      "slug": "typescript-any-unknown-never",
+      "title": "What are any, unknown and never, and how do you use them safely?",
+      "topic": "TypeScript",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "typescript",
+        "type-safety"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "any disables type checking, so errors flow silently through the code. unknown is the safe top type: you can assign anything to it but must narrow with type guards before use, which makes it right for external data such as JSON or caught errors. never is the empty type for values that cannot occur, such as a function that always throws or the leftover case in an exhaustive switch. I forbid implicit any, prefer unknown at boundaries, and validate with a schema library at runtime.",
+      "revision": "any switches checking off, unknown forces narrowing, never marks impossible cases and enables exhaustiveness checks.",
+      "detailed": "Types disappear at runtime, so boundary data needs runtime validation as well as types.\n\n## Key points\n\n- any spreads: one any can silently untype everything downstream.\n- unknown requires narrowing through typeof, instanceof, discriminated unions or schema parsing.\n- never in a switch default makes the compiler fail when a new union member is added.\n- Enable strict mode and noImplicitAny; use lint rules against explicit any with documented exceptions.\n- Derive types from schemas, for example Zod, so runtime validation and compile-time types cannot drift.\n\n## Trade-off\n\nStrictness slows quick prototypes and migration of legacy code but prevents whole classes of defects; gradual adoption is practical via per-file or per-folder strictness.\n\n## Common mistake\n\nCasting API responses with 'as' to a type, which asserts correctness without checking it.\n\n## Likely follow-up\n\n**How do you migrate a JavaScript codebase?** Enable allowJs, convert by feature area starting at the leaves and shared types, tighten compiler flags progressively and block new any in CI.\n\n## Worked scenario\n\nA caught error in a catch block should be treated as unknown. To read its message you narrow it: check whether it is an instance of Error before accessing the message, otherwise convert it to a string. For API data, parse the response with a Zod schema and infer the type from that schema, so a field the server stops sending fails at the boundary, not three components later. For never, write an exhaustive switch over a payment status union with a default branch that assigns the value to a never variable; adding a new status then produces a compile error exactly where handling is missing.\n\n## Rehearse these\n\n- What is a type guard?\n- Why is 'as' dangerous?\n- What does strict mode include?",
+      "followUps": [
+        "What is a type guard?",
+        "Why is 'as' dangerous?",
+        "What does strict mode include?"
+      ]
+    },
+    {
+      "slug": "typescript-discriminated-unions-state",
+      "title": "How do discriminated unions improve state modelling?",
+      "topic": "TypeScript",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "typescript",
+        "modelling",
+        "unions"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "A discriminated union gives each state its own shape plus a literal tag, such as status loading, success or error. The compiler then narrows by the tag, so data exists only when status is success and an error message only when it is error. This makes impossible states unrepresentable, replaces fragile combinations of boolean flags, and with an exhaustive switch the compiler warns when a new state is added. I use it for async state, form steps, payment status and API results.",
+      "revision": "A literal tag per state makes impossible combinations unrepresentable and the compiler enforces exhaustive handling.",
+      "detailed": "Model states, not booleans: isLoading plus isError plus data allows nonsense combinations.\n\n## Key points\n\n- Each variant carries only the fields valid in that state.\n- Narrowing by the tag gives safe access without optional chaining everywhere.\n- Exhaustive switch with a never check turns missing cases into compile errors.\n- Works well for reducers, state machines and API response types.\n- Share the same union between client and server via a common package for contract safety.\n\n## Trade-off\n\nUnions are more verbose than one loose object and need discipline in updates; the payoff is fewer runtime defects and clearer code.\n\n## Common mistake\n\nDefining one interface with all fields optional, which lets invalid combinations compile and pushes checks into every consumer.\n\n## Likely follow-up\n\n**How does this relate to state machines?** A union is a type-level state machine; libraries such as XState add transitions and guards, which suit complex workflows like checkout.\n\n## Worked scenario\n\nModel a fetch as a union: loading with no data, success carrying data and a fetched time, and error carrying a message and a retryable flag. A component switching on the status can read data only inside the success branch, with no optional chaining. With three booleans instead, isLoading true plus a populated data field plus an error can all be set at once, and each component invents its own interpretation. For checkout, extend the same idea: cart, address, payment and confirmed as steps, where payment carries a client secret and confirmed carries an order number.\n\n## Rehearse these\n\n- What is exhaustive checking?\n- How do you type Redux actions?\n- What is a branded type?",
+      "followUps": [
+        "What is exhaustive checking?",
+        "How do you type Redux actions?",
+        "What is a branded type?"
+      ]
+    },
+    {
+      "slug": "typescript-monorepo-shared-types-contracts",
+      "title": "How do you share types between a React frontend and a Node backend without coupling them badly?",
+      "topic": "TypeScript",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "typescript",
+        "monorepo",
+        "contracts",
+        "api"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I share contracts, not implementation. In a monorepo a shared package holds schemas and generated types, ideally from an OpenAPI spec or GraphQL schema with code generation, plus runtime validators. Frontend and backend depend on the package but not on each other's internals. Versioning and compatibility rules apply: additive changes are safe, breaking changes need deprecation. Tools like Nx or Turborepo give affected-only builds and caching. Sharing database entity types directly with the UI leaks internals and makes every schema change a frontend change.",
+      "revision": "Share generated contracts and validators in a package, not internal models; manage compatibility with versioning and affected-only builds.",
+      "detailed": "The shared artefact should be the API contract, which is a stable boundary, not the domain internals.\n\n## Key points\n\n- Contract-first: OpenAPI or GraphQL schema as the source, with generated clients and types.\n- Runtime validation from the same schema to guard the boundary.\n- Monorepo tooling: task caching and affected builds keep CI fast as the repo grows.\n- Compatibility: additive changes first, deprecation windows, and contract tests in CI.\n- Ownership: CODEOWNERS on the shared package so changes get the right reviewers.\n\n## Trade-off\n\nA monorepo eases atomic changes and sharing but needs tooling and discipline; separate repos isolate teams but make contract drift and coordination harder.\n\n## Common mistake\n\nImporting backend entity classes into the frontend, dragging server-only dependencies and exposing internal fields.\n\n## Likely follow-up\n\n**How do you stop breaking changes reaching production?** Run schema diff checks and consumer contract tests in CI, require deprecation before removal and gate on those checks.\n\n## Worked scenario\n\nSuppose the order API is described in an OpenAPI file in a shared package. CI generates a typed client and Zod validators from it; the NestJS controller and the React hooks both import them. When the backend team wants to rename a field, the schema diff job flags it as breaking, so they add the new field, mark the old one deprecated, and announce a removal date. Consumer contract tests confirm the web app still works. Without this, a backend entity type imported by the frontend would quietly expose password hashes or internal flags in the type surface.\n\n## Rehearse these\n\n- How do consumer contract tests work?\n- How does codegen fit CI?\n- Monorepo or polyrepo?",
+      "followUps": [
+        "How do consumer contract tests work?",
+        "How does codegen fit CI?",
+        "Monorepo or polyrepo?"
+      ]
+    },
+    {
+      "slug": "node-event-loop-blocking",
+      "title": "What blocks the Node.js event loop and how do you detect and avoid it?",
+      "topic": "Node.js",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "nodejs",
+        "event-loop",
+        "performance"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Node runs JavaScript on a single thread, so any long synchronous task, such as large JSON parsing, heavy loops, synchronous crypto or regex backtracking, stops every other request. I detect it with event-loop delay metrics and CPU profiles, and I avoid it by using asynchronous I/O, streaming large payloads, moving CPU-heavy work to worker threads or a separate service or queue, and validating input size. Cluster or multiple instances add capacity but do not fix a blocking handler.",
+      "revision": "One thread runs all callbacks, so long synchronous work stalls everything; stream, offload to workers or queues, and monitor event-loop lag.",
+      "detailed": "Throughput depends on keeping each tick short, because requests share one thread.\n\n## Key points\n\n- Typical culprits: JSON.parse of huge bodies, sync file or crypto calls, catastrophic regular expressions, big array sorts.\n- Detect with event-loop delay histograms, flame graphs and p99 latency spikes with low CPU elsewhere.\n- Offload CPU work to worker threads, a job queue, or a native or separate service.\n- Stream uploads and downloads rather than buffering them in memory.\n- Limit body size and apply timeouts to stop abusive inputs.\n\n## Trade-off\n\nWorker threads and queues add complexity and latency for the offloaded work but protect the main loop; running more instances scales out but wastes capacity if handlers block.\n\n## Common mistake\n\nTreating a slow endpoint as a database problem when a synchronous loop in the handler is the real cause.\n\n## Likely follow-up\n\n**Does async/await stop blocking?** No. It only avoids waiting on I/O; CPU-bound code inside an async function still blocks the thread until it finishes.\n\n## Worked scenario\n\nAn export endpoint sorts and serialises fifty thousand rows with a synchronous loop and takes 800 ms of pure CPU. While it runs, health checks and unrelated requests wait, so the load balancer marks the instance unhealthy. Detect it by plotting event-loop delay next to p99 latency; both spike together while the database metrics stay flat. Fix it by streaming rows from the database through a transform to the response, or by queuing the export as a job processed by a worker thread, then emailing a signed download link. Also set a maximum export size and a request timeout.\n\n## Rehearse these\n\n- When use worker threads?\n- How do you measure loop lag?\n- How does clustering help?",
+      "followUps": [
+        "When use worker threads?",
+        "How do you measure loop lag?",
+        "How does clustering help?"
+      ]
+    },
+    {
+      "slug": "nestjs-architecture-modules-di",
+      "title": "How do you structure a NestJS application so it stays maintainable at scale?",
+      "topic": "NestJS",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "nestjs",
+        "architecture",
+        "di",
+        "modules"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I organise by feature module with clear public APIs: controllers handle transport, services hold use-case logic, and repositories or providers hide persistence. Dependency injection makes services testable and swappable. I use DTOs with validation pipes at the edge, guards for authentication and authorisation, interceptors for cross-cutting concerns such as logging and caching, and exception filters for consistent errors. Modules export only what others need, and I avoid circular dependencies by extracting shared abstractions or using events.",
+      "revision": "Feature modules with narrow exports, thin controllers, injectable services, validated DTOs, and guards, interceptors and filters for cross-cutting concerns.",
+      "detailed": "Nest gives structure, but boundaries only help if modules hide their internals.\n\n## Key points\n\n- Controllers translate HTTP to use cases; they hold no business rules.\n- Services express use cases; repositories isolate the ORM so it can be mocked or replaced.\n- ValidationPipe with class-validator or schema DTOs rejects bad input early.\n- Guards for authn and authz, interceptors for logging and caching, filters for error shape.\n- Circular module dependencies signal a missing abstraction; resolve with events or a shared module.\n\n## Trade-off\n\nLayered structure improves testability and onboarding but adds boilerplate for small services; for tiny APIs a lighter approach can be enough.\n\n## Common mistake\n\nPutting business logic in controllers and sharing one giant module, so everything depends on everything.\n\n## Likely follow-up\n\n**How do you test a service?** Unit test with the testing module overriding providers by mocks, and integration test controllers with supertest against an in-memory or containerised database.\n\n## Worked scenario\n\nConsider an Orders module. The controller accepts a validated DTO and calls OrdersService.placeOrder. That service depends on an abstract PaymentPort and an OrdersRepository, both injected, so unit tests supply fakes and never touch a database. The module exports only OrdersService; Billing cannot import the repository directly. If Orders and Billing each need the other, emit an OrderPlaced event and let Billing react, which removes the circular import. A guard checks the caller's role, an interceptor adds the correlation id to logs, and an exception filter converts domain errors into one consistent problem response.\n\n## Rehearse these\n\n- Guards vs middleware?\n- How do you version an API?\n- How do you handle config?",
+      "followUps": [
+        "Guards vs middleware?",
+        "How do you version an API?",
+        "How do you handle config?"
+      ]
+    },
+    {
+      "slug": "node-graceful-shutdown-resilience",
+      "title": "How do you make a Node service shut down gracefully and survive dependency failures?",
+      "topic": "Node.js",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "nodejs",
+        "resilience",
+        "kubernetes",
+        "operations"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "On SIGTERM I stop accepting new connections, fail the readiness probe so the load balancer drains traffic, finish in-flight requests within a deadline, close database and queue connections, flush logs, and then exit. For dependencies I set timeouts on every call, use retries with exponential backoff and jitter only for idempotent operations, add circuit breakers and bulkheads, and degrade gracefully with cached or partial responses. Health checks separate liveness from readiness, and I test failure modes deliberately.",
+      "revision": "Drain on SIGTERM: fail readiness, finish in-flight work, close connections; protect dependencies with timeouts, backoff, breakers and degradation.",
+      "detailed": "Resilience is designed behaviour under failure, not a library you add at the end.\n\n## Key points\n\n- Readiness tells the router when to send traffic; liveness tells the platform when to restart.\n- Set a shutdown deadline shorter than the platform's kill timeout.\n- Timeouts everywhere: an unbounded wait ties up resources and spreads failure.\n- Retries need idempotency and jitter, or they create retry storms.\n- Bulkheads separate pools so one slow dependency cannot exhaust all capacity.\n\n## Trade-off\n\nAggressive retries improve success rate but amplify load during outages; circuit breakers protect dependencies but may reject requests that would have succeeded.\n\n## Common mistake\n\nRetrying every failed call immediately and indefinitely, which turns a brief outage into a sustained one.\n\n## Likely follow-up\n\n**What if a request outlives the deadline?** It is terminated; so long operations should be queued as jobs and acknowledged asynchronously rather than held on an HTTP connection.\n\n## Worked scenario\n\nDuring a rolling deployment on Kubernetes, the pod receives SIGTERM while a request is half-way through writing an order. Without handling, the process dies and the customer sees an error. With a handler, readiness fails first, the router stops sending traffic, the server stops accepting connections, in-flight requests finish within, say, twenty-five seconds, and then the pool closes. Set terminationGracePeriodSeconds above that deadline. For the payment dependency, a two-second timeout, two retries with jitter on idempotent calls only, and a breaker that opens after repeated failures keeps one slow provider from consuming all worker capacity.\n\n## Rehearse these\n\n- Liveness vs readiness?\n- What is a bulkhead?\n- How do you chaos-test this?",
+      "followUps": [
+        "Liveness vs readiness?",
+        "What is a bulkhead?",
+        "How do you chaos-test this?"
+      ]
+    },
+    {
+      "slug": "node-streams-backpressure-large-files",
+      "title": "How do you handle large file uploads and downloads in Node without exhausting memory?",
+      "topic": "Node.js",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "nodejs",
+        "streams",
+        "s3",
+        "uploads"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I stream rather than buffer. Streams process data in chunks and apply backpressure so a slow consumer slows the producer instead of filling memory. For uploads I prefer pre-signed URLs so clients upload directly to object storage, with the API only issuing the URL and recording metadata, and virus scanning and validation done asynchronously. For downloads I stream from storage or redirect to a signed CDN URL. I limit sizes, validate content type, and use multipart upload for very large files.",
+      "revision": "Stream with backpressure instead of buffering; use pre-signed direct-to-storage uploads and signed CDN downloads, with asynchronous scanning.",
+      "detailed": "Memory grows with concurrency times file size when you buffer, which is the failure mode.\n\n## Key points\n\n- Backpressure: pipeline handles it and propagates errors and cleanup; avoid manual pipe chains.\n- Pre-signed URLs keep large bytes off your servers and reduce cost and latency.\n- Validate type and size, store under generated keys, never trust the client file name.\n- Scan and process asynchronously via events, marking objects as pending until cleared.\n- Multipart or resumable upload for large or unreliable connections.\n\n## Trade-off\n\nDirect-to-storage upload scales well but moves validation after the upload; proxying through the API gives control but costs bandwidth and compute.\n\n## Common mistake\n\nReading an entire upload into memory with a body parser, which crashes under a few concurrent large files.\n\n## Likely follow-up\n\n**How do you stop users overwriting each other's files?** Generate unguessable keys per upload, scope them by tenant prefix, and make URLs short-lived with permissions checked when issuing them.\n\n## Worked scenario\n\nA video upload feature first received files through the API and held them in memory, which failed with five concurrent two-gigabyte uploads. The redesign has the client request a pre-signed multipart URL from the API, upload parts directly to object storage, and call a completion endpoint. An event then triggers a scanner and a transcoder, and the record stays in a pending status until both finish. For server-side processing of smaller files, use stream pipeline from storage through a transform to the response so only a few chunks are in memory at once, and handle errors so file handles close.\n\n## Rehearse these\n\n- What is backpressure?\n- How do you resume uploads?\n- How do you scan for malware?",
+      "followUps": [
+        "What is backpressure?",
+        "How do you resume uploads?",
+        "How do you scan for malware?"
+      ]
+    },
+    {
+      "slug": "graphql-query-cost-protection",
+      "title": "How do you stop a GraphQL query from taking your database down?",
+      "topic": "GraphQL",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "graphql",
+        "security",
+        "performance",
+        "apollo"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Because clients choose the shape of a query, I assume abuse. I apply depth limits, query complexity or cost analysis, pagination limits with sensible maximums, timeouts, and rate limiting by client identity. For public or partner use, persisted queries or an allow-list restrict execution to known operations. DataLoader batching prevents N+1 database calls, and I disable introspection in production if the policy requires. I monitor slow resolvers and cost per operation, and I cache at field, response or CDN level where safe.",
+      "revision": "Limit depth and cost, cap pagination, time out, rate-limit, use persisted queries, batch with DataLoader, and monitor per-operation cost.",
+      "detailed": "One cheap-looking request can fan out into thousands of database calls unless the server defends itself.\n\n## Key points\n\n- Depth and complexity limits reject expensive queries before execution.\n- Pagination: require first or limit, set a maximum, prefer cursor-based connections.\n- Persisted queries or allow-lists turn an open endpoint into a known set of operations.\n- DataLoader batches and caches per request to remove N+1 patterns.\n- Observability: trace resolvers, record cost and slow operations, alert on outliers.\n\n## Trade-off\n\nStrict limits protect the system but can reject legitimate complex screens; persisted queries are safest but require build-time tooling and client discipline.\n\n## Common mistake\n\nRelying on rate limiting by request count only, when one request can be enormously more expensive than another.\n\n## Likely follow-up\n\n**Does disabling introspection secure the API?** No. It only reduces discovery; real security is authorisation, cost limits and validation. Treat the schema as discoverable anyway.\n\n## Worked scenario\n\nA hostile or careless client sends a query nesting products, reviews, author, and that author's products to eight levels, with first set to a thousand at each level. Without limits that is a billion potential nodes. A depth limit of around ten rejects the structure, a cost analyser assigns each list field a multiplier and rejects anything over a budget, and a pagination cap forces first to be at most fifty. A resolver timeout and per-client budget per minute complete the defence. In production, log the cost of every operation so you can tune the thresholds from real traffic instead of guessing.\n\n## Rehearse these\n\n- What is query complexity analysis?\n- How do persisted queries work?\n- How does DataLoader batch?",
+      "followUps": [
+        "What is query complexity analysis?",
+        "How do persisted queries work?",
+        "How does DataLoader batch?"
+      ]
+    },
+    {
+      "slug": "graphql-n-plus-one-dataloader",
+      "title": "What is the N+1 problem in GraphQL and how does DataLoader solve it?",
+      "topic": "GraphQL",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "graphql",
+        "dataloader",
+        "performance"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "When a resolver for a list field fetches each child separately, one query for N parents causes N more queries for their children. DataLoader collects the keys requested during one tick of the event loop, issues a single batched call such as a where-in query, and returns results mapped back to each key, with a per-request cache. I create loaders per request so caches never leak between users, ensure the batch function returns results in key order, and sometimes use joins or look-ahead fields when batching is not enough.",
+      "revision": "Collect keys in one tick, make one batched call and map results back; create loaders per request and keep result order.",
+      "detailed": "Batching changes many small calls into one without changing resolver code structure.\n\n## Key points\n\n- Per-request loaders avoid cross-user cache leakage and stale data.\n- Batch function must return an array aligned to the input keys, with errors or nulls for misses.\n- Joins or SQL look-ahead can beat loaders when parent and child fetches are known together.\n- Set maximum batch sizes if the data store limits query parameters.\n- Measure: count queries per operation in tests to catch regressions.\n\n## Trade-off\n\nLoaders simplify resolvers but hide query counts and add per-request objects; manual joins are efficient but couple the resolver to the data model.\n\n## Common mistake\n\nCreating a global DataLoader instance, which caches across requests and can serve one user's data to another.\n\n## Likely follow-up\n\n**Does DataLoader solve over-fetching too?** No. It reduces round trips; you still need to select only needed columns and cap list sizes to limit work.\n\n## Worked scenario\n\nA query asks for twenty orders and each order's customer. The naive customer resolver runs twenty selects. With a customer loader, the twenty customer ids are collected in one tick, a single query selects where id is in that list, and the batch function returns the rows in the same order as the keys, with null for any missing id. Create the loader inside the per-request context object. In a test, run the operation against a counting database wrapper and assert exactly two queries, which stops a later change from silently reintroducing the problem.\n\n## Rehearse these\n\n- What are cursor connections?\n- How do you test for N+1?\n- Loaders with authorisation?",
+      "followUps": [
+        "What are cursor connections?",
+        "How do you test for N+1?",
+        "Loaders with authorisation?"
+      ]
+    },
+    {
+      "slug": "graphql-schema-evolution-federation",
+      "title": "How do you evolve a GraphQL schema safely, and when do you need federation?",
+      "topic": "GraphQL",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "graphql",
+        "federation",
+        "schema",
+        "governance"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I evolve schemas additively: add fields and types, deprecate with a reason rather than remove, and use schema checks in CI against recorded client operations so breaking changes are caught. Nullable fields give room for partial failure. Federation, such as Apollo Federation, becomes useful when several teams own different parts of the graph and need to deploy independently behind one gateway, with entity references across subgraphs. For one team or one service, a single schema is simpler and federation overhead is not justified.",
+      "revision": "Evolve additively, deprecate before removal, run schema checks against real operations; adopt federation only when multiple teams need independent subgraphs.",
+      "detailed": "A graph is a shared contract, so governance matters more than the technology.\n\n## Key points\n\n- Additive changes are safe; renames and removals break clients, so deprecate and measure usage first.\n- Schema registry and checks compare proposed changes against operations seen in traffic.\n- Nullability design: non-null fields propagate errors upward, so use them deliberately.\n- Federation: subgraphs own entities, gateway composes and plans queries across them.\n- Costs of federation: more services, query planning latency, cross-team coordination and tooling.\n\n## Trade-off\n\nFederation gives team autonomy and domain ownership but adds operational and debugging complexity; a monolithic schema is simpler but becomes a coordination bottleneck as teams grow.\n\n## Common mistake\n\nAdopting federation early with one team, gaining distributed-system complexity without any organisational benefit.\n\n## Likely follow-up\n\n**How do you handle errors across subgraphs?** Return partial data with typed errors where sensible, set timeouts per subgraph, and use tracing to attribute latency to the owning team.\n\n## Worked scenario\n\nSay the Product type has a field called cost and the team wants to rename it to price. Add price, mark cost as deprecated with a reason and the planned removal date, and let the schema registry report how many operations still request cost over the last thirty days. Remove it only when that count is zero. For federation, a Reviews subgraph can extend the Product entity with a reviews field, using the product id as key, so the Reviews team deploys independently. If a single team owns both, that split only adds a network hop and a query planner to debug.\n\n## Rehearse these\n\n- What is an entity in federation?\n- Why use nullable fields?\n- How do you roll back a schema?",
+      "followUps": [
+        "What is an entity in federation?",
+        "Why use nullable fields?",
+        "How do you roll back a schema?"
+      ]
+    },
+    {
+      "slug": "graphql-vs-rest-vs-trpc-choice",
+      "title": "GraphQL or REST for this system, and when would you choose neither?",
+      "topic": "GraphQL",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "graphql",
+        "rest",
+        "api-design"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I choose by consumers and constraints. GraphQL fits many clients with different data needs, deeply related data and fast UI iteration, but it needs query cost controls, caching strategy and schema governance. REST fits resource-oriented services, simple caching with HTTP semantics, public APIs and file transfers. gRPC suits internal service-to-service calls, and tRPC fits a single TypeScript full-stack team. I also avoid GraphQL as a default for a small internal API where its flexibility is not needed and the operational overhead outweighs benefit.",
+      "revision": "GraphQL for varied clients and related data with governance; REST for simple, cacheable resources; gRPC internally; tRPC for single TypeScript teams.",
+      "detailed": "Choose on consumer diversity, caching needs, team shape and operational maturity, not fashion.\n\n## Key points\n\n- GraphQL: client-driven selection, one request for many resources, strong typing, but harder HTTP caching.\n- REST: standard caching, tooling, status codes and simplicity; may over- or under-fetch.\n- gRPC: efficient binary contracts for internal calls, less friendly for browsers.\n- tRPC: end-to-end types with no schema step, but couples client and server in TypeScript.\n- Hybrid is common: GraphQL BFF over REST or gRPC domain services.\n\n## Trade-off\n\nGraphQL increases frontend flexibility at the price of backend complexity; REST keeps the server simple but may need multiple endpoints or BFFs for varied screens.\n\n## Common mistake\n\nExposing GraphQL directly over a database or many services without cost limits or ownership, then fighting performance incidents.\n\n## Likely follow-up\n\n**Where does GraphQL sit in a microservice estate?** Typically as a gateway or BFF that aggregates domain services, which keep their own contracts and are not exposed directly to clients.\n\n## Worked scenario\n\nA retailer has a web app, two mobile apps and a partner portal, each needing different slices of product, price and stock, and the front-end teams iterate weekly. That favours a GraphQL BFF over REST or gRPC domain services, with persisted queries and cost limits. A public order-tracking API for carriers is better as REST with cacheable GET resources and standard status codes. An internal admin tool built by one TypeScript team may be perfectly served by tRPC. File uploads should use pre-signed URLs whichever API style is chosen, not GraphQL multipart bodies through the gateway.\n\n## Rehearse these\n\n- How do you cache GraphQL?\n- Is tRPC a REST replacement?\n- What about file uploads?",
+      "followUps": [
+        "How do you cache GraphQL?",
+        "Is tRPC a REST replacement?",
+        "What about file uploads?"
+      ]
+    },
+    {
+      "slug": "aws-multi-az-vs-multi-region",
+      "title": "Multi-AZ or multi-region: how do you decide what resilience a system needs?",
+      "topic": "AWS",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "aws",
+        "resilience",
+        "disaster-recovery"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I start from business requirements: recovery time objective, recovery point objective, cost of downtime and compliance. Multi-AZ protects against a data centre failure within a region and is the sensible default for production, using load balancers, auto scaling groups and managed databases with standby replicas. Multi-region protects against regional outage or serves latency and residency needs, but costs more and adds data replication, consistency and operational complexity. Many systems use multi-AZ plus tested backups and a documented, rehearsed regional recovery plan.",
+      "revision": "Derive from RTO, RPO and cost of downtime: multi-AZ by default, multi-region only when requirements justify the complexity.",
+      "detailed": "Resilience is a business decision priced in money and complexity.\n\n## Key points\n\n- Multi-AZ: synchronous or near-synchronous standby, automatic failover, low added complexity.\n- Multi-region patterns: backup and restore, pilot light, warm standby, active-active, in rising cost.\n- Data is the hard part: replication lag, conflict resolution and failover promotion.\n- Route 53 health checks and routing policies direct traffic during failover.\n- Untested failover is not a plan: schedule game days and restore tests.\n\n## Trade-off\n\nActive-active gives the lowest recovery time but the highest cost and conflict handling; backup and restore is cheap but slow to recover.\n\n## Common mistake\n\nBuying multi-region architecture without ever rehearsing failover, so the first real test is the outage.\n\n## Likely follow-up\n\n**What are RTO and RPO?** RTO is how long you can be down; RPO is how much data loss you can accept. They drive replication and backup choices.\n\n## Worked scenario\n\nSuppose the business states that checkout may be down for at most one hour and lose at most five minutes of orders. A multi-AZ deployment with a managed database standby and auto scaling meets availability inside a region, and cross-region backups or a read replica give a warm standby for the regional disaster case, meeting that RTO and RPO at moderate cost. Active-active across two regions would be justified only if the stated target were minutes, because it needs conflict resolution for orders. Whatever is chosen, rehearse the regional failover twice a year and record how long it truly takes.\n\n## Rehearse these\n\n- Pilot light vs warm standby?\n- How does Route 53 failover work?\n- What do you replicate?",
+      "followUps": [
+        "Pilot light vs warm standby?",
+        "How does Route 53 failover work?",
+        "What do you replicate?"
+      ]
+    },
+    {
+      "slug": "aws-sqs-sns-eventbridge-choice",
+      "title": "How do you choose between SQS, SNS, EventBridge and Kinesis?",
+      "topic": "AWS",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "aws",
+        "messaging",
+        "sqs",
+        "eventbridge"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "SQS is a queue for decoupling and load levelling where one consumer group processes each message, with retries and dead-letter queues. SNS is publish-subscribe fan-out to many subscribers. EventBridge routes events by rules from many sources and SaaS partners, suited to event-driven integration between domains. Kinesis, or Kafka, is for ordered, replayable high-throughput streams with multiple consumers reading at their own pace. I pick by delivery semantics, ordering, replay and throughput, and design consumers to be idempotent.",
+      "revision": "SQS for work queues, SNS for fan-out, EventBridge for rule-based event routing, Kinesis or Kafka for ordered replayable streams.",
+      "detailed": "Choose by who consumes, whether you need ordering and replay, and how much throughput you need.\n\n## Key points\n\n- SQS standard: at-least-once, best-effort order; FIFO adds ordering and deduplication with lower throughput limits.\n- SNS to SQS fan-out gives each consumer its own durable queue.\n- EventBridge: content-based rules, schema registry, cross-account routing; moderate throughput.\n- Streams retain data for replay and support parallel consumers via partitions or shards.\n- Always configure dead-letter queues and alarms on queue depth and age.\n\n## Trade-off\n\nQueues are simple and durable but do not replay; streams replay but need partition and offset management.\n\n## Common mistake\n\nAssuming exactly-once delivery from a standard queue, then double-charging a customer when a message is redelivered.\n\n## Likely follow-up\n\n**How do you handle poison messages?** Limit receive attempts, send failures to a dead-letter queue with alarms, and provide a safe redrive process after the cause is fixed.\n\n## Worked scenario\n\nWhen an order is placed, publish an OrderPlaced event to SNS. Separate SQS queues subscribe for inventory, email and analytics, so a slow email provider only builds a backlog in its own queue. Each consumer has a dead-letter queue after five receive attempts and an alarm on the age of the oldest message. EventBridge sits at the domain boundary, routing events to other teams' accounts by rule. If analytics later needs to replay last month's events at its own pace, add a stream such as Kinesis or Kafka, since queues delete messages after consumption.\n\n## Rehearse these\n\n- FIFO vs standard?\n- When use Kafka over SQS?\n- What is a DLQ?",
+      "followUps": [
+        "FIFO vs standard?",
+        "When use Kafka over SQS?",
+        "What is a DLQ?"
+      ]
+    },
+    {
+      "slug": "aws-serverless-vs-containers-tradeoffs",
+      "title": "Lambda or containers on ECS or EKS: how do you choose?",
+      "topic": "AWS",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "aws",
+        "lambda",
+        "containers",
+        "ecs"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Lambda suits spiky or event-driven workloads, glue code and low operational overhead, with pay-per-use pricing, but has execution time limits, cold starts and per-invocation constraints. Containers on ECS or EKS suit steady traffic, long-running processes, custom runtimes, predictable latency and tighter control of networking and cost at scale. Kubernetes adds portability and ecosystem but significant operational burden; ECS with Fargate is simpler. I decide by traffic shape, latency needs, team skills and total cost, and I accept that a system can mix both.",
+      "revision": "Lambda for spiky, event-driven, low-ops work; containers for steady, long-running or latency-sensitive services; ECS is simpler than EKS.",
+      "detailed": "The decision follows traffic pattern, runtime limits and the operational capacity of the team.\n\n## Key points\n\n- Lambda: scales to zero, per-request billing, limits on duration and payload, cold start considerations.\n- Containers: constant cost, predictable performance, any runtime, richer networking control.\n- EKS brings ecosystem and portability but needs cluster operations and upgrade discipline.\n- Database connections need care in Lambda: use a proxy or pooled service to avoid exhausting connections.\n- Cost crossover: steady high utilisation is often cheaper on containers.\n\n## Trade-off\n\nServerless reduces operations and idles cheaply; containers give control and predictable cost at scale but need capacity management.\n\n## Common mistake\n\nChoosing Kubernetes for a small team with a handful of services, then spending more time on the platform than the product.\n\n## Likely follow-up\n\n**How do you handle Lambda cold starts?** Keep packages small, avoid heavy initialisation, use provisioned concurrency for latency-critical paths, and consider whether a container is a better fit.\n\n## Worked scenario\n\nA nightly image-resize job triggered by uploads fits Lambda: bursty, short, and idle most of the day. A catalogue API that handles steady traffic all day, keeps warm caches and holds database connections fits containers on ECS with Fargate. If the Lambda functions in a busy API each open a database connection, concurrency spikes can exhaust the database, so put a proxy in front or move that path to containers. At a steady high utilisation, run the arithmetic for both options with real request counts and durations rather than assuming serverless is cheaper.\n\n## Rehearse these\n\n- Fargate vs EC2?\n- How do you pool DB connections?\n- What is provisioned concurrency?",
+      "followUps": [
+        "Fargate vs EC2?",
+        "How do you pool DB connections?",
+        "What is provisioned concurrency?"
+      ]
+    },
+    {
+      "slug": "mongodb-embed-vs-reference",
+      "title": "In MongoDB, when do you embed documents and when do you reference them?",
+      "topic": "Databases",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "mongodb",
+        "data-modelling"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I model for access patterns. Embed when data is read together, has a one-to-few relationship, a bounded size and the same lifecycle, such as order lines inside an order. Reference when the child grows without bound, is shared by many parents, changes independently or is queried on its own, such as products referenced from orders. Embedding gives atomic single-document updates and fast reads; referencing avoids duplication and the sixteen megabyte document limit. Sometimes I duplicate a few fields, such as product name at purchase time, deliberately.",
+      "revision": "Embed bounded, co-read, same-lifecycle data; reference unbounded, shared or independently queried data; duplicate snapshots on purpose.",
+      "detailed": "Model for the queries you run, not for normalisation purity.\n\n## Key points\n\n- Embedding: single read, atomic update per document, but duplication and document growth.\n- Referencing: normalised, independent updates, but needs lookups or multiple queries.\n- Unbounded arrays are an anti-pattern; use a separate collection or bucketing.\n- Snapshot data that must stay historically true, such as price and address on an order.\n- Indexes follow the access pattern; check explain plans for the main queries.\n\n## Trade-off\n\nEmbedding speeds reads but complicates updates to duplicated data; referencing keeps data consistent but costs extra queries or lookups.\n\n## Common mistake\n\nEmbedding an ever-growing comments array in a parent document until it hits size limits and slows every update.\n\n## Likely follow-up\n\n**Are multi-document transactions available?** Yes in replica sets and sharded clusters, but they cost performance, so good modelling should keep most operations within one document.\n\n## Worked scenario\n\nFor an order, embed the line items with the product name and unit price as they were at purchase, because they are read with the order, are bounded, and must not change when the catalogue changes. Reference the customer by id, since customers have their own lifecycle and many orders. For product reviews, a separate collection is right because they are unbounded and queried independently, for example sorted by helpfulness. A user's activity feed that grows forever can use the bucket pattern: one document per user per day. Check the main queries with explain and confirm they use an index.\n\n## Rehearse these\n\n- What is the bucket pattern?\n- How do you pick a shard key?\n- What is a covered query?",
+      "followUps": [
+        "What is the bucket pattern?",
+        "How do you pick a shard key?",
+        "What is a covered query?"
+      ]
+    },
+    {
+      "slug": "sql-vs-nosql-decision",
+      "title": "How do you decide between a relational database and a NoSQL store?",
+      "topic": "Databases",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "databases",
+        "sql",
+        "nosql",
+        "modelling"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I decide by data shape, consistency needs and access patterns. Relational databases suit structured data with relationships, ad hoc queries, transactions and strong consistency, such as orders, payments and inventory ledgers. Document stores suit flexible schemas and aggregate-oriented reads. Key-value stores such as DynamoDB suit massive scale with known access patterns and predictable latency. Search engines suit text relevance, and caches suit hot reads. Polyglot persistence is common, but each store adds operational cost, so I need a clear reason for each.",
+      "revision": "Relational for relationships and transactions, document for aggregate reads, key-value for known access patterns at scale; add stores only with clear reasons.",
+      "detailed": "Pick the store whose guarantees match the data's correctness needs, not the one that is trendy.\n\n## Key points\n\n- Relational: joins, constraints, ACID transactions, mature tooling, scale by replicas and partitioning.\n- Document: flexible schema and nested data, good aggregate locality, weaker cross-document guarantees.\n- Key-value or wide column: horizontal scale and low latency, but you must design for access patterns up front.\n- Search and caching are secondary stores, usually derived from a source of truth.\n- Each added store brings backup, monitoring, security and skills overhead.\n\n## Trade-off\n\nFlexibility and scale come at the price of weaker constraints and harder ad hoc queries; relational rigour costs migration effort and scaling writes is harder.\n\n## Common mistake\n\nUsing a document store for financial or inventory data and re-implementing transactions and constraints in application code.\n\n## Likely follow-up\n\n**Where does eventual consistency hurt?** Where users or money depend on the latest state, such as stock reservation or balances; there you need transactions, conditional writes or a single authority.\n\n## Worked scenario\n\nConsider an ecommerce estate. Orders, payments and inventory ledgers sit in a relational database where constraints and transactions enforce that stock never goes negative. The product catalogue, with varied attributes per category, suits a document store or JSON columns. Product search runs from a derived search index. Sessions and rate-limit counters live in a cache. Basket data could sit in a key-value store with a time-to-live. Each of those stores has a reason; adding a graph database for a feature that a simple join would answer is the sort of unjustified extra operational burden to avoid.\n\n## Rehearse these\n\n- What is polyglot persistence?\n- How do you scale relational writes?\n- When is DynamoDB right?",
+      "followUps": [
+        "What is polyglot persistence?",
+        "How do you scale relational writes?",
+        "When is DynamoDB right?"
+      ]
+    },
+    {
+      "slug": "db-indexing-and-slow-query-diagnosis",
+      "title": "A query became slow in production: how do you diagnose and fix it?",
+      "topic": "Databases",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "databases",
+        "indexing",
+        "performance",
+        "observability"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I start with evidence: identify the slow query from monitoring or the slow query log, check what changed such as data volume, a deployment or a plan change, and run the explain plan to see whether it scans, sorts or joins inefficiently. Typical fixes are a composite index matching filter, sort and join order, rewriting the query, adding pagination, avoiding select star, or caching results. I weigh index write and storage cost, test on production-like data, roll out safely, and add alerts so regression is noticed earlier.",
+      "revision": "Find the query, read the explain plan, fix with the right composite index or query rewrite, test on realistic data and add monitoring.",
+      "detailed": "Measure first; indexes help reads but cost writes and space.\n\n## Key points\n\n- Look at rows examined versus returned, full scans, filesorts and missing join indexes.\n- Composite index order follows equality filters first, then range, then sort.\n- Offset pagination degrades with depth; keyset pagination stays fast.\n- Statistics and plan changes can flip a fast query to slow; update statistics where relevant.\n- Create indexes concurrently or online to avoid blocking writes.\n\n## Trade-off\n\nMore indexes speed reads but slow inserts and updates and consume memory; fewer indexes keep writes fast but risk scans.\n\n## Common mistake\n\nAdding an index per slow query without checking the plan, until writes slow down and nobody knows which indexes are used.\n\n## Likely follow-up\n\n**How do you add an index to a large live table?** Use an online or concurrent build, watch replication lag and load, run it off-peak, and validate the planner uses it before dropping alternatives.\n\n## Worked scenario\n\nAn orders list filtered by customer and status and sorted by created date slows from 20 ms to seconds after a table grows. The explain plan shows a scan and a sort on millions of rows. A composite index on customer, status and created date lets the database walk the index in order and stop at the page size. Switching from offset to keyset pagination, using the last seen date and id, stops deep pages getting slower. Build the index online, watch replication lag, and compare the plan before and after on a restored copy of production data.\n\n## Rehearse these\n\n- What is a covering index?\n- Keyset vs offset pagination?\n- How do you find unused indexes?",
+      "followUps": [
+        "What is a covering index?",
+        "Keyset vs offset pagination?",
+        "How do you find unused indexes?"
+      ]
+    },
+    {
+      "slug": "jwt-localstorage-risks",
+      "title": "What breaks if you put JWTs in localStorage?",
+      "topic": "Security",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "security",
+        "jwt",
+        "xss",
+        "sessions"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Any script running on the page can read localStorage, so a single cross-site scripting flaw, including one in a third-party dependency, lets an attacker steal the token and use it from elsewhere until it expires. There is also no automatic expiry or revocation. A safer pattern is short-lived access tokens held in memory plus a refresh token in an HttpOnly, Secure, SameSite cookie, or a backend-for-frontend that keeps tokens server-side and gives the browser only a session cookie, together with a strict content security policy.",
+      "revision": "localStorage is readable by any injected script, so XSS means token theft; prefer HttpOnly cookies or a BFF session plus short-lived tokens and CSP.",
+      "detailed": "Token storage is only as safe as the weakest script on the page.\n\n## Key points\n\n- XSS can exfiltrate tokens; HttpOnly cookies are not readable by JavaScript.\n- Cookies bring CSRF risk, mitigated by SameSite, CSRF tokens and checking origin.\n- Short-lived access tokens limit damage; refresh token rotation detects reuse.\n- A BFF keeps tokens off the browser and simplifies revocation and logout.\n- CSP, dependency hygiene and output encoding reduce the chance of XSS in the first place.\n\n## Trade-off\n\nCookies shield against script theft but need CSRF defences; bearer tokens in memory avoid CSRF but vanish on refresh and need silent renewal.\n\n## Common mistake\n\nStoring long-lived tokens in localStorage 'for convenience' and not planning revocation.\n\n## Likely follow-up\n\n**Is in-memory storage perfectly safe?** No, XSS can still use the token while the page runs, but it limits persistence and exfiltration; layered defences are still needed.\n\n## Worked scenario\n\nA blog comment feature has an XSS flaw, or a compromised analytics script is loaded. The injected code runs localStorage.getItem on the token and posts it to the attacker, who now calls the API from their own machine for as long as the token is valid. If the token had been an HttpOnly cookie, the script could still make requests while the page was open, but could not take the credential away. With a BFF the browser holds only a session cookie, the BFF holds tokens, and revoking the session at the BFF ends access immediately. Add a strict CSP to reduce the chance of the injection.\n\n## Rehearse these\n\n- What is refresh token rotation?\n- How does SameSite help?\n- What is a BFF pattern?",
+      "followUps": [
+        "What is refresh token rotation?",
+        "How does SameSite help?",
+        "What is a BFF pattern?"
+      ]
+    },
+    {
+      "slug": "oauth-oidc-pkce-spa-flow",
+      "title": "How should a single-page app authenticate users with OAuth 2.0 and OpenID Connect?",
+      "topic": "Security",
+      "difficulty": "advanced",
+      "type": "conceptual",
+      "tags": [
+        "security",
+        "oauth",
+        "oidc",
+        "pkce"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Use the authorisation code flow with PKCE through a trusted identity provider, never the implicit flow. The app redirects to the provider, the user authenticates, and the app exchanges the code plus the PKCE verifier for tokens. OIDC adds an ID token for identity; the access token authorises API calls. I validate issuer, audience, expiry and signature, request minimal scopes, and keep tokens short-lived. For stronger security I prefer a backend-for-frontend that holds tokens, so the browser only has a session cookie.",
+      "revision": "Authorisation code flow with PKCE via an identity provider; validate tokens, minimise scopes, keep lifetimes short, and consider a BFF.",
+      "detailed": "OAuth authorises access; OpenID Connect authenticates identity on top of it.\n\n## Key points\n\n- PKCE binds the code to the client that started the flow, defeating code interception.\n- ID tokens are for the client to learn who logged in; APIs should accept access tokens only.\n- Validate iss, aud, exp, signature and nonce; use maintained libraries, not hand-written checks.\n- Scopes and claims define what the token permits; apply least privilege.\n- Logout and revocation need design: session end, refresh token revocation and provider sign-out.\n\n## Trade-off\n\nDirect SPA token handling is simple but exposes tokens to the browser; a BFF is more secure but adds a server component and session management.\n\n## Common mistake\n\nUsing an ID token as an API bearer token, or skipping audience validation so a token for another app is accepted.\n\n## Likely follow-up\n\n**Why not implicit flow?** It returns tokens in the URL fragment, is exposed to leakage and replay, and current guidance recommends the code flow with PKCE instead.\n\n## Worked scenario\n\nThe SPA generates a random code verifier, sends its hash as the code challenge in the redirect to the provider, and receives a short-lived code at the callback. It then posts the code and the original verifier to the token endpoint. An attacker who steals only the code cannot redeem it. The API receives the access token, checks issuer, audience, expiry and signature using the provider's published keys, and checks scopes before serving data. A realistic bug is accepting any validly signed token from the provider, which lets a token minted for a different application call this API.\n\n## Rehearse these\n\n- What is the nonce for?\n- Access vs ID token?\n- How do you do SSO across apps?",
+      "followUps": [
+        "What is the nonce for?",
+        "Access vs ID token?",
+        "How do you do SSO across apps?"
+      ]
+    },
+    {
+      "slug": "owasp-top-risks-mern-checklist",
+      "title": "Which OWASP risks matter most in a MERN application and how do you mitigate them?",
+      "topic": "Security",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "security",
+        "owasp",
+        "nodejs",
+        "react"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Broken access control is first: enforce authorisation on the server for every object, not just in the UI. Injection includes NoSQL operator injection, so validate input types and never pass raw request objects to queries. Cross-site scripting is mitigated by output encoding, avoiding dangerouslySetInnerHTML, and content security policy. Other priorities are secure authentication, secrets management, dependency vulnerability scanning, secure headers, rate limiting, logging and monitoring, and safe handling of server-side request forgery. I automate checks in CI and review threat models for new features.",
+      "revision": "Server-side access control, input validation including NoSQL injection, XSS defences, secrets and dependency hygiene, headers, rate limiting and monitoring.",
+      "detailed": "Most real breaches come from missing authorisation and unpatched dependencies, not exotic attacks.\n\n## Key points\n\n- Check ownership on every resource access to prevent insecure direct object references.\n- NoSQL injection: reject objects where strings are expected, use schema validation.\n- XSS: React escapes by default, so the risk is raw HTML insertion, unsafe URLs and third-party scripts.\n- Secrets in a manager, never in the repository or client bundle.\n- Supply chain: lockfiles, automated audits, pinned versions and reviewed updates.\n\n## Trade-off\n\nStrong controls add friction and review time; skipping them is cheaper until the first incident.\n\n## Common mistake\n\nHiding admin buttons in the UI and trusting that the API will not be called directly.\n\n## Likely follow-up\n\n**How do you prevent SSRF?** Allow-list destinations, block internal address ranges and metadata endpoints, avoid fetching arbitrary user-supplied URLs, and use network egress controls.\n\n## Worked scenario\n\nTake an endpoint that returns an order by id. If it only checks that the user is logged in, any user can read another's order by changing the id; the fix is to filter by the owner as part of the query. A login route that passes the request body directly into a Mongo query lets an attacker submit an object with a not-equal operator for the password; validate that fields are strings and use a schema. On the frontend, rendering user HTML with dangerouslySetInnerHTML needs a sanitiser. Run dependency audits in CI and block builds on high-severity findings in reachable code.\n\n## Rehearse these\n\n- What is IDOR?\n- How do you set a CSP?\n- How do you scan dependencies?",
+      "followUps": [
+        "What is IDOR?",
+        "How do you set a CSP?",
+        "How do you scan dependencies?"
+      ]
+    },
+    {
+      "slug": "secrets-management-rotation-aws",
+      "title": "How do you manage secrets and rotate them across environments?",
+      "topic": "Security",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "security",
+        "secrets",
+        "aws",
+        "devops"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Secrets never live in source control, images or client bundles. I store them in a managed service such as AWS Secrets Manager or Parameter Store, grant access through IAM roles with least privilege, and inject them at runtime. Rotation is automated where supported, and applications reload credentials without redeploying or use short-lived credentials, such as IAM roles and database tokens. Secret access is audited, environments use separate secrets, and CI has secret scanning plus a process to revoke and replace any leaked value immediately.",
+      "revision": "Use a managed secret store with role-based access, runtime injection, automated rotation, audit logs and secret scanning; separate per environment.",
+      "detailed": "The goal is short-lived, least-privilege credentials that are easy to rotate and impossible to commit.\n\n## Key points\n\n- Identity-based access beats shared keys: use roles, not long-lived access keys.\n- Rotation needs consumers that can pick up new values, ideally with overlapping validity.\n- Separate secrets per environment and per service to limit blast radius.\n- Audit trails show who read what, supporting investigation and compliance.\n- Anything public in the browser, such as a public API key, is not a secret and must be scoped.\n\n## Trade-off\n\nManaged rotation reduces risk but needs application support and testing; manual rotation is simple but often skipped.\n\n## Common mistake\n\nPutting environment variables with secrets in a public client build, or committing an env file once and assuming deletion removes it.\n\n## Likely follow-up\n\n**What if a secret leaks in git?** Revoke and rotate it at once; history rewriting is secondary because the value must be treated as compromised.\n\n## Worked scenario\n\nA service connects to a database with a password held in Secrets Manager. Rotation is configured every thirty days with a function that creates the new password, updates the database and stores it, with both versions valid briefly. The application caches the secret for a few minutes and refetches on an authentication failure, so rotation needs no redeploy. Access is limited to the service's role, and every read is logged. A secret scanner runs in pre-commit and CI. If a key is found in a repository, the sequence is revoke, rotate, check logs for misuse, then clean history.\n\n## Rehearse these\n\n- Secrets Manager vs Parameter Store?\n- How do you scan for leaks?\n- What are short-lived credentials?",
+      "followUps": [
+        "Secrets Manager vs Parameter Store?",
+        "How do you scan for leaks?",
+        "What are short-lived credentials?"
+      ]
+    },
+    {
+      "slug": "wcag-automated-scans-not-compliance",
+      "title": "Why do automated accessibility scans not prove WCAG compliance?",
+      "topic": "Accessibility",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "accessibility",
+        "wcag",
+        "testing"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Automated tools detect only a portion of issues, usually those with deterministic rules such as missing alt attributes, colour contrast values or invalid ARIA. They cannot judge whether alt text is meaningful, whether focus order is logical, whether a custom widget works with a keyboard and screen reader, or whether instructions are understandable. So I combine linting, automated checks in CI, manual keyboard testing, screen reader testing, and testing with people who use assistive technology, and I document conformance honestly.",
+      "revision": "Scans find rule-based defects only; meaning, focus order, keyboard use and screen reader behaviour need manual and user testing.",
+      "detailed": "Automation is a safety net for regressions, not evidence of conformance.\n\n## Key points\n\n- Tools cannot judge quality: alt text can exist and still be useless.\n- Dynamic behaviour such as focus management, live announcements and modals needs manual checks.\n- Combine eslint-plugin-jsx-a11y, axe or Lighthouse in CI with scripted keyboard paths.\n- Test with at least one screen reader and browser pairing used by your audience.\n- Maintain a conformance statement and an issue process for user reports.\n\n## Trade-off\n\nManual and user testing costs time but finds real barriers; relying on scans is cheap and gives false confidence.\n\n## Common mistake\n\nReporting a green Lighthouse score to a client as proof of WCAG AA compliance.\n\n## Likely follow-up\n\n**What percentage do tools catch?** Estimates vary and are often quoted as a minority to roughly half of issues; I would not rely on any figure, only that manual testing is required.\n\n## Worked scenario\n\nA page can pass every automated rule and still fail users. An image has alt text reading 'image1', which the scanner accepts. A modal opens but keyboard focus stays on the page behind it, so a screen reader user cannot reach the dialog. The tab order follows the DOM and jumps unpredictably after a layout change. A form shows an error only in red, with no text. A sensible test plan runs lint and axe on every pull request, scripts keyboard-only paths for key journeys, and has someone use a screen reader on the checkout before each major release.\n\n## Rehearse these\n\n- What would you test manually?\n- How do you build a11y into CI?\n- What is a VPAT or ACR?",
+      "followUps": [
+        "What would you test manually?",
+        "How do you build a11y into CI?",
+        "What is a VPAT or ACR?"
+      ]
+    },
+    {
+      "slug": "accessible-custom-components-focus",
+      "title": "How do you build an accessible custom component such as a modal or dropdown in React?",
+      "topic": "Accessibility",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "accessibility",
+        "react",
+        "aria",
+        "focus"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I start from native HTML where possible, such as a button, dialog or select, because it brings keyboard and semantics for free. For custom widgets I follow the ARIA Authoring Practices patterns: correct roles, names, states and keyboard interaction. For a modal that means moving focus in on open, trapping it while open, closing on Escape, restoring focus to the trigger, labelling it, and making the background inert. I prefer well-tested headless libraries, and I test with a keyboard and screen reader.",
+      "revision": "Prefer native elements; otherwise follow ARIA patterns for roles, states and keyboard, manage focus in and out, and test with real assistive technology.",
+      "detailed": "ARIA adds semantics but no behaviour; you must supply the keyboard and focus handling.\n\n## Key points\n\n- First rule of ARIA: do not use ARIA if a native element does the job.\n- Name, role, value: every control needs an accessible name, role and state such as aria-expanded.\n- Modal: focus moves in, is contained, Escape closes, focus returns, background is inert.\n- Keyboard: arrow keys for menus and listboxes, Tab to leave composite widgets.\n- Headless libraries such as Radix or React Aria encode these patterns and are widely tested.\n\n## Trade-off\n\nNative elements limit styling freedom; custom widgets give design control but demand more testing and maintenance.\n\n## Common mistake\n\nBuilding a div-based dropdown with click handlers only, which keyboard and screen reader users cannot operate.\n\n## Likely follow-up\n\n**Do you need aria-live for dynamic updates?** Use polite live regions for non-urgent status, such as search result counts, and assertive only for urgent errors, ensuring the region exists before content changes.\n\n## Worked scenario\n\nFor a modal, use the native dialog element opened with showModal where support allows, since it provides focus containment and Escape handling. Otherwise: store the trigger element, move focus to the dialog heading or first control, trap Tab and Shift+Tab inside, set the rest of the page inert, close on Escape, and return focus to the trigger. Label it with aria-labelledby. For a dropdown menu, the button gets aria-expanded and aria-haspopup, arrow keys move between items, and Escape closes and returns focus. If this feels like a lot, that is the reason to adopt a tested headless library.\n\n## Rehearse these\n\n- What does inert do?\n- Role vs native semantic?\n- How do you announce route changes?",
+      "followUps": [
+        "What does inert do?",
+        "Role vs native semantic?",
+        "How do you announce route changes?"
+      ]
+    },
+    {
+      "slug": "wcag-aa-design-system-governance",
+      "title": "How do you make WCAG 2.2 AA a built-in outcome of a design system rather than a final audit?",
+      "topic": "Accessibility",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "accessibility",
+        "design-system",
+        "governance",
+        "wcag"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I shift left: accessible components in the design system with documented keyboard behaviour, contrast-checked tokens, focus styles, target sizes and error patterns, so product teams inherit compliance. Designers annotate focus order and headings, developers use lint rules and automated tests, QA includes keyboard and screen reader checks in the definition of done, and releases track known issues in a backlog with severity. Periodic expert audits and user testing validate the outcome, and I record conformance claims carefully with scope and evidence.",
+      "revision": "Bake accessibility into tokens and components, add lint and CI checks and definition-of-done manual checks, then validate with periodic audits and users.",
+      "detailed": "Compliance is cheaper and more reliable as a property of the components than a late audit.\n\n## Key points\n\n- Tokens: contrast-checked colour pairs, visible focus, minimum target sizes.\n- Component docs include keyboard maps, ARIA usage and test cases.\n- Pipeline: lint, automated checks, and visual or interaction tests for focus states.\n- Process: definition of done includes manual keyboard and screen reader checks for changed UI.\n- Governance: owner, severity-based defect backlog and accessibility statement; check criteria against the current WCAG version.\n\n## Trade-off\n\nInvesting in the design system slows the first release but cuts repeated defects; late audits find issues when they are expensive to fix.\n\n## Common mistake\n\nTreating accessibility as a QA phase at the end, so issues reach production and fixes are deferred indefinitely.\n\n## Likely follow-up\n\n**What is new in WCAG 2.2?** It adds criteria such as focus not obscured, target size minimum and accessible authentication; confirm the exact list and levels against the current specification.\n\n## Worked scenario\n\nSuppose the button component ships with a contrast-checked token pair, a visible focus ring that meets contrast against both backgrounds, a minimum target size, and documentation of its keyboard behaviour. Every product team that uses it inherits those properties. The pipeline runs lint and automated checks, and a Storybook interaction test tabs to the control and asserts the focus style. Before release, a tester checks the changed screens by keyboard and with a screen reader. Each quarter an external specialist audits a sample, and findings go into a prioritised backlog with owners. Publish an accessibility statement with its scope and known gaps.\n\n## Rehearse these\n\n- How do you measure progress?\n- Who owns accessibility?\n- How do you handle third-party widgets?",
+      "followUps": [
+        "How do you measure progress?",
+        "Who owns accessibility?",
+        "How do you handle third-party widgets?"
+      ]
+    },
+    {
+      "slug": "i18n-vs-l10n-architecture",
+      "title": "What is the difference between internationalisation and localisation, and what must the architecture support?",
+      "topic": "Internationalisation",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "i18n",
+        "l10n",
+        "architecture"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Internationalisation is designing the product so it can support many locales without code changes; localisation is adapting content and formats for a specific market. Architecturally I need externalised strings with a message format that handles plurals and gender, locale-aware formatting of dates, numbers and currency through the Intl APIs, support for right-to-left layouts, locale-based routing, SEO with hreflang, a translation workflow, and fallbacks. Text expansion, fonts and content that was designed for one language are common problems.",
+      "revision": "i18n is building for many locales; l10n is adapting for one. Needs externalised messages, ICU plurals, Intl formatting, RTL, routing and a translation workflow.",
+      "detailed": "Hard-coded strings and concatenation are the root of most localisation defects.\n\n## Key points\n\n- Externalise all strings with keys and use ICU message format for plurals and selects.\n- Use Intl.DateTimeFormat, NumberFormat and currency formatting rather than manual formatting.\n- Support RTL with logical CSS properties such as margin-inline-start.\n- Locale routing, hreflang and per-locale metadata for search engines.\n- Translation workflow with a management tool, context for translators and pseudo-localisation tests.\n\n## Trade-off\n\nEarly i18n adds some upfront effort; retrofitting is much more expensive and error-prone.\n\n## Common mistake\n\nBuilding sentences by concatenating translated fragments, which breaks word order in other languages.\n\n## Likely follow-up\n\n**What is pseudo-localisation?** It transforms strings into longer accented text to reveal hard-coded text, truncation and layout problems before real translations exist.\n\n## Worked scenario\n\nA message such as 'You have 1 item' cannot be built by joining translated fragments. In ICU format it becomes one message with plural rules: one and other for English, but Polish and Arabic need further forms, and translators control them. Dates use Intl.DateTimeFormat with the user's locale and time zone, so 03/04/2026 never has to be explained. In CSS, logical properties such as padding-inline-start let one stylesheet serve both left-to-right and right-to-left layouts. Pseudo-localisation in CI lengthens strings by about a third and catches truncated buttons before translators begin.\n\n## Rehearse these\n\n- How do you handle plurals?\n- How do you support RTL?\n- Where do locale files load from?",
+      "followUps": [
+        "How do you handle plurals?",
+        "How do you support RTL?",
+        "Where do locale files load from?"
+      ]
+    },
+    {
+      "slug": "i18n-nextjs-routing-seo-caching",
+      "title": "How do you implement multi-locale routing in Next.js without hurting SEO or caching?",
+      "topic": "Internationalisation",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "i18n",
+        "nextjs",
+        "seo",
+        "caching"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I use locale-prefixed routes or domains so each language has a distinct, crawlable URL, with a language negotiation redirect only on first visit and the user's choice remembered. Each page has a canonical URL and hreflang alternates, translated metadata and a localised sitemap. Cache keys must include the locale and market, otherwise the wrong language is served from the CDN. Messages are loaded per locale and per route to limit bundle size, and server rendering must use the same locale as the client to avoid hydration mismatches.",
+      "revision": "Distinct locale URLs, hreflang and canonicals, locale in cache keys, per-route message loading and consistent server and client locale.",
+      "detailed": "Locale must be part of the URL and the cache key, never only a cookie.\n\n## Key points\n\n- URL strategy: path prefix or domain gives stable, shareable, indexable pages.\n- hreflang plus canonical tags tell search engines the language relationships.\n- Do not redirect crawlers by Accept-Language alone; show a suggestion banner instead.\n- Cache correctness: Vary or include locale and currency in the key; avoid personalised caches shared across locales.\n- Load only needed message namespaces per route to keep payloads small.\n\n## Trade-off\n\nSeparate URLs give the best SEO but multiply pages to maintain; cookie-based switching is simple but breaks crawling and caching.\n\n## Common mistake\n\nServing different languages on the same URL based on cookie, so the CDN caches one language for everyone.\n\n## Likely follow-up\n\n**How do you handle untranslated content?** Fall back to a default language with a clear signal, log missing keys, and avoid indexing thin partially translated pages.\n\n## Worked scenario\n\nUse paths such as /en-gb/shoes and /de/schuhe, each with its own title, description and canonical link, and with hreflang alternates listing every language plus an x-default. On a first visit with no cookie, suggest the matching language in a banner rather than redirecting crawlers, and then remember the choice. At the CDN, the cache key includes the locale path and currency, so a German visitor never receives a cached English page. Load only the message namespaces a route needs. Add a CI check that fails when a published locale has missing keys beyond an agreed threshold.\n\n## Rehearse these\n\n- Path vs subdomain vs domain?\n- What is hreflang x-default?\n- How do you test locales?",
+      "followUps": [
+        "Path vs subdomain vs domain?",
+        "What is hreflang x-default?",
+        "How do you test locales?"
+      ]
+    },
+    {
+      "slug": "i18n-currency-dates-formatting-pitfalls",
+      "title": "What are common pitfalls with currency, dates and time zones in global applications?",
+      "topic": "Internationalisation",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "i18n",
+        "currency",
+        "dates",
+        "timezones"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Currency should be stored as integer minor units with an ISO currency code, never as floating point, and rounding rules must be defined per currency because decimal places vary. Display uses Intl formatting for the user's locale. Dates should be stored in UTC with the original time zone where needed, and rendered in the user's zone; recurring or future events usually need local time plus zone rules because daylight saving rules change. Never parse or format dates manually, and test with a variety of locales and edge dates.",
+      "revision": "Store money as integer minor units with currency codes, dates in UTC plus zone where needed, and format only with Intl for the user's locale.",
+      "detailed": "Formatting is a presentation concern; storage must be unambiguous and locale-free.\n\n## Key points\n\n- Floating point cannot represent decimals exactly; use integers or decimal types.\n- Currencies differ in minor units: some have none, some three.\n- Exchange rates and tax need a defined rate source and rounding policy, with the rate stored on the order.\n- Time zones and daylight saving rules change, so store zone identifiers, not fixed offsets.\n- Week start, calendars and number grouping vary by locale; rely on Intl and test them.\n\n## Trade-off\n\nStoring local times is convenient but ambiguous; storing UTC is unambiguous but needs conversion everywhere users see times.\n\n## Common mistake\n\nCalculating tax with floating point and rounding per line item in one place and per total in another, causing penny differences.\n\n## Likely follow-up\n\n**How do you schedule a recurring meeting across daylight saving changes?** Store the local time and zone identifier plus the recurrence rule, and compute each occurrence in that zone, not in UTC offsets.\n\n## Worked scenario\n\nA basket total of 19.99 in a floating point variable can drift to 19.989999 after arithmetic. Store 1999 and the currency code GBP instead, and format with Intl.NumberFormat at display. Currencies such as the Japanese yen have no minor unit, so the exponent comes from the currency, not an assumed two. For a webinar at 09:00 London time next March, store the local time and the Europe/London zone and compute the instant when needed, because a fixed UTC offset would be an hour wrong after a daylight saving change. Keep the exchange rate used on each order for later refunds.\n\n## Rehearse these\n\n- Why integers for money?\n- What is ISO 4217?\n- How do you test time zones?",
+      "followUps": [
+        "Why integers for money?",
+        "What is ISO 4217?",
+        "How do you test time zones?"
+      ]
+    },
+    {
+      "slug": "testing-pyramid-trophy-strategy",
+      "title": "What testing strategy do you recommend for a React and Node system?",
+      "topic": "Testing",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "testing",
+        "strategy",
+        "react",
+        "nodejs"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I favour a balanced strategy: many fast unit tests for pure logic, a strong layer of integration tests where components or services interact with realistic collaborators, and a small number of end-to-end tests for critical journeys such as login and checkout. For React I test behaviour through the user's view with Testing Library rather than implementation details. For APIs I use integration tests against a real database in containers and contract tests between services. I add accessibility, performance and security checks to the pipeline, and keep flakiness low.",
+      "revision": "Many unit tests, solid integration tests, few end-to-end journeys, contract tests between services, and non-functional checks in CI.",
+      "detailed": "Tests should give confidence per minute of run time and survive refactoring.\n\n## Key points\n\n- Unit tests: pure logic and edge cases, fast and deterministic.\n- Integration: components with providers and mocked network, API with real database in containers.\n- E2E: a handful of business-critical flows against a production-like environment.\n- Contract tests catch breaking API changes between teams before deployment.\n- Treat flaky tests as defects; quarantine and fix them rather than rerun until green.\n\n## Trade-off\n\nMore end-to-end coverage feels safe but is slow and brittle; too few leaves integration gaps. Balance by risk.\n\n## Common mistake\n\nTesting component internals such as state values, so every refactor breaks tests without any behavioural change.\n\n## Likely follow-up\n\n**Should we aim for a coverage number?** Coverage shows what is untested but not test quality; use it as a signal, set modest thresholds on changed code and prioritise risk-based tests.\n\n## Worked scenario\n\nFor a checkout feature, unit-test the discount calculation with edge cases such as zero quantity and stacked promotions. Write a component integration test with Testing Library that fills the address form, mocks the network layer and asserts that the error message appears for an invalid postcode. Test the order API against a containerised database, including a duplicate submission. Add one end-to-end test that browses, adds to basket and pays in a sandbox. If a test is flaky, quarantine it with an owner and a deadline, because a suite people ignore protects nothing.\n\n## Rehearse these\n\n- Testing Library philosophy?\n- What is contract testing?\n- How do you tame flaky tests?",
+      "followUps": [
+        "Testing Library philosophy?",
+        "What is contract testing?",
+        "How do you tame flaky tests?"
+      ]
+    },
+    {
+      "slug": "testing-mocking-boundaries-msw",
+      "title": "What should you mock in tests and what should you leave real?",
+      "topic": "Testing",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "testing",
+        "mocking",
+        "msw",
+        "integration"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I mock at system boundaries I do not control or that are slow or non-deterministic: third-party APIs, payment gateways, time and randomness, and email. I keep my own modules and the database real where practical, using containers, because mocks of internal code freeze implementation and hide integration bugs. In frontend tests I mock the network layer with a tool such as Mock Service Worker, so the real data-fetching code runs. Mocks must be kept honest with contract tests or recorded examples to prevent drift from reality.",
+      "revision": "Mock external boundaries and non-determinism; keep your own code and database real; mock the network, not the data hooks; keep mocks honest with contracts.",
+      "detailed": "The more you mock inside your own system, the less your tests tell you.\n\n## Key points\n\n- Boundary mocking: payment, email, third-party APIs, clock, random ids.\n- Frontend: intercept HTTP with MSW so hooks, caching and error handling are exercised.\n- Backend: use real databases in containers; seed per test and clean up.\n- Contract tests or provider verification prevent mock drift.\n- Test failure paths: timeouts, 500s and partial data, not just the happy path.\n\n## Trade-off\n\nReal dependencies in tests are slower and need setup but find real bugs; heavy mocking is fast and fragile.\n\n## Common mistake\n\nMocking the data-fetching hook directly, so caching, loading and error behaviour are never tested.\n\n## Likely follow-up\n\n**How do you test payment integration?** Use the provider's sandbox for end-to-end checks, mock at the boundary for unit and integration tests, and verify webhook handling with signed sample payloads.\n\n## Worked scenario\n\nA frontend test for the order history screen uses Mock Service Worker to return a list of orders, a 500 error and a slow response in three cases. The real data hook, cache and error rendering all run, so the test proves the loading skeleton, the retry button and the empty state. On the backend, the payment client is replaced by a fake that can be told to time out, while the database is a real container seeded per test. A weekly job runs the same flows against the provider's sandbox, which detects if the real API has drifted from the mock.\n\n## Rehearse these\n\n- What is MSW?\n- How do you seed test data?\n- How do you test timeouts?",
+      "followUps": [
+        "What is MSW?",
+        "How do you seed test data?",
+        "How do you test timeouts?"
+      ]
+    },
+    {
+      "slug": "testing-release-confidence-pipeline",
+      "title": "How do you design a CI/CD pipeline that gives confidence to release frequently?",
+      "topic": "Testing",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "testing",
+        "ci-cd",
+        "release",
+        "quality"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I build a pipeline with fast feedback first: type checks, lint and unit tests on every commit, then integration, contract and accessibility tests, security and dependency scans, and a build of an immutable artefact deployed to a production-like environment for a smoke and end-to-end suite. Releases use feature flags, progressive delivery such as canary or blue-green, automated rollback on health or error-rate signals, and post-deploy monitoring. Database changes follow expand and contract so rollback is safe. Metrics such as lead time and change failure rate guide improvement.",
+      "revision": "Fast checks first, then integration, contract, security and E2E on an immutable artefact, released progressively with flags, monitoring and automated rollback.",
+      "detailed": "Release confidence comes from small changes, observability and fast rollback, not only from more tests.\n\n## Key points\n\n- Build once, deploy the same artefact through environments with config injected.\n- Progressive delivery limits blast radius: canary, blue-green and feature flags.\n- Rollback must be rehearsed and database migrations backward compatible.\n- Observability gates: error rate, latency and business metrics decide promotion.\n- Track delivery metrics, for example lead time, deployment frequency, change failure rate and recovery time.\n\n## Trade-off\n\nHeavy gates increase safety but slow delivery; lightweight gates plus fast rollback often give better outcomes for reversible changes.\n\n## Common mistake\n\nRunning a long end-to-end suite on every commit, so developers batch changes and merge less often, increasing risk.\n\n## Likely follow-up\n\n**How do you deploy schema changes safely?** Use expand and contract: add compatible structures, deploy code that works with both, migrate data, then remove old structures in a later release.\n\n## Worked scenario\n\nA merge triggers type checks, lint and unit tests in a few minutes, then builds one container image tagged with the commit. That image deploys to staging where contract tests, a short end-to-end suite and an accessibility check run. Production release goes to five percent of traffic behind a flag; the pipeline watches error rate and checkout conversion and promotes automatically, or rolls back if either degrades. A migration adding a column ships first and is unused, then code that writes both, then the backfill, and finally the cleanup in a later release, so any step can be reversed.\n\n## Rehearse these\n\n- Canary vs blue-green?\n- What are feature flags' risks?\n- What are DORA metrics?",
+      "followUps": [
+        "Canary vs blue-green?",
+        "What are feature flags' risks?",
+        "What are DORA metrics?"
+      ]
+    },
+    {
+      "slug": "ecommerce-product-page-performance-design",
+      "title": "Design a high-traffic ecommerce product page: how do you keep it fast and fresh?",
+      "topic": "Ecommerce design",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "ecommerce",
+        "performance",
+        "caching",
+        "system-design"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I split the page by volatility. Descriptive content, images and structure are cached at the CDN, statically generated or revalidated on content events. Price, promotions and stock are volatile and personalised, so they come from fast APIs, cached briefly or streamed, with a clear stale-data policy. Images use responsive formats and lazy loading, search and recommendations load separately, and Core Web Vitals are monitored with real-user data. Under campaign load I add rate limiting, graceful degradation and a pre-warmed cache, and keep the checkout authoritative on price and stock.",
+      "revision": "Cache stable content at the CDN, fetch volatile price and stock separately with short TTLs, optimise images, degrade gracefully, and make checkout authoritative.",
+      "detailed": "Different parts of one page have different freshness needs; cache them differently.\n\n## Key points\n\n- Stable: product description, media, attributes; CDN with event-based invalidation.\n- Volatile: price, promotion, availability; short TTL or streamed with fallbacks.\n- Images: modern formats, responsive sizes, CDN transformation, priority for the hero image.\n- Resilience: serve a stale page if the API is slow; hide non-critical widgets.\n- Observe LCP, INP and CLS from real users and set performance budgets.\n\n## Trade-off\n\nAggressive caching gives speed but risks showing outdated prices; the checkout must revalidate to avoid selling at wrong prices or without stock.\n\n## Common mistake\n\nFully server-rendering every product view per request, so a campaign spike overloads the origin and databases.\n\n## Likely follow-up\n\n**What happens if the displayed price differs from checkout?** Checkout recalculates authoritatively from the pricing service, shows a clear change message and requires confirmation, so the cache never becomes the source of truth.\n\n## Worked scenario\n\nDuring a flash sale, a product page is generated once and served from the CDN with a one-minute revalidation window. Price and stock come from a small API that is cached for a few seconds and fetched in parallel with the hero image preload. If the stock API times out, the page shows 'Check availability at basket' rather than failing. Hero image uses a responsive source set in a modern format with fetch priority, and reserved dimensions keep layout shift near zero. Load test with a realistic mix before the event and set an alert on largest contentful paint measured from real users.\n\n## Rehearse these\n\n- How do you protect inventory?\n- How do you handle flash sales?\n- Which Core Web Vitals matter?",
+      "followUps": [
+        "How do you protect inventory?",
+        "How do you handle flash sales?",
+        "Which Core Web Vitals matter?"
+      ]
+    },
+    {
+      "slug": "ecommerce-checkout-idempotency-payments",
+      "title": "How do you make checkout and payment safe against retries and double charges?",
+      "topic": "Ecommerce design",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "ecommerce",
+        "payments",
+        "idempotency",
+        "reliability"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I make every state-changing step idempotent. The client sends an idempotency key with the order or payment request, the server stores the key with the result, and a repeat returns the stored outcome instead of charging again. Payment status is driven by gateway webhooks, verified by signature and processed idempotently, because the browser redirect is not reliable. Orders follow an explicit state machine, stock is reserved with expiry, and reconciliation jobs compare gateway records with orders. I never store card data; I use the provider's hosted fields.",
+      "revision": "Idempotency keys on requests, webhook-driven payment state with signature checks, explicit order state machine, reservation expiry and reconciliation.",
+      "detailed": "Networks fail and users double-click, so every step must be safe to repeat.\n\n## Key points\n\n- Idempotency key stored with request hash and result; same key and payload returns the same response.\n- Webhooks are authoritative but may be duplicated or arrive late; handle idempotently and out of order.\n- State machine: pending, authorised, paid, failed, refunded, with allowed transitions only.\n- Inventory reservation with expiry prevents oversell and abandoned-cart lock-in.\n- Reconciliation catches mismatches: paid but no order, order but no payment.\n\n## Trade-off\n\nStrict state machines and reconciliation add engineering effort but prevent financial errors; ad hoc flows ship faster and fail expensively.\n\n## Common mistake\n\nMarking an order paid when the browser returns from the payment page, instead of waiting for a verified gateway event.\n\n## Likely follow-up\n\n**What if the payment succeeds but order creation fails?** The webhook or reconciliation job detects it and either completes the order or refunds, with alerts; use an outbox so order events are not lost.\n\n## Worked scenario\n\nThe browser sends POST /orders with an Idempotency-Key header generated when the checkout screen opens. The server stores the key, a hash of the body and the response. A double click or retry after a timeout finds the key and returns the stored order, without creating a second charge. The payment provider calls a webhook; the handler verifies the signature, ignores events already processed, and moves the order from pending to paid only along allowed transitions. A nightly reconciliation compares provider settlements with orders and raises an alert for any payment without a matching order.\n\n## Rehearse these\n\n- How does an outbox protect order events?\n- How do you verify webhook signatures?\n- How do you reduce PCI scope?",
+      "followUps": [
+        "How does an outbox protect order events?",
+        "How do you verify webhook signatures?",
+        "How do you reduce PCI scope?"
+      ]
+    },
+    {
+      "slug": "ecommerce-search-catalogue-architecture",
+      "title": "How would you design product search and catalogue architecture for a large ecommerce site?",
+      "topic": "Ecommerce design",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "ecommerce",
+        "search",
+        "catalogue",
+        "architecture"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "The product database or PIM is the source of truth; a search engine such as OpenSearch, Elasticsearch or a managed service holds a derived index built from change events, so search is eventually consistent with the catalogue. The index supports full text, typo tolerance, facets, synonyms, ranking with business signals and personalisation, and locale-specific analysis. I use an event-driven pipeline with replay for reindexing, blue-green index swaps for schema changes, and monitor relevance with click-through and zero-result queries. Price and stock can be merged at query time or updated with high priority.",
+      "revision": "Source-of-truth catalogue plus a derived search index fed by events, with facets, relevance tuning, locale analysers, replayable reindexing and relevance monitoring.",
+      "detailed": "Search is a read model; design for rebuilding it, not for protecting it as primary data.\n\n## Key points\n\n- Event-driven indexing via change data capture or domain events, idempotent upserts.\n- Reindex with a new index and alias swap to avoid downtime.\n- Relevance: analysers per language, synonyms, boosting, and measurable offline and online evaluation.\n- Facets and filters need appropriate field mapping and can be expensive on high-cardinality fields.\n- Freshness: fast path for price and stock changes, slower path for rich content.\n\n## Trade-off\n\nA separate index gives speed and features but introduces lag and operational burden; querying the primary database directly is simple but does not scale for text relevance.\n\n## Common mistake\n\nTreating the search index as the system of record and then being unable to rebuild it after mapping changes.\n\n## Likely follow-up\n\n**How do you measure search quality?** Track zero-result rate, click-through and conversion by query, run relevance tests on judged queries, and A/B test ranking changes.\n\n## Worked scenario\n\nA merchandiser updates a product title in the PIM. A change event goes onto a stream, an indexer upserts the document into the search index by product id, so replays are harmless. For a mapping change such as a new synonym analyser, build a fresh index from the source, then switch the alias atomically and keep the old index for a day in case of rollback. Dashboards track queries with zero results; if 'trainers' returns nothing while the catalogue says 'sneakers', a synonym entry fixes it. Stock changes take a faster path than description changes.\n\n## Rehearse these\n\n- How do you reindex without downtime?\n- How do you handle synonyms?\n- How do you personalise results?",
+      "followUps": [
+        "How do you reindex without downtime?",
+        "How do you handle synonyms?",
+        "How do you personalise results?"
+      ]
+    },
+    {
+      "slug": "at-least-once-vs-effectively-once",
+      "title": "What is the difference between at-least-once delivery and effectively-once processing?",
+      "topic": "Distributed systems",
+      "difficulty": "advanced",
+      "type": "conceptual",
+      "tags": [
+        "distributed-systems",
+        "messaging",
+        "idempotency"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "At-least-once delivery means a message is never lost but may be delivered more than once, for example after a timeout or consumer crash before acknowledgement. Exactly-once delivery across a network is not generally achievable, so we aim for effectively-once processing: accept duplicates but make their effect happen once. That is done with idempotent consumers, deduplication by message or business id stored atomically with the side effect, conditional writes, and the transactional outbox and inbox patterns. Some platforms offer exactly-once within their own boundary, but external side effects still need idempotency.",
+      "revision": "Delivery may repeat; processing is made safe by idempotent handlers and deduplication so the effect happens once.",
+      "detailed": "Redelivery is normal; the design question is whether handling a duplicate is harmless.\n\n## Key points\n\n- At-most-once can lose messages; at-least-once can duplicate; both are delivery guarantees.\n- Idempotency key or natural business key checked in the same transaction as the side effect.\n- Outbox pattern publishes events atomically with the database change; inbox deduplicates on consumption.\n- Idempotent by nature: set status to X; not idempotent: add 10 to balance without a key.\n- Ordering and duplication interact; use per-key ordering and versioned updates.\n\n## Trade-off\n\nDeduplication storage costs space and latency and needs a retention window; skipping it is simpler but risks double effects.\n\n## Common mistake\n\nAcknowledging a message before the work is committed, or committing work and crashing before acknowledging without idempotency.\n\n## Likely follow-up\n\n**Do Kafka transactions give exactly-once?** Within Kafka's read-process-write cycle they can, but calls to external systems such as email or payments sit outside and still need idempotency.\n\n## Worked scenario\n\nA payment-captured message is delivered, the consumer charges the ledger, then crashes before acknowledging, so the queue delivers it again. If the consumer inserts a ledger row with a unique constraint on the message id inside the same transaction as the balance update, the second attempt hits the constraint and is skipped safely. Compare the operation 'add 10 to balance' with 'set order status to paid': the second is naturally idempotent. Keep deduplication keys for longer than the maximum redelivery window, such as the queue's retention period plus a safety margin.\n\n## Rehearse these\n\n- What is the outbox pattern?\n- How long do you keep dedupe keys?\n- Why is exactly-once hard?",
+      "followUps": [
+        "What is the outbox pattern?",
+        "How long do you keep dedupe keys?",
+        "Why is exactly-once hard?"
+      ]
+    },
+    {
+      "slug": "saga-vs-two-phase-commit",
+      "title": "How do you keep data consistent across microservices without distributed transactions?",
+      "topic": "Distributed systems",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "distributed-systems",
+        "saga",
+        "consistency",
+        "microservices"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I avoid two-phase commit across services because it couples availability and holds locks. Instead I use sagas: a sequence of local transactions, each publishing an event, with compensating actions to undo earlier steps if a later one fails. Coordination can be choreographed through events or orchestrated by a central workflow. Each step must be idempotent, compensations must be designed for business meaning such as refund or release stock, and the system accepts temporary inconsistency. I also keep related data in one service where strong consistency is truly required.",
+      "revision": "Use sagas of local transactions with compensations, idempotent steps and eventual consistency; keep strongly consistent data inside one service.",
+      "detailed": "Consistency across services is a business process with failure paths, not a database feature.\n\n## Key points\n\n- Choreography is decoupled but hard to follow; orchestration is explicit but adds a coordinator.\n- Compensation is semantic, not rollback: a refund is a new transaction, not an erase.\n- Persist saga state so crashes resume correctly; use timeouts for stuck steps.\n- Design intermediate states visible to users, such as pending and processing.\n- Reconsider service boundaries if sagas become extremely complex.\n\n## Trade-off\n\nSagas give availability and autonomy but demand careful failure design; distributed transactions are simpler to reason about but scale and fail poorly.\n\n## Common mistake\n\nSplitting a tightly coupled domain across services, then building elaborate sagas to recreate a single transaction.\n\n## Likely follow-up\n\n**How do you debug a stuck saga?** Use a correlation id across logs and traces, persisted saga state, dashboards for age in each state, and alerts for steps exceeding timeouts.\n\n## Worked scenario\n\nA booking saga reserves stock, charges the card and then creates the shipment. If shipment creation fails permanently, the orchestrator issues a refund and releases the stock, each as its own idempotent command. The saga state is persisted with a correlation id, so a crash resumes at the right step, and a timeout alert fires if a saga sits in 'charging' for more than a few minutes. Users see 'processing' rather than a false success. If you find yourself writing compensations for nearly every call between two services, ask whether they should be one service with one database transaction.\n\n## Rehearse these\n\n- Choreography vs orchestration?\n- What is a compensating action?\n- How do you model pending states?",
+      "followUps": [
+        "Choreography vs orchestration?",
+        "What is a compensating action?",
+        "How do you model pending states?"
+      ]
+    },
+    {
+      "slug": "cap-pacelc-consistency-choices",
+      "title": "How do CAP and PACELC help you make real design decisions?",
+      "topic": "Distributed systems",
+      "difficulty": "advanced",
+      "type": "conceptual",
+      "tags": [
+        "distributed-systems",
+        "cap",
+        "consistency",
+        "trade-offs"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "CAP says that during a network partition a system must choose between consistency and availability. PACELC extends it: when there is no partition you still trade latency against consistency. I use it to ask a practical question per operation: what happens if replicas disagree or are unreachable? For payments and inventory reservation I choose consistency and accept refusing or delaying a request. For catalogue browsing, feeds and counters I choose availability and low latency with eventual consistency. Mixed systems apply different guarantees to different data.",
+      "revision": "During partitions choose consistency or availability; otherwise trade latency against consistency. Decide per operation by business impact of staleness.",
+      "detailed": "Consistency is a business-level choice per data type, not a system-wide label.\n\n## Key points\n\n- CP choice: reject or delay requests that cannot reach a quorum, protecting correctness.\n- AP choice: serve possibly stale data and reconcile later, protecting uptime.\n- Read-your-writes and monotonic reads can be offered cheaply to fix the worst user-facing anomalies.\n- Quorum reads and writes tune the trade-off in many distributed stores.\n- Conflict resolution strategies: last-write-wins, versioning, CRDTs or business rules.\n\n## Trade-off\n\nStrong consistency simplifies reasoning but reduces availability and raises latency; eventual consistency scales and stays available but pushes complexity to applications and users.\n\n## Common mistake\n\nDescribing a database as simply CP or AP without discussing its configuration, since many stores let you tune it per query.\n\n## Likely follow-up\n\n**Which data would you make eventually consistent?** Reviews, view counts, recommendations and search indexes, where short staleness is acceptable; not balances, stock reservation or permissions.\n\n## Worked scenario\n\nTake stock for the last unit of a popular item. Reserve it with a conditional write against a single authoritative store, accepting that during a partition the request may fail with 'try again'. Product ratings and view counters can be replicated asynchronously and be seconds stale. A user who submits a review should still see it immediately, which read-your-writes can provide by routing that user's reads to the primary for a short time. For two regions accepting writes to the same profile, define a merge rule in advance, such as latest timestamp per field, or reject concurrent edits.\n\n## Rehearse these\n\n- What is read-your-writes?\n- What is a quorum?\n- How do you resolve write conflicts?",
+      "followUps": [
+        "What is read-your-writes?",
+        "What is a quorum?",
+        "How do you resolve write conflicts?"
+      ]
+    },
+    {
+      "slug": "architecture-decision-records-governance",
+      "title": "How do you make and record architecture decisions so they survive team changes?",
+      "topic": "Leadership",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "leadership",
+        "adr",
+        "governance",
+        "architecture"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I use lightweight architecture decision records: a short document with context, options considered, decision, trade-offs and consequences, stored in the repository and reviewed like code. Decisions are made with the people who will build and run them, with explicit constraints and quality attributes such as latency, cost and security. I record when a decision should be revisited and mark records as superseded rather than deleting them. Governance is advisory and enabling: guardrails, reference architectures and reviews that help teams move faster, not a gate that slows every change.",
+      "revision": "Short ADRs with context, options, decision and consequences in the repo; collaborative decisions, revisit triggers, and enabling rather than gatekeeping governance.",
+      "detailed": "A decision without recorded reasoning gets relitigated every time the team changes.\n\n## Key points\n\n- ADR template: context, options, decision, consequences, status and date.\n- Tie decisions to quality attributes and constraints, not preferences.\n- Review in pull requests so discussion and approval are visible.\n- Supersede, never delete: history explains why things are the way they are.\n- Reserve heavy review for one-way-door decisions; let teams decide reversible ones quickly.\n\n## Trade-off\n\nDocumentation takes time and can go stale; the cost is small compared with repeated debates and loss of context.\n\n## Common mistake\n\nWriting long architecture documents nobody reads, instead of short records near the code.\n\n## Likely follow-up\n\n**How do you handle disagreement?** Clarify the criteria, test with a spike or measurable experiment if cheap, hear dissent, decide who is accountable, and record the reasoning so the decision can be revisited.\n\n## Worked scenario\n\nA short record titled 'Use a BFF for web and mobile' states the context of three clients with different data needs, lists options of direct domain calls, GraphQL gateway and per-client BFFs, records the decision and its consequences such as an extra service to run, and sets a review trigger of 'if we add a fourth client'. It lives in the repository under docs/adr and is approved in a pull request. Later, when the mobile team asks why they cannot call the domain services, the answer is one link. A superseded record is kept with a pointer to its replacement.\n\n## Rehearse these\n\n- One-way vs two-way doors?\n- How do you review designs?\n- How do you avoid ivory-tower architecture?",
+      "followUps": [
+        "One-way vs two-way doors?",
+        "How do you review designs?",
+        "How do you avoid ivory-tower architecture?"
+      ]
+    },
+    {
+      "slug": "technical-debt-prioritisation-stakeholders",
+      "title": "How do you prioritise technical debt and explain it to non-technical stakeholders?",
+      "topic": "Leadership",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "leadership",
+        "technical-debt",
+        "stakeholders"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I make debt visible and tie it to business outcomes: slower delivery, incidents, security exposure, cost or inability to launch a feature. I classify it as deliberate or accidental, estimate impact and effort, and prioritise items that block roadmap goals or carry risk. I propose a steady allocation, such as part of each iteration or paired with feature work in the same area, rather than a big rewrite. I report with a few measures such as lead time, incident counts and change failure rate, and keep the conversation about risk and cost, not code quality.",
+      "revision": "Link debt to delivery speed, incidents, risk and cost; prioritise by impact and effort; allocate steady capacity; avoid big-bang rewrites.",
+      "detailed": "Stakeholders fund outcomes, so translate debt into delivery speed and risk.\n\n## Key points\n\n- Inventory debt with owner, impact, effort and a suggested trigger for fixing it.\n- Prefer incremental modernisation such as the strangler approach over full rewrites.\n- Pair debt work with nearby feature work to share review and testing effort.\n- Use evidence: incident postmortems, cycle time and defect trends.\n- Be honest about deliberate debt taken for deadlines, with a payback plan.\n\n## Trade-off\n\nSpending on debt slows visible features now but sustains speed later; ignoring it works until delivery stalls or an incident forces the work.\n\n## Common mistake\n\nAsking for a quarter to rewrite everything without a business case, which loses trust and is rarely approved.\n\n## Likely follow-up\n\n**How do you justify refactoring?** Show the specific cost it removes, such as hours lost per release or incident frequency, and propose a small, measurable slice with a clear success criterion.\n\n## Worked scenario\n\nA product owner asks why a feature takes six weeks. Show that every release of the legacy checkout module needs two days of manual regression and caused three incidents last quarter. Propose spending twenty percent of each sprint on wrapping that module with automated tests and extracting the payment step, with a target of halving regression time within two quarters. Present it as risk reduced and delivery accelerated, with a before and after measure of lead time. If asked for a deadline-driven shortcut, agree explicitly, log it as deliberate debt with an owner and a repayment date.\n\n## Rehearse these\n\n- What is the strangler pattern?\n- How do you measure debt?\n- How do you say no to a deadline?",
+      "followUps": [
+        "What is the strangler pattern?",
+        "How do you measure debt?",
+        "How do you say no to a deadline?"
+      ]
+    },
+    {
+      "slug": "leading-engineers-as-solution-architect",
+      "title": "How do you lead and influence a team as a solution architect without direct authority?",
+      "topic": "Leadership",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "leadership",
+        "architect",
+        "communication",
+        "mentoring"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I lead through clarity, trust and enablement. I set direction by explaining the problem, constraints and trade-offs, involve engineers in design so they own the outcome, and write short decision records. I review designs and code for principles rather than preference, mentor through pairing and examples, and share reusable templates and guardrails. With clients and product owners I translate technical risk into business terms and offer options with costs. When I am wrong, I say so quickly, and I stay close enough to delivery to keep advice realistic.",
+      "revision": "Influence through clear trade-offs, shared ownership, mentoring, reusable guardrails and business-language communication, staying close to delivery.",
+      "detailed": "An architect's output is the team's decisions improving, not their own diagrams.\n\n## Key points\n\n- Explain why: constraints and trade-offs beat instructions.\n- Co-design with the engineers who build it; they will find the flaws early.\n- Provide options with cost, risk and recommendation for stakeholders.\n- Raise the baseline with templates, examples and automated checks.\n- Stay hands-on enough to stay credible: read code, join incidents, review pull requests.\n\n## Trade-off\n\nCollaboration is slower than dictating, but decisions stick and teams grow; dictating is fast and creates dependency on the architect.\n\n## Common mistake\n\nProducing diagrams in isolation and handing them over, then being surprised when delivery diverges.\n\n## Likely follow-up\n\n**How do you handle a team that ignores guidelines?** Understand why, since the guideline may be impractical, fix the guideline or provide tooling, and escalate only for genuine risk, with evidence and options.\n\n## Worked scenario\n\nBefore a design review, send a one-page context with the problem, constraints, two options and a recommendation, so the discussion is about trade-offs rather than a presentation. In the meeting, ask the engineers who will run the system what worries them; they usually find the operational gaps. Afterwards, record the decision, and offer a skeleton repository or template that encodes it. When a team deviates, ask what made the guideline hard to follow before enforcing it. With a client, present three options priced by cost, risk and time, so the choice remains theirs and the consequences are clear.\n\n## Rehearse these\n\n- How do you mentor seniors?\n- How do you manage a client conflict?\n- How do you stay technical?",
+      "followUps": [
+        "How do you mentor seniors?",
+        "How do you manage a client conflict?",
+        "How do you stay technical?"
+      ]
+    },
+    {
+      "slug": "aws-iam-least-privilege-multi-account",
+      "title": "How do you apply least privilege and account isolation on AWS?",
+      "topic": "AWS",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "aws",
+        "iam",
+        "security",
+        "governance"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I separate workloads and environments into different AWS accounts under an organisation, with service control policies as guardrails. Workloads use IAM roles with narrowly scoped policies rather than long-lived keys, people use federated single sign-on with short sessions, and permissions are defined as code and reviewed. I start from the actions needed, use access analysis to remove unused permissions, add permission boundaries for delegated teams, and enable CloudTrail, config rules and alerts. Network isolation, encryption with managed keys and separate logging accounts complete the picture.",
+      "revision": "Multi-account organisation with SCP guardrails, roles instead of keys, federated SSO, scoped policies as code, access analysis and central audit logging.",
+      "detailed": "Least privilege means each identity can do only what its job needs, and account boundaries limit the blast radius of mistakes and compromise.\n\n## Key points\n\n- Separate accounts for production, non-production, security tooling and logging.\n- Service control policies set the maximum permissions any identity in an account can have.\n- Roles with temporary credentials for services; federated SSO for humans; no shared long-lived keys.\n- IAM Access Analyzer and last-used data help trim unused permissions over time.\n- Infrastructure as code with peer review makes permission changes visible and repeatable.\n\n## Trade-off\n\nMany accounts improve isolation but add cross-account networking and tooling overhead; one account is simpler but a single mistake can affect everything.\n\n## Common mistake\n\nAttaching administrator access to a role because a deployment failed with access denied, and never narrowing it afterwards.\n\n## Likely follow-up\n\n**How do you grant a developer temporary production access?** Through a break-glass or just-in-time role via single sign-on with approval, a short session, and full audit logging, rather than a standing permission.\n\n## Worked scenario\n\nA payments service needs to read one secret and write to one queue. Its role gets a policy listing those two actions on those two resource ARNs, and nothing else. A permission boundary on roles created by product teams caps what they can grant, and a service control policy in the production organisational unit blocks disabling CloudTrail or leaving approved regions even for administrators. Run Access Analyzer monthly and remove actions unused for ninety days. Developers use single sign-on into a sandbox account freely, but production access is read-only by default and elevated through an approved, time-boxed session.\n\n## Rehearse these\n\n- What is a service control policy?\n- Role vs user?\n- How do you audit changes?",
+      "followUps": [
+        "What is a service control policy?",
+        "Role vs user?",
+        "How do you audit changes?"
+      ]
+    },
+    {
+      "slug": "questions-to-ask-the-interviewer",
+      "title": "Ten questions to ask the interviewer, grouped by topic",
+      "topic": "Interview strategy",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "interview",
+        "questions",
+        "strategy"
+      ],
+      "quick": "I ask questions that show architectural thinking and help me judge the role. On delivery: how releases happen and what slows them. On architecture: the biggest current technical risk and how decisions are recorded. On team: how engineers and architects collaborate. On the client: how success is measured and how requirements change. On growth: what good looks like in six months. I choose three or four based on the conversation rather than reading a list.",
+      "revision": "Ask about delivery, architecture, team, client and growth; pick three or four that follow the conversation and avoid questions answered on the website.",
+      "detailed": "Good questions show how you think and help you decide whether the role fits. Choose a few that follow the conversation.\n\n## Delivery\n\n1. How often do you release to production, and what most limits that frequency today?\n2. What does the path from commit to production look like, and how long does rollback take?\n\n## Architecture\n\n3. What is the biggest technical risk or piece of debt on this programme right now?\n4. How are architecture decisions made and recorded, and who can overrule them?\n5. What non-functional requirements, such as availability, latency or compliance, are hardest to meet?\n\n## Team\n\n6. How do architects, tech leads and engineers work together day to day?\n7. How does the team handle disagreement on technical direction?\n\n## Client\n\n8. How is success measured with the client, and how stable are the requirements?\n9. How much of the architect role is client-facing versus hands-on design?\n\n## Growth\n\n10. What would a successful first six months look like for this role?\n\n## Trade-off\n\nAsking many questions shows curiosity but can consume the time the interviewer needs to assess you. Pick three or four, and keep them short.\n\n## Common mistake\n\nAsking about salary or leave first, or asking something the company website answers, which signals little preparation.\n\n## Likely follow-up\n\n**What if they turn the question back to you?** Answer briefly with your own view and reasoning, then ask what constraints shaped their approach, so it becomes a conversation about trade-offs.",
+      "followUps": [
+        "Which two would you pick for a client-facing role?",
+        "How do you listen for red flags in the answers?",
+        "What would you ask a non-technical manager?"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": []
+    },
+    {
+      "slug": "final-hour-revision-checklist",
+      "title": "Final-hour revision checklist for a Solution Architect MERN interview",
+      "topic": "Interview strategy",
+      "difficulty": "beginner",
+      "type": "comparison",
+      "tags": [
+        "revision",
+        "checklist",
+        "architecture",
+        "react",
+        "aws"
+      ],
+      "quick": "In the last hour I revise three one-page sheets rather than reading new material. The architecture sheet covers requirements, trade-offs, scaling, consistency and failure handling. The React and GraphQL sheet covers rendering choices, state ownership, performance and query protection. The AWS, security and accessibility sheet covers resilience, messaging, identity, secrets and WCAG basics. Then I rehearse two or three spoken answers aloud and rest, because clear structure beats late cramming.",
+      "revision": "Revise three one-page sheets: architecture, React and GraphQL, AWS with security and accessibility; rehearse aloud, then rest.",
+      "detailed": "Use this as a quick scan, not a lesson. Rehearse answers aloud in a structure: requirements, options, trade-off, decision, risks.\n\n## Sheet 1: architecture\n\n| Topic | One-line reminder |\n|---|---|\n| Requirements | Clarify functional needs, quality attributes, constraints and scale first |\n| Trade-offs | Name what you gain and what you pay for every choice |\n| Scaling | Stateless services, caching, queues, read replicas, partitioning |\n| Consistency | Strong for money and stock, eventual for feeds and search |\n| Failure | Timeouts, retries with jitter, idempotency, circuit breakers, dead-letter queues |\n| Data flow | Outbox, sagas, events, idempotent consumers |\n| Decisions | ADRs, reversible versus one-way choices |\n\n## Sheet 2: React and GraphQL\n\n| Topic | One-line reminder |\n|---|---|\n| State | Server state in a query cache, shared client state in slices, rest local or in the URL |\n| Rendering | Server Components by default, client leaves for interactivity |\n| Performance | Profile first, colocate state, split context, virtualise lists |\n| Effects | Abort or ignore stale requests |\n| GraphQL safety | Depth and cost limits, pagination caps, persisted queries, DataLoader |\n| Schema | Additive change, deprecate, check against real operations |\n\n## Sheet 3: AWS, security and accessibility\n\n| Topic | One-line reminder |\n|---|---|\n| Resilience | Multi-AZ by default, multi-region by RTO and RPO |\n| Messaging | SQS queue, SNS fan-out, EventBridge routing, streams for replay |\n| Identity | Roles not keys, least privilege, separate accounts |\n| Secrets | Managed store, rotation, no secrets in repo or bundle |\n| Auth | Code flow with PKCE, short tokens, HttpOnly cookies or BFF |\n| Web security | Server-side authorisation, validate input, CSP, dependency scans |\n| Accessibility | Native first, focus management, manual tests beyond scans |\n\n## Trade-off\n\nBreadth revision keeps everything fresh but may feel shallow; pick the two or three areas where the role is most demanding and prepare one concrete scenario for each.\n\n## Common mistake\n\nStarting new topics in the last hour, which raises anxiety and displaces material you already know.\n\n## Likely follow-up\n\n**How should you structure any design answer?** Clarify requirements, state assumptions, propose a simple design, discuss scaling and failure, name trade-offs, and finish with what you would measure.",
+      "followUps": [
+        "Which sheet is your weakest?",
+        "How do you structure a design answer?",
+        "What do you do the evening before?"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": []
+    }
+  ]
+}

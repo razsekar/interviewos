@@ -1,0 +1,735 @@
+{
+  "category": "core-web-vitals",
+  "questions": [
+    {
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "difficulty": "advanced",
+      "type": "scenario",
+      "slug": "scenario-react-profiler-unnecessary-renders-dashboard",
+      "title": "Scenario: typing in a dashboard filter feels laggy. How do you find unnecessary renders with the React Profiler?",
+      "topic": "React rendering performance",
+      "tags": [
+        "react",
+        "profiler",
+        "inp",
+        "re-renders",
+        "scenario"
+      ],
+      "quick": "I would reproduce the lag, record an interaction in the React DevTools Profiler with render reasons enabled, and look for components that render on every keystroke without their output changing. Then I confirm in the browser Performance panel that the long task is rendering, fix the cause such as state held too high or unstable props, and verify again. I protect the fix with a render-count test or a performance check in review.",
+      "revision": "Record the interaction in the Profiler, find components rendering for no visible change, fix state placement or prop identity, then re-measure.",
+      "detailed": "## Symptoms\n\nTyping in a filter box on a data-heavy dashboard lags. Field data or lab traces show poor **INP** on that interaction, while network and server timings look normal.\n\n## Investigation\n\n1. Reproduce with CPU throttling in DevTools so the problem is visible on a mid-range device.\n2. Record a **Performance** trace to confirm the long task is scripting and rendering, not layout or network.\n3. Record the same interaction in the **React Profiler**. Enable the option to record why each component rendered.\n4. Read the flamegraph and ranked chart: which components rendered per keystroke, how long each took, and were they expected to change?\n\n{{diagram:prof}}\n\n## Root cause (typical findings)\n\n| Finding | Meaning |\n|---|---|\n| Whole page re-renders on each key | Filter state lives in a high ancestor |\n| Children render with identical output | Parent re-render with no memoisation boundary |\n| Props changed every render | Inline objects, arrays or callbacks created in render |\n| One slow component dominates | Expensive computation or a huge list in render |\n| Context consumers all render | Context value changes identity or holds fast-changing data |\n\n## Fix\n\n- Move the input state down into a small component, or pass slow children as props so they keep identity.\n- Defer the expensive part with useDeferredValue or startTransition so typing stays responsive.\n- Memoise only where the Profiler shows a real cost (React.memo plus stable props, or useMemo for heavy computation).\n- Virtualise very long lists.\n\n```tsx\nfunction Dashboard({ rows }: { rows: Row[] }) {\n  const [text, setText] = useState('');\n  const deferred = useDeferredValue(text);\n  return (\n    <>\n      <input value={text} onChange={(e) => setText(e.target.value)} />\n      <ResultsTable rows={rows} filter={deferred} />\n    </>\n  );\n}\nconst ResultsTable = React.memo(function ResultsTable({ rows, filter }: { rows: Row[]; filter: string }) {\n  const visible = useMemo(() => rows.filter((r) => r.name.includes(filter)), [rows, filter]);\n  return <Table rows={visible} />;\n});\n```\n\n## Expected impact\n\n_Illustrative example targets only, not measured results; set real targets from your own baseline._ For instance, the interaction might drop from several hundred milliseconds towards the \"good\" INP range of 200 ms or less at the 75th percentile.\n\n## Regression prevention\n\n- Add render-count assertions for hot components in tests.\n- Keep a short Profiler checklist in code review for list and form changes.\n- Track INP in RUM and alert on regression.\n- If the team adopts the React Compiler, still verify with the Profiler. Check current docs for its status and limits.\n\n## Common mistakes\n\n- Wrapping everything in memo without measuring.\n- Profiling a development build, which has extra overhead. Use a production profiling build for numbers.\n- Fixing renders that were not on the slow path.",
+      "diagrams": [
+        {
+          "id": "prof",
+          "title": "Profiler-led investigation",
+          "alt": "Reproduce the lag with CPU throttling, confirm a scripting long task in the Performance panel, record the interaction in the React Profiler, identify components rendering without visible change, apply a targeted fix, and measure again.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "a",
+              "label": "Reproduce with throttling"
+            },
+            {
+              "id": "b",
+              "label": "Confirm long task"
+            },
+            {
+              "id": "c",
+              "label": "Record in Profiler"
+            },
+            {
+              "id": "d",
+              "label": "Find needless renders"
+            },
+            {
+              "id": "e",
+              "label": "Targeted fix"
+            },
+            {
+              "id": "f",
+              "label": "Re-measure"
+            }
+          ],
+          "edges": [
+            {
+              "from": "a",
+              "to": "b"
+            },
+            {
+              "from": "b",
+              "to": "c"
+            },
+            {
+              "from": "c",
+              "to": "d"
+            },
+            {
+              "from": "d",
+              "to": "e"
+            },
+            {
+              "from": "e",
+              "to": "f"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Why profile a production build rather than development?",
+        "How does useDeferredValue differ from debouncing?",
+        "How would you automate render-count checks?"
+      ],
+      "related": [
+        "scenario-search-typing-lag-debounce-and-deferral"
+      ]
+    },
+    {
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "difficulty": "advanced",
+      "type": "scenario",
+      "slug": "scenario-long-results-pagination-infinite-scroll-virtualisation",
+      "title": "Scenario: a results page renders 5,000 items. Pagination, infinite scroll or virtualisation?",
+      "topic": "Large lists",
+      "tags": [
+        "react",
+        "virtualisation",
+        "pagination",
+        "infinite-scroll",
+        "inp",
+        "scenario"
+      ],
+      "quick": "I start by asking why users need thousands of items at once. Server-side pagination is the simplest and most accessible, infinite scroll suits browsing feeds but needs care for footers, focus and memory, and virtualisation renders only visible rows when users truly need a long continuous list. They combine well: fetch pages, then virtualise what has been loaded. I measure render time and memory first, and keep keyboard and screen reader access working.",
+      "revision": "Paginate for task-oriented lists, infinite scroll for browsing, virtualise when many rows must stay in one scroll; combine and keep accessibility.",
+      "detailed": "## Symptoms\n\nOpening the page is slow, scrolling janks, memory climbs, and interactions such as filtering have poor INP. The DOM holds thousands of nodes.\n\n## Investigation\n\n- Count DOM nodes and check the Performance panel for long rendering and layout tasks.\n- Check payload size: is the API returning everything at once?\n- Use the Profiler to see whether each row re-renders on unrelated state changes.\n\n## Root cause\n\nRendering and hydrating every item, plus transferring all data up front. Cost grows with the item count, not with what the user can see.\n\n## Options\n\n| Option | Strengths | Weaknesses | Fits |\n|---|---|---|---|\n| Pagination | Predictable, bookmarkable, accessible, easy footer | Extra clicks | Search results, admin tables |\n| Infinite scroll | Smooth browsing | Lost position, unreachable footer, memory growth, harder accessibility | Feeds, galleries |\n| Virtualisation | Constant DOM size | Find-in-page and anchors behave differently, variable heights are harder | Large tables, logs, chat history |\n| Combination | Pages from API plus windowed render | More moving parts | Very large datasets |\n\n{{diagram:list}}\n\n## Fix\n\n1. Move to **server-side pagination or cursor-based loading**, with filtering and sorting on the server.\n2. Add **virtualisation** (for example TanStack Virtual or react-window) if long continuous lists remain.\n3. Keep row components cheap and memoised with stable keys.\n4. Preserve scroll position and focus on back navigation.\n\n```tsx\nconst parentRef = useRef<HTMLDivElement>(null);\nconst rowVirtualizer = useVirtualizer({\n  count: items.length,\n  getScrollElement: () => parentRef.current,\n  estimateSize: () => 48,\n});\n// render rowVirtualizer.getVirtualItems() only\n```\n\nAPI names vary by library version, so verify the docs.\n\n## Expected impact\n\n_Illustrative example targets only, not measured results; set real targets from your own baseline._ For instance, DOM node count might fall from thousands to a few dozen visible rows, with initial render time and memory dropping accordingly.\n\n## Regression prevention\n\n- A performance test that loads a large fixture and asserts a render time or node budget.\n- Lint or review rule against rendering unbounded arrays.\n- RUM tracking of INP on list pages.\n- Accessibility checks: aria-rowcount or equivalent, keyboard navigation, a visible pagination fallback.\n\n## Common mistakes\n\n- Virtualising while still fetching everything.\n- Infinite scroll with no way to reach the footer.\n- Index keys on a list that reorders.",
+      "diagrams": [
+        {
+          "id": "list",
+          "title": "Choosing a list strategy",
+          "alt": "Start by asking whether users need all items. Task-oriented lists use server pagination, browsing feeds use infinite scroll, and very long continuous lists add virtualisation on top of paged loading.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "q",
+              "label": "Do users need all items at once?"
+            },
+            {
+              "id": "pg",
+              "label": "Server pagination"
+            },
+            {
+              "id": "inf",
+              "label": "Infinite scroll"
+            },
+            {
+              "id": "vi",
+              "label": "Add virtualisation"
+            }
+          ],
+          "edges": [
+            {
+              "from": "q",
+              "to": "pg",
+              "label": "no, task oriented"
+            },
+            {
+              "from": "q",
+              "to": "inf",
+              "label": "no, browsing"
+            },
+            {
+              "from": "q",
+              "to": "vi",
+              "label": "yes, long list"
+            },
+            {
+              "from": "inf",
+              "to": "vi",
+              "label": "memory grows"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you keep keyboard and screen reader users oriented in a virtualised list?",
+        "How do you restore scroll position after navigating back?",
+        "Offset versus cursor pagination: which scales better?"
+      ],
+      "related": [
+        "scenario-react-profiler-unnecessary-renders-dashboard"
+      ]
+    },
+    {
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "slug": "scenario-search-typing-lag-debounce-and-deferral",
+      "title": "Scenario: a search box feels slow and floods the API. How do you combine debouncing, cancellation and deferral?",
+      "topic": "Input responsiveness",
+      "tags": [
+        "react",
+        "debounce",
+        "throttle",
+        "abortcontroller",
+        "inp",
+        "scenario"
+      ],
+      "quick": "Two problems hide here: the main thread is busy per keystroke, and the network is flooded. I debounce the value that triggers the request, cancel the previous in-flight call with AbortController so stale results never win, and use useDeferredValue or a transition so expensive result rendering never blocks typing. I keep the input itself controlled and instant, and I measure INP and request counts before and after.",
+      "revision": "Keep the input instant; debounce the request trigger, abort stale calls, and defer expensive rendering so typing is never blocked.",
+      "detailed": "## Symptoms\n\nCharacters appear late while typing, the network panel shows a request per keystroke, results flicker or show data for an older query, and INP on the input is poor.\n\n## Investigation\n\n- Network panel: count requests per search and check for out-of-order responses.\n- Performance panel: look for long tasks after each keypress.\n- Profiler: does the results list re-render for every character?\n- Server metrics: request rate per user session.\n\n## Root cause\n\n| Cause | Effect |\n|---|---|\n| Request on every change | Excess load, rate limiting, wasted work |\n| No cancellation | Older response overwrites newer one |\n| Heavy results render in the same update as the input | Input update waits behind rendering |\n| Unstable callbacks and props | Children re-render without need |\n\n## Fix\n\n{{diagram:search}}\n\n- **Debounce** the request trigger (typically a few hundred milliseconds; choose from UX testing).\n- **Cancel** earlier requests with AbortController in effect cleanup.\n- **Defer** rendering of results so the input remains urgent.\n- Use **throttle** rather than debounce for continuous events such as scroll or resize.\n- Cache recent queries, and require a minimum length where sensible.\n\n```tsx\nfunction useDebounced<T>(value: T, ms: number) {\n  const [v, setV] = useState(value);\n  useEffect(() => { const id = setTimeout(() => setV(value), ms); return () => clearTimeout(id); }, [value, ms]);\n  return v;\n}\n\nfunction Search() {\n  const [text, setText] = useState('');\n  const debounced = useDebounced(text, 250);\n  const deferred = useDeferredValue(debounced);\n  const { data } = useSearch(deferred); // aborts stale requests internally\n  return (\n    <>\n      <input value={text} onChange={(e) => setText(e.target.value)} role=\"searchbox\" />\n      <Results items={data ?? []} />\n    </>\n  );\n}\n```\n\n## Expected impact\n\n_Illustrative example targets only, not measured results; set real targets from your own baseline._ For instance, requests per search might fall from one per character to one or two, and keystroke latency might return to the \"good\" INP range.\n\n## Regression prevention\n\n- Unit test the debounce hook with fake timers.\n- Add a request-count assertion in an end-to-end test.\n- Alert on API rate per session and on INP.\n\n## Common mistakes\n\n- Debouncing the input value shown to the user, which makes typing feel broken.\n- Debounce without cancellation.\n- Creating the debounced function inside render, so it resets every time.",
+      "diagrams": [
+        {
+          "id": "search",
+          "title": "Search pipeline with debounce and cancellation",
+          "alt": "Keystrokes update the controlled input immediately. A debounced value triggers a request, earlier in-flight requests are aborted, and results rendering is deferred so it does not block further typing.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "k",
+              "label": "Keystroke updates input now"
+            },
+            {
+              "id": "d",
+              "label": "Debounce timer"
+            },
+            {
+              "id": "ab",
+              "label": "Abort previous request"
+            },
+            {
+              "id": "rq",
+              "label": "New request"
+            },
+            {
+              "id": "df",
+              "label": "Deferred results render"
+            }
+          ],
+          "edges": [
+            {
+              "from": "k",
+              "to": "d"
+            },
+            {
+              "from": "d",
+              "to": "ab"
+            },
+            {
+              "from": "ab",
+              "to": "rq"
+            },
+            {
+              "from": "rq",
+              "to": "df"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Debounce or throttle for a resize handler?",
+        "How does useDeferredValue differ from debouncing?",
+        "How do you cache recent search results safely?"
+      ],
+      "related": [
+        "scenario-react-profiler-unnecessary-renders-dashboard"
+      ]
+    },
+    {
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "difficulty": "advanced",
+      "type": "scenario",
+      "slug": "scenario-bundle-analysis-tree-shaking-route-splitting",
+      "title": "Scenario: the first load is heavy. How do you use bundle analysis, tree shaking and route-level splitting?",
+      "topic": "Bundle size",
+      "tags": [
+        "react",
+        "bundle",
+        "tree-shaking",
+        "code-splitting",
+        "lcp",
+        "scenario"
+      ],
+      "quick": "I would measure first: generate a bundle report with a visualiser, find the largest dependencies and duplicate packages, and check how much loaded JavaScript the first route actually executes. Then I split by route, lazy-load heavy rarely used features, replace or trim large libraries, fix imports that defeat tree shaking, and set a size budget in CI. I confirm gains with lab traces and field data rather than bundle size alone.",
+      "revision": "Analyse the bundle, remove or replace heavy dependencies, fix tree shaking, split by route, and enforce a size budget in CI.",
+      "detailed": "## Symptoms\n\nSlow first load on mid-range mobile devices, large transferred and parsed JavaScript, a long gap between first paint and interactivity, and weak LCP or INP in field data.\n\n## Investigation\n\n1. Build for production and generate a **bundle visualisation** (for example webpack-bundle-analyzer, rollup-plugin-visualizer or the framework's analyser).\n2. Identify the biggest modules, duplicate package versions and whole libraries pulled in for one function.\n3. Use the browser Coverage tool to see how much loaded JavaScript runs on the first route.\n4. Check whether shared code ends up in the entry chunk.\n\n{{diagram:bundle}}\n\n## Root causes and fixes\n\n| Root cause | Fix |\n|---|---|\n| One entry chunk for all routes | Route-level splitting with lazy loading |\n| Heavy library for a small need (dates, charts, rich text) | Lighter alternative or lazy-load on demand |\n| Barrel imports or CommonJS packages defeat tree shaking | Import specific modules, prefer ESM builds, check the sideEffects flag |\n| Duplicate dependencies | Deduplicate versions with the package manager |\n| Polyfills for all browsers | Align the browserslist with real traffic |\n| Large JSON or locale data bundled | Load on demand |\n\n```tsx\nconst AdminReports = lazy(() => import('./routes/AdminReports'));\n\n<Routes>\n  <Route path=\"/\" element={<Home />} />\n  <Route\n    path=\"/admin/reports\"\n    element={\n      <Suspense fallback={<PageSkeleton />}>\n        <AdminReports />\n      </Suspense>\n    }\n  />\n</Routes>\n```\n\nPrefetch likely next routes on hover or idle, and do not lazy-load content needed for the initial viewport.\n\n## Expected impact\n\n_Illustrative example targets only, not measured results; set real targets from your own baseline._ For instance, the entry chunk might shrink by a large share and parse and execution time might fall on slow devices, improving LCP and INP.\n\n## Regression prevention\n\n- Bundle size budgets that fail CI (for example with size-limit or a similar tool).\n- Bundle report attached to pull requests.\n- Dependency review for new heavy packages.\n- RUM tracking of JavaScript execution time and Core Web Vitals.\n\n## Common mistakes\n\n- Optimising gzip size while ignoring parse and execution cost.\n- Splitting into many tiny chunks that create request waterfalls.\n- Assuming tree shaking works without verifying it in the output.",
+      "diagrams": [
+        {
+          "id": "bundle",
+          "title": "Bundle optimisation loop",
+          "alt": "Build for production and analyse the bundle, find heavy and duplicate modules, apply fixes such as route splitting and lighter libraries, enforce a size budget in continuous integration, and verify with field data.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "a",
+              "label": "Build and analyse"
+            },
+            {
+              "id": "b",
+              "label": "Find heavy modules"
+            },
+            {
+              "id": "c",
+              "label": "Split, trim, replace"
+            },
+            {
+              "id": "d",
+              "label": "CI size budget"
+            },
+            {
+              "id": "e",
+              "label": "Verify in field data"
+            }
+          ],
+          "edges": [
+            {
+              "from": "a",
+              "to": "b"
+            },
+            {
+              "from": "b",
+              "to": "c"
+            },
+            {
+              "from": "c",
+              "to": "d"
+            },
+            {
+              "from": "d",
+              "to": "e"
+            },
+            {
+              "from": "e",
+              "to": "a",
+              "label": "repeat"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you verify tree shaking actually worked?",
+        "When does route splitting make performance worse?",
+        "How do you choose a browserslist target?"
+      ]
+    },
+    {
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "difficulty": "advanced",
+      "type": "scenario",
+      "slug": "scenario-web-workers-for-heavy-client-computation",
+      "title": "Scenario: filtering and parsing a large dataset freezes the UI. When do Web Workers help?",
+      "topic": "Main thread work",
+      "tags": [
+        "web-workers",
+        "long-tasks",
+        "inp",
+        "react",
+        "scenario"
+      ],
+      "quick": "A long task on the main thread blocks input and painting, so INP suffers. I first confirm in a trace that pure JavaScript computation, not rendering, dominates. If it is CPU-bound work such as parsing, sorting or searching large data, I move it into a Web Worker and send results back with messages, transferring buffers where possible. For smaller jobs I chunk work or use transitions. I keep DOM access and rendering on the main thread.",
+      "revision": "Confirm CPU-bound long tasks, move pure computation to a Web Worker with message passing, and keep rendering on the main thread.",
+      "detailed": "## Symptoms\n\nClicking apply on a filter freezes the page for a noticeable time. Typing and scrolling stall. The trace shows a long task and poor **INP**.\n\n## Investigation\n\n- Record a Performance trace and check the long task's call tree: is it scripting in your own function, such as parsing, sorting or searching, or is it rendering and layout?\n- Check data size and algorithmic complexity (for example repeated linear searches inside loops).\n- Measure on a throttled CPU.\n\n## Root cause\n\nA synchronous CPU-bound function running on the main thread, which is shared with input handling, layout and paint.\n\n## Fix options\n\n| Option | Use when |\n|---|---|\n| Better algorithm (index, map lookup, memoised results) | Always check this first |\n| Chunk work and yield (scheduler.yield where available, or setTimeout) | Medium work that must touch shared state |\n| Transition or deferred value | The cost is rendering, not computing |\n| **Web Worker** | Heavy pure computation on large data |\n| Server-side processing | Data should not be shipped to the client at all |\n\n{{diagram:worker}}\n\n## Worker example\n\n```ts\n// worker.ts\nself.onmessage = (e: MessageEvent<{ rows: Row[]; term: string }>) => {\n  const { rows, term } = e.data;\n  const result = rows.filter((r) => r.name.toLowerCase().includes(term.toLowerCase()));\n  self.postMessage(result);\n};\n```\n\n```tsx\nfunction useWorkerFilter(rows: Row[], term: string) {\n  const [result, setResult] = useState<Row[]>([]);\n  useEffect(() => {\n    const worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });\n    worker.onmessage = (e) => setResult(e.data);\n    worker.postMessage({ rows, term });\n    return () => worker.terminate();\n  }, [rows, term]);\n  return result;\n}\n```\n\nWorker bundling syntax depends on the bundler, so verify your toolchain's docs. Copying large data per message costs time too, so use transferable objects such as ArrayBuffer, or keep the data inside the worker.\n\n## Expected impact\n\n_Illustrative example targets only, not measured results; set real targets from your own baseline._ For instance, the longest main-thread task for the interaction might drop below the 50 ms long-task threshold, moving INP towards the good range.\n\n## Regression prevention\n\n- Long task monitoring (PerformanceObserver) in RUM.\n- A test fixture with a large dataset and a time budget.\n- Review rule: no heavy loops in event handlers or render.\n\n## Common mistakes\n\n- Moving work to a worker when rendering is the real bottleneck.\n- Posting huge objects repeatedly, so serialisation cost cancels the gain.\n- Creating a new worker on every keystroke without terminating the old one.",
+      "diagrams": [
+        {
+          "id": "worker",
+          "title": "Main thread and worker split",
+          "alt": "The main thread handles input and rendering and posts the dataset and filter term to a Web Worker. The worker performs the heavy computation and posts the result back, after which the main thread updates state and renders.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "m",
+              "label": "Main thread: input and render"
+            },
+            {
+              "id": "pm",
+              "label": "postMessage data and term"
+            },
+            {
+              "id": "w",
+              "label": "Worker: heavy computation"
+            },
+            {
+              "id": "r",
+              "label": "postMessage result"
+            },
+            {
+              "id": "u",
+              "label": "Main thread updates UI"
+            }
+          ],
+          "edges": [
+            {
+              "from": "m",
+              "to": "pm"
+            },
+            {
+              "from": "pm",
+              "to": "w"
+            },
+            {
+              "from": "w",
+              "to": "r"
+            },
+            {
+              "from": "r",
+              "to": "u"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "What are transferable objects and when do they help?",
+        "How would you yield to the main thread in a long loop?",
+        "Why can a worker not touch the DOM?"
+      ]
+    },
+    {
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "difficulty": "advanced",
+      "type": "scenario",
+      "slug": "scenario-hydration-overhead-long-tasks-and-inp",
+      "title": "Scenario: a server-rendered React page looks ready but ignores taps for seconds. How do you reduce hydration cost?",
+      "topic": "Hydration and INP",
+      "tags": [
+        "react",
+        "hydration",
+        "ssr",
+        "long-tasks",
+        "inp",
+        "scenario"
+      ],
+      "quick": "The HTML paints quickly, but React must download, parse and execute JavaScript and attach handlers to the whole tree, which blocks the main thread, so early taps are delayed. I confirm with a trace and field INP, then ship less client JavaScript, split the page, hydrate below-the-fold or rarely used sections later, use streaming and selective hydration, and where the framework supports it, server components. I verify framework specifics in current docs.",
+      "revision": "Hydration blocks the main thread. Ship less JS, split and defer hydration, stream, and use server components where available; measure INP.",
+      "detailed": "## Symptoms\n\nThe page looks complete early (good LCP) but buttons and inputs respond late or not at all after load. Field **INP**, especially for early interactions, is poor. Traces show a long task shortly after the main bundle loads.\n\n## Investigation\n\n1. Performance trace: find the long task associated with hydration and the main bundle's execution.\n2. Check how much JavaScript the page loads versus how much is needed for interactivity above the fold.\n3. Use the React Profiler to see hydration cost per subtree, and check console warnings for hydration mismatches that force extra client rendering.\n4. Compare INP for early versus later interactions in RUM data, if available.\n\n{{diagram:hydr}}\n\n## Root cause\n\n| Cause | Detail |\n|---|---|\n| Large bundle | Parse and execute cost on slow CPUs |\n| Hydrating everything at once | One long task covers the entire tree |\n| Heavy third-party scripts | Compete for the main thread |\n| Hydration mismatches | Client discards and re-renders markup |\n| Components that did not need interactivity | Still shipped and hydrated |\n\n## Fix\n\n- **Reduce client JavaScript**: route splitting, remove heavy dependencies, avoid shipping static content as components.\n- **Selective and streaming hydration**: React 18 supports streaming server rendering and selective hydration with Suspense boundaries, so parts hydrate independently and can prioritise what the user interacts with.\n- **Server components or islands** where your framework supports them, keeping non-interactive UI out of the client bundle. Support and behaviour depend on the framework and React version, so verify the current docs.\n- **Defer hydration** of below-the-fold or rarely used widgets (on visible or on idle) via lazy components.\n- Delay or isolate third-party scripts.\n- Fix mismatches (dates, random ids, browser-only values in initial render).\n\n```tsx\nconst Comments = lazy(() => import('./Comments'));\n\nfunction Article({ html }: { html: string }) {\n  return (\n    <>\n      <ArticleBody html={html} />\n      <Suspense fallback={<CommentsSkeleton />}>\n        <Comments />\n      </Suspense>\n    </>\n  );\n}\n```\n\n## Expected impact\n\n_Illustrative example targets only, not measured results; set real targets from your own baseline._ For instance, the hydration long task might be broken into smaller tasks and early-tap delay reduced, moving INP towards the good threshold.\n\n## Regression prevention\n\n- Per-route JavaScript budgets in CI.\n- RUM tracking of INP split by early and late interactions, and of long tasks.\n- Treat hydration warnings as test failures.\n\n## Common mistakes\n\n- Assuming good LCP means the page is usable.\n- Server rendering without reducing the client bundle.\n- Browser-only values in the first render, causing mismatches.",
+      "diagrams": [
+        {
+          "id": "hydr",
+          "title": "Why SSR pages can ignore early taps",
+          "alt": "Server HTML paints early, then the browser downloads and executes the JavaScript bundle and hydrates the whole tree in one long task. Taps during that long task wait, which shows up as poor interaction latency.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "h",
+              "label": "Server HTML paints"
+            },
+            {
+              "id": "j",
+              "label": "Download and parse JS"
+            },
+            {
+              "id": "hy",
+              "label": "Hydrate whole tree"
+            },
+            {
+              "id": "tap",
+              "label": "Early tap waits"
+            },
+            {
+              "id": "ok",
+              "label": "Handlers active"
+            }
+          ],
+          "edges": [
+            {
+              "from": "h",
+              "to": "j"
+            },
+            {
+              "from": "j",
+              "to": "hy"
+            },
+            {
+              "from": "hy",
+              "to": "ok"
+            },
+            {
+              "from": "tap",
+              "to": "hy",
+              "label": "blocked by long task"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "What is selective hydration in React 18?",
+        "How do you find hydration mismatches?",
+        "When would islands or server components be a better fit?"
+      ],
+      "related": []
+    },
+    {
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "slug": "scenario-optimistic-ui-for-perceived-performance",
+      "title": "Scenario: actions feel slow because the UI waits for the server. When and how do you use optimistic updates?",
+      "topic": "Perceived performance",
+      "tags": [
+        "react",
+        "optimistic-ui",
+        "mutations",
+        "inp",
+        "scenario"
+      ],
+      "quick": "Optimistic UI updates the screen immediately as if the server will succeed, then reconciles when the response arrives, rolling back with a clear message on failure. It suits low-risk, high-success actions such as likes, toggles or reordering, not payments or irreversible operations. I keep a snapshot for rollback, make the API idempotent, disable duplicate submissions, and still measure real latency, because this improves perception, not server speed.",
+      "revision": "Show the expected result immediately, reconcile on response, roll back on failure. Use for low-risk actions; the server must be idempotent.",
+      "detailed": "## Symptoms\n\nClicking like, marking a task done or reordering items shows a spinner for the full round trip. Users double-click, and interaction feels sluggish even though the server meets its targets. Note that optimistic UI improves **perceived** responsiveness; it does not fix slow servers.\n\n## Investigation\n\n- Measure round-trip time for the mutation and the time until the UI reflects it.\n- Check failure rate: if failures are common, optimism will cause visible rollbacks.\n- Identify whether the action is reversible and safe to show early.\n\n## Root cause\n\nThe UI treats the server as the only source of truth for the next frame, so every interaction pays network latency.\n\n## Fix: the optimistic flow\n\n{{diagram:opt}}\n\n| Step | Detail |\n|---|---|\n| 1. Snapshot | Save the current cache or state |\n| 2. Update | Apply the expected change immediately |\n| 3. Send | Fire the request, with an idempotency key |\n| 4. Success | Replace with server data or invalidate |\n| 5. Failure | Roll back and show an error with a retry |\n\n```tsx\nfunction useToggleDone() {\n  const qc = useQueryClient();\n  return useMutation({\n    mutationFn: (t: Task) => api.setDone(t.id, !t.done),\n    onMutate: async (t) => {\n      await qc.cancelQueries({ queryKey: ['tasks'] });\n      const previous = qc.getQueryData<Task[]>(['tasks']);\n      qc.setQueryData<Task[]>(['tasks'], (old = []) =>\n        old.map((x) => (x.id === t.id ? { ...x, done: !x.done } : x)));\n      return { previous };\n    },\n    onError: (_e, _t, ctx) => qc.setQueryData(['tasks'], ctx?.previous),\n    onSettled: () => qc.invalidateQueries({ queryKey: ['tasks'] }),\n  });\n}\n```\n\nReact 19 also offers useOptimistic for local optimistic state. Verify availability and semantics in your version's docs.\n\n## Expected impact\n\n_Illustrative example targets only, not measured results; set real targets from your own baseline._ For instance, the visible response to a click could move from a full network round trip to a single frame, improving perceived interaction latency, while real server latency is unchanged.\n\n## When not to use it\n\nPayments, destructive actions, anything with side effects the user must confirm, or flows with frequent validation failures.\n\n## Regression prevention\n\n- Tests for the failure and rollback path, not just success.\n- Track mutation error rate and rollback frequency.\n- Keep server operations idempotent so retries are safe.\n\n## Common mistakes\n\n- No rollback or error message.\n- Racing with a refetch that overwrites the optimistic state. Cancel queries first.\n- Ignoring ordering when several optimistic updates are in flight.",
+      "diagrams": [
+        {
+          "id": "opt",
+          "title": "Optimistic update flow",
+          "alt": "The user acts, the client snapshots current state and shows the expected result immediately, then sends the request. On success it reconciles with server data, and on failure it rolls back to the snapshot and shows an error.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "u",
+              "label": "User acts"
+            },
+            {
+              "id": "s",
+              "label": "Snapshot state"
+            },
+            {
+              "id": "o",
+              "label": "Show expected result"
+            },
+            {
+              "id": "r",
+              "label": "Send request"
+            },
+            {
+              "id": "ok",
+              "label": "Reconcile with server"
+            },
+            {
+              "id": "rb",
+              "label": "Roll back and notify"
+            }
+          ],
+          "edges": [
+            {
+              "from": "u",
+              "to": "s"
+            },
+            {
+              "from": "s",
+              "to": "o"
+            },
+            {
+              "from": "o",
+              "to": "r"
+            },
+            {
+              "from": "r",
+              "to": "ok",
+              "label": "success"
+            },
+            {
+              "from": "r",
+              "to": "rb",
+              "label": "failure"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Which actions should never be optimistic?",
+        "How do you handle several in-flight optimistic updates?",
+        "How does useOptimistic differ from a cache-level update?"
+      ],
+      "related": []
+    },
+    {
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "difficulty": "advanced",
+      "type": "scenario",
+      "slug": "scenario-release-causes-frontend-performance-regression",
+      "title": "Scenario: a release makes the site slower for users. How do you detect, diagnose, roll back and prevent it?",
+      "topic": "Performance regressions",
+      "tags": [
+        "performance",
+        "rum",
+        "ci",
+        "rollback",
+        "core-web-vitals",
+        "scenario"
+      ],
+      "quick": "First I confirm it with data: RUM Core Web Vitals segmented by release version, route and device. If the regression is clear and severe, I roll back or turn off the feature flag, then diagnose calmly by diffing bundle reports, traces and dependencies between the two builds. I fix forward with a targeted change, and then add guards: performance budgets in CI, canary releases, release-tagged RUM alerts and a blameless review of the missed signal.",
+      "revision": "Confirm with release-tagged RUM, roll back or flag off if severe, diff builds to find the cause, fix, then add CI budgets and canary alerts.",
+      "detailed": "## Symptoms\n\nAfter a deployment, support reports slowness. Dashboards show worse **LCP, INP or CLS**, higher bounce on some routes, or more JavaScript errors. Synthetic checks may still look fine.\n\n## Investigation\n\n{{diagram:rel}}\n\n1. **Confirm and scope**: segment RUM by release id, route, device class, connection and country. Compare the 75th percentile before and after, allowing for traffic mix changes.\n2. **Contain**: if the impact is large, roll back, or disable the feature behind a flag, before deep analysis.\n3. **Diff the builds**: bundle size and composition, new dependencies, new third-party tags, changed image sizes, caching header changes, and server or API timing changes.\n4. **Reproduce in lab** with throttled CPU and network on the affected route, then compare traces for old and new builds.\n5. **Check non-code causes**: CDN configuration, cache invalidation, A/B experiments, content changes.\n\n## Typical root causes\n\n| Cause | Evidence |\n|---|---|\n| Bundle growth or lost code splitting | Bundle report diff, larger entry chunk |\n| New render-heavy component or context change | Profiler shows many renders, worse INP |\n| Image or font change | LCP element and request waterfall |\n| Third-party script added | Long tasks attributed to a new origin |\n| Cache headers or CDN change | Lower cache hit rate, higher TTFB |\n| Layout change without reserved space | Higher CLS |\n\n## Fix\n\nRoll back or fix forward with a targeted change, verify in lab, release gradually, and watch the same RUM segments.\n\n## Expected impact\n\n_Illustrative example targets only, not measured results; set real targets from your own baseline._ For instance, vitals for the affected segment might return towards the pre-release baseline after the fix.\n\n## Regression prevention\n\n- **Performance budgets** (bundle size, Lighthouse CI or similar lab metrics) that fail the build.\n- **Canary or percentage rollouts** with automatic comparison of RUM metrics, and automated rollback thresholds.\n- **Release tagging** of RUM events so every metric is attributable.\n- Pull request bundle diffs and a dependency review.\n- Feature flags for risky changes.\n- A blameless review that adds a guard for the signal that was missed.\n\n```yaml\n# Example CI step (illustrative; adapt to your tooling)\n- name: Check bundle budget\n  run: npx size-limit\n- name: Lighthouse CI\n  run: npx lhci autorun\n```\n\n## Common mistakes\n\n- Debugging for hours while users are still affected, instead of containing first.\n- Relying on lab averages while the regression affects only slow devices.\n- No release identifier in RUM, which makes attribution guesswork.\n- Blaming a single change without comparing builds.",
+      "diagrams": [
+        {
+          "id": "rel",
+          "title": "Regression response flow",
+          "alt": "Detect a regression with release-tagged field data, scope it by route and device, contain it with rollback or a feature flag, diagnose by diffing builds and traces, fix, release gradually, and add guards such as budgets and canary alerts.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "d",
+              "label": "Detect in RUM"
+            },
+            {
+              "id": "s",
+              "label": "Scope by segment"
+            },
+            {
+              "id": "c",
+              "label": "Contain: rollback or flag"
+            },
+            {
+              "id": "dg",
+              "label": "Diff builds and traces"
+            },
+            {
+              "id": "f",
+              "label": "Fix and gradual release"
+            },
+            {
+              "id": "g",
+              "label": "Add CI and canary guards"
+            }
+          ],
+          "edges": [
+            {
+              "from": "d",
+              "to": "s"
+            },
+            {
+              "from": "s",
+              "to": "c"
+            },
+            {
+              "from": "c",
+              "to": "dg"
+            },
+            {
+              "from": "dg",
+              "to": "f"
+            },
+            {
+              "from": "f",
+              "to": "g"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you set automatic rollback thresholds from RUM data?",
+        "How do you separate a code regression from a traffic mix change?",
+        "What belongs in a performance budget beyond bundle size?"
+      ],
+      "related": [
+        "scenario-bundle-analysis-tree-shaking-route-splitting"
+      ]
+    },
+    {
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "difficulty": "advanced",
+      "type": "scenario",
+      "slug": "scenario-realtime-dashboard-high-frequency-updates-jank",
+      "title": "Scenario: a live dashboard janks when updates stream in every few milliseconds. How do you keep it smooth?",
+      "topic": "High-frequency updates",
+      "tags": [
+        "react",
+        "websockets",
+        "batching",
+        "long-tasks",
+        "inp",
+        "scenario"
+      ],
+      "quick": "Rendering on every message overwhelms the main thread. I would buffer incoming updates outside React state, flush them on a schedule such as once per animation frame or every few hundred milliseconds, and apply them as one batched update. I normalise data so only changed rows re-render, virtualise large tables, move heavy aggregation to a worker, and cap what is shown. Then I verify with traces and the Profiler.",
+      "revision": "Buffer streamed messages outside state, flush in batches per frame or interval, re-render only changed rows, virtualise and offload heavy work.",
+      "detailed": "## Symptoms\n\nA live dashboard fed by WebSockets or Server-Sent Events stutters, input lags while data streams, CPU is high, and the trace shows many short tasks back to back or long rendering tasks. INP and scroll smoothness degrade.\n\n## Investigation\n\n- Count messages per second and renders per second in the Profiler.\n- Check whether each message calls setState, and whether that re-renders the whole table or chart.\n- Look at per-update cost: sorting, aggregating or reallocating large arrays.\n- Check memory growth from unbounded history.\n\n## Root cause\n\n| Cause | Effect |\n|---|---|\n| One state update per message | Renders per second track message rate |\n| State stored as a big array replaced on each update | Every row re-renders |\n| Heavy aggregation in render | Long tasks |\n| Unbounded history | Memory growth and slower scans |\n| Charts redrawn fully per message | Layout and paint cost |\n\n{{diagram:stream}}\n\n## Fix\n\n- **Buffer and batch**: collect messages in a mutable buffer or ref, flush once per frame or fixed interval.\n- **Normalise state** by id so a single row update re-renders one row (memoised rows with stable props).\n- **Virtualise** long tables and cap history length.\n- **Throttle visual updates**; humans cannot read more than a few updates per second.\n- **Offload** heavy aggregation to a Web Worker.\n- Use a transition for non-urgent view updates, and canvas or WebGL for dense charts.\n\n```tsx\nfunction useBufferedFeed(socket: WebSocket, flushMs = 250) {\n  const [rows, setRows] = useState<Record<string, Row>>({});\n  const buffer = useRef<Row[]>([]);\n\n  useEffect(() => {\n    const onMessage = (e: MessageEvent) => buffer.current.push(JSON.parse(e.data));\n    socket.addEventListener('message', onMessage);\n    const id = setInterval(() => {\n      if (buffer.current.length === 0) return;\n      const batch = buffer.current;\n      buffer.current = [];\n      setRows((prev) => {\n        const next = { ...prev };\n        for (const r of batch) next[r.id] = r;\n        return next;\n      });\n    }, flushMs);\n    return () => { socket.removeEventListener('message', onMessage); clearInterval(id); };\n  }, [socket, flushMs]);\n\n  return rows;\n}\n```\n\nReact 18 batches updates automatically, but that does not replace deliberate buffering of a high-rate stream.\n\n## Expected impact\n\n_Illustrative example targets only, not measured results; set real targets from your own baseline._ For instance, renders per second might fall from the message rate to a handful, with long tasks removed from the interaction path.\n\n## Regression prevention\n\n- Load test the UI with a simulated message stream in end-to-end tests.\n- Budget for renders per second in a test using the Profiler API.\n- Monitor long tasks, memory, and INP in RUM.\n\n## Common mistakes\n\n- Calling setState for every socket message.\n- Keeping unbounded message history.\n- Updating charts by recreating them.\n- Dropping messages without considering whether the latest value or every value matters.",
+      "diagrams": [
+        {
+          "id": "stream",
+          "title": "Buffered streaming updates",
+          "alt": "Socket messages are pushed into a buffer outside React state. A timer or animation frame flushes the buffer as a single batched state update, normalised by id so only changed rows re-render, and heavy aggregation runs in a worker.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "ws",
+              "label": "Socket messages"
+            },
+            {
+              "id": "buf",
+              "label": "Buffer outside state"
+            },
+            {
+              "id": "fl",
+              "label": "Flush per frame or interval"
+            },
+            {
+              "id": "st",
+              "label": "Batched normalised update"
+            },
+            {
+              "id": "ui",
+              "label": "Only changed rows render"
+            }
+          ],
+          "edges": [
+            {
+              "from": "ws",
+              "to": "buf"
+            },
+            {
+              "from": "buf",
+              "to": "fl"
+            },
+            {
+              "from": "fl",
+              "to": "st"
+            },
+            {
+              "from": "st",
+              "to": "ui"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Does it matter whether you need every message or only the latest per key?",
+        "When would canvas beat DOM for a live chart?",
+        "How would you test render rate automatically?"
+      ],
+      "related": [
+        "scenario-web-workers-for-heavy-client-computation"
+      ]
+    }
+  ]
+}

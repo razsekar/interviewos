@@ -1,0 +1,1623 @@
+{
+  "category": "architecture-tradeoffs",
+  "questions": [
+    {
+      "slug": "react-spa-vs-nextjs",
+      "title": "React SPA versus Next.js: how do you choose?",
+      "topic": "Frontend architecture",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "react",
+        "nextjs",
+        "rendering",
+        "spa"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I choose by who consumes the page and how fast first content must appear. A plain React SPA suits authenticated dashboards behind a login where SEO is irrelevant and the team wants simple static hosting. Next.js suits public, content or commerce pages that need crawlable HTML, fast first paint and server-side data access. My default for a new product with public pages is Next.js, and for an internal tool a SPA. The cost is a Node runtime and more moving parts.",
+      "revision": "SPA for logged-in tools with simple hosting; Next.js when SEO, first paint or server-side data access matter, accepting a server runtime.",
+      "detailed": "## Decision criteria\n\nAsk whether pages must be indexed, how sensitive first-load performance is on slow devices, whether data should be fetched close to the database, and how much operational surface the team can run. Also consider the team's existing React skill and whether a BFF is needed anyway.\n\n{{diagram:spa-next}}\n\n## Advantages and disadvantages\n\n| Option | Advantages | Disadvantages |\n|---|---|---|\n| **React SPA** | Static hosting on a CDN, simple mental model, cheap, clear separation from the API | Empty initial HTML, slower first content on weak devices, SEO depends on crawler JavaScript support, bundle size grows |\n| **Next.js** | Server rendering and static generation, routing and data conventions, server-side code beside UI, image and font tooling | Needs a Node or edge runtime, framework upgrades and conventions to follow, cache behaviour can be subtle, harder to debug server/client boundaries |\n\n## Operational and financial implications\n\nA SPA is files on object storage plus a CDN, which is very cheap and has almost no runtime to operate. Next.js adds servers or serverless functions, cold starts, scaling and cost per render, though static output and caching reduce this. Hosting choice affects lock-in because some features work best on specific platforms.\n\n## Security implications\n\nA SPA exposes only public assets; all secrets live in the API. Next.js server code can read secrets, which is useful for a BFF but means a server-side request forgery or leaked environment variable is now a frontend concern. Keep only deliberately public variables in client bundles and review what is serialised into page props.\n\n## Failure modes\n\nSPA: blank page if a script fails or an old bundle is cached after a deploy. Next.js: server rendering errors take pages down, cache poisoning or stale pages, memory pressure under load, and hydration mismatches that cause visible glitches. Plan fallbacks and error boundaries for both.\n\n## Recommended default\n\n**For public, discoverable pages I would start with Next.js, and for an internal authenticated application I would start with a SPA, because the extra runtime buys nothing there.**\n\n## Conditions that change the decision\n\nChoose Next.js for internal tools if they need server-side aggregation or a BFF anyway. Choose a SPA for public pages if traffic is mostly direct, content is behind login, or a separate marketing site already handles SEO. A small team with no appetite for operating a runtime may also tilt towards a SPA.\n\n## Common mistakes\n\n- Picking Next.js for an internal admin tool out of fashion.\n- Assuming a SPA is always bad for SEO without checking the requirement.\n- Ignoring the operational cost of a server runtime.",
+      "followUps": [
+        "How would you migrate a SPA to Next.js incrementally?",
+        "How do you keep secrets out of the client bundle?",
+        "When is a BFF still useful with a SPA?"
+      ],
+      "diagrams": [
+        {
+          "id": "spa-next",
+          "title": "SPA or Next.js decision flow",
+          "alt": "A decision flow asking whether pages must be indexed or fast on first load. If yes choose Next.js with server rendering or static generation. If no and the app sits behind login, choose a React SPA on a CDN.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "q1",
+              "label": "Are pages public and SEO or first paint critical?"
+            },
+            {
+              "id": "nx",
+              "label": "Next.js with SSR or SSG"
+            },
+            {
+              "id": "q2",
+              "label": "Behind login with simple hosting wanted?"
+            },
+            {
+              "id": "sp",
+              "label": "React SPA on CDN"
+            },
+            {
+              "id": "re",
+              "label": "Reassess: BFF or server data needs"
+            }
+          ],
+          "edges": [
+            {
+              "from": "q1",
+              "to": "nx",
+              "label": "yes"
+            },
+            {
+              "from": "q1",
+              "to": "q2",
+              "label": "no"
+            },
+            {
+              "from": "q2",
+              "to": "sp",
+              "label": "yes"
+            },
+            {
+              "from": "q2",
+              "to": "re",
+              "label": "no"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "ssr-vs-ssg-vs-isr",
+      "title": "SSR versus SSG versus ISR: when does each fit?",
+      "topic": "Rendering strategies",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "ssr",
+        "ssg",
+        "isr",
+        "nextjs",
+        "caching"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I pick by how often content changes and how personalised it is. SSG builds pages once, so it is fastest and cheapest for stable content. ISR regenerates pages in the background after a revalidation window, which suits catalogues that change occasionally. SSR renders per request, needed for personalised or highly fresh pages, at the cost of server load. I usually combine them per route, defaulting to static or ISR and using SSR only where freshness or personalisation demands it.",
+      "revision": "SSG for stable pages, ISR for occasionally changing shared pages, SSR for personalised or very fresh ones; mix per route.",
+      "detailed": "## Decision criteria\n\nConsider change frequency, personalisation per user, acceptable staleness, page count, build time, and how quickly an edit must appear. Check also whether a CDN can cache the output and whether the data source can handle render-time load.\n\n{{diagram:render-choice}}\n\n## Advantages and disadvantages\n\n| Option | Advantages | Disadvantages |\n|---|---|---|\n| **SSG** | Fastest, cheapest, trivially cached, resilient if backend is down | Build time grows with page count, content stale until rebuild, not for per-user data |\n| **ISR** | Static speed with timed or on-demand refresh, no full rebuild | Staleness window, cache invalidation to design, behaviour depends on hosting platform |\n| **SSR** | Always fresh, can personalise, access to request context | Higher latency and server cost, scaling under spikes, caching harder |\n\n## Operational and financial implications\n\nSSG and ISR shift cost to build time and CDN, which is cheap per request. SSR cost scales with traffic and slow data sources, so it needs autoscaling and caching. ISR on-demand invalidation requires hooks from the CMS or admin flow and monitoring that they fire.\n\n## Security implications\n\nNever cache personalised SSR output in a shared cache without varying correctly, or one user sees another's data. Static pages must not embed private data at build time. Validate any user-provided content before rendering to avoid cross-site scripting, and keep authentication checks on the server for SSR routes.\n\n## Failure modes\n\nSSG: a failed build leaves old content live, which is usually safe. ISR: regeneration fails silently and stale pages persist, or a stampede on expiry. SSR: origin overload during spikes, slow upstream calls blocking responses, and accidental caching of private pages.\n\n## Recommended default\n\n**Static or ISR by default for shared content, SSR only for routes that truly need per-request data, with sensible cache headers.**\n\n## Conditions that change the decision\n\nUse SSR more if content must be fresh within seconds, personalisation is heavy, or page count makes builds impractical and ISR is unavailable. Use SSG more when content changes rarely and a rebuild is acceptable.\n\n## Common mistakes\n\n- Using SSR everywhere then wondering why costs spike.\n- Caching a personalised page publicly.\n- Forgetting on-demand revalidation so edits never appear.",
+      "followUps": [
+        "How would you handle a price change that must show immediately?",
+        "How do you prevent a cache stampede on revalidation?",
+        "How do you mix personalised widgets into a static page?"
+      ],
+      "diagrams": [
+        {
+          "id": "render-choice",
+          "title": "Rendering strategy choice",
+          "alt": "A flow: if content is per user or must be fresh each request use SSR. Otherwise if content changes occasionally use ISR with revalidation. If content is stable use SSG. All static options are served from a CDN.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "q1",
+              "label": "Per user or fresh every request?"
+            },
+            {
+              "id": "ssr",
+              "label": "SSR"
+            },
+            {
+              "id": "q2",
+              "label": "Changes occasionally?"
+            },
+            {
+              "id": "isr",
+              "label": "ISR with revalidation"
+            },
+            {
+              "id": "ssg",
+              "label": "SSG at build"
+            },
+            {
+              "id": "cdn",
+              "label": "CDN edge cache"
+            }
+          ],
+          "edges": [
+            {
+              "from": "q1",
+              "to": "ssr",
+              "label": "yes"
+            },
+            {
+              "from": "q1",
+              "to": "q2",
+              "label": "no"
+            },
+            {
+              "from": "q2",
+              "to": "isr",
+              "label": "yes"
+            },
+            {
+              "from": "q2",
+              "to": "ssg",
+              "label": "no"
+            },
+            {
+              "from": "isr",
+              "to": "cdn"
+            },
+            {
+              "from": "ssg",
+              "to": "cdn"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "rest-vs-graphql",
+      "title": "REST versus GraphQL: how do you decide?",
+      "topic": "API design",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "rest",
+        "graphql",
+        "api",
+        "tradeoffs"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I choose by client diversity and data shape. REST is simple, cacheable with HTTP semantics and fits resource-oriented services and public APIs. GraphQL lets several clients ask for exactly the fields they need in one round trip, which helps when mobile and web screens differ a lot, but it needs query cost controls, resolver batching and different caching. My default is REST for most services, and GraphQL as an aggregation layer when many varied clients justify it.",
+      "revision": "REST by default for simplicity and HTTP caching; GraphQL when varied clients need flexible, aggregated queries and you can manage its costs.",
+      "detailed": "## Decision criteria\n\nLook at the number and variety of clients, how nested the data is, need for HTTP caching, team familiarity, whether the API is public, and tooling for schema governance. Consider how much over-fetching and round trips really hurt today.\n\n{{diagram:rest-gql}}\n\n## Advantages and disadvantages\n\n| Option | Advantages | Disadvantages |\n|---|---|---|\n| **REST** | Simple, HTTP caching, easy tooling, familiar, good for public APIs | Over- and under-fetching, many round trips for composite screens, versioning discipline needed |\n| **GraphQL** | Client-chosen fields, one request for composite data, typed schema, good introspection | Query cost and N+1 risks, harder HTTP caching, more server complexity, error handling is different |\n\n## Operational and financial implications\n\nGraphQL needs persisted queries, depth and complexity limits, dataloaders and field-level monitoring, which is extra platform work. REST scales with ordinary CDN and gateway caching. Either way, cost follows backend calls, so measure resolver or endpoint fan-out.\n\n## Security implications\n\nGraphQL exposes a rich query surface: restrict introspection where appropriate, enforce depth and cost limits, and authorise at the field or resolver level, not just at the endpoint. REST needs per-resource authorisation and rate limits. Both need input validation and protection against enumeration.\n\n## Failure modes\n\nGraphQL: expensive nested queries cause database overload, N+1 patterns, partial errors hidden in 200 responses. REST: chatty clients, inconsistent endpoints, breaking changes without versioning. Both suffer if one downstream is slow and no timeouts exist.\n\n## Recommended default\n\n**REST with clear resource design for most services, adding GraphQL only when several different clients make flexible queries a real, measured need.**\n\n## Conditions that change the decision\n\nMove towards GraphQL when mobile and web teams repeatedly request bespoke endpoints, or a gateway must aggregate many services. Stay with REST for public APIs needing simple caching, file transfer, or small teams with few clients.\n\n## Common mistakes\n\n- Adopting GraphQL to avoid designing an API.\n- Ignoring query cost limits.\n- Assuming REST cannot be efficient with good resource design.",
+      "followUps": [
+        "How would you cache GraphQL responses?",
+        "How do you prevent N+1 in resolvers?",
+        "Can REST and GraphQL coexist?"
+      ],
+      "diagrams": [
+        {
+          "id": "rest-gql",
+          "title": "REST or GraphQL decision flow",
+          "alt": "A flow asking whether many varied clients need flexible aggregated data. If yes consider GraphQL with cost limits. If not, use REST with HTTP caching. A middle path is REST services behind a GraphQL gateway.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "q1",
+              "label": "Many varied clients and nested data?"
+            },
+            {
+              "id": "gq",
+              "label": "GraphQL with cost limits and dataloaders"
+            },
+            {
+              "id": "rs",
+              "label": "REST with HTTP caching"
+            },
+            {
+              "id": "gw",
+              "label": "Optional GraphQL gateway over REST"
+            }
+          ],
+          "edges": [
+            {
+              "from": "q1",
+              "to": "gq",
+              "label": "yes"
+            },
+            {
+              "from": "q1",
+              "to": "rs",
+              "label": "no"
+            },
+            {
+              "from": "rs",
+              "to": "gw",
+              "label": "later"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "apollo-client-vs-rtk-query",
+      "title": "Apollo Client versus RTK Query: which for data fetching?",
+      "topic": "Frontend data fetching",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "apollo",
+        "rtk-query",
+        "redux",
+        "graphql",
+        "caching"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I decide by the API style. Apollo Client is built around GraphQL, with a normalised cache that updates related views automatically. RTK Query fits REST or any HTTP API, uses tag-based invalidation, and sits naturally if the app already uses Redux Toolkit. If the backend is GraphQL with overlapping entities, I lean to Apollo; if it is REST, I lean to RTK Query. Both also have alternatives, such as TanStack Query, which I would compare as well.",
+      "revision": "Apollo for GraphQL with a normalised cache; RTK Query for REST and Redux-based apps with tag invalidation; consider alternatives.",
+      "detailed": "## Decision criteria\n\nConsider API protocol, need for normalised caching, existing state library, team knowledge, bundle size, support for subscriptions or pagination helpers, and how cache invalidation will be expressed.\n\n## Advantages and disadvantages\n\n| Option | Advantages | Disadvantages |\n|---|---|---|\n| **Apollo Client** | Normalised cache, GraphQL-first features, devtools, subscriptions support | Larger footprint, cache policies need care, mostly tied to GraphQL |\n| **RTK Query** | Works with any HTTP API, tag invalidation, integrates with Redux store, code generation options | Document-style cache not normalised by default, less GraphQL-specific tooling |\n\n## Operational and financial implications\n\nBoth reduce hand-written fetching code, which lowers maintenance. Apollo normalisation can reduce refetching but requires correct identifiers. Bundle size and learning curve are the main costs. Migration between them later is rewriting data hooks, so choose with the API roadmap in mind.\n\n## Security implications\n\nNeither is a security boundary. Do not store tokens or sensitive data in cache longer than needed, clear the cache on logout, and avoid persisting private data to local storage. Authorisation must be enforced by the server for every query or endpoint.\n\n## Failure modes\n\nStale or incorrect cache after mutations when tags or identifiers are wrong, data leaking between users if the cache is not cleared on logout, duplicate requests without deduplication, and refetch storms from aggressive polling.\n\n## Recommended default\n\n**Match the library to the protocol: Apollo for GraphQL, RTK Query for REST with Redux, with cache clearing on logout in both.**\n\n## Conditions that change the decision\n\nSwitch if the API protocol changes, if normalised caching becomes essential for REST, or if the team prefers a smaller library such as TanStack Query for server state without Redux.\n\n## Common mistakes\n\n- Using both libraries for the same data.\n- Forgetting to clear the cache on logout.\n- Choosing by popularity rather than API style.",
+      "followUps": [
+        "How does normalised caching differ from tag invalidation?",
+        "How would you handle pagination in each?",
+        "Would you adopt TanStack Query instead?"
+      ]
+    },
+    {
+      "slug": "redux-toolkit-vs-context-api",
+      "title": "Redux Toolkit versus Context API: when is each right?",
+      "topic": "Frontend state management",
+      "difficulty": "beginner",
+      "type": "comparison",
+      "tags": [
+        "redux",
+        "context",
+        "react",
+        "state"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Context is a way to pass values down without prop drilling, not a full state manager. It suits low-frequency values such as theme, locale or the current user. Redux Toolkit suits complex client state with many updates, derived data, middleware and predictable debugging via devtools. I avoid putting frequently changing state in a single context because every consumer re-renders. My default is local state first, context for stable shared values, and Redux Toolkit when state logic becomes complex.",
+      "revision": "Context for stable, low-frequency shared values; Redux Toolkit for complex, frequently updated client state needing structure and tooling.",
+      "detailed": "## Decision criteria\n\nLook at update frequency, number of consumers, complexity of transitions, need for devtools or time-travel, middleware needs, team size, and whether most of the state is really server state.\n\n## Advantages and disadvantages\n\n| Option | Advantages | Disadvantages |\n|---|---|---|\n| **Context API** | Built in, no dependency, simple for static values | Re-renders all consumers on change, no devtools or middleware, can become tangled |\n| **Redux Toolkit** | Selectors, slices, middleware, devtools, predictable updates | Extra dependency and boilerplate, can be overused for server data |\n\n## Operational and financial implications\n\nContext has no cost to adopt but can cause performance problems that are expensive to diagnose later. Redux Toolkit has a learning and boilerplate cost but scales with large teams through conventions. Both are inexpensive to run since they live in the browser.\n\n## Security implications\n\nNeither should hold secrets longer than needed. Avoid persisting sensitive state to local storage through Redux persist configurations. Remember that client state can be inspected and modified by users, so never trust it for authorisation.\n\n## Failure modes\n\nContext: wide re-render storms and hidden coupling. Redux: giant global store with unclear ownership, stale derived data, or server data duplicated in slices. Both: state lost on refresh when persistence is not considered.\n\n## Recommended default\n\n**Start with local state, add context for stable values, and introduce Redux Toolkit when update logic and sharing become hard to follow.**\n\n## Conditions that change the decision\n\nChoose Redux Toolkit earlier if many developers need strict conventions or you rely on middleware and devtools. Skip it entirely if a server-state library and local state cover your needs.\n\n## Common mistakes\n\n- Using context as a high-frequency store.\n- Putting server data in Redux slices by habit.\n- Adding Redux to a three-screen app.",
+      "followUps": [
+        "How do you stop context re-renders?",
+        "Where does server state belong?",
+        "How would you test Redux slices?"
+      ]
+    },
+    {
+      "slug": "client-side-vs-server-side-state",
+      "title": "Client-side state versus server-side state: how do you separate them?",
+      "topic": "Frontend state management",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "state",
+        "server-state",
+        "caching",
+        "react"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I separate state by ownership. Server state is data the backend owns, such as orders or profiles, and the client only caches it, so it needs fetching, invalidation and refetching, ideally via a server-state library. Client state is owned by the UI, such as open modals, form drafts or filters. Mixing them causes stale copies and duplicated logic. My default is a data-fetching library for server state and local or small stores for UI state.",
+      "revision": "Server state is owned by the backend and cached in the client; client state is UI-owned. Keep them separate with different tools.",
+      "detailed": "## Decision criteria\n\nAsk who is the source of truth, how stale data may be, whether several users change it, whether it must survive refresh, and how it is synchronised. Consider optimistic updates and conflict handling.\n\n## Advantages and disadvantages\n\n| Option | Advantages | Disadvantages |\n|---|---|---|\n| **Client-owned state** | Instant, no network, simple, works offline | Lost on refresh unless persisted, not shared across devices or users |\n| **Server-owned state** | Single source of truth, shared, durable, auditable | Latency, caching and invalidation complexity, loading and error states |\n\n## Operational and financial implications\n\nTreating server data as client state leads to hand-written caching and bugs that are costly to fix. A server-state library reduces boilerplate and requests. Persisting too much locally increases support issues from stale data.\n\n## Security implications\n\nServer state may contain sensitive data; cache only what the user is allowed to see and clear it on logout. Never trust client state for permissions, prices or entitlements, because users can alter it. Validate on the server.\n\n## Failure modes\n\nStale views after changes by another user, optimistic updates that diverge from the server, race conditions between requests, and duplicated copies disagreeing. Plan loading, error and rollback states.\n\n## Recommended default\n\n**Use a server-state library for fetched data, local component state or a small store for UI concerns, and the URL for shareable state such as filters.**\n\n## Conditions that change the decision\n\nKeep more on the client for offline-first apps with sync. Move more to the server when state must be consistent across devices or audited.\n\n## Common mistakes\n\n- Copying fetched data into a global store.\n- Keeping filters in memory instead of the URL.\n- Trusting client state for authorisation.",
+      "followUps": [
+        "Where should form drafts live?",
+        "How do you handle optimistic updates safely?",
+        "What belongs in the URL?"
+      ]
+    },
+    {
+      "slug": "modular-monolith-vs-microservices",
+      "title": "Trade-off: modular monolith or microservices for a new MERN product?",
+      "topic": "Backend architecture",
+      "difficulty": "advanced",
+      "type": "comparison",
+      "tags": [
+        "monolith",
+        "microservices",
+        "architecture",
+        "scaling"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I decide on team structure, scaling needs and operational maturity. A modular monolith keeps one deployable with strict internal boundaries, so it is simpler to run, test and change, with in-process calls and transactions. Microservices give independent deployment and scaling but add network failures, distributed data, observability and platform cost. My default is a modular monolith, extracting services when a clear boundary, team ownership or scaling profile justifies the overhead.",
+      "revision": "Modular monolith by default for simplicity; extract microservices when team autonomy, distinct scaling or isolation justifies distributed-system costs.",
+      "detailed": "## Decision criteria\n\nConsider team count and autonomy, domain boundary clarity, independent scaling and release needs, fault isolation, data ownership, platform maturity for tracing, deployment and on-call, and budget.\n\n{{diagram:mono-micro}}\n\n## Advantages and disadvantages\n\n| Option | Advantages | Disadvantages |\n|---|---|---|\n| **Modular monolith** | One deployment, in-process calls, local transactions, simpler debugging and testing | Shared runtime and release cadence, discipline needed to keep boundaries, scaling is all or nothing |\n| **Microservices** | Independent deployment and scaling, team autonomy, fault isolation, technology choice | Network failures, distributed transactions, observability and platform cost, versioning and contract testing |\n\n## Operational and financial implications\n\nMicroservices need CI pipelines per service, service discovery, tracing, centralised logging and more on-call load, which raises cost. A monolith costs less to operate but can need larger instances. Early extraction often increases cost without benefit.\n\n## Security implications\n\nMore services mean more network paths to secure: mutual authentication, per-service authorisation, secrets management and a larger attack surface. A monolith has fewer boundaries but a compromise of one module exposes the whole process, so internal separation and least privilege still matter.\n\n## Failure modes\n\nMicroservices: cascading failures, retries amplifying load, inconsistent data, version mismatch, and distributed monolith where services must deploy together. Monolith: one bug or memory leak affects everything, and boundaries erode over time.\n\n## Recommended default\n\n**A modular monolith with enforced module boundaries and well-defined interfaces, extracting a service only for a specific, measured reason.**\n\n## Conditions that change the decision\n\nMove to services when many teams block each other, a component needs a very different scaling or runtime, regulatory isolation is required, or failure isolation has clear value and the platform can support it.\n\n## Common mistakes\n\n- Splitting into services before boundaries are understood.\n- Sharing a database between services and calling them independent.\n- Assuming monoliths cannot scale.",
+      "followUps": [
+        "How do you enforce module boundaries in code?",
+        "How would you extract the first service?",
+        "How do you avoid a distributed monolith?"
+      ],
+      "diagrams": [
+        {
+          "id": "mono-micro",
+          "title": "Monolith versus microservices decision flow",
+          "alt": "A decision flow asking whether multiple teams are blocked by shared releases and whether a component has distinct scaling or isolation needs. If both yes and the platform is mature, extract a service. Otherwise stay with a modular monolith.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "q1",
+              "label": "Teams blocked by shared releases?"
+            },
+            {
+              "id": "q2",
+              "label": "Distinct scaling or isolation need?"
+            },
+            {
+              "id": "q3",
+              "label": "Platform mature enough?"
+            },
+            {
+              "id": "ms",
+              "label": "Extract a service"
+            },
+            {
+              "id": "mm",
+              "label": "Stay modular monolith"
+            }
+          ],
+          "edges": [
+            {
+              "from": "q1",
+              "to": "q2",
+              "label": "yes"
+            },
+            {
+              "from": "q1",
+              "to": "mm",
+              "label": "no"
+            },
+            {
+              "from": "q2",
+              "to": "q3",
+              "label": "yes"
+            },
+            {
+              "from": "q2",
+              "to": "mm",
+              "label": "no"
+            },
+            {
+              "from": "q3",
+              "to": "ms",
+              "label": "yes"
+            },
+            {
+              "from": "q3",
+              "to": "mm",
+              "label": "no"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "mongodb-vs-postgresql",
+      "title": "MongoDB versus PostgreSQL: how do you choose?",
+      "topic": "Databases",
+      "difficulty": "advanced",
+      "type": "comparison",
+      "tags": [
+        "mongodb",
+        "postgresql",
+        "database",
+        "data-modelling"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I choose by data shape, relationships and consistency needs. MongoDB's document model suits aggregate-shaped, evolving data read together, and scales horizontally with sharding. PostgreSQL suits relational data, strong constraints, joins, complex queries and transactions, and also supports JSON columns. In MERN projects MongoDB is convenient, but I do not pick it by default for relational domains such as billing. I pick PostgreSQL when integrity and reporting matter, MongoDB when documents fit naturally.",
+      "revision": "MongoDB for aggregate-shaped, flexible documents; PostgreSQL for relational integrity, joins and reporting; judge by the access patterns.",
+      "detailed": "## Decision criteria\n\nLook at relationships between entities, query variety, need for joins and ad hoc reporting, consistency and transaction needs, schema evolution speed, scaling pattern, and team expertise.\n\n{{diagram:mongo-pg}}\n\n## Advantages and disadvantages\n\n| Option | Advantages | Disadvantages |\n|---|---|---|\n| **MongoDB** | Flexible schema, documents match application objects, horizontal scaling options, good for nested reads | Joins and cross-document integrity are weaker, data duplication, schema drift without validation |\n| **PostgreSQL** | Constraints, joins, mature SQL, transactions, JSON support, strong tooling | Horizontal scaling is harder, schema migrations need care, object mapping effort |\n\n## Operational and financial implications\n\nManaged services exist for both. Cost depends on workload: sharded clusters add operational complexity, while a single PostgreSQL instance can serve a lot of load. Migrations and reporting tools differ, and moving between them later is expensive.\n\n## Security implications\n\nBoth need encryption in transit and at rest, least-privilege roles, network isolation and auditing. MongoDB needs query operator injection protection from untrusted input; PostgreSQL needs parameterised queries. Row-level security in PostgreSQL can help multi-tenant access control.\n\n## Failure modes\n\nMongoDB: orphaned references, inconsistent duplicated data, unbounded document growth, unindexed queries. PostgreSQL: lock contention in long transactions, migration downtime, connection exhaustion, vertical scaling limits.\n\n## Recommended default\n\n**PostgreSQL for transactional, relational business data; MongoDB when the domain is naturally document-shaped and access patterns are well known.**\n\n## Conditions that change the decision\n\nPrefer MongoDB for content, catalogues or event payloads with varying shape and heavy aggregate reads. Prefer PostgreSQL where reporting, constraints and multi-entity transactions dominate. Polyglot persistence is acceptable if the team can operate both.\n\n## Common mistakes\n\n- Choosing MongoDB because of the stack name.\n- Treating schema flexibility as no schema.\n- Assuming PostgreSQL cannot store JSON.",
+      "followUps": [
+        "How would you model orders in each?",
+        "How do you enforce integrity in MongoDB?",
+        "When would you use both?"
+      ],
+      "diagrams": [
+        {
+          "id": "mongo-pg",
+          "title": "MongoDB or PostgreSQL decision flow",
+          "alt": "A flow asking whether data is relational with strong integrity and reporting needs. If yes choose PostgreSQL. If data is document shaped and read as aggregates choose MongoDB. Mixed needs may justify using both.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "q1",
+              "label": "Strong relations, integrity, reporting?"
+            },
+            {
+              "id": "pg",
+              "label": "PostgreSQL"
+            },
+            {
+              "id": "q2",
+              "label": "Document-shaped aggregates, evolving schema?"
+            },
+            {
+              "id": "mg",
+              "label": "MongoDB"
+            },
+            {
+              "id": "both",
+              "label": "Consider both for separate domains"
+            }
+          ],
+          "edges": [
+            {
+              "from": "q1",
+              "to": "pg",
+              "label": "yes"
+            },
+            {
+              "from": "q1",
+              "to": "q2",
+              "label": "no"
+            },
+            {
+              "from": "q2",
+              "to": "mg",
+              "label": "yes"
+            },
+            {
+              "from": "q2",
+              "to": "both",
+              "label": "mixed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "redis-vs-database-caching",
+      "title": "Redis caching versus database-level caching: what is the difference?",
+      "topic": "Caching",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "redis",
+        "caching",
+        "database",
+        "performance"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Database caching means relying on the database's own buffer cache, query plans and indexes, plus read replicas. Redis is an external in-memory store that the application controls, good for hot lookups, sessions, rate limiting and computed results. I tune indexes and queries first, since a cache hides slow queries. I add Redis when reads are repeated, tolerate staleness, and the database is the bottleneck, with a clear invalidation and expiry strategy.",
+      "revision": "Fix queries and indexes first; add Redis for hot, repeated, staleness-tolerant reads with explicit invalidation and expiry.",
+      "detailed": "## Decision criteria\n\nCheck read to write ratio, acceptable staleness, cost of the underlying query, cache hit ratio expected, invalidation difficulty, and whether data is shared across instances.\n\n{{diagram:cache-aside}}\n\nIn an interview I would state my assumptions about load, team size and risk appetite out loud, then show which of them would flip the answer.\n\n## Advantages and disadvantages\n\n| Option | Advantages | Disadvantages |\n|---|---|---|\n| **Database caching** | No extra component, always consistent, simple | Limited by database capacity, still uses connections, cannot cache computed application results |\n| **Redis cache** | Very low latency, offloads database, flexible structures, TTLs | Invalidation complexity, stale data, another system to run, cold start load |\n\n## Operational and financial implications\n\nRedis adds a managed service, memory cost and monitoring. It can lower database size and cost if hit ratios are high, but a low hit ratio is wasted spend. Plan memory limits and eviction policy.\n\n## Security implications\n\nDo not cache private data under shared keys; include user or tenant in the key. Secure Redis with authentication, network isolation and TLS. Avoid storing secrets or unnecessary personal data, and set expiries.\n\n## Failure modes\n\nCache stampede on expiry, stale or wrongly invalidated data, Redis outage causing a database surge, eviction of hot keys, and inconsistent values between cache and database.\n\n## Recommended default\n\n**Optimise queries and indexes, then add Redis cache-aside with TTLs for proven hot paths, and make the system degrade gracefully if Redis is unavailable.**\n\nRecord the decision as a short architecture decision record with the context, alternatives considered and the measurements that would trigger a review, so it can be revisited calmly rather than argued afresh.\n\n## Conditions that change the decision\n\nUse database features alone if load is modest. Use Redis earlier for rate limiting, sessions, leaderboards or when computing results is expensive.\n\n## Common mistakes\n\n- Caching before measuring.\n- No expiry or invalidation plan.\n- Letting the database fail when Redis is down.",
+      "followUps": [
+        "How do you avoid a cache stampede?",
+        "What key design avoids cross-tenant leaks?",
+        "Cache-aside versus write-through?"
+      ],
+      "diagrams": [
+        {
+          "id": "cache-aside",
+          "title": "Cache-aside read flow",
+          "alt": "The application checks Redis first. On a hit it returns the value. On a miss it reads the database, stores the result in Redis with an expiry and returns it. If Redis is unavailable the application falls back to the database.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "ap",
+              "label": "Application"
+            },
+            {
+              "id": "rd",
+              "label": "Redis"
+            },
+            {
+              "id": "db",
+              "label": "Database"
+            },
+            {
+              "id": "rs",
+              "label": "Response"
+            }
+          ],
+          "edges": [
+            {
+              "from": "ap",
+              "to": "rd",
+              "label": "check"
+            },
+            {
+              "from": "rd",
+              "to": "rs",
+              "label": "hit"
+            },
+            {
+              "from": "rd",
+              "to": "db",
+              "label": "miss"
+            },
+            {
+              "from": "db",
+              "to": "rd",
+              "label": "store with TTL"
+            },
+            {
+              "from": "db",
+              "to": "rs",
+              "label": "return"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "sqs-vs-kafka",
+      "title": "SQS versus Kafka: which messaging backbone?",
+      "topic": "Messaging",
+      "difficulty": "advanced",
+      "type": "comparison",
+      "tags": [
+        "sqs",
+        "kafka",
+        "messaging",
+        "streaming"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I choose by whether I need a task queue or an event log. SQS is a managed queue: simple, scales without management, good for work distribution with retries and dead-letter queues. Kafka is a distributed log: ordered partitions, retention, replay, and many independent consumers, suited to event streaming, but it needs more capacity planning and expertise. My default for background jobs is SQS, and Kafka when replay and multiple consumers of the same stream matter.",
+      "revision": "SQS for managed task queues with retries; Kafka for ordered, replayable event streams with many consumers, accepting operational weight.",
+      "detailed": "## Decision criteria\n\nConsider need for replay, ordering, number of consumers, throughput, retention, operational skill, and cloud lock-in. Decide whether messages are tasks to complete or facts to keep.\n\n{{diagram:queue-log}}\n\n## Advantages and disadvantages\n\n| Option | Advantages | Disadvantages |\n|---|---|---|\n| **SQS** | Managed, simple, built-in retries and dead-letter queues, elastic | Limited replay, ordering only with FIFO queues and throughput limits, each message consumed once per queue |\n| **Kafka** | Retained log, replay, partition ordering, high throughput, many consumer groups | Operational complexity or managed cost, partition and rebalancing design, consumer lag management |\n\n## Operational and financial implications\n\nSQS is pay per request with little operation. Kafka, self-run or managed, has a baseline cost and needs capacity planning, but can be economical at high volume. Skill and on-call burden often outweigh raw price.\n\n## Security implications\n\nBoth need IAM or ACL controls, encryption in transit and at rest, and care with sensitive payloads. Kafka topics need per-topic authorisation. Avoid placing secrets in messages and consider payload minimisation.\n\n## Failure modes\n\nSQS: duplicate delivery, visibility timeout misconfiguration, poison messages. Kafka: consumer lag, rebalances, hot partitions, retention expiry before slow consumers catch up, ordering lost across partitions.\n\n## Recommended default\n\n**SQS for background work and decoupling; Kafka when you need durable ordered streams, replay or several independent consumers.**\n\n## Conditions that change the decision\n\nChoose Kafka earlier for analytics pipelines, audit logs and event sourcing. Choose SQS or a similar service if the team is small and requirements are simple. Either way, make consumers idempotent.\n\n## Common mistakes\n\n- Using Kafka as a simple job queue.\n- Assuming exactly-once without idempotency.\n- Ignoring dead-letter handling.",
+      "followUps": [
+        "How do you handle poison messages?",
+        "How would you replay events after a bug?",
+        "How do you preserve order per entity?"
+      ],
+      "diagrams": [
+        {
+          "id": "queue-log",
+          "title": "SQS or Kafka decision flow",
+          "alt": "A flow asking whether messages need replay or multiple independent consumers. If yes choose Kafka. If messages are tasks processed once with retries choose SQS. Both require idempotent consumers.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "q1",
+              "label": "Need replay or many consumers?"
+            },
+            {
+              "id": "kf",
+              "label": "Kafka"
+            },
+            {
+              "id": "q2",
+              "label": "Tasks processed once with retries?"
+            },
+            {
+              "id": "sq",
+              "label": "SQS"
+            },
+            {
+              "id": "id",
+              "label": "Idempotent consumers either way"
+            }
+          ],
+          "edges": [
+            {
+              "from": "q1",
+              "to": "kf",
+              "label": "yes"
+            },
+            {
+              "from": "q1",
+              "to": "q2",
+              "label": "no"
+            },
+            {
+              "from": "q2",
+              "to": "sq",
+              "label": "yes"
+            },
+            {
+              "from": "kf",
+              "to": "id"
+            },
+            {
+              "from": "sq",
+              "to": "id"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "lambda-vs-ecs-fargate-vs-eks",
+      "title": "Lambda versus ECS/Fargate versus EKS: how do you choose?",
+      "topic": "Compute platforms",
+      "difficulty": "advanced",
+      "type": "comparison",
+      "tags": [
+        "aws",
+        "lambda",
+        "ecs",
+        "fargate",
+        "eks",
+        "containers"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I choose by workload shape and team capability. Lambda suits spiky, event-driven or low-traffic work with minimal operations, but has execution limits and cold starts. ECS on Fargate runs containers without managing servers and fits steady APIs. EKS offers Kubernetes portability and a rich ecosystem, but needs significant platform expertise. My default for a typical Node API is Fargate, Lambda for event handlers, and EKS only when Kubernetes capabilities are required.",
+      "revision": "Lambda for spiky event work, Fargate for steady containerised APIs, EKS only when Kubernetes features or portability justify the platform cost.",
+      "detailed": "## Decision criteria\n\nConsider traffic pattern, execution duration, latency sensitivity, runtime needs, team Kubernetes skill, portability, scaling speed, and cost at expected utilisation.\n\n{{diagram:compute-choice}}\n\n## Advantages and disadvantages\n\n| Option | Advantages | Disadvantages |\n|---|---|---|\n| **Lambda** | No servers, scales to zero, event integrations, pay per use | Cold starts, duration and package limits, connection management, harder local testing |\n| **ECS/Fargate** | Container simplicity, no node management, steady performance | Pays for provisioned capacity, less ecosystem than Kubernetes, AWS specific |\n| **EKS** | Kubernetes ecosystem, portability, fine control, operators | Cluster operations, upgrades, complexity, higher baseline cost |\n\n## Operational and financial implications\n\nLambda is cost-effective at low or bursty volume and can become expensive at high steady load. Fargate costs more per unit than well-packed instances but removes management. EKS adds control plane charges and platform engineering time. Compare at realistic utilisation, not list prices.\n\n## Security implications\n\nApply least-privilege IAM roles per function or task, private networking, secrets from a manager and image scanning. EKS adds cluster RBAC, network policies and node patching responsibilities. Lambda reduces patching burden but needs dependency scanning.\n\n## Failure modes\n\nLambda: throttling, cold start latency, exhausted database connections. Fargate: slow scale-out under sudden spikes, task placement failures. EKS: misconfigured upgrades, control plane or node problems, resource limits causing evictions.\n\n## Recommended default\n\n**Fargate for steady APIs, Lambda for event-driven and bursty tasks, and EKS only when the team and requirements justify Kubernetes.**\n\n## Conditions that change the decision\n\nPrefer Lambda for very sporadic workloads or glue code. Prefer EKS if you need Kubernetes tooling, multi-cloud portability or many services with a platform team. Prefer EC2-backed containers for heavy, steady workloads where cost dominates.\n\n## Common mistakes\n\n- Choosing EKS for a few services with no platform team.\n- Using Lambda for long, steady workloads.\n- Ignoring database connection limits with Lambda.",
+      "followUps": [
+        "How do you manage database connections from Lambda?",
+        "When does Fargate cost more than EC2?",
+        "What does a platform team need for EKS?"
+      ],
+      "diagrams": [
+        {
+          "id": "compute-choice",
+          "title": "Compute platform decision flow",
+          "alt": "A flow: if the workload is event driven or spiky and short, use Lambda. If it is a steady containerised service without Kubernetes needs, use ECS on Fargate. If Kubernetes features or portability are required and a platform team exists, use EKS.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "q1",
+              "label": "Short, spiky, event driven?"
+            },
+            {
+              "id": "lm",
+              "label": "Lambda"
+            },
+            {
+              "id": "q2",
+              "label": "Need Kubernetes features and a platform team?"
+            },
+            {
+              "id": "ek",
+              "label": "EKS"
+            },
+            {
+              "id": "fg",
+              "label": "ECS on Fargate"
+            }
+          ],
+          "edges": [
+            {
+              "from": "q1",
+              "to": "lm",
+              "label": "yes"
+            },
+            {
+              "from": "q1",
+              "to": "q2",
+              "label": "no"
+            },
+            {
+              "from": "q2",
+              "to": "ek",
+              "label": "yes"
+            },
+            {
+              "from": "q2",
+              "to": "fg",
+              "label": "no"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "rest-apis-vs-asynchronous-events",
+      "title": "REST APIs versus asynchronous events between services: how do you decide?",
+      "topic": "Service integration",
+      "difficulty": "advanced",
+      "type": "comparison",
+      "tags": [
+        "rest",
+        "events",
+        "integration",
+        "microservices"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I decide by whether the caller needs an answer now and how tightly I accept coupling. Synchronous REST suits queries and commands where the user waits for a result, but it couples availability and latency. Asynchronous events suit notifying other services that something happened, absorbing spikes and decoupling timing, with eventual consistency as the cost. My default is REST for requests needing an immediate answer and events for reactions and side effects.",
+      "revision": "REST when an immediate answer is needed; events for decoupled reactions and side effects, accepting eventual consistency.",
+      "detailed": "## Decision criteria\n\nConsider whether the caller needs a response, tolerance for delay, coupling and availability dependencies, spike absorption, ordering needs, and debugging ability.\n\nIn an interview I would state my assumptions about load, team size and risk appetite out loud, then show which of them would flip the answer.\n\n## Advantages and disadvantages\n\n| Option | Advantages | Disadvantages |\n|---|---|---|\n| **REST** | Simple, immediate response, easy to reason about and debug | Temporal coupling, cascading failures, caller waits |\n| **Asynchronous events** | Decoupled, spike absorption, easy to add consumers | Eventual consistency, harder tracing, duplicate and out-of-order handling |\n\n## Operational and financial implications\n\nEvents need a broker, schemas, monitoring of lag and dead-letter queues. REST needs timeouts, retries and circuit breakers. Event-driven systems are often cheaper to scale but costlier to understand and operate.\n\n## Security implications\n\nBoth need authentication between services. Events need schema governance and care about what personal data is placed in broadcast payloads, since many consumers may read them. REST calls need authorisation at each hop.\n\n## Failure modes\n\nREST: cascading timeouts and retry storms. Events: lost, duplicated or reordered messages, poison messages, consumers falling behind, and silent failures with no one noticing.\n\n## Recommended default\n\n**REST for queries and user-blocking commands; events for notifications and workflows where eventual consistency is acceptable, with idempotent consumers.**\n\nRecord the decision as a short architecture decision record with the context, alternatives considered and the measurements that would trigger a review, so it can be revisited calmly rather than argued afresh.\n\n## Conditions that change the decision\n\nUse events more if many services react to the same fact or load is bursty. Use REST more if the user needs a confirmed outcome or the flow is simple and tightly bound.\n\n## Common mistakes\n\n- Using events to hide a tight dependency.\n- Chaining synchronous calls through many services.\n- Skipping idempotency.",
+      "followUps": [
+        "How do you track an event-driven workflow?",
+        "What is an outbox pattern?",
+        "How do you version event schemas?"
+      ]
+    },
+    {
+      "slug": "jwt-vs-server-side-sessions",
+      "title": "JWT versus server-side sessions: how do you choose?",
+      "topic": "Authentication",
+      "difficulty": "advanced",
+      "type": "comparison",
+      "tags": [
+        "jwt",
+        "sessions",
+        "authentication",
+        "security"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I choose by revocation needs and architecture. Server-side sessions store state on the server and give an opaque identifier, so logout and revocation are immediate, which suits a first-party web app. JWTs are self-contained and verifiable without a lookup, which helps across services, but revocation is hard, so I keep access tokens short-lived with refresh tokens. My default for a first-party web app is server-side sessions, and JWTs for service-to-service or third-party access.",
+      "revision": "Sessions for first-party web apps needing easy revocation; short-lived JWTs where stateless verification across services matters.",
+      "detailed": "## Decision criteria\n\nConsider revocation and logout needs, number of services verifying identity, session storage scalability, client types, token size, and compliance requirements.\n\nIn an interview I would state my assumptions about load, team size and risk appetite out loud, then show which of them would flip the answer.\n\n## Advantages and disadvantages\n\n| Option | Advantages | Disadvantages |\n|---|---|---|\n| **Server-side sessions** | Immediate revocation, small cookie, server controls data | Shared store needed, lookup per request, cross-domain sharing harder |\n| **JWT** | Stateless verification, works across services and clients | Hard to revoke, larger size, risk if long-lived or poorly validated |\n\n## Operational and financial implications\n\nSessions need a store such as Redis with capacity and availability. JWTs avoid the lookup but need key management, rotation and refresh logic. Complexity often moves rather than disappears.\n\n## Security implications\n\nValidate signature, algorithm, issuer, audience and expiry for JWTs, and rotate signing keys. Keep lifetimes short and never put sensitive data in the payload. For sessions, use secure random identifiers, rotate on login and set secure cookie attributes.\n\n## Failure modes\n\nJWT: stolen token valid until expiry, key compromise, misconfigured validation. Sessions: store outage logging everyone out, session fixation, and unbounded session growth.\n\n## Recommended default\n\n**Server-side sessions for browser apps, short-lived JWT access tokens with refresh rotation for APIs consumed by multiple services or clients.**\n\nRecord the decision as a short architecture decision record with the context, alternatives considered and the measurements that would trigger a review, so it can be revisited calmly rather than argued afresh.\n\n## Conditions that change the decision\n\nChoose JWTs when many independent services must verify identity without calling a central store. Choose sessions when instant revocation is a requirement. A hybrid with reference tokens is also reasonable.\n\n## Common mistakes\n\n- Using long-lived JWTs without revocation.\n- Storing sensitive data in JWT payloads.\n- Treating JWT as automatically more secure.",
+      "followUps": [
+        "How do you revoke a JWT?",
+        "How should refresh tokens be stored?",
+        "What is a reference token?"
+      ]
+    },
+    {
+      "slug": "cookies-vs-local-storage-for-tokens",
+      "title": "Cookies versus local storage for storing tokens: which is safer?",
+      "topic": "Authentication",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "cookies",
+        "localstorage",
+        "tokens",
+        "xss",
+        "csrf"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I compare the threats. Local storage is readable by any script on the page, so a cross-site scripting flaw can steal tokens. HttpOnly cookies cannot be read by scripts, but are sent automatically, so they need CSRF defences such as SameSite and tokens. Neither fixes XSS fully, because injected script can still make requests. My default for a first-party web app is HttpOnly, Secure, SameSite cookies with CSRF protection.",
+      "revision": "HttpOnly Secure SameSite cookies resist token theft but need CSRF defence; local storage is exposed to XSS. Prefer cookies for first-party web.",
+      "detailed": "## Decision criteria\n\nConsider XSS and CSRF exposure, whether front end and API share a site, need for cross-domain use, mobile or non-browser clients, token lifetime, and logout behaviour.\n\nIn an interview I would state my assumptions about load, team size and risk appetite out loud, then show which of them would flip the answer.\n\n## Advantages and disadvantages\n\n| Option | Advantages | Disadvantages |\n|---|---|---|\n| **HttpOnly cookies** | Not readable by scripts, automatic sending, expiry and flags controlled by server | CSRF risk, cross-site setups need care, size limits |\n| **Local storage** | Simple, explicit header use, no CSRF by default | Readable by any script, persists, XSS leads to theft |\n\n## Operational and financial implications\n\nCookies need correct domain and attribute configuration across environments, which can cause deployment issues. Local storage is easy but may increase incident impact. Cost is mostly in engineering time.\n\n## Security implications\n\nUse HttpOnly, Secure and SameSite attributes, short lifetimes and CSRF tokens for state-changing requests. Add a strict Content Security Policy to reduce XSS regardless. Never put long-lived credentials in local storage.\n\n## Failure modes\n\nCookies: CSRF if SameSite is lax or missing, subdomain cookie leakage. Local storage: token theft through XSS or malicious third-party scripts. Both: tokens remaining valid after logout if not revoked.\n\n## Recommended default\n\n**HttpOnly Secure SameSite cookies with CSRF protection and a strict CSP for browser applications.**\n\nRecord the decision as a short architecture decision record with the context, alternatives considered and the measurements that would trigger a review, so it can be revisited calmly rather than argued afresh.\n\n## Conditions that change the decision\n\nLocal storage or memory may be needed for cross-origin APIs, native-style clients or third-party embeds, ideally with short-lived tokens held in memory and refreshed via cookie.\n\n## Common mistakes\n\n- Believing cookies make XSS harmless.\n- Omitting CSRF protection with cookies.\n- Keeping long-lived tokens in local storage.",
+      "followUps": [
+        "What does SameSite=Lax prevent?",
+        "Is memory storage better?",
+        "How does a CSP help?"
+      ]
+    },
+    {
+      "slug": "ssr-auth-vs-client-auth",
+      "title": "Server-side rendered authentication versus client-side authentication: what differs?",
+      "topic": "Authentication",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "authentication",
+        "ssr",
+        "spa",
+        "nextjs"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "With server-side authentication, the server checks the session before rendering, so protected HTML and data are never sent to unauthorised users, and cookies can be HttpOnly. With client-side authentication in a SPA, the shell loads for everyone and the client hides screens, so the real protection must be on every API call. Client checks are for user experience, not security. My default is server-verified sessions, with the API enforcing authorisation either way.",
+      "revision": "Server-side checks stop protected content being sent at all; client-side route guards are only UX, so the API must enforce access.",
+      "detailed": "## Decision criteria\n\nConsider whether protected content could leak in markup or bundles, framework, token storage, redirect behaviour, caching, and who consumes the API.\n\n{{diagram:auth-flow}}\n\nIn an interview I would state my assumptions about load, team size and risk appetite out loud, then show which of them would flip the answer.\n\n## Advantages and disadvantages\n\n| Option | Advantages | Disadvantages |\n|---|---|---|\n| **Server-side auth** | Protected content never sent, HttpOnly cookies, consistent redirects | Needs server runtime, careful caching, more complex deployment |\n| **Client-side auth** | Simple static hosting, flexible, fast navigation | Shell and bundles are public, relies on API enforcement, tokens handled in browser |\n\n## Operational and financial implications\n\nServer-side checks add compute per request and complicate CDN caching. Client-side approaches are cheaper to host but push more security reliance to the API, requiring consistent enforcement in every endpoint.\n\n## Security implications\n\nNever put secrets or protected business logic in client bundles. Enforce authorisation server-side per resource, not by hiding links. Ensure authenticated pages are not cached publicly and set cache headers accordingly.\n\n## Failure modes\n\nServer-side: cached private pages, session store outage. Client-side: flash of protected content, expired token loops, endpoints missing authorisation because the UI hid them.\n\n## Recommended default\n\n**Verify sessions on the server for protected pages where a server runtime exists, and always enforce authorisation in the API.**\n\nRecord the decision as a short architecture decision record with the context, alternatives considered and the measurements that would trigger a review, so it can be revisited calmly rather than argued afresh.\n\n## Conditions that change the decision\n\nClient-only authentication is acceptable for internal SPAs when the API is rigorous. Server-side is preferable when content itself is sensitive or SEO and first paint matter.\n\n## Common mistakes\n\n- Treating a route guard as security.\n- Caching authenticated pages publicly.\n- Forgetting to enforce access in the API.",
+      "followUps": [
+        "How do you avoid a flash of protected content?",
+        "Where should authorisation checks live?",
+        "How do you handle token expiry in a SPA?"
+      ],
+      "diagrams": [
+        {
+          "id": "auth-flow",
+          "title": "Authentication placement flow",
+          "alt": "A request reaches the server which verifies the session cookie. If valid it renders protected content and the API enforces per resource authorisation. If invalid it redirects to login. In a SPA the shell loads publicly and every API call is still authorised.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "rq",
+              "label": "Request"
+            },
+            {
+              "id": "sv",
+              "label": "Server verifies session"
+            },
+            {
+              "id": "pg",
+              "label": "Protected content rendered"
+            },
+            {
+              "id": "lg",
+              "label": "Redirect to login"
+            },
+            {
+              "id": "ap",
+              "label": "API enforces authorisation"
+            }
+          ],
+          "edges": [
+            {
+              "from": "rq",
+              "to": "sv"
+            },
+            {
+              "from": "sv",
+              "to": "pg",
+              "label": "valid"
+            },
+            {
+              "from": "sv",
+              "to": "lg",
+              "label": "invalid"
+            },
+            {
+              "from": "pg",
+              "to": "ap",
+              "label": "data calls"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "offset-vs-cursor-pagination",
+      "title": "Offset versus cursor pagination: when does each fit?",
+      "topic": "API design",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "pagination",
+        "api",
+        "database",
+        "performance"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Offset pagination uses page and limit, which is simple and allows jumping to page numbers, but deep offsets get slower and results can shift when rows are inserted or deleted. Cursor pagination uses a stable position, such as an indexed sort key, so it stays efficient on large data and avoids duplicates or gaps, but cannot jump to arbitrary pages easily. My default for feeds and large lists is cursor pagination, and offset for small admin tables.",
+      "revision": "Cursor for large, changing lists and feeds; offset for small, stable lists needing page numbers.",
+      "detailed": "## Decision criteria\n\nLook at dataset size, rate of change, need for random page access, sort stability, index availability, and client experience such as infinite scroll versus numbered pages.\n\nIn an interview I would state my assumptions about load, team size and risk appetite out loud, then show which of them would flip the answer.\n\n## Advantages and disadvantages\n\n| Option | Advantages | Disadvantages |\n|---|---|---|\n| **Offset** | Simple, page numbers, easy to implement | Slower for deep pages, inconsistent with concurrent changes |\n| **Cursor** | Consistent, efficient with indexes, good for infinite scroll | No random access, needs stable unique sort key, more complex cursors |\n\n## Operational and financial implications\n\nDeep offsets scan and discard rows, increasing database load as data grows. Cursors use index seeks and cost stays flat. Total counts can be expensive in both and may be approximated.\n\n## Security implications\n\nOpaque cursors prevent clients tampering with query internals, but must be validated and never encode sensitive values. Apply authorisation filters on every page, and limit page size to deter scraping.\n\n## Failure modes\n\nOffset: duplicates or missing items during inserts, timeouts on deep pages. Cursor: broken cursors after data deletion or sort changes, ties without a tiebreaker, and expired cursors.\n\n## Recommended default\n\n**Cursor pagination with a unique, indexed sort key and an opaque cursor, offset only for small bounded datasets.**\n\nRecord the decision as a short architecture decision record with the context, alternatives considered and the measurements that would trigger a review, so it can be revisited calmly rather than argued afresh.\n\n## Conditions that change the decision\n\nUse offset if users need numbered pages and data is small or static. Use keyset with a secondary tiebreaker for any large, frequently changing set.\n\n## Common mistakes\n\n- Sorting by a non-unique field without a tiebreaker.\n- Returning exact total counts on huge tables.\n- Exposing raw IDs as cursors without validation.",
+      "followUps": [
+        "How do you paginate by multiple sort fields?",
+        "Can you support jump to page with cursors?",
+        "How do you return totals cheaply?"
+      ]
+    },
+    {
+      "slug": "optimistic-vs-pessimistic-locking",
+      "title": "Optimistic versus pessimistic locking: how do you decide?",
+      "topic": "Concurrency",
+      "difficulty": "advanced",
+      "type": "comparison",
+      "tags": [
+        "locking",
+        "concurrency",
+        "database",
+        "consistency"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I choose by conflict frequency and cost of failure. Optimistic locking lets everyone proceed and checks a version at write time, retrying or reporting a conflict, which scales well when conflicts are rare. Pessimistic locking takes a lock up front so others wait, which suits high contention or critical sections like inventory or balances. My default is optimistic with a version field, using pessimistic locks or atomic updates for hot, high-contention records.",
+      "revision": "Optimistic when conflicts are rare and retries are acceptable; pessimistic or atomic updates for hot records with high contention.",
+      "detailed": "## Decision criteria\n\nConsider conflict probability, cost of retry versus waiting, transaction duration, user experience on conflict, deadlock risk, and database support.\n\nIn an interview I would state my assumptions about load, team size and risk appetite out loud, then show which of them would flip the answer.\n\n## Advantages and disadvantages\n\n| Option | Advantages | Disadvantages |\n|---|---|---|\n| **Optimistic** | No lock held, high throughput, scales well | Conflicts surface late, retries needed, poor under heavy contention |\n| **Pessimistic** | Prevents conflicts, simple reasoning for hot data | Blocking, deadlocks, lower throughput, lock held across slow operations |\n\n## Operational and financial implications\n\nPessimistic locks hold connections and reduce concurrency, which may require larger databases. Optimistic needs retry logic and a conflict UX. Contention testing helps decide.\n\n## Security implications\n\nLocks do not replace authorisation. Prevent users from holding locks indefinitely, apply timeouts, and make sure version fields cannot be tampered with by clients to bypass checks.\n\n## Failure modes\n\nOptimistic: livelock-style retry storms, lost updates if version check is missing. Pessimistic: deadlocks, long waits, orphaned locks after crashes without timeouts.\n\n## Recommended default\n\n**Optimistic locking with a version field, and atomic conditional updates for counters and stock.**\n\nRecord the decision as a short architecture decision record with the context, alternatives considered and the measurements that would trigger a review, so it can be revisited calmly rather than argued afresh.\n\n## Conditions that change the decision\n\nUse pessimistic locks for short, critical, highly contended sections. Consider queues to serialise work for a hot entity instead of locking.\n\n## Common mistakes\n\n- Holding locks across network calls.\n- Ignoring conflict handling in the UI.\n- Using locks where an atomic update suffices.",
+      "followUps": [
+        "How would you decrement stock safely?",
+        "How do you detect deadlocks?",
+        "How does MongoDB handle optimistic checks?"
+      ]
+    },
+    {
+      "slug": "synchronous-vs-asynchronous-workflows",
+      "title": "Synchronous versus asynchronous workflows: how do you decide?",
+      "topic": "Workflow design",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "async",
+        "workflows",
+        "queues",
+        "ux"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I ask whether the user must wait for the result and how long it takes. Synchronous workflows give an immediate, simple answer but tie up the caller and fail together. Asynchronous ones accept a request, return an acknowledgement and process in the background with status updates, which handles long work and spikes but adds complexity: status tracking, retries, idempotency. My default is synchronous for fast operations and asynchronous for slow or failure-prone work.",
+      "revision": "Synchronous for quick, user-blocking operations; asynchronous for slow, spiky or failure-prone work with status tracking and idempotency.",
+      "detailed": "## Decision criteria\n\nConsider duration, user expectation, failure tolerance, need for retries, spike patterns, and the ability to show progress or notify on completion.\n\n{{diagram:sync-async}}\n\nIn an interview I would state my assumptions about load, team size and risk appetite out loud, then show which of them would flip the answer.\n\n## Advantages and disadvantages\n\n| Option | Advantages | Disadvantages |\n|---|---|---|\n| **Synchronous** | Simple, immediate result, straightforward errors | Timeouts, blocked resources, failures propagate |\n| **Asynchronous** | Resilient, absorbs bursts, retries, scalable | Eventual results, status tracking, duplicate handling, harder debugging |\n\n## Operational and financial implications\n\nAsync adds queues, workers and monitoring, but lets you scale workers independently and smooth costs. Sync is cheaper to build but may need over-provisioning for peaks.\n\n## Security implications\n\nAuthorise the job at submission and again when results are fetched. Do not expose job identifiers that can be guessed, and avoid storing sensitive payloads in queues longer than necessary.\n\n## Failure modes\n\nSync: gateway timeouts and retry storms. Async: lost jobs, duplicated processing, stuck jobs, users never told of failure. Add dead-letter queues and alerts.\n\n## Recommended default\n\n**Synchronous under a couple of seconds with a clear timeout, otherwise accept and process asynchronously with a status endpoint.**\n\nRecord the decision as a short architecture decision record with the context, alternatives considered and the measurements that would trigger a review, so it can be revisited calmly rather than argued afresh.\n\n## Conditions that change the decision\n\nStay synchronous where strong immediate consistency matters, such as payment authorisation confirmation, but design for timeouts.\n\n## Common mistakes\n\n- Making users wait on report generation.\n- No idempotency keys on retries.\n- No way to see job status.",
+      "followUps": [
+        "How do you design the status endpoint?",
+        "How do you notify users on completion?",
+        "How do you handle partial failure?"
+      ],
+      "diagrams": [
+        {
+          "id": "sync-async",
+          "title": "Synchronous or asynchronous flow",
+          "alt": "A flow asking whether the work finishes quickly and the user must wait. If yes handle it synchronously. If not accept the request, put a job on a queue, return a job identifier, process in a worker and let the client poll or be notified.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "q1",
+              "label": "Fast and user must wait?"
+            },
+            {
+              "id": "sy",
+              "label": "Handle synchronously"
+            },
+            {
+              "id": "qu",
+              "label": "Enqueue job and return ID"
+            },
+            {
+              "id": "wk",
+              "label": "Worker processes with retries"
+            },
+            {
+              "id": "st",
+              "label": "Client polls status or gets notified"
+            }
+          ],
+          "edges": [
+            {
+              "from": "q1",
+              "to": "sy",
+              "label": "yes"
+            },
+            {
+              "from": "q1",
+              "to": "qu",
+              "label": "no"
+            },
+            {
+              "from": "qu",
+              "to": "wk"
+            },
+            {
+              "from": "wk",
+              "to": "st"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "cdn-caching-vs-application-caching",
+      "title": "CDN caching versus application caching: where should a cache live?",
+      "topic": "Caching",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "cdn",
+        "caching",
+        "performance",
+        "http"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I place a cache as close to the user as the data's variability allows. A CDN caches responses at the edge using HTTP headers, ideal for static assets and public, shared content. Application caching, such as Redis, sits behind the API and handles data that is personalised, computed or needs finer invalidation. My default is aggressive CDN caching for versioned static assets, careful short caching for public API responses, and application caching for expensive internal lookups.",
+      "revision": "CDN for static and public shared responses; application cache for personalised or computed data needing fine invalidation.",
+      "detailed": "## Decision criteria\n\nConsider whether content is shared or per user, staleness tolerance, invalidation needs, geographic spread, response size, and cost per origin request.\n\n{{diagram:cache-layers}}\n\nIn an interview I would state my assumptions about load, team size and risk appetite out loud, then show which of them would flip the answer.\n\n## Advantages and disadvantages\n\n| Option | Advantages | Disadvantages |\n|---|---|---|\n| **CDN caching** | Lowest latency, offloads origin, simple with headers | Coarse invalidation, risk caching private data, limited by HTTP semantics |\n| **Application caching** | Fine control, per-user keys, computed values | Adds latency versus edge, memory cost, you maintain invalidation |\n\n## Operational and financial implications\n\nCDN reduces bandwidth and origin load, often cheaply. Application caches need memory and operation. Invalidation requests and cache key design affect both cost and correctness.\n\n## Security implications\n\nNever allow shared caches to store authenticated responses without correct Cache-Control and Vary. Be careful of cache poisoning through unkeyed headers. Include tenant and user identifiers in application cache keys.\n\n## Failure modes\n\nCDN: serving stale content after a bad deploy, caching error pages, leaking private responses. Application cache: stampedes, stale data, outage causing origin overload.\n\n## Recommended default\n\n**Use hashed filenames with long CDN caching for assets, short or stale-while-revalidate caching for public data, and application caching for expensive private computations.**\n\nRecord the decision as a short architecture decision record with the context, alternatives considered and the measurements that would trigger a review, so it can be revisited calmly rather than argued afresh.\n\n## Conditions that change the decision\n\nSkip CDN caching for highly personalised APIs. Add more edge caching if traffic is global and content is largely shared.\n\n## Common mistakes\n\n- Caching authenticated responses at the edge.\n- No versioned asset filenames.\n- Purging everything on each deploy.",
+      "followUps": [
+        "What do Cache-Control and Vary do?",
+        "How would you invalidate after an edit?",
+        "What is stale-while-revalidate?"
+      ],
+      "diagrams": [
+        {
+          "id": "cache-layers",
+          "title": "Cache layers",
+          "alt": "A request first reaches the CDN edge. On a hit the CDN returns the response. On a miss the request reaches the application, which checks the application cache before querying the database. Results are stored on the way back.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "us",
+              "label": "User"
+            },
+            {
+              "id": "cd",
+              "label": "CDN edge"
+            },
+            {
+              "id": "ap",
+              "label": "Application"
+            },
+            {
+              "id": "ac",
+              "label": "Application cache"
+            },
+            {
+              "id": "db",
+              "label": "Database"
+            }
+          ],
+          "edges": [
+            {
+              "from": "us",
+              "to": "cd"
+            },
+            {
+              "from": "cd",
+              "to": "ap",
+              "label": "miss"
+            },
+            {
+              "from": "ap",
+              "to": "ac",
+              "label": "check"
+            },
+            {
+              "from": "ac",
+              "to": "db",
+              "label": "miss"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "blue-green-vs-canary-deployment",
+      "title": "Blue-green versus canary deployment: which release strategy?",
+      "topic": "Deployment",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "deployment",
+        "blue-green",
+        "canary",
+        "release"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Blue-green runs two full environments and switches traffic at once, giving instant rollback by switching back, but it needs duplicate capacity and handles database changes awkwardly. Canary sends a small share of traffic to the new version and increases gradually while watching metrics, limiting blast radius at the cost of tooling and longer rollouts. My default for important services is canary with automated checks, and blue-green for simpler, quick switch cases.",
+      "revision": "Blue-green for fast switch and rollback with duplicate capacity; canary for gradual, metric-driven exposure that limits blast radius.",
+      "detailed": "## Decision criteria\n\nConsider risk tolerance, ability to measure health, traffic routing tooling, database compatibility, cost of duplicate capacity, and rollback speed needed.\n\n{{diagram:release-choice}}\n\nIn an interview I would state my assumptions about load, team size and risk appetite out loud, then show which of them would flip the answer.\n\n## Advantages and disadvantages\n\n| Option | Advantages | Disadvantages |\n|---|---|---|\n| **Blue-green** | Instant cutover and rollback, simple to understand, full pre-switch testing | Double capacity, all users switch together, shared database changes risky |\n| **Canary** | Small blast radius, real traffic validation, gradual | Needs routing and metrics, slower, two versions live together |\n\n## Operational and financial implications\n\nBlue-green costs extra infrastructure during deploys. Canary needs traffic management and good observability, which is an investment but reusable. Both benefit from automation.\n\n## Security implications\n\nBoth versions must be patched and secured, and secrets and configuration must match. Canary may expose a vulnerable new version to a subset, so scan before release. Ensure feature flags cannot be manipulated by users.\n\n## Failure modes\n\nBlue-green: schema incompatibility when rolling back, warm-up problems at cutover. Canary: insufficient traffic to detect issues, poor metrics, sticky sessions confusing results.\n\n## Recommended default\n\n**Canary with automated health gates for user-facing services, using backward-compatible database migrations in both approaches.**\n\nRecord the decision as a short architecture decision record with the context, alternatives considered and the measurements that would trigger a review, so it can be revisited calmly rather than argued afresh.\n\n## Conditions that change the decision\n\nUse blue-green where traffic is low, tooling is limited or deploys must be atomic. Use canary when failures are costly and metrics are trustworthy.\n\n## Common mistakes\n\n- Rolling back code but not incompatible schema.\n- Canarying without defined success metrics.\n- Forgetting both versions run simultaneously.",
+      "followUps": [
+        "How do you handle database migrations?",
+        "What metrics gate a canary?",
+        "How do feature flags relate?"
+      ],
+      "diagrams": [
+        {
+          "id": "release-choice",
+          "title": "Release strategy decision flow",
+          "alt": "A flow asking whether reliable health metrics and traffic splitting are available. If yes use canary with gradual increases and automatic rollback. If not, use blue-green with a full switch and ability to switch back.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "q1",
+              "label": "Metrics and traffic splitting available?"
+            },
+            {
+              "id": "cn",
+              "label": "Canary with health gates"
+            },
+            {
+              "id": "bg",
+              "label": "Blue-green switch"
+            },
+            {
+              "id": "rb",
+              "label": "Rollback path ready"
+            }
+          ],
+          "edges": [
+            {
+              "from": "q1",
+              "to": "cn",
+              "label": "yes"
+            },
+            {
+              "from": "q1",
+              "to": "bg",
+              "label": "no"
+            },
+            {
+              "from": "cn",
+              "to": "rb"
+            },
+            {
+              "from": "bg",
+              "to": "rb"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "unit-vs-integration-vs-e2e-tests",
+      "title": "Unit versus integration versus end-to-end tests: how do you balance them?",
+      "topic": "Testing",
+      "difficulty": "beginner",
+      "type": "comparison",
+      "tags": [
+        "testing",
+        "unit",
+        "integration",
+        "e2e"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I balance them by speed, confidence and cost. Unit tests are fast and precise for logic. Integration tests check that components such as an API and database work together, giving more realistic confidence. End-to-end tests exercise real user journeys through the full stack, but are slower and flakier. I use many unit tests, a solid layer of integration tests for key boundaries, and a small set of end-to-end tests for critical journeys.",
+      "revision": "Many fast unit tests, focused integration tests at boundaries, and a few end-to-end tests for critical user journeys.",
+      "detailed": "## Decision criteria\n\nConsider feedback speed, confidence needed, flakiness, maintenance cost, environment complexity, and where bugs actually occur.\n\nIn an interview I would state my assumptions about load, team size and risk appetite out loud, then show which of them would flip the answer.\n\n## Advantages and disadvantages\n\n| Option | Advantages | Disadvantages |\n|---|---|---|\n| **Unit** | Fast, precise, cheap | Miss integration issues, can over-mock |\n| **Integration** | Realistic boundaries, catches contract and query issues | Slower, needs setup such as test databases |\n| **End-to-end** | Validates real journeys | Slow, flaky, expensive to maintain and diagnose |\n\n## Operational and financial implications\n\nSlow suites cost developer time and delay releases. End-to-end infrastructure and test data add cost. Investment should go where defects are most costly.\n\n## Security implications\n\nDo not use real personal data in test environments, keep test credentials separate, and include security-related tests such as authorisation checks at the integration level.\n\n## Failure modes\n\nOver-mocked unit tests pass while real behaviour fails; flaky end-to-end tests are ignored; tests share data and interfere with one another.\n\n## Recommended default\n\n**A pyramid or trophy shape: many unit tests, meaningful integration tests with real dependencies, and a thin end-to-end layer on core flows.**\n\nRecord the decision as a short architecture decision record with the context, alternatives considered and the measurements that would trigger a review, so it can be revisited calmly rather than argued afresh.\n\n## Conditions that change the decision\n\nShift towards integration tests for thin glue-code services. Increase end-to-end coverage for revenue-critical flows or when releases are infrequent.\n\n## Common mistakes\n\n- Chasing a coverage number.\n- Mocking everything.\n- Letting flaky tests persist.",
+      "followUps": [
+        "How do you reduce flakiness?",
+        "What belongs in contract tests?",
+        "How do you test a payment flow?"
+      ]
+    },
+    {
+      "slug": "monorepo-vs-polyrepo",
+      "title": "Monorepo versus polyrepo: how do you decide?",
+      "topic": "Source control",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "monorepo",
+        "polyrepo",
+        "tooling",
+        "ci"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I decide by how much code is shared and how teams work. A monorepo holds many projects together, making shared code, atomic cross-project changes and consistent tooling easier, but it needs build tooling, caching and ownership rules to stay fast. Polyrepo gives clear boundaries and independent pipelines, but sharing and coordinated changes need versioned packages. My default for a MERN product with shared types is a monorepo with workspace tooling.",
+      "revision": "Monorepo for shared code and coordinated changes with good tooling; polyrepo for independent teams and clear boundaries.",
+      "detailed": "## Decision criteria\n\nConsider shared libraries, team autonomy, size, CI capability, access control needs, release independence, and tooling maturity.\n\nIn an interview I would state my assumptions about load, team size and risk appetite out loud, then show which of them would flip the answer.\n\n## Advantages and disadvantages\n\n| Option | Advantages | Disadvantages |\n|---|---|---|\n| **Monorepo** | Atomic changes, easy sharing, consistent tooling | Needs build caching and affected-only CI, wider access, repository growth |\n| **Polyrepo** | Clear ownership, independent CI and access, smaller clones | Version drift, harder cross-repo changes, duplicated tooling |\n\n## Operational and financial implications\n\nMonorepos require investment in build orchestration and remote caching; without it CI time and cost rise. Polyrepos cost in dependency updates and duplicated pipelines.\n\n## Security implications\n\nMonorepo gives broad read access unless code ownership and path-based permissions are used. Secrets must never be committed in either. Dependency scanning should cover all packages.\n\n## Failure modes\n\nMonorepo: slow CI, accidental coupling, large blast radius from a bad shared change. Polyrepo: incompatible versions, forgotten updates, drifting standards.\n\n## Recommended default\n\n**A monorepo with workspaces, affected-only builds, code owners and caching for a team sharing types and components.**\n\nRecord the decision as a short architecture decision record with the context, alternatives considered and the measurements that would trigger a review, so it can be revisited calmly rather than argued afresh.\n\n## Conditions that change the decision\n\nChoose polyrepo for separate teams or vendors with different lifecycles or strict access separation.\n\n## Common mistakes\n\n- Monorepo without tooling.\n- Publishing too many tiny packages.\n- No code ownership.",
+      "followUps": [
+        "How do you make CI fast in a monorepo?",
+        "How do you version shared packages in polyrepo?",
+        "How do you control access?"
+      ]
+    },
+    {
+      "slug": "css-modules-vs-scss-vs-css-in-js",
+      "title": "CSS Modules versus SCSS versus CSS-in-JS: how do you choose styling?",
+      "topic": "Frontend styling",
+      "difficulty": "beginner",
+      "type": "comparison",
+      "tags": [
+        "css",
+        "scss",
+        "css-modules",
+        "css-in-js"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I choose by scoping, runtime cost and team habits. CSS Modules scope class names per component with plain CSS and no runtime cost. SCSS adds variables, mixins and nesting and is often combined with modules. CSS-in-JS co-locates styles with components and supports dynamic styling, but runtime libraries can add cost and complicate server rendering, though compile-time options reduce this. My default is CSS Modules, with SCSS if the team benefits from its features.",
+      "revision": "CSS Modules for scoped, zero-runtime styles; SCSS for authoring features; CSS-in-JS for heavy dynamic theming, mindful of runtime cost.",
+      "detailed": "## Decision criteria\n\nConsider scoping, runtime performance, server rendering support, theming needs, tooling, team familiarity, and design system requirements.\n\nIn an interview I would state my assumptions about load, team size and risk appetite out loud, then show which of them would flip the answer.\n\n## Advantages and disadvantages\n\n| Option | Advantages | Disadvantages |\n|---|---|---|\n| **CSS Modules** | Scoped, no runtime, standard CSS | Dynamic values need variables or classes |\n| **SCSS** | Variables, mixins, nesting, mature | Global by default, build step, nesting can grow deep |\n| **CSS-in-JS** | Co-location, dynamic props, theming | Possible runtime cost, SSR setup, library churn |\n\n## Operational and financial implications\n\nRuntime CSS-in-JS can increase JavaScript work and bundle size, affecting performance on low-end devices. Static extraction avoids that. Migration between approaches is laborious.\n\n## Security implications\n\nAvoid injecting unsanitised user input into styles. A strict Content Security Policy may conflict with runtime-injected style tags, so check nonce support.\n\n## Failure modes\n\nSpecificity wars and leaking globals with plain SCSS, style flash on server render with some CSS-in-JS setups, and bloated duplicated styles.\n\n## Recommended default\n\n**CSS Modules, with CSS custom properties for theming and optional SCSS for tooling.**\n\nRecord the decision as a short architecture decision record with the context, alternatives considered and the measurements that would trigger a review, so it can be revisited calmly rather than argued afresh.\n\n## Conditions that change the decision\n\nChoose CSS-in-JS when a component library needs heavy runtime theming. Choose utility CSS as another valid alternative when the team prefers it.\n\n## Common mistakes\n\n- Mixing three approaches randomly.\n- Deep SCSS nesting.\n- Ignoring CSP compatibility.",
+      "followUps": [
+        "How do you theme with custom properties?",
+        "What is zero-runtime CSS-in-JS?",
+        "How do you share design tokens?"
+      ]
+    },
+    {
+      "slug": "micro-frontends-vs-shared-frontend-app",
+      "title": "Micro-frontends versus a shared frontend application: how do you decide?",
+      "topic": "Frontend architecture",
+      "difficulty": "advanced",
+      "type": "comparison",
+      "tags": [
+        "micro-frontends",
+        "frontend",
+        "architecture",
+        "teams"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I decide by team scale and release independence. A shared frontend application is one codebase and build, giving consistency, simpler performance management and easier refactoring. Micro-frontends split the UI into independently deployed pieces owned by different teams, which helps large organisations but adds integration complexity, duplicated dependencies, inconsistent UX risk and harder performance control. My default is a well-structured shared app, with micro-frontends only for many autonomous teams.",
+      "revision": "Shared app by default; micro-frontends when many autonomous teams need independent releases and can manage the integration cost.",
+      "detailed": "## Decision criteria\n\nConsider number of teams, deployment independence, design consistency needs, performance budgets, shared state needs, and platform maturity.\n\nIn an interview I would state my assumptions about load, team size and risk appetite out loud, then show which of them would flip the answer.\n\n## Advantages and disadvantages\n\n| Option | Advantages | Disadvantages |\n|---|---|---|\n| **Shared frontend** | Consistent UX, simpler performance and tooling, easy refactors | Release coupling, merge contention at scale |\n| **Micro-frontends** | Independent deployment, team autonomy, incremental migration | Integration complexity, duplicated code, inconsistent UX, runtime overhead |\n\n## Operational and financial implications\n\nMicro-frontends need shared tooling, version contracts, and monitoring across pieces. Duplicated libraries increase bundle size. Savings appear only at scale.\n\n## Security implications\n\nMore independently deployed code means more supply-chain and trust boundaries. Isolate third-party fragments, share authentication consistently and use a CSP covering all origins.\n\n## Failure modes\n\nVersion mismatches between shell and fragments, one fragment failing the page, slow loading from many bundles, and style conflicts.\n\n## Recommended default\n\n**A modular shared frontend with clear package boundaries, moving to micro-frontends only for proven team-scaling problems.**\n\nRecord the decision as a short architecture decision record with the context, alternatives considered and the measurements that would trigger a review, so it can be revisited calmly rather than argued afresh.\n\n## Conditions that change the decision\n\nMicro-frontends fit when legacy and new stacks must coexist or when many teams ship independently on distinct areas of the product.\n\n## Common mistakes\n\n- Adopting micro-frontends for a small team.\n- No shared design system.\n- Ignoring bundle duplication.",
+      "followUps": [
+        "How would you load a fragment safely?",
+        "How do you share authentication?",
+        "What are alternatives such as module federation?"
+      ]
+    },
+    {
+      "slug": "sql-transactions-vs-eventual-consistency",
+      "title": "SQL transactions versus eventual consistency: how do you decide?",
+      "topic": "Data consistency",
+      "difficulty": "advanced",
+      "type": "comparison",
+      "tags": [
+        "transactions",
+        "eventual-consistency",
+        "acid",
+        "saga"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I decide by the cost of temporary inconsistency. ACID transactions in one database give atomic, isolated updates, which suits money movement, inventory and anything that must be correct immediately. Eventual consistency lets separate services or replicas converge over time, improving availability and scale, but users may see stale data and you need compensations or sagas. My default is a transaction within a service boundary and eventual consistency across boundaries.",
+      "revision": "Use transactions inside a service for must-be-correct data; accept eventual consistency across services with compensations and idempotency.",
+      "detailed": "## Decision criteria\n\nConsider business tolerance for stale data, data ownership boundaries, scale, availability goals, and complexity of compensating actions.\n\nIn an interview I would state my assumptions about load, team size and risk appetite out loud, then show which of them would flip the answer.\n\n## Advantages and disadvantages\n\n| Option | Advantages | Disadvantages |\n|---|---|---|\n| **SQL transactions** | Atomicity, isolation, simple reasoning | Scaling limits, locks, bound to one database |\n| **Eventual consistency** | Availability, scalability, decoupling | Stale reads, compensations, duplicate handling, harder reasoning |\n\n## Operational and financial implications\n\nStrong consistency can need larger databases and limits geographic distribution. Eventual consistency shifts cost to design, monitoring and reconciliation.\n\n## Security implications\n\nCompensation flows can be abused if not authorised and validated. Audit all state changes, and ensure reconciliation jobs have restricted access.\n\n## Failure modes\n\nTransactions: deadlocks, long locks. Eventual: lost events, duplicates, permanent divergence without reconciliation, users acting on stale data.\n\n## Recommended default\n\n**Transactions within a service and idempotent, event-driven eventual consistency across services, with reconciliation for critical data.**\n\nRecord the decision as a short architecture decision record with the context, alternatives considered and the measurements that would trigger a review, so it can be revisited calmly rather than argued afresh.\n\n## Conditions that change the decision\n\nPrefer stronger consistency across services for financial ledgers if the scale allows. Relax it for feeds, counters and search indexes.\n\n## Common mistakes\n\n- Using sagas where one transaction would do.\n- No reconciliation.\n- Assuming events arrive once and in order.",
+      "followUps": [
+        "How does a saga compensate?",
+        "What is the outbox pattern?",
+        "Which reads need read-your-writes?"
+      ]
+    },
+    {
+      "slug": "single-region-vs-multi-region",
+      "title": "Single-region versus multi-region deployment: how do you decide?",
+      "topic": "Resilience",
+      "difficulty": "advanced",
+      "type": "comparison",
+      "tags": [
+        "multi-region",
+        "availability",
+        "disaster-recovery",
+        "aws"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I decide by availability targets, latency and regulation versus complexity. A single region with multiple availability zones covers most failures and is far simpler. Multi-region protects against regional outages and reduces latency for distant users, but brings data replication, consistency conflicts, higher cost and complex failover. My default is single region, multi-AZ, with tested backups and a documented recovery plan, moving to multi-region only for clear business need.",
+      "revision": "Single region multi-AZ by default; multi-region when recovery targets, latency or data residency justify the complexity and cost.",
+      "detailed": "## Decision criteria\n\nConsider recovery time and point objectives, user geography, regulatory residency, tolerance for data conflicts, cost, and team ability to test failover.\n\n{{diagram:region-choice}}\n\nIn an interview I would state my assumptions about load, team size and risk appetite out loud, then show which of them would flip the answer.\n\n## Advantages and disadvantages\n\n| Option | Advantages | Disadvantages |\n|---|---|---|\n| **Single region** | Simpler, cheaper, strong consistency easier | Regional outage risk, higher latency for distant users |\n| **Multi-region** | Regional resilience, lower latency, residency options | Replication lag, conflict resolution, cost, failover complexity |\n\n## Operational and financial implications\n\nMulti-region can more than double infrastructure and data transfer costs, plus engineering and testing time. Untested failover provides false comfort.\n\n## Security implications\n\nMore regions mean more places for data and secrets to be secured, consistent key management and policy enforcement, and residency compliance for replicated data.\n\n## Failure modes\n\nSplit brain, replication lag causing data loss on failover, configuration drift between regions, and failover mechanisms failing when needed.\n\n## Recommended default\n\n**Single region with multiple availability zones, backups and rehearsed restore, multi-region only after quantifying outage cost.**\n\nRecord the decision as a short architecture decision record with the context, alternatives considered and the measurements that would trigger a review, so it can be revisited calmly rather than argued afresh.\n\n## Conditions that change the decision\n\nChoose active-passive for modest recovery targets, active-active only if the data model tolerates conflicts and the business requires it.\n\n## Common mistakes\n\n- Claiming multi-region without testing failover.\n- Ignoring data replication conflicts.\n- Over-engineering for rare events.",
+      "followUps": [
+        "What are RTO and RPO?",
+        "Active-active versus active-passive?",
+        "How do you test failover?"
+      ],
+      "diagrams": [
+        {
+          "id": "region-choice",
+          "title": "Region strategy decision flow",
+          "alt": "A flow asking whether recovery targets or residency demand surviving a region loss. If not use single region with multiple availability zones. If yes consider active-passive, then active-active only if the data model tolerates conflicts.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "q1",
+              "label": "Must survive a region outage or residency need?"
+            },
+            {
+              "id": "sr",
+              "label": "Single region multi-AZ"
+            },
+            {
+              "id": "q2",
+              "label": "Can data tolerate write conflicts?"
+            },
+            {
+              "id": "aa",
+              "label": "Active-active"
+            },
+            {
+              "id": "ap",
+              "label": "Active-passive with rehearsed failover"
+            }
+          ],
+          "edges": [
+            {
+              "from": "q1",
+              "to": "sr",
+              "label": "no"
+            },
+            {
+              "from": "q1",
+              "to": "q2",
+              "label": "yes"
+            },
+            {
+              "from": "q2",
+              "to": "aa",
+              "label": "yes"
+            },
+            {
+              "from": "q2",
+              "to": "ap",
+              "label": "no"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "client-side-vs-server-side-validation",
+      "title": "Client-side versus server-side validation: do you need both?",
+      "topic": "Validation",
+      "difficulty": "beginner",
+      "type": "comparison",
+      "tags": [
+        "validation",
+        "security",
+        "forms",
+        "api"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "They have different purposes. Client-side validation gives quick feedback and better user experience, but users can bypass it, so it is not a security control. Server-side validation is authoritative: it enforces rules, protects data integrity and defends against malicious input. I implement server-side validation always as the source of truth, and add client-side validation for usability, ideally sharing a schema to avoid drift.",
+      "revision": "Server-side validation is mandatory and authoritative; client-side validation improves usability. Share schemas to avoid drift.",
+      "detailed": "## Decision criteria\n\nConsider user experience, trust boundary, rule complexity, shared schema options, and need for checks only the server can do such as uniqueness.\n\nIn an interview I would state my assumptions about load, team size and risk appetite out loud, then show which of them would flip the answer.\n\n## Advantages and disadvantages\n\n| Option | Advantages | Disadvantages |\n|---|---|---|\n| **Client-side** | Instant feedback, fewer round trips | Can be bypassed, not trustworthy |\n| **Server-side** | Authoritative, secures data, enforces uniqueness and business rules | Slower feedback, needs clear error responses |\n\n## Operational and financial implications\n\nDuplicated rules cost maintenance, so shared schemas reduce risk. Server validation prevents expensive data repair and incident cost.\n\n## Security implications\n\nTreat all input as untrusted: validate type, length, format and allowed values, encode output, and use parameterised queries. Validation does not replace authorisation.\n\n## Failure modes\n\nClient and server rules diverge causing confusing rejections; server omits checks assuming client did them; error messages leak internal detail.\n\n## Recommended default\n\n**Validate on the server always, mirror key rules on the client using a shared schema, and return structured field errors.**\n\nRecord the decision as a short architecture decision record with the context, alternatives considered and the measurements that would trigger a review, so it can be revisited calmly rather than argued afresh.\n\n## Conditions that change the decision\n\nLittle changes the need for server validation. Client validation may be minimal for internal tools or heavy for complex forms.\n\n## Common mistakes\n\n- Relying on client validation alone.\n- Duplicated rules drifting apart.\n- Returning stack traces in errors.",
+      "followUps": [
+        "How would you share schemas between client and server?",
+        "How do you validate uniqueness?",
+        "What should error responses contain?"
+      ]
+    },
+    {
+      "slug": "shared-database-vs-database-per-tenant",
+      "title": "Shared database versus database per tenant: how do you decide?",
+      "topic": "Multi-tenancy",
+      "difficulty": "advanced",
+      "type": "comparison",
+      "tags": [
+        "multi-tenancy",
+        "database",
+        "saas",
+        "isolation"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I decide by isolation requirements, tenant count and operational capacity. A shared database with a tenant identifier on every row is cheapest and simplest to operate at scale, but isolation relies on correct filtering and noisy neighbours are possible. Database per tenant gives strong isolation, per-tenant backup and restore and customisation, but costs more and complicates migrations across many databases. My default is shared with strict tenant scoping, and dedicated databases for tenants with compliance or scale demands.",
+      "revision": "Shared database with strict tenant scoping by default; dedicated databases for tenants needing strong isolation, residency or heavy load.",
+      "detailed": "## Decision criteria\n\nConsider tenant count and size variance, compliance, backup and restore per tenant, noisy neighbour risk, migration effort, and cost per tenant.\n\n{{diagram:tenant-choice}}\n\nIn an interview I would state my assumptions about load, team size and risk appetite out loud, then show which of them would flip the answer.\n\n## Advantages and disadvantages\n\n| Option | Advantages | Disadvantages |\n|---|---|---|\n| **Shared database** | Low cost, simple migrations, efficient at many small tenants | Isolation depends on code and policies, noisy neighbours, harder per-tenant restore |\n| **Database per tenant** | Strong isolation, per-tenant backup and tuning, residency | Higher cost, migration orchestration, connection management |\n\n## Operational and financial implications\n\nShared models scale cost sub-linearly. Per-tenant databases raise baseline cost and operational load but can justify premium pricing. Automation of provisioning and migrations is essential.\n\n## Security implications\n\nIn shared models enforce tenant filtering centrally, for example via middleware or row-level security, and test for cross-tenant leakage. Per-tenant databases reduce blast radius but need per-tenant credentials managed safely.\n\n## Failure modes\n\nShared: missing tenant filter leaks data, one tenant degrades others. Per-tenant: failed migrations on some tenants, connection exhaustion, configuration drift.\n\n## Recommended default\n\n**Shared database with enforced tenant scoping, and a hybrid option to move large or regulated tenants to dedicated databases.**\n\nRecord the decision as a short architecture decision record with the context, alternatives considered and the measurements that would trigger a review, so it can be revisited calmly rather than argued afresh.\n\n## Conditions that change the decision\n\nChoose per-tenant from the start where contracts require isolation or residency, or tenants are few and large.\n\n## Common mistakes\n\n- Filtering by tenant ad hoc in each query.\n- No tests for cross-tenant access.\n- Underestimating migration orchestration.",
+      "followUps": [
+        "How do you enforce tenant scoping centrally?",
+        "How would you migrate a tenant to a dedicated database?",
+        "How do you handle noisy neighbours?"
+      ],
+      "diagrams": [
+        {
+          "id": "tenant-choice",
+          "title": "Tenancy model decision flow",
+          "alt": "A flow asking whether the tenant has compliance, residency or heavy load needs. If yes use a dedicated database. Otherwise use the shared database with enforced tenant scoping. A tenant can later be migrated between models.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "q1",
+              "label": "Compliance, residency or heavy load?"
+            },
+            {
+              "id": "dd",
+              "label": "Dedicated tenant database"
+            },
+            {
+              "id": "sd",
+              "label": "Shared database with tenant scoping"
+            },
+            {
+              "id": "mg",
+              "label": "Migrate tenant if needs change"
+            }
+          ],
+          "edges": [
+            {
+              "from": "q1",
+              "to": "dd",
+              "label": "yes"
+            },
+            {
+              "from": "q1",
+              "to": "sd",
+              "label": "no"
+            },
+            {
+              "from": "sd",
+              "to": "mg"
+            },
+            {
+              "from": "mg",
+              "to": "dd"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "websockets-vs-sse-vs-polling",
+      "title": "WebSockets versus Server-Sent Events versus polling: which for real-time updates?",
+      "topic": "Real-time communication",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "websockets",
+        "sse",
+        "polling",
+        "realtime"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I choose by direction and frequency of updates. Polling repeatedly asks the server, which is simple and works everywhere but wastes requests and adds delay. Server-Sent Events provide a one-way stream from server to client over HTTP with automatic reconnection, good for notifications and feeds. WebSockets give two-way low-latency communication, for chat or collaboration, but need more infrastructure. My default is SSE or polling for one-way updates, WebSockets for true bidirectional needs.",
+      "revision": "Polling for simple infrequent updates, SSE for one-way streams, WebSockets for bidirectional low-latency interaction.",
+      "detailed": "## Decision criteria\n\nConsider direction of data, frequency, number of connections, proxy and load balancer support, reconnection handling, and scaling of stateful connections.\n\n{{diagram:realtime-choice}}\n\nIn an interview I would state my assumptions about load, team size and risk appetite out loud, then show which of them would flip the answer.\n\n## Advantages and disadvantages\n\n| Option | Advantages | Disadvantages |\n|---|---|---|\n| **Polling** | Simple, stateless, works through everything | Wasteful, delayed, load grows with clients |\n| **SSE** | Simple one-way push over HTTP, auto reconnect | One-directional, connection limits per browser in some setups |\n| **WebSockets** | Bidirectional, low latency | Stateful scaling, needs sticky or pub/sub fan-out, more complex security |\n\n## Operational and financial implications\n\nPersistent connections consume memory and need load balancer tuning and fan-out via a pub/sub layer. Polling cost scales with request count and can be reduced with longer intervals or conditional requests.\n\n## Security implications\n\nAuthenticate during connection establishment and re-validate on expiry, check Origin for WebSockets, apply authorisation to each subscription and rate limit messages. Do not put tokens in URLs where they may be logged.\n\n## Failure modes\n\nDropped connections and missed messages without catch-up, thundering herd on reconnect, memory exhaustion from many connections, and proxies closing idle streams.\n\n## Recommended default\n\n**SSE or short polling for server-to-client updates, WebSockets only when the client must also send frequent messages.**\n\nRecord the decision as a short architecture decision record with the context, alternatives considered and the measurements that would trigger a review, so it can be revisited calmly rather than argued afresh.\n\n## Conditions that change the decision\n\nChoose WebSockets for collaboration, games or chat. Choose long polling or polling when infrastructure restricts persistent connections.\n\n## Common mistakes\n\n- Using WebSockets for occasional notifications.\n- No catch-up after reconnect.\n- Skipping origin and authorisation checks.",
+      "followUps": [
+        "How do you scale WebSockets across servers?",
+        "How do you resume after reconnect?",
+        "How do you authenticate a stream?"
+      ],
+      "diagrams": [
+        {
+          "id": "realtime-choice",
+          "title": "Real-time transport decision flow",
+          "alt": "A flow asking whether the client must send frequent messages. If yes use WebSockets. If only the server pushes updates use SSE. If updates are infrequent and simplicity matters use polling.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "q1",
+              "label": "Client sends frequent messages?"
+            },
+            {
+              "id": "ws",
+              "label": "WebSockets"
+            },
+            {
+              "id": "q2",
+              "label": "Server pushes frequent updates?"
+            },
+            {
+              "id": "se",
+              "label": "SSE"
+            },
+            {
+              "id": "po",
+              "label": "Polling"
+            }
+          ],
+          "edges": [
+            {
+              "from": "q1",
+              "to": "ws",
+              "label": "yes"
+            },
+            {
+              "from": "q1",
+              "to": "q2",
+              "label": "no"
+            },
+            {
+              "from": "q2",
+              "to": "se",
+              "label": "yes"
+            },
+            {
+              "from": "q2",
+              "to": "po",
+              "label": "no"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "automated-accessibility-testing-vs-manual-audits",
+      "title": "Automated accessibility testing versus manual audits: do you need both?",
+      "topic": "Accessibility",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "accessibility",
+        "testing",
+        "a11y",
+        "wcag"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "They find different problems. Automated tools quickly catch many detectable issues such as missing labels, contrast failures and invalid attributes, and can run in CI, but they cover only part of what accessibility requires. Manual audits with keyboard and screen reader testing catch focus order, meaningful content, interaction and context problems. I use automated checks continuously as a baseline and manual audits for key journeys and before major releases.",
+      "revision": "Automated checks give fast, repeatable coverage of detectable issues; manual audits find the rest. Use both.",
+      "detailed": "## Decision criteria\n\nConsider coverage, cost, frequency, legal or contractual obligations, user diversity, and ability to include people with disabilities in testing.\n\nIn an interview I would state my assumptions about load, team size and risk appetite out loud, then show which of them would flip the answer.\n\n## Advantages and disadvantages\n\n| Option | Advantages | Disadvantages |\n|---|---|---|\n| **Automated testing** | Fast, repeatable, CI friendly, cheap per run | Catches only a portion of issues, false positives or negatives |\n| **Manual audit** | Finds usability and context issues, realistic assistive technology use | Slower, costs expertise, point in time |\n\n## Operational and financial implications\n\nAutomation is cheap to run continuously. Manual audits cost expert time but prevent expensive rework and legal exposure. Fix design-level issues early to save cost.\n\n## Security implications\n\nAccessibility is often a legal requirement; failure can carry compliance risk. Ensure test tools and recordings do not expose real user data, and that accessible alternatives such as CAPTCHA do not weaken security.\n\n## Failure modes\n\nFalse confidence from a green automated run, regressions between audits, custom components breaking keyboard navigation, and fixes that treat symptoms.\n\n## Recommended default\n\n**Automated checks in CI and component tests, plus manual keyboard and screen reader testing of critical journeys each release cycle, with periodic expert audits.**\n\nRecord the decision as a short architecture decision record with the context, alternatives considered and the measurements that would trigger a review, so it can be revisited calmly rather than argued afresh.\n\n## Conditions that change the decision\n\nIncrease manual and user testing for complex widgets, regulated sectors or public sector services.\n\n## Common mistakes\n\n- Believing a clean scan means accessible.\n- Auditing only at the end.\n- Ignoring keyboard-only use.",
+      "followUps": [
+        "What can tools not detect?",
+        "How do you include accessibility in definition of done?",
+        "Which assistive technology combinations would you test?"
+      ]
+    },
+    {
+      "slug": "schema-first-vs-code-first-graphql",
+      "title": "Schema-first versus code-first GraphQL: how do you choose?",
+      "topic": "GraphQL",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "graphql",
+        "schema",
+        "code-first",
+        "typescript"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Schema-first starts from the schema definition language, which makes the contract the primary artefact, readable by frontend and backend teams and good for design review. Code-first generates the schema from code, such as TypeScript classes and decorators, reducing duplication and keeping types in sync. I choose schema-first when the contract is shared across teams and needs governance, and code-first when a single TypeScript team wants less duplication and strong typing.",
+      "revision": "Schema-first for contract-led, multi-team work; code-first for single TypeScript teams wanting less duplication.",
+      "detailed": "## Decision criteria\n\nConsider team structure, contract review process, type safety needs, tooling, code generation, and how the schema is governed.\n\nIn an interview I would state my assumptions about load, team size and risk appetite out loud, then show which of them would flip the answer.\n\n## Advantages and disadvantages\n\n| Option | Advantages | Disadvantages |\n|---|---|---|\n| **Schema-first** | Contract is explicit, easy to review, language neutral | Resolver types need generation, risk of drift without tooling |\n| **Code-first** | Single source of truth in code, strong TypeScript integration | Schema is a build output, harder for non-developers to review, framework coupling |\n\n## Operational and financial implications\n\nEither approach is cheap to run. Differences are in developer productivity and review cost. Code generation pipelines need maintenance in schema-first.\n\n## Security implications\n\nWhichever you pick, apply depth limits, cost limits and field-level authorisation. A reviewed schema helps spot accidental exposure of sensitive fields.\n\n## Failure modes\n\nSchema drift from implementations, breaking changes slipping through, and unreviewed fields exposing internal data.\n\n## Recommended default\n\n**Schema-first with generated types for multi-team APIs, code-first for small TypeScript-only teams, with schema change checks in CI either way.**\n\nRecord the decision as a short architecture decision record with the context, alternatives considered and the measurements that would trigger a review, so it can be revisited calmly rather than argued afresh.\n\n## Conditions that change the decision\n\nSwitch if team structure changes or governance needs increase.\n\n## Common mistakes\n\n- No breaking-change checks.\n- Hand-writing duplicate types.\n- Exposing database models directly.",
+      "followUps": [
+        "How do you detect breaking schema changes?",
+        "What does code generation give you?",
+        "How do you deprecate fields?"
+      ]
+    },
+    {
+      "slug": "express-vs-nestjs",
+      "title": "Express versus NestJS: how do you choose?",
+      "topic": "Backend frameworks",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "express",
+        "nestjs",
+        "nodejs",
+        "frameworks"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I choose by team size and need for structure. Express is minimal and flexible, quick for small services, but structure, validation and dependency management are left to the team. NestJS adds opinionated modules, dependency injection, decorators and built-in patterns with TypeScript, which helps larger teams stay consistent, at the cost of a learning curve and more abstraction. My default is NestJS for larger or long-lived services, and Express for small services or when I want minimal overhead.",
+      "revision": "Express for small, flexible services; NestJS for larger teams and long-lived services that benefit from enforced structure.",
+      "detailed": "## Decision criteria\n\nConsider team size, TypeScript use, need for consistent architecture, learning curve, performance sensitivity, ecosystem and testing approach.\n\nIn an interview I would state my assumptions about load, team size and risk appetite out loud, then show which of them would flip the answer.\n\n## Advantages and disadvantages\n\n| Option | Advantages | Disadvantages |\n|---|---|---|\n| **Express** | Minimal, flexible, huge ecosystem, easy to learn | No enforced structure, inconsistent codebases, assemble everything yourself |\n| **NestJS** | Modular structure, dependency injection, testability, conventions | Learning curve, abstraction overhead, decorators and framework coupling |\n\n## Operational and financial implications\n\nExpress projects can accumulate inconsistency that costs maintenance later. NestJS speeds onboarding for teams used to its patterns. Runtime overhead is usually small compared with I/O.\n\n## Security implications\n\nBoth need security middleware, input validation, rate limiting and dependency updates. NestJS guards and pipes provide conventional places for authorisation and validation, which can reduce omissions, but only if used.\n\n## Failure modes\n\nExpress: missing error handling or middleware ordering bugs. NestJS: circular dependencies, overuse of abstraction, and framework upgrades requiring work.\n\n## Recommended default\n\n**NestJS for multi-developer services expected to live long, Express for small utilities and prototypes.**\n\nRecord the decision as a short architecture decision record with the context, alternatives considered and the measurements that would trigger a review, so it can be revisited calmly rather than argued afresh.\n\n## Conditions that change the decision\n\nChoose Express where the team already has strong conventions or needs maximum control. Consider Fastify as another option for performance-focused work.\n\n## Common mistakes\n\n- Choosing NestJS for a tiny script.\n- Express without any project structure.\n- Ignoring error handling conventions.",
+      "followUps": [
+        "How do guards and pipes help?",
+        "How would you structure a large Express app?",
+        "What about Fastify?"
+      ]
+    }
+  ]
+}

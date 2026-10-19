@@ -1,0 +1,1077 @@
+{
+  "category": "backend-databases",
+  "questions": [
+    {
+      "slug": "sql-vs-nosql-selection",
+      "title": "How do you choose between SQL and NoSQL databases for a new backend?",
+      "topic": "Database selection",
+      "difficulty": "beginner",
+      "type": "comparison",
+      "tags": [
+        "sql",
+        "nosql",
+        "database-selection",
+        "architecture"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I start from access patterns, consistency needs and data shape, not fashion. Relational databases suit structured data with relationships, ad hoc queries and multi-row transactions. NoSQL families such as document, key-value, wide-column and graph trade some of that for flexible schemas, particular scaling models or specialised queries. If I need joins, reporting and strong integrity I default to relational, and add a NoSQL store only for a clear, specific reason.",
+      "revision": "Choose by access patterns, consistency and data shape. Default to relational for integrity and ad hoc queries; add NoSQL for a specific scaling or modelling need.",
+      "detailed": "\"NoSQL\" is a family of different systems, so the choice is really between a relational model and a specific alternative that fits a specific problem.\n\n## NoSQL families\n\n| Family | Strength | Typical use |\n|---|---|---|\n| Document (MongoDB, Couchbase) | Flexible nested records | Catalogues, content, profiles |\n| Key-value (Redis, DynamoDB) | Very fast lookups by key | Sessions, caches, counters |\n| Wide-column (Cassandra) | Write-heavy, partitioned scale | Time series, event logs |\n| Graph (Neo4j) | Relationship traversal | Recommendations, fraud rings |\n| Search (Elasticsearch, OpenSearch) | Full-text and relevance | Search and log analytics |\n\n## Decision factors\n\n{{diagram:pick}}\n\n| Question | Leans relational | Leans NoSQL |\n|---|---|---|\n| Relationships and joins central? | Yes | Rarely needed |\n| Multi-row transactions? | Mature and simple | Varies by product |\n| Schema stable and shared? | Yes | Evolving, varied shapes |\n| Query patterns known? | Unknown or ad hoc | Known up front and key-based |\n| Scale | Moderate to large with replicas and partitioning | Massive horizontal write scale |\n| Team skill and tooling | SQL known | Specific store known |\n\n```sql\n-- Relational strength: an ad hoc question answered without redesigning storage\nSELECT c.region, SUM(o.total) AS revenue\nFROM orders o JOIN customers c ON c.id = o.customer_id\nWHERE o.created_at >= date_trunc('month', now())\nGROUP BY c.region;\n```\n\n## Practical guidance\n\n- Modern relational databases handle large workloads and also support JSON columns, which blurs the line.\n- Many NoSQL products now offer transactions; the details and limits differ, so verify current documentation.\n- Design NoSQL schemas around queries; if the queries change, redesign may be costly.\n- Using several stores (polyglot persistence) adds operational and consistency cost.\n\n## Common mistakes\n\n- Choosing NoSQL because \"it scales\" without evidence of a scaling problem.\n- Choosing a document store for heavily relational data and then re-implementing joins in code.\n- Treating schemaless as no schema; the schema moves into application code.\n- Ignoring operational skills and managed-service availability.",
+      "diagrams": [
+        {
+          "id": "pick",
+          "title": "Database selection flow",
+          "alt": "Start from access patterns and consistency needs: relational data with joins and transactions leads to a relational database, while key-based or highly flexible shapes lead to a specific NoSQL family, with a justification check.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "a",
+              "label": "Access patterns and consistency"
+            },
+            {
+              "id": "r",
+              "label": "Relationships, joins, transactions"
+            },
+            {
+              "id": "k",
+              "label": "Key lookups or flexible shapes"
+            },
+            {
+              "id": "sq",
+              "label": "Relational database"
+            },
+            {
+              "id": "ns",
+              "label": "Specific NoSQL family"
+            },
+            {
+              "id": "j",
+              "label": "Justify extra operational cost"
+            }
+          ],
+          "edges": [
+            {
+              "from": "a",
+              "to": "r"
+            },
+            {
+              "from": "a",
+              "to": "k"
+            },
+            {
+              "from": "r",
+              "to": "sq"
+            },
+            {
+              "from": "k",
+              "to": "ns"
+            },
+            {
+              "from": "ns",
+              "to": "j"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Can PostgreSQL JSONB replace a document database for some workloads?",
+        "What do you lose by moving joins into application code?",
+        "How would you justify adding a second database to a team?"
+      ],
+      "related": [
+        "postgres-vs-mongodb-ecommerce-polyglot"
+      ]
+    },
+    {
+      "slug": "mongodb-embed-vs-reference-modelling",
+      "title": "In MongoDB, when do you embed documents and when do you reference them, compared with relational modelling?",
+      "topic": "Document modelling",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "mongodb",
+        "data-modelling",
+        "embedding",
+        "referencing"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I model MongoDB around how data is read together. I embed when child data is owned by the parent, read with it, and bounded in size, such as order line items or addresses. I reference when data is shared, grows without bound, changes independently, or is queried on its own, such as customers or products. Unlike relational design, I may duplicate small, stable fields to avoid lookups, accepting update cost.",
+      "revision": "Embed owned, bounded data read together; reference shared, unbounded or independently changing data. Duplicate small stable fields deliberately; documents have a 16 MB limit.",
+      "detailed": "Relational design starts from entities and normalises; document design starts from **queries** and shapes documents to answer them in one read.\n\n## Embed or reference\n\n| Factor | Embed | Reference |\n|---|---|---|\n| Read together | Yes | Rarely |\n| Lifecycle | Child dies with parent | Child outlives parent |\n| Size | Bounded and small | Can grow without limit |\n| Shared by many parents | No | Yes |\n| Updated independently, often | No | Yes |\n| Need atomic update of both | Single-document operations are atomic | Needs a multi-document transaction |\n\n{{diagram:model}}\n\n```ts\n// Embedded: order lines belong to the order and are read with it\n{\n  _id: 'o-1001',\n  customerId: 'c-77',                     // reference: customers change independently\n  shippingAddress: { line1: '...', city: '...' },\n  items: [\n    { sku: 'A1', name: 'Mug', unitPrice: 8.5, qty: 2 }   // product name and price copied at purchase time\n  ],\n  total: 17.0\n}\n```\n\nCopying the product name and price into the order is **intentional duplication**: an order must record what was sold at the time, even if the catalogue later changes.\n\n## Patterns and limits\n\n- A single document is limited to 16 MB (verify current limits in the docs), and unbounded arrays degrade performance.\n- A **bucket pattern** groups many small records, such as time-series readings, into bounded documents.\n- The **subset pattern** embeds only the most recent or important items (for example the latest ten reviews) and references the rest.\n- Use `$lookup` sparingly; frequent lookups suggest the data wanted embedding or the workload wanted a relational store.\n\n## Relational contrast\n\n| Relational | MongoDB |\n|---|---|\n| Normalise, join at query time | Shape for the read, join rarely |\n| Schema enforced by database | Schema in code, optional validation rules |\n| Foreign keys enforce integrity | Application enforces references |\n\n## Common mistakes\n\n- Embedding an ever-growing array such as all comments on a viral post.\n- Referencing everything and recreating a relational schema with slow application joins.\n- Duplicating data that changes frequently without a plan to update copies.\n- Ignoring that two-way references need two updates.",
+      "diagrams": [
+        {
+          "id": "model",
+          "title": "Embed versus reference",
+          "alt": "An order document embeds its line items and address, which are owned and read together, while it references the customer and product documents that change independently and are shared across many orders.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "o",
+              "label": "Order document"
+            },
+            {
+              "id": "li",
+              "label": "Embedded line items"
+            },
+            {
+              "id": "ad",
+              "label": "Embedded address"
+            },
+            {
+              "id": "c",
+              "label": "Customer document"
+            },
+            {
+              "id": "p",
+              "label": "Product document"
+            }
+          ],
+          "edges": [
+            {
+              "from": "o",
+              "to": "li",
+              "label": "embed"
+            },
+            {
+              "from": "o",
+              "to": "ad",
+              "label": "embed"
+            },
+            {
+              "from": "o",
+              "to": "c",
+              "label": "reference"
+            },
+            {
+              "from": "li",
+              "to": "p",
+              "label": "copies name and price, references id"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you handle a many-to-many relationship in MongoDB?",
+        "What is the subset pattern and when does it help?",
+        "How would you keep duplicated fields consistent?"
+      ],
+      "related": [
+        "sql-vs-nosql-selection",
+        "normalisation-vs-denormalisation"
+      ]
+    },
+    {
+      "slug": "normalisation-vs-denormalisation",
+      "title": "When do you normalise and when do you denormalise a relational schema?",
+      "topic": "Schema design",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "normalisation",
+        "denormalisation",
+        "schema-design",
+        "sql"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I normalise by default so each fact is stored once, which prevents update, insert and delete anomalies and keeps writes simple. I denormalise deliberately when measured read patterns justify it, such as copying a price onto an order line, storing a counter, or building a reporting table. Every copy needs an owner and a way to stay in sync, through triggers, application code or rebuilt read models.",
+      "revision": "Normalise first to avoid anomalies; denormalise only for measured read needs or historical snapshots, and define how each copy stays consistent.",
+      "detailed": "**Normalisation** organises data so each fact lives in one place. **Denormalisation** deliberately duplicates data to speed reads or preserve history.\n\n## Why normalise\n\n| Anomaly | Example in a flat table |\n|---|---|\n| Update | Customer city stored on every order; change it in one row and data disagrees |\n| Insert | Cannot add a product until someone orders it |\n| Delete | Removing the last order deletes the only record of the customer |\n\nThird normal form is a practical target: non-key columns depend on the key, the whole key, and nothing but the key.\n\n## When denormalising is justified\n\n{{diagram:denorm}}\n\n| Technique | Purpose | Cost |\n|---|---|---|\n| Snapshot columns | Preserve price or address at purchase time | None; this is correct business behaviour |\n| Counters (for example comment count) | Avoid expensive counts | Must update atomically |\n| Summary or reporting tables | Fast dashboards | Refresh lag |\n| Materialised views | Precomputed joins | Refresh cost and staleness |\n| Wide read tables | Avoid joins at high read volume | Duplicate updates |\n\n```sql\n-- Snapshot: price at the time of sale is a fact, not a copy to keep in sync\nCREATE TABLE order_items (\n  order_id   bigint  NOT NULL REFERENCES orders(id),\n  product_id bigint  NOT NULL REFERENCES products(id),\n  unit_price numeric(12,2) NOT NULL,   -- copied deliberately\n  qty        int     NOT NULL CHECK (qty > 0),\n  PRIMARY KEY (order_id, product_id)\n);\n\n-- Derived data kept fresh by a materialised view\nCREATE MATERIALIZED VIEW daily_revenue AS\nSELECT date_trunc('day', created_at) AS day, SUM(total) AS revenue\nFROM orders GROUP BY 1;\n```\n\n## Decision approach\n\n1. Model normalised first.\n2. Measure real queries with the execution plan.\n3. Try indexes and query changes before duplicating data.\n4. Denormalise narrowly, document it, and test consistency.\n\n## Common mistakes\n\n- Denormalising prematurely, then fighting inconsistent data.\n- Believing joins are always slow; with indexes they are efficient.\n- Duplicating data with no single source of truth.\n- Forgetting that denormalised copies need backfills when logic changes.",
+      "diagrams": [
+        {
+          "id": "denorm",
+          "title": "Normalised source and denormalised copies",
+          "alt": "Writes go to normalised tables as the source of truth, and derived structures such as counters, materialised views and reporting tables are refreshed from them to serve read-heavy queries.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "w",
+              "label": "Writes"
+            },
+            {
+              "id": "n",
+              "label": "Normalised tables (truth)"
+            },
+            {
+              "id": "c",
+              "label": "Counters"
+            },
+            {
+              "id": "mv",
+              "label": "Materialised view"
+            },
+            {
+              "id": "rt",
+              "label": "Reporting table"
+            },
+            {
+              "id": "r",
+              "label": "Read queries"
+            }
+          ],
+          "edges": [
+            {
+              "from": "w",
+              "to": "n"
+            },
+            {
+              "from": "n",
+              "to": "c",
+              "label": "update"
+            },
+            {
+              "from": "n",
+              "to": "mv",
+              "label": "refresh"
+            },
+            {
+              "from": "n",
+              "to": "rt",
+              "label": "load"
+            },
+            {
+              "from": "c",
+              "to": "r"
+            },
+            {
+              "from": "mv",
+              "to": "r"
+            },
+            {
+              "from": "rt",
+              "to": "r"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you keep a counter consistent under concurrent updates?",
+        "When is a materialised view better than a summary table?",
+        "How do you detect drift between source and copies?"
+      ],
+      "related": [
+        "mongodb-embed-vs-reference-modelling"
+      ]
+    },
+    {
+      "slug": "composite-and-covering-indexes",
+      "title": "How do composite and covering indexes work, and how do you order columns in them?",
+      "topic": "Indexing",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "indexes",
+        "postgresql",
+        "sql",
+        "performance"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "A composite index covers several columns and is sorted by the first, then the second within it, so it helps queries that filter on a leftmost prefix. I put equality columns first, then the range or sort column. A covering index contains every column a query needs, allowing an index-only scan without touching the table, using INCLUDE for extra payload columns. Each index slows writes and uses space, so I add them for measured queries.",
+      "revision": "Composite indexes follow leftmost-prefix order: equality columns first, then range or sort. Covering indexes (INCLUDE) allow index-only scans; every index costs writes and space.",
+      "detailed": "An index is a sorted structure that lets the database find rows without scanning the whole table. A composite index sorts by several columns in order.\n\n## Column order matters\n\nAn index on `(tenant_id, status, created_at)` is ordered by tenant, then status within tenant, then date within that.\n\n| Query | Uses index well? |\n|---|---|\n| `WHERE tenant_id = 1` | Yes (prefix) |\n| `WHERE tenant_id = 1 AND status = 'open'` | Yes |\n| `WHERE tenant_id = 1 AND status = 'open' ORDER BY created_at` | Yes, and no extra sort |\n| `WHERE status = 'open'` | Poor: skips the leading column |\n| `WHERE tenant_id = 1 AND created_at > ...` | Partly: status gap limits use |\n\n**Rule of thumb:** equality columns first, then the column used for range filtering or ordering. Selectivity matters but leftmost usability matters more.\n\n{{diagram:idx}}\n\n## Covering indexes\n\nIf the index contains all columns a query reads, the engine can answer from the index alone (an **index-only scan**), avoiding table lookups.\n\n```sql\nCREATE INDEX orders_tenant_status_created\n  ON orders (tenant_id, status, created_at DESC)\n  INCLUDE (total, customer_id);          -- payload only, not used for searching\n\nEXPLAIN (ANALYZE, BUFFERS)\nSELECT total, customer_id FROM orders\nWHERE tenant_id = 7 AND status = 'open'\nORDER BY created_at DESC LIMIT 20;\n```\n\nIn PostgreSQL index-only scans also depend on the visibility map, so recently changed tables may still visit the heap. Other engines differ; consult the documentation for your database.\n\n## Related options\n\n- **Partial index:** index only rows matching a condition, for example `WHERE status = 'open'`, to stay small.\n- **Expression index:** index `lower(email)` for case-insensitive lookups.\n- **Unique index:** enforces constraints as well as speed.\n\n## Costs\n\nEvery insert, update or delete must maintain each index, and indexes consume memory and disk. Drop unused indexes found through statistics views.\n\n## Common mistakes\n\n- Creating a single-column index per column and expecting them to combine well.\n- Wrong order, leaving the leading column unused.\n- Wrapping an indexed column in a function in the filter, which prevents index use.\n- Indexing low-selectivity columns alone, such as a boolean.",
+      "diagrams": [
+        {
+          "id": "idx",
+          "title": "Composite index lookup",
+          "alt": "A query supplies tenant and status equality values, the engine descends the composite index to that prefix, reads entries already ordered by created date, and returns covered columns from the index without visiting the table.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "q",
+              "label": "Query tenant, status, order by date"
+            },
+            {
+              "id": "t",
+              "label": "Descend on tenant"
+            },
+            {
+              "id": "s",
+              "label": "Narrow on status"
+            },
+            {
+              "id": "o",
+              "label": "Read entries in date order"
+            },
+            {
+              "id": "inc",
+              "label": "INCLUDE payload columns"
+            },
+            {
+              "id": "r",
+              "label": "Return rows, no table visit"
+            }
+          ],
+          "edges": [
+            {
+              "from": "q",
+              "to": "t"
+            },
+            {
+              "from": "t",
+              "to": "s"
+            },
+            {
+              "from": "s",
+              "to": "o"
+            },
+            {
+              "from": "o",
+              "to": "inc"
+            },
+            {
+              "from": "inc",
+              "to": "r"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Why can a function on an indexed column prevent index use?",
+        "When is a partial index better than a full one?",
+        "How do you find unused or duplicate indexes?"
+      ],
+      "related": [
+        "reading-explain-analyze-plans"
+      ]
+    },
+    {
+      "slug": "reading-explain-analyze-plans",
+      "title": "How do you read an EXPLAIN ANALYZE execution plan and spot problems?",
+      "topic": "Query plans",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "postgresql",
+        "explain-analyze",
+        "query-plan",
+        "performance"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I run EXPLAIN (ANALYZE, BUFFERS) and read from the innermost node outward. I compare estimated rows with actual rows, since large gaps mean stale statistics or correlated columns. I look at scan types, join methods, sorts spilling to disk, loops multiplied by per-loop time, and buffer reads. Typical fixes are an index, fresher statistics, a rewritten query, or fewer rows earlier. I test on production-like data because plans depend on data volume.",
+      "revision": "Use EXPLAIN (ANALYZE, BUFFERS); compare estimated and actual rows, check scan and join types, loops, disk sorts and buffers. Fix with indexes, statistics or query changes.",
+      "detailed": "`EXPLAIN` shows the plan the optimiser chose; `EXPLAIN ANALYZE` **executes** the query and adds real timings and row counts. Wrap data-modifying statements in a transaction you roll back.\n\n## Reading a plan\n\n```sql\nEXPLAIN (ANALYZE, BUFFERS)\nSELECT o.id, c.name\nFROM orders o JOIN customers c ON c.id = o.customer_id\nWHERE o.status = 'open' AND o.created_at > now() - interval '7 days';\n```\n\n{{diagram:plan}}\n\nPlans are trees; the most indented nodes run first and feed their parents. Each node shows estimated cost and rows, actual time, actual rows and loops.\n\n| Signal | Meaning | Typical response |\n|---|---|---|\n| Estimated rows far from actual | Bad statistics or correlated columns | Run ANALYZE, extended statistics |\n| Seq Scan on a big table with a selective filter | Missing or unusable index | Add index, fix predicate |\n| Index Scan with many heap fetches | Low selectivity or non-covering | Covering or partial index |\n| Nested Loop with a large loop count | Inner side executed many times | Index on join key, different join |\n| Sort with \"external merge Disk\" | Sort spilled to disk | Index for ordering, raise work memory carefully |\n| Hash Join with batches greater than 1 | Hash spilled | Reduce rows or tune memory |\n| Large \"Rows Removed by Filter\" | Reading many rows then discarding | Better index |\n| High shared read buffers | Cache misses | Reduce data touched |\n\nNote that actual time is **per loop**; multiply by loops for the total. A node with 0.05 ms and 100000 loops is 5 seconds.\n\n## Workflow\n\n1. Capture the slow query with real parameters.\n2. Run the analyzed plan on realistic data volume.\n3. Find the node with the biggest share of time.\n4. Compare estimates with actuals at that node.\n5. Change one thing, re-run, compare.\n\n## Cautions\n\n- Plans differ across engines; MySQL and SQL Server have their own formats and tooling.\n- Small test tables often choose sequential scans legitimately.\n- Prepared statements can use generic plans; check current behaviour in your version.\n\n## Common mistakes\n\n- Judging by cost numbers alone, which are in arbitrary units.\n- Running ANALYZE on a destructive statement without a rollback.\n- Adding an index that the planner will not use because the predicate is not sargable.\n\nI would summarise: read estimates versus actuals first, then fix the dominant node.",
+      "diagrams": [
+        {
+          "id": "plan",
+          "title": "Plan reading loop",
+          "alt": "Capture the slow query, run EXPLAIN ANALYZE with buffers on realistic data, find the node with the largest time, compare estimated rows with actual rows, change one thing, and run again to compare.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "q",
+              "label": "Capture slow query"
+            },
+            {
+              "id": "e",
+              "label": "EXPLAIN ANALYZE BUFFERS"
+            },
+            {
+              "id": "n",
+              "label": "Find costliest node"
+            },
+            {
+              "id": "c",
+              "label": "Compare estimate vs actual"
+            },
+            {
+              "id": "f",
+              "label": "Change one thing"
+            },
+            {
+              "id": "r",
+              "label": "Re-run and compare"
+            }
+          ],
+          "edges": [
+            {
+              "from": "q",
+              "to": "e"
+            },
+            {
+              "from": "e",
+              "to": "n"
+            },
+            {
+              "from": "n",
+              "to": "c"
+            },
+            {
+              "from": "c",
+              "to": "f"
+            },
+            {
+              "from": "f",
+              "to": "r"
+            },
+            {
+              "from": "r",
+              "to": "n",
+              "label": "still slow"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "What causes the planner to choose a sequential scan over an index?",
+        "How do extended statistics help correlated columns?",
+        "How would you read a plan for a query using a CTE?"
+      ],
+      "related": [
+        "composite-and-covering-indexes"
+      ]
+    },
+    {
+      "slug": "optimistic-vs-pessimistic-locking",
+      "title": "What is the difference between optimistic and pessimistic locking, and when do you use each?",
+      "topic": "Concurrency control",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "locking",
+        "concurrency",
+        "sql",
+        "optimistic-locking"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Pessimistic locking takes a lock when reading, such as SELECT FOR UPDATE, so others wait; it is safe under high contention but holds resources and risks deadlocks. Optimistic locking takes no lock: each row has a version, the update includes WHERE version equals the one read, and if zero rows change the caller retries or reports a conflict. I use optimistic for low contention and user-edit flows, pessimistic for hot rows like stock or balances.",
+      "revision": "Pessimistic: lock on read (FOR UPDATE), safe under contention, risks waits and deadlocks. Optimistic: version column check on write, retry on conflict, best at low contention.",
+      "detailed": "Both prevent **lost updates**, where two transactions read the same value and the later write silently overwrites the earlier one.\n\n## Comparison\n\n| Aspect | Pessimistic | Optimistic |\n|---|---|---|\n| Mechanism | Lock rows when reading | Version check when writing |\n| Under contention | Waits, serialises | Many conflicts and retries |\n| Under low contention | Needless lock overhead | Cheap |\n| Deadlock risk | Yes | No |\n| Holds connection and locks | Yes, during transaction | Only briefly |\n| Fits | Stock decrement, balances, queue claiming | Editing profiles, documents, admin screens |\n\n{{diagram:lock}}\n\n## Pessimistic example\n\n```sql\nBEGIN;\nSELECT quantity FROM stock WHERE sku = 'A1' FOR UPDATE;   -- others block here\nUPDATE stock SET quantity = quantity - 1 WHERE sku = 'A1' AND quantity > 0;\nCOMMIT;\n```\n\nOften a single atomic statement avoids explicit locking entirely: `UPDATE ... SET quantity = quantity - 1 WHERE quantity > 0` and check the affected row count.\n\n## Optimistic example\n\n```sql\nUPDATE products\nSET price = 12.00, version = version + 1\nWHERE id = 42 AND version = 7;   -- 0 rows affected means someone else changed it\n```\n\n```ts\nconst res = await db.query(UPDATE_SQL, [price, id, expectedVersion]);\nif (res.rowCount === 0) throw new ConflictException('Modified by another user, reload');\n```\n\nHTTP APIs expose this with an ETag and an `If-Match` header, returning 412 Precondition Failed on mismatch.\n\n## Practical notes\n\n- Pessimistic variants: `FOR UPDATE NOWAIT` fails fast; `SKIP LOCKED` suits job queues.\n- Lock rows in a consistent order to reduce deadlocks, and keep transactions short.\n- Isolation level interacts with both; check what your database guarantees by default.\n\n## Common mistakes\n\n- Optimistic locking with unbounded automatic retries under heavy contention.\n- Holding a pessimistic lock while calling an external service.\n- Using application-level checks (read then write) with no database guard.\n- Forgetting to increment the version in every update path.",
+      "diagrams": [
+        {
+          "id": "lock",
+          "title": "Optimistic versus pessimistic flow",
+          "alt": "In the pessimistic flow a transaction locks the row on read and others wait; in the optimistic flow the writer updates only if the version still matches and retries or reports a conflict when no row changes.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "a",
+              "label": "Read row"
+            },
+            {
+              "id": "l",
+              "label": "Lock row FOR UPDATE"
+            },
+            {
+              "id": "w1",
+              "label": "Write and commit"
+            },
+            {
+              "id": "v",
+              "label": "Read row with version"
+            },
+            {
+              "id": "w2",
+              "label": "UPDATE WHERE version matches"
+            },
+            {
+              "id": "ok",
+              "label": "Rows changed 1: success"
+            },
+            {
+              "id": "cf",
+              "label": "Rows changed 0: conflict, retry"
+            }
+          ],
+          "edges": [
+            {
+              "from": "a",
+              "to": "l",
+              "label": "pessimistic"
+            },
+            {
+              "from": "l",
+              "to": "w1"
+            },
+            {
+              "from": "v",
+              "to": "w2",
+              "label": "optimistic"
+            },
+            {
+              "from": "w2",
+              "to": "ok"
+            },
+            {
+              "from": "w2",
+              "to": "cf"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you implement optimistic locking over HTTP?",
+        "When does SKIP LOCKED make sense?",
+        "How do you avoid deadlocks with pessimistic locks?"
+      ],
+      "related": [
+        "cache-aside-vs-write-through-invalidation"
+      ]
+    },
+    {
+      "slug": "read-replicas-replication-lag",
+      "title": "How do read replicas work, and how do you handle replication lag in an application?",
+      "topic": "Replication",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "replication",
+        "read-replicas",
+        "consistency",
+        "postgresql"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "A primary accepts writes and streams changes to replicas that serve reads, scaling read capacity and adding failover options. Replication is usually asynchronous, so replicas can lag and a user may not see their own write. I handle this by routing reads that need freshness to the primary, pinning a session to the primary briefly after a write, or using version or LSN checks, and by monitoring lag and removing lagging replicas from rotation.",
+      "revision": "Replicas scale reads but are usually asynchronous, so they lag. Route read-your-writes paths to the primary, pin after writes, monitor lag, and drop stale replicas.",
+      "detailed": "A read replica is a copy of the primary that applies its change stream. It increases **read throughput** and can support failover, but it does not scale writes.\n\n## Synchronous versus asynchronous\n\n| Mode | Behaviour | Trade-off |\n|---|---|---|\n| Asynchronous | Primary commits without waiting for replicas | Fast writes; replicas may lag; recent commits can be lost on failover |\n| Synchronous | Commit waits for at least one replica | Stronger durability; higher latency; availability depends on the replica |\n\nMany systems offer both, and defaults vary by product; check the documentation of your database or managed service.\n\n{{diagram:rep}}\n\n## Anomalies caused by lag\n\n- **Read-your-writes:** a user saves a profile and the next page shows old data.\n- **Monotonic reads:** a user sees newer data, then older data on a different replica.\n- **Cross-entity inconsistency:** an order appears but its items are not yet there.\n\n## Application strategies\n\n| Strategy | How |\n|---|---|\n| Critical reads to primary | Account balance, checkout, post-write redirects |\n| Sticky window after write | For some seconds, send that session's reads to the primary |\n| Session consistency token | Pass a log position and read only from a replica that has reached it |\n| Lag-aware routing | Exclude replicas beyond a lag threshold |\n| Accept staleness | Dashboards, search, listings |\n\n```ts\nfunction pickPool(req: Ctx, op: 'read' | 'write') {\n  if (op === 'write') return primary;\n  const recentlyWrote = Date.now() - (req.session.lastWriteAt ?? 0) < 5000;\n  if (recentlyWrote || req.requiresFreshRead) return primary;\n  return replicas.nextHealthy({ maxLagMs: 1000 });\n}\n```\n\n## Operational points\n\n- Monitor replication lag as a first-class metric and alert on it.\n- Long-running queries on a replica can conflict with replay in some engines, causing cancellations or lag.\n- A promoted replica becomes the new primary during failover, so connection routing must follow.\n- Replicas multiply storage cost.\n\n## Common mistakes\n\n- Sending all reads to replicas and being surprised by stale data.\n- Assuming replicas help write-heavy workloads.\n- Ignoring that a heavy analytics query on a replica can delay replication.",
+      "diagrams": [
+        {
+          "id": "rep",
+          "title": "Primary and replicas with lag",
+          "alt": "Writes go to the primary which streams changes to replicas asynchronously; the router sends critical or recent-write reads to the primary and other reads to healthy replicas below a lag threshold.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "app",
+              "label": "Application router"
+            },
+            {
+              "id": "p",
+              "label": "Primary (writes)"
+            },
+            {
+              "id": "r1",
+              "label": "Replica 1"
+            },
+            {
+              "id": "r2",
+              "label": "Replica 2 lagging"
+            },
+            {
+              "id": "m",
+              "label": "Lag monitor"
+            }
+          ],
+          "edges": [
+            {
+              "from": "app",
+              "to": "p",
+              "label": "writes and fresh reads"
+            },
+            {
+              "from": "p",
+              "to": "r1",
+              "label": "stream changes"
+            },
+            {
+              "from": "p",
+              "to": "r2",
+              "label": "stream changes"
+            },
+            {
+              "from": "app",
+              "to": "r1",
+              "label": "tolerant reads"
+            },
+            {
+              "from": "m",
+              "to": "app",
+              "label": "exclude lagging"
+            },
+            {
+              "from": "r2",
+              "to": "m"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you provide read-your-writes consistency without always using the primary?",
+        "What is the difference between failover and switchover?",
+        "How does synchronous replication affect availability?"
+      ],
+      "related": [
+        "sharding-vs-partitioning"
+      ]
+    },
+    {
+      "slug": "sharding-vs-partitioning",
+      "title": "What is the difference between partitioning and sharding, and how do you choose a shard key?",
+      "topic": "Scaling data",
+      "difficulty": "advanced",
+      "type": "conceptual",
+      "tags": [
+        "sharding",
+        "partitioning",
+        "scaling",
+        "postgresql",
+        "mongodb"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Partitioning splits a large table into smaller pieces, usually inside one database server, to improve maintenance, pruning and retention. Sharding spreads data across multiple servers to scale storage and write throughput. A shard key decides where rows live, and a good one has high cardinality, even distribution and appears in most queries. I delay sharding until vertical scaling, indexing, caching and replicas are exhausted, because it complicates joins, transactions and rebalancing.",
+      "revision": "Partitioning splits one table within a server; sharding spreads data across servers. Choose a shard key with high cardinality, even load and query locality; shard late.",
+      "detailed": "Both split data into smaller parts, but at different levels and for different reasons.\n\n## Comparison\n\n| Aspect | Partitioning | Sharding |\n|---|---|---|\n| Scope | Within one database instance | Across several instances |\n| Main goal | Manageability, partition pruning, fast deletion of old data | Scale storage and write throughput |\n| Transparency | Usually handled by the database | Application or middleware must route |\n| Cross-part queries | Normal SQL | Scatter-gather, limited joins and transactions |\n\n{{diagram:shard}}\n\n## Partition strategies\n\n- **Range:** by date, ideal for retention (drop an old partition).\n- **List:** by region or tenant group.\n- **Hash:** even spread by a key.\n\n```sql\nCREATE TABLE events (\n  id bigint GENERATED ALWAYS AS IDENTITY,\n  occurred_at timestamptz NOT NULL,\n  payload jsonb\n) PARTITION BY RANGE (occurred_at);\n\nCREATE TABLE events_2026_10 PARTITION OF events\n  FOR VALUES FROM ('2026-10-01') TO ('2026-11-01');\n```\n\n## Choosing a shard key\n\n| Property | Why |\n|---|---|\n| High cardinality | Many distinct values to spread |\n| Even access | Avoid hot shards (a monotonically increasing key sends all new writes to one shard in range sharding) |\n| Query locality | Most queries include it, so one shard answers |\n| Stable | Changing the key means moving the row |\n\nTenant ID is common in multi-tenant systems; a very large tenant can still create a hot shard.\n\n## Costs of sharding\n\n- Cross-shard joins and transactions are hard or unavailable.\n- Resharding moves data and needs a plan, such as consistent hashing or directory-based lookup.\n- Operational complexity grows with every shard: backups, migrations, monitoring.\n- Global unique constraints need design.\n\n## Before you shard\n\nTry indexing, query tuning, caching, read replicas, archiving, bigger hardware, and partitioning. Some managed databases shard transparently; verify current product capabilities.\n\n## Common mistakes\n\n- Sharding early for hypothetical scale.\n- Picking a shard key that most queries do not use.\n- Using auto-increment IDs as a range shard key, creating a hot tail.\n- Forgetting how reports will query across shards.",
+      "diagrams": [
+        {
+          "id": "shard",
+          "title": "Partitioning versus sharding",
+          "alt": "Partitioning divides a table into date partitions inside one server, while sharding uses a router and shard key to place data on separate servers, each holding a subset of the data.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "t",
+              "label": "Large table"
+            },
+            {
+              "id": "p1",
+              "label": "Partition 2026-09"
+            },
+            {
+              "id": "p2",
+              "label": "Partition 2026-10"
+            },
+            {
+              "id": "rt",
+              "label": "Shard router uses key"
+            },
+            {
+              "id": "s1",
+              "label": "Shard A server"
+            },
+            {
+              "id": "s2",
+              "label": "Shard B server"
+            },
+            {
+              "id": "s3",
+              "label": "Shard C server"
+            }
+          ],
+          "edges": [
+            {
+              "from": "t",
+              "to": "p1",
+              "label": "partition"
+            },
+            {
+              "from": "t",
+              "to": "p2",
+              "label": "partition"
+            },
+            {
+              "from": "rt",
+              "to": "s1"
+            },
+            {
+              "from": "rt",
+              "to": "s2"
+            },
+            {
+              "from": "rt",
+              "to": "s3"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How does consistent hashing help with resharding?",
+        "How would you handle one very large tenant?",
+        "What queries become hard after sharding?"
+      ],
+      "related": [
+        "read-replicas-replication-lag",
+        "data-retention-and-archival"
+      ]
+    },
+    {
+      "slug": "data-retention-and-archival",
+      "title": "How do you design data retention and archival for a large transactional database?",
+      "topic": "Data lifecycle",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "retention",
+        "archival",
+        "partitioning",
+        "compliance",
+        "data-lifecycle"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I start from requirements: how long each data type must be kept for business, legal and privacy reasons, and how quickly old data must remain queryable. Then I tier it: hot data in the primary database, older data partitioned or moved to cheaper storage, and expired data deleted or anonymised. Date partitioning makes dropping old data cheap. Archives need restore paths, access control and deletion handling for privacy requests.",
+      "revision": "Define retention by data type and legal need, tier hot, warm and cold, use date partitions to drop cheaply, and keep archives restorable, secured and deletable.",
+      "detailed": "Unbounded growth makes queries, backups and migrations slower and costlier. Retention is a product, legal and engineering decision together.\n\n## Start with rules\n\n| Data | Questions |\n|---|---|\n| Orders, invoices | How long must financial records be kept? (jurisdiction specific; confirm with legal) |\n| Logs and events | How long are they useful for debugging and audit? |\n| Personal data | Is there a storage limit or deletion right? |\n| Sessions, temp data | Short TTL |\n\nI would not state any specific legal period as fact here; it varies by country and sector.\n\n{{diagram:tier}}\n\n## Tiering\n\n- **Hot:** recent, indexed, in the primary database.\n- **Warm:** older, perhaps in partitions on cheaper storage or a read replica.\n- **Cold:** compressed files or object storage in open formats, queried rarely through an analytics engine.\n- **Expired:** deleted or anonymised.\n\n## Mechanics\n\n```sql\n-- Date partitions turn deletion into a metadata operation\nALTER TABLE events DETACH PARTITION events_2024_01;\n-- export events_2024_01 to object storage, verify, then\nDROP TABLE events_2024_01;\n\n-- Without partitions, delete in small batches to avoid long locks and bloat\nDELETE FROM sessions\nWHERE id IN (SELECT id FROM sessions WHERE expires_at < now() LIMIT 5000);\n```\n\n## Design concerns\n\n| Concern | Guidance |\n|---|---|\n| Referential integrity | Archive whole aggregates, such as an order with its items |\n| Restore | Test that archived data can be read and restored |\n| Privacy deletion | Archives must honour erasure requests, or store identifiers separately so they can be removed |\n| Access control | Archives need the same protection as live data |\n| Legal hold | A mechanism to suspend deletion |\n| Auditability | Log what was archived and deleted |\n\nLarge deletes can bloat tables and replicate heavily; batch them and schedule off-peak.\n\n## Common mistakes\n\n- Keeping everything forever \"just in case\".\n- Archiving without ever testing a restore.\n- Deleting parent rows but not children, or the reverse.\n- Forgetting backups, which also contain data that should expire.",
+      "diagrams": [
+        {
+          "id": "tier",
+          "title": "Data tiers over time",
+          "alt": "New data lives in the hot primary database, ages into warm partitions, then cold object storage archives, and finally is deleted or anonymised according to the retention rules, with a legal hold able to pause deletion.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "h",
+              "label": "Hot primary database"
+            },
+            {
+              "id": "w",
+              "label": "Warm partitions"
+            },
+            {
+              "id": "c",
+              "label": "Cold object storage"
+            },
+            {
+              "id": "x",
+              "label": "Delete or anonymise"
+            },
+            {
+              "id": "lh",
+              "label": "Legal hold"
+            }
+          ],
+          "edges": [
+            {
+              "from": "h",
+              "to": "w",
+              "label": "ages"
+            },
+            {
+              "from": "w",
+              "to": "c",
+              "label": "archive"
+            },
+            {
+              "from": "c",
+              "to": "x",
+              "label": "expires"
+            },
+            {
+              "from": "lh",
+              "to": "x",
+              "label": "can pause"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you honour a deletion request for data in archives and backups?",
+        "How do you delete large volumes without hurting production?",
+        "What would you store in cold tiers and in which format?"
+      ],
+      "related": [
+        "sharding-vs-partitioning"
+      ]
+    },
+    {
+      "slug": "postgres-vs-mongodb-ecommerce-polyglot",
+      "title": "PostgreSQL or MongoDB for a transactional e-commerce system, and when is polyglot persistence justified?",
+      "topic": "Architecture trade-offs",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "postgresql",
+        "mongodb",
+        "ecommerce",
+        "polyglot-persistence"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "For orders, payments and inventory I would default to PostgreSQL: relational integrity, mature multi-row transactions, constraints and flexible reporting. MongoDB can fit a product catalogue with varied attributes, though PostgreSQL JSONB also handles that. Polyglot persistence is justified when a workload has clearly different needs, such as search, caching or analytics, and the team can operate and keep the stores consistent. Otherwise one database is simpler.",
+      "revision": "Default to PostgreSQL for orders, payments and stock; use MongoDB or JSONB for varied catalogue data if needed. Add stores only for distinct needs the team can operate.",
+      "detailed": "The decision depends on the workload, not on brand loyalty. Money and stock demand correctness; catalogue and discovery demand flexibility and speed.\n\n## Workload by workload\n\n| Area | Needs | Good fit |\n|---|---|---|\n| Orders, payments, ledger | ACID transactions, constraints, audit | PostgreSQL |\n| Inventory | Atomic decrement, no overselling | PostgreSQL with row-level control |\n| Catalogue with varied attributes | Flexible shape, nested data | MongoDB or PostgreSQL JSONB |\n| Search and filtering | Full-text, facets, relevance | Search engine (Elasticsearch, OpenSearch) |\n| Sessions, carts, rate limits | Fast key access, expiry | Redis |\n| Analytics | Large scans, aggregates | Warehouse or columnar store |\n\n{{diagram:poly}}\n\n## Why PostgreSQL is a strong default\n\n- Foreign keys and checks protect invariants.\n- Transactions across tables are standard.\n- JSONB and indexes cover semi-structured fields.\n- One system to operate, back up and secure.\n\n```sql\nCREATE TABLE products (\n  id bigint PRIMARY KEY,\n  name text NOT NULL,\n  attributes jsonb NOT NULL DEFAULT '{}'\n);\nCREATE INDEX products_attrs ON products USING gin (attributes);\n\n-- Atomic stock decrement, no overselling\nUPDATE stock SET quantity = quantity - $2 WHERE sku = $1 AND quantity >= $2;\n```\n\nMongoDB supports multi-document transactions, but they carry performance and design costs; verify current capabilities and limits before relying on them for money flows.\n\n## When polyglot is justified\n\n1. A workload measurably outgrows the primary store, such as search relevance.\n2. The extra store is **derived**: the transactional database stays the source of truth.\n3. Sync is reliable (outbox or change data capture) and lag is acceptable.\n4. The team can run it, monitor it, back it up and secure it.\n\n## Costs\n\nEach store adds operations, expertise, failure modes, and consistency questions. A document store holding orders and a relational one holding payments forces cross-store reconciliation.\n\n## Common mistakes\n\n- Using MongoDB for ledger-like data and re-implementing constraints in code.\n- Adding Elasticsearch as a primary store instead of a derived index.\n- Adding stores because they are fashionable instead of for workload evidence.",
+      "diagrams": [
+        {
+          "id": "poly",
+          "title": "E-commerce persistence layout",
+          "alt": "PostgreSQL is the source of truth for orders, payments and stock, while search, cache and analytics stores are derived from it through an outbox or change stream and can be rebuilt.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "pg",
+              "label": "PostgreSQL source of truth"
+            },
+            {
+              "id": "ob",
+              "label": "Outbox or CDC"
+            },
+            {
+              "id": "se",
+              "label": "Search index"
+            },
+            {
+              "id": "rd",
+              "label": "Redis cache and carts"
+            },
+            {
+              "id": "an",
+              "label": "Analytics store"
+            },
+            {
+              "id": "api",
+              "label": "Storefront API"
+            }
+          ],
+          "edges": [
+            {
+              "from": "api",
+              "to": "pg",
+              "label": "transactions"
+            },
+            {
+              "from": "pg",
+              "to": "ob"
+            },
+            {
+              "from": "ob",
+              "to": "se"
+            },
+            {
+              "from": "ob",
+              "to": "an"
+            },
+            {
+              "from": "api",
+              "to": "se",
+              "label": "search"
+            },
+            {
+              "from": "api",
+              "to": "rd",
+              "label": "fast reads"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you keep the search index consistent with the database?",
+        "When would JSONB be insufficient and a document store better?",
+        "How do you reconcile data across stores after a failure?"
+      ],
+      "related": [
+        "sql-vs-nosql-selection",
+        "mongodb-embed-vs-reference-modelling"
+      ]
+    },
+    {
+      "slug": "multi-tenant-data-models",
+      "title": "Compare shared schema, schema-per-tenant and database-per-tenant models for multi-tenant systems",
+      "topic": "Multi-tenancy",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "multi-tenancy",
+        "saas",
+        "postgresql",
+        "row-level-security"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "In a shared schema all tenants share tables with a tenant ID column: cheapest and simplest to operate, but isolation depends on every query being filtered. Schema-per-tenant gives stronger logical separation with moderate overhead. Database-per-tenant gives the strongest isolation, per-tenant backup, restore and placement, at the highest cost and operational load. I choose by isolation, compliance, tenant count and size variance, and often mix models by tier.",
+      "revision": "Shared schema: cheapest, needs tenant filtering (use row-level security). Schema-per-tenant: middle. Database-per-tenant: strongest isolation, highest ops cost. Tier by need.",
+      "detailed": "Multi-tenancy is a trade-off between **isolation** and **cost and operability**.\n\n## The three models\n\n| Aspect | Shared schema | Schema per tenant | Database per tenant |\n|---|---|---|---|\n| Isolation | Logical, by tenant ID | Stronger logical | Strongest |\n| Cost per tenant | Lowest | Moderate | Highest |\n| Tenant count it suits | Thousands or more | Tens to hundreds | Few, large or regulated |\n| Migrations | Once | Per schema, looped | Per database, looped |\n| Per-tenant backup and restore | Hard | Moderate | Easy |\n| Noisy neighbour | Highest risk | Medium | Lowest |\n| Per-tenant customisation | Hard | Possible | Easy |\n\n{{diagram:tenant}}\n\n## Shared schema safely\n\nThe risk is a missing `WHERE tenant_id = ?` leaking data. Enforce it in the database, not only in code. PostgreSQL row-level security is one option:\n\n```sql\nALTER TABLE invoices ENABLE ROW LEVEL SECURITY;\nCREATE POLICY tenant_isolation ON invoices\n  USING (tenant_id = current_setting('app.tenant_id')::uuid);\n\n-- per request or transaction\nSET LOCAL app.tenant_id = '4d1f...';\n```\n\nAlso lead indexes with `tenant_id`, include it in unique constraints, and test for cross-tenant leaks.\n\n## Application side\n\n```ts\nasync function withTenant<T>(tenantId: string, fn: (tx: Tx) => Promise<T>) {\n  return db.transaction(async (tx) => {\n    await tx.query(\"SELECT set_config('app.tenant_id', $1, true)\", [tenantId]);\n    return fn(tx);\n  });\n}\n```\n\n## Decision factors\n\n- **Compliance and contracts:** data residency or isolation requirements may force separate databases.\n- **Size variance:** a few huge tenants may need their own instance while small ones share.\n- **Migration tooling:** per-tenant models need automated, observable migration runs.\n- **Connection management:** many schemas or databases multiply pools and connections.\n\n## Hybrid\n\nPooled shared schema for standard tiers and dedicated databases for premium or regulated tenants, with a tenant directory mapping each tenant to its location.\n\n## Common mistakes\n\n- Relying on developers to remember the tenant filter everywhere.\n- Choosing database-per-tenant for thousands of tiny tenants.\n- No plan to move a tenant between tiers.\n- Cache keys without the tenant ID.",
+      "diagrams": [
+        {
+          "id": "tenant",
+          "title": "Tenant isolation models",
+          "alt": "Requests resolve a tenant through a directory that routes small tenants to a shared schema protected by row-level security and larger or regulated tenants to dedicated schemas or databases.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "rq",
+              "label": "Request with tenant"
+            },
+            {
+              "id": "dir",
+              "label": "Tenant directory"
+            },
+            {
+              "id": "sh",
+              "label": "Shared schema with RLS"
+            },
+            {
+              "id": "sc",
+              "label": "Schema per tenant"
+            },
+            {
+              "id": "db",
+              "label": "Dedicated database"
+            }
+          ],
+          "edges": [
+            {
+              "from": "rq",
+              "to": "dir"
+            },
+            {
+              "from": "dir",
+              "to": "sh",
+              "label": "standard tier"
+            },
+            {
+              "from": "dir",
+              "to": "sc",
+              "label": "mid tier"
+            },
+            {
+              "from": "dir",
+              "to": "db",
+              "label": "regulated tier"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you run migrations across hundreds of tenant schemas?",
+        "How would you migrate a tenant from shared to dedicated?",
+        "How do you prevent noisy-neighbour effects in a shared schema?"
+      ],
+      "related": [
+        "sharding-vs-partitioning"
+      ]
+    },
+    {
+      "slug": "cache-aside-vs-write-through-invalidation",
+      "title": "Compare cache-aside, write-through and write-behind caching, and explain how invalidation goes wrong",
+      "topic": "Caching patterns",
+      "difficulty": "advanced",
+      "type": "comparison",
+      "tags": [
+        "caching",
+        "redis",
+        "cache-aside",
+        "write-through",
+        "invalidation"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "In cache-aside the application reads the cache, on a miss loads from the database and populates the cache; writes update the database and delete the cache key. Write-through writes to cache and database together so reads stay warm. Write-behind writes to the cache first and flushes to the database later, which is fast but risks data loss. Invalidation bugs come from races, so I use TTLs as a safety net and delete rather than update keys.",
+      "revision": "Cache-aside: lazy fill, delete on write. Write-through: write both synchronously. Write-behind: async flush, loss risk. Use TTLs, delete not update, and beware read-write races.",
+      "detailed": "Caching reduces load and latency but creates a second copy of data that can become wrong. The pattern determines who keeps the copy fresh.\n\n## Patterns\n\n| Pattern | Read | Write | Strength | Weakness |\n|---|---|---|---|---|\n| Cache-aside | App checks cache, loads on miss | Update DB, delete key | Simple, caches only what is read | First read slow; stale window |\n| Read-through | Cache loads on miss itself | Similar | Cleaner app code | Needs cache with loader support |\n| Write-through | From cache | Write cache and DB together | Warm, consistent reads | Slower writes; caches unread data |\n| Write-behind | From cache | Write cache, flush DB later | Very fast writes | Data loss if the cache fails before flush |\n\n{{diagram:cache}}\n\n```ts\nasync function getProduct(id: string) {\n  const key = `product:${id}`;\n  const hit = await redis.get(key);\n  if (hit) return JSON.parse(hit);\n  const row = await db.products.findById(id);\n  await redis.set(key, JSON.stringify(row), 'EX', 300);   // TTL as safety net\n  return row;\n}\n\nasync function updateProduct(id: string, data: ProductUpdate) {\n  await db.products.update(id, data);\n  await redis.del(`product:${id}`);                       // delete, do not set\n}\n```\n\n## How invalidation goes wrong\n\n1. **Read-write race:** reader misses and reads old row; writer updates DB and deletes the key; reader then stores the old value. Stale data lives until TTL. Mitigations: short TTLs, versioned values, or delayed double delete.\n2. **Update instead of delete:** two writers can leave cache and DB in different order.\n3. **Cache stampede:** a hot key expires and many requests hit the database. Use request coalescing, jittered TTLs, or early refresh.\n4. **Penetration:** repeated lookups of missing keys; cache negative results briefly.\n5. **Failure of invalidation:** delete fails after DB commit; TTL limits the damage.\n6. **Derived keys:** list caches that include an item must be invalidated too, so keep them few or tag-based.\n\n## Choosing\n\nUse cache-aside by default. Choose write-through when read-after-write freshness is important and write volume is modest. Choose write-behind only when losing a short window of writes is acceptable and durability is engineered.\n\n## Common mistakes\n\n- No TTL, so errors persist forever.\n- Caching per-user data under shared keys.\n- Treating the cache as a source of truth.\n- Not monitoring hit rate and eviction.",
+      "diagrams": [
+        {
+          "id": "cache",
+          "title": "Cache-aside read and write",
+          "alt": "On read the app checks the cache and on a miss loads from the database and fills the cache with a TTL; on write it updates the database and deletes the cache key so the next read reloads fresh data.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "rd",
+              "label": "Read request"
+            },
+            {
+              "id": "c",
+              "label": "Cache"
+            },
+            {
+              "id": "hit",
+              "label": "Return cached value"
+            },
+            {
+              "id": "db",
+              "label": "Database"
+            },
+            {
+              "id": "fill",
+              "label": "Fill cache with TTL"
+            },
+            {
+              "id": "wr",
+              "label": "Write request"
+            },
+            {
+              "id": "del",
+              "label": "Delete cache key"
+            }
+          ],
+          "edges": [
+            {
+              "from": "rd",
+              "to": "c"
+            },
+            {
+              "from": "c",
+              "to": "hit",
+              "label": "hit"
+            },
+            {
+              "from": "c",
+              "to": "db",
+              "label": "miss"
+            },
+            {
+              "from": "db",
+              "to": "fill"
+            },
+            {
+              "from": "fill",
+              "to": "c"
+            },
+            {
+              "from": "wr",
+              "to": "db",
+              "label": "update first"
+            },
+            {
+              "from": "db",
+              "to": "del"
+            },
+            {
+              "from": "del",
+              "to": "c"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you prevent a cache stampede on a hot key?",
+        "Why delete the key instead of updating it on write?",
+        "How would you invalidate list or search result caches?"
+      ],
+      "related": [
+        "optimistic-vs-pessimistic-locking"
+      ]
+    }
+  ]
+}

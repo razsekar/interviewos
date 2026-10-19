@@ -1,0 +1,836 @@
+{
+  "category": "coding-exercises",
+  "questions": [
+    {
+      "slug": "typescript-deep-partial-group-by-debounce",
+      "title": "Write typed utilities: DeepPartial, groupBy and debounce",
+      "topic": "TypeScript utilities",
+      "difficulty": "intermediate",
+      "type": "coding",
+      "tags": [
+        "typescript",
+        "generics",
+        "utility-types",
+        "coding"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would write three small, strictly typed helpers. DeepPartial is a recursive conditional mapped type that leaves functions alone and maps arrays element-wise. groupBy takes a key selector and returns a Record keyed by the selector's return type, using nullish assignment to create buckets. Debounce preserves the argument tuple with a generic rest parameter, stores the timer as ReturnType of setTimeout so it works in Node and browsers, and exposes cancel. I would then test the runtime pieces with fake timers.",
+      "revision": "DeepPartial recurses through objects and arrays; groupBy buckets by a typed key function; debounce preserves argument types with a generic tuple and exposes cancel.",
+      "detailed": "## Problem statement\n\nImplement `DeepPartial<T>`, a generic `groupBy` and a typed `debounce` with a `cancel` method. Types must be inferred, not repeated at call sites.\n\n## Expected solution\n\n```ts\nexport type DeepPartial<T> = T extends (...args: never[]) => unknown\n  ? T\n  : T extends readonly (infer U)[]\n    ? DeepPartial<U>[]\n    : T extends object\n      ? { [K in keyof T]?: DeepPartial<T[K]> }\n      : T;\n\nexport function groupBy<T, K extends PropertyKey>(\n  items: readonly T[],\n  key: (item: T, index: number) => K,\n): Record<K, T[]> {\n  const out = {} as Record<K, T[]>;\n  items.forEach((item, i) => {\n    const k = key(item, i);\n    (out[k] ??= []).push(item);\n  });\n  return out;\n}\n\nexport function debounce<A extends unknown[]>(fn: (...args: A) => void, waitMs: number) {\n  let timer: ReturnType<typeof setTimeout> | undefined;\n  const debounced = (...args: A): void => {\n    if (timer) clearTimeout(timer);\n    timer = setTimeout(() => {\n      timer = undefined;\n      fn(...args);\n    }, waitMs);\n  };\n  debounced.cancel = (): void => {\n    if (timer) clearTimeout(timer);\n    timer = undefined;\n  };\n  return debounced;\n}\n```\n\n## Explanation\n\n`DeepPartial` is a distributive conditional type. Functions are returned unchanged (otherwise they would be mapped into object types), arrays map their element type, and plain objects get optional keys whose values recurse. `groupBy` uses `K extends PropertyKey` so the result is keyed by a literal union when the selector returns one, for example `'admin' | 'user'`. `debounce` captures the argument tuple `A`, so `debounced('x', 1)` is checked against the original signature. Using `ReturnType<typeof setTimeout>` avoids the classic `NodeJS.Timeout` versus `number` clash.\n\n## Time and space complexity\n\n`groupBy` is O(n) time and O(n) space. `DeepPartial` has no runtime cost. `debounce` is O(1) per call.\n\n## Edge cases\n\n- Empty input to `groupBy` returns an empty object; keys such as `__proto__` can pollute a plain object, so use `Object.create(null)` or a `Map` for untrusted keys.\n- `DeepPartial` on `Date` or `Map` would recurse into their members; add explicit exclusions if you hold such fields.\n- Debounce called once never fires twice; calling `cancel` after firing is harmless.\n- Trailing-only behaviour: the last call's arguments win.\n\n## Unit tests\n\n```ts\nimport { describe, expect, it, vi } from 'vitest';\nimport { debounce, groupBy } from './utils';\n\ndescribe('groupBy', () => {\n  it('buckets by key', () => {\n    expect(groupBy([1, 2, 3, 4], (n) => (n % 2 ? 'odd' : 'even'))).toEqual({ odd: [1, 3], even: [2, 4] });\n  });\n});\n\ndescribe('debounce', () => {\n  it('fires once with the last arguments', () => {\n    vi.useFakeTimers();\n    const fn = vi.fn();\n    const d = debounce(fn, 100);\n    d('a'); d('b');\n    vi.advanceTimersByTime(100);\n    expect(fn).toHaveBeenCalledTimes(1);\n    expect(fn).toHaveBeenCalledWith('b');\n    vi.useRealTimers();\n  });\n});\n```\n\n## Production concerns\n\n- Prefer a vetted implementation such as lodash `debounce` when you need leading, trailing and `maxWait` options.\n- Debounce in React components must be created once (for example `useMemo`) and cancelled on unmount.\n- Guard `groupBy` against prototype keys when keys come from user input.\n- Type-level tests (`expectTypeOf`) catch regressions in `DeepPartial`.\n\n## Likely interviewer extensions\n\n- Add leading and trailing options and a `flush` method.\n- Make `DeepPartial` preserve readonly modifiers or exclude `Date`.\n- How would you type `groupBy` so it returns `Partial<Record<K, T[]>>`, and why might that be more honest?",
+      "followUps": [
+        "How would you test the type of `DeepPartial` itself?",
+        "Why not use `Object.groupBy`, and which runtimes support it?",
+        "How does debounce differ from throttle?"
+      ]
+    },
+    {
+      "slug": "node-fetch-timeout-abortcontroller",
+      "title": "Wrap an async call with a timeout and AbortController in Node",
+      "topic": "Async error handling",
+      "difficulty": "intermediate",
+      "type": "coding",
+      "tags": [
+        "node",
+        "abortcontroller",
+        "timeout",
+        "async",
+        "coding"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would write withTimeout that hands the task an AbortSignal, races it against a timer, and aborts the signal when the deadline passes so the underlying request actually stops. A parent signal can also cancel it. I use a dedicated TimeoutError, always clear the timer and remove listeners in finally, and never rely on the race alone because a promise that loses the race keeps running unless it honours the signal.",
+      "revision": "Race the task against a timer, abort a controller on timeout so work really stops, support a parent signal, and clean up timer and listeners in finally.",
+      "detailed": "## Problem statement\n\nWrite `withTimeout(task, ms, parentSignal?)` for Node 18+. The task receives an `AbortSignal`. On timeout reject with a typed `TimeoutError` and cancel the in-flight work.\n\n## Expected solution\n\n```ts\nexport class TimeoutError extends Error {\n  constructor(public readonly ms: number) {\n    super(`Timed out after ${ms}ms`);\n    this.name = 'TimeoutError';\n  }\n}\n\nexport async function withTimeout<T>(\n  task: (signal: AbortSignal) => Promise<T>,\n  ms: number,\n  parent?: AbortSignal,\n): Promise<T> {\n  if (parent?.aborted) throw parent.reason ?? new Error('Aborted');\n  const controller = new AbortController();\n  const onParentAbort = () => controller.abort(parent?.reason);\n  parent?.addEventListener('abort', onParentAbort, { once: true });\n\n  let timer: ReturnType<typeof setTimeout> | undefined;\n  const deadline = new Promise<never>((_, reject) => {\n    timer = setTimeout(() => {\n      const err = new TimeoutError(ms);\n      controller.abort(err);\n      reject(err);\n    }, ms);\n  });\n\n  try {\n    return await Promise.race([task(controller.signal), deadline]);\n  } finally {\n    clearTimeout(timer);\n    parent?.removeEventListener('abort', onParentAbort);\n  }\n}\n\n// Usage\n// const res = await withTimeout((signal) => fetch(url, { signal }), 2_000);\n```\n\n## Explanation\n\n`Promise.race` only decides which promise the caller hears about; it does not stop the loser. Passing `controller.signal` into `fetch` (or a database driver that supports it) is what releases the socket. The timer rejection and the task are both observed by `race`, so a late task rejection does not become an unhandled rejection. The `finally` block prevents timer leaks, which would keep a Node process alive, and removes the parent listener so long-lived signals do not accumulate handlers. Node 18 and later ship `AbortSignal.timeout(ms)` and `AbortSignal.any([...])`, which can replace this for simple cases, but a custom error type and cleanup are often still wanted.\n\n## Time and space complexity\n\nO(1) time and space overhead.\n\n## Edge cases\n\n- Parent already aborted: fail before starting any work.\n- Task ignores the signal: caller is released but the work continues, so document that tasks must honour it.\n- Task resolves exactly at the deadline: whichever settles first wins.\n- `ms` of zero or negative: reject immediately or validate input.\n\n## Unit tests\n\n```ts\nimport { expect, it, vi } from 'vitest';\nimport { TimeoutError, withTimeout } from './withTimeout';\n\nit('rejects and aborts the signal on timeout', async () => {\n  vi.useFakeTimers();\n  let seen: AbortSignal | undefined;\n  const p = withTimeout((s) => { seen = s; return new Promise<string>(() => {}); }, 50);\n  const assertion = expect(p).rejects.toBeInstanceOf(TimeoutError);\n  await vi.advanceTimersByTimeAsync(50);\n  await assertion;\n  expect(seen?.aborted).toBe(true);\n  vi.useRealTimers();\n});\n\nit('resolves when the task is fast', async () => {\n  await expect(withTimeout(async () => 'ok', 1000)).resolves.toBe('ok');\n});\n```\n\n## Production concerns\n\n- Propagate deadlines across services (remaining budget, not a fresh timeout per hop).\n- Emit a metric per timeout with the dependency name.\n- Set client-level timeouts too (connect, headers, body) because a single total timeout hides slow phases.\n- Do not retry non-idempotent calls after a timeout without an idempotency key.\n\n## Likely interviewer extensions\n\n- Combine with retry and backoff so total elapsed time stays bounded.\n- Use `AbortSignal.any` to merge a client disconnect with the deadline.\n- How would you propagate a deadline through gRPC or HTTP headers?",
+      "followUps": [
+        "What is the difference between a timeout and cancellation?",
+        "Why does the process stay alive if the timer is not cleared?",
+        "What happens to the underlying TCP connection after abort?"
+      ],
+      "related": [
+        "retry-exponential-backoff-jitter"
+      ]
+    },
+    {
+      "slug": "express-correlation-id-request-logging",
+      "title": "Express middleware for correlation IDs and structured request logging",
+      "topic": "Express and NestJS middleware",
+      "difficulty": "intermediate",
+      "type": "coding",
+      "tags": [
+        "express",
+        "middleware",
+        "logging",
+        "observability",
+        "coding"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would add two middlewares. The first accepts an incoming correlation header only if it matches a safe pattern, otherwise generates a UUID, echoes it on the response and stores it in AsyncLocalStorage so any logger deeper in the stack can read it. The second records start time and, on the response finish event, emits one structured JSON line with method, route template, status and duration. I would log the route pattern rather than the raw URL to keep cardinality low and avoid leaking identifiers.",
+      "revision": "Validate or generate a correlation ID, store it in AsyncLocalStorage, echo it, and log one structured line per request on response finish with route template and duration.",
+      "detailed": "## Problem statement\n\nWrite Express middleware that propagates `x-correlation-id` and logs each request as one JSON line including duration.\n\n## Expected solution\n\n```ts\nimport { randomUUID } from 'node:crypto';\nimport { AsyncLocalStorage } from 'node:async_hooks';\nimport type { NextFunction, Request, Response } from 'express';\n\nexport const requestContext = new AsyncLocalStorage<{ correlationId: string }>();\nconst SAFE_ID = /^[A-Za-z0-9._-]{8,64}$/;\n\nexport function correlationId(header = 'x-correlation-id') {\n  return (req: Request, res: Response, next: NextFunction): void => {\n    const incoming = req.header(header);\n    const id = incoming && SAFE_ID.test(incoming) ? incoming : randomUUID();\n    res.setHeader(header, id);\n    requestContext.run({ correlationId: id }, next);\n  };\n}\n\ntype LogFn = (entry: Record<string, unknown>) => void;\n\nexport function requestLogger(log: LogFn = (e) => console.log(JSON.stringify(e))) {\n  return (req: Request, res: Response, next: NextFunction): void => {\n    const start = process.hrtime.bigint();\n    const id = requestContext.getStore()?.correlationId;\n    res.on('finish', () => {\n      log({\n        level: 'info',\n        msg: 'request completed',\n        correlationId: id,\n        method: req.method,\n        route: req.route ? req.baseUrl + req.route.path : 'unmatched',\n        status: res.statusCode,\n        durationMs: Number(process.hrtime.bigint() - start) / 1e6,\n      });\n    });\n    next();\n  };\n}\n// app.use(correlationId()); app.use(requestLogger());\n```\n\n## Explanation\n\nOrder matters: the correlation middleware must run first so `requestLogger` and every handler execute inside `requestContext.run`. The incoming value is validated because an attacker-controlled header could otherwise inject newlines or huge strings into logs. The ID is captured when the logger middleware runs rather than inside the `finish` callback, because event callbacks are not guaranteed to preserve async context. `process.hrtime.bigint()` gives monotonic timing unaffected by clock changes. Logging `req.route.path` yields `/users/:id` instead of `/users/42`.\n\n## Time and space complexity\n\nO(1) per request.\n\n## Edge cases\n\n- Header supplied multiple times or empty: fall back to a generated ID.\n- Client aborts before finish: also listen to `close` if you need to log aborted requests.\n- Unmatched routes have no `req.route`.\n- Errors thrown by handlers: log status from the error handler, which still triggers `finish`.\n\n## Unit tests\n\n```ts\nimport express from 'express';\nimport request from 'supertest';\nimport { expect, it } from 'vitest';\nimport { correlationId, requestContext, requestLogger } from './middleware';\n\nit('echoes a valid id and replaces an unsafe one', async () => {\n  const logs: Record<string, unknown>[] = [];\n  const app = express();\n  app.use(correlationId(), requestLogger((e) => logs.push(e)));\n  app.get('/users/:id', (_req, res) => res.json({ id: requestContext.getStore()?.correlationId }));\n\n  const ok = await request(app).get('/users/1').set('x-correlation-id', 'abc-12345');\n  expect(ok.headers['x-correlation-id']).toBe('abc-12345');\n  const bad = await request(app).get('/users/1').set('x-correlation-id', 'bad id!');\n  expect(bad.headers['x-correlation-id']).not.toBe('bad id!');\n  expect(logs[0]).toMatchObject({ route: '/users/:id', status: 200 });\n});\n```\n\n## Production concerns\n\n- Redact secrets and personal data; never log bodies or authorization headers by default.\n- Forward the ID on outbound HTTP calls and message headers; align with W3C `traceparent` if you use OpenTelemetry.\n- Use a mature logger such as pino with a mixin that reads the context.\n- Sample or rate limit logs for high-volume health checks.\n\n## Likely interviewer extensions\n\n- Convert this to a NestJS middleware or interceptor.\n- Add outbound propagation through an Axios interceptor.\n- How would you add OpenTelemetry trace context instead of a custom header?",
+      "followUps": [
+        "Why AsyncLocalStorage instead of attaching to `req`?",
+        "What is the performance cost of AsyncLocalStorage?",
+        "How do you correlate logs across a queue consumer?"
+      ]
+    },
+    {
+      "slug": "cursor-pagination-validated-api",
+      "title": "Implement validated cursor pagination for a list endpoint",
+      "topic": "API pagination",
+      "difficulty": "intermediate",
+      "type": "coding",
+      "tags": [
+        "pagination",
+        "api",
+        "validation",
+        "zod",
+        "coding"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would use keyset pagination on a stable sort of createdAt then id, both descending. The query string is validated with a schema: limit is coerced, bounded and defaulted. The cursor is an opaque base64url encoding of the last item's sort keys, decoded and validated defensively so tampering gives a 400. I fetch limit plus one rows to know whether there is a next page, trim the extra, and return items with a nextCursor or null. This stays fast on deep pages, unlike offset.",
+      "revision": "Keyset pagination on (createdAt, id), opaque validated cursor, limit plus one to detect a next page, bounded limit, and a 400 for tampered cursors.",
+      "detailed": "## Problem statement\n\nBuild `listPage(repo, query)` that returns `{ items, nextCursor }`. Validate `limit` (1 to 100, default 20) and an opaque `cursor`. Sorting is newest first with `id` as a tie-breaker.\n\n## Expected solution\n\n```ts\nimport { z } from 'zod';\n\nexport interface Item { id: string; createdAt: Date }\nexport interface Cursor { createdAt: Date; id: string }\nexport interface ItemRepo {\n  /** Items strictly after `after` in (createdAt desc, id desc) order. */\n  findAfter(after: Cursor | undefined, take: number): Promise<Item[]>;\n}\n\nexport class BadRequestError extends Error {\n  readonly status = 400;\n}\n\nconst querySchema = z.object({\n  limit: z.coerce.number().int().min(1).max(100).default(20),\n  cursor: z.string().max(300).optional(),\n});\n\nexport const encodeCursor = (c: Cursor): string =>\n  Buffer.from(JSON.stringify([c.createdAt.toISOString(), c.id])).toString('base64url');\n\nexport function decodeCursor(raw: string): Cursor {\n  try {\n    const [t, id] = z\n      .tuple([z.string().datetime(), z.string().min(1)])\n      .parse(JSON.parse(Buffer.from(raw, 'base64url').toString('utf8')));\n    return { createdAt: new Date(t), id };\n  } catch {\n    throw new BadRequestError('Invalid cursor');\n  }\n}\n\nexport async function listPage(repo: ItemRepo, rawQuery: unknown) {\n  const parsed = querySchema.safeParse(rawQuery);\n  if (!parsed.success) throw new BadRequestError('Invalid query parameters');\n  const { limit, cursor } = parsed.data;\n  const rows = await repo.findAfter(cursor ? decodeCursor(cursor) : undefined, limit + 1);\n  const items = rows.slice(0, limit);\n  const last = items[items.length - 1];\n  return { items, nextCursor: rows.length > limit && last ? encodeCursor(last) : null };\n}\n\n// Mongo filter for findAfter: { $or: [ { createdAt: { $lt: t } }, { createdAt: t, _id: { $lt: id } } ] }\n// sorted by { createdAt: -1, _id: -1 }, with a compound index on the same keys.\n```\n\n## Explanation\n\nOffset pagination scans and discards `offset` rows and shifts when rows are inserted. Keyset pagination seeks directly using the index. The tie-breaker `id` makes the order total, otherwise rows with identical timestamps could be skipped or repeated. The extra row trick avoids a separate count query. The cursor is opaque so clients cannot depend on its shape, and it is validated because it is untrusted input. Zod's `datetime()` helper exists in both major lines at the time of writing, though its location has changed, so check your version.\n\n## Time and space complexity\n\nO(limit) work per page with a supporting compound index; O(limit) memory.\n\n## Edge cases\n\n- Empty collection returns `items: []` and `nextCursor: null`.\n- Exactly `limit` rows remain: no next cursor, because the extra row is absent.\n- `limit=0`, `limit=1000`, non-numeric limit: 400.\n- Items deleted between pages are simply absent; inserted newer items do not disturb older pages.\n\n## Unit tests\n\n```ts\nimport { expect, it } from 'vitest';\nimport { decodeCursor, listPage, BadRequestError, type Item, type ItemRepo } from './pagination';\n\nconst data: Item[] = [3, 2, 1].map((n) => ({ id: `i${n}`, createdAt: new Date(2024, 0, n) }));\nconst repo: ItemRepo = {\n  async findAfter(after, take) {\n    const start = after ? data.findIndex((d) => d.id === after.id) + 1 : 0;\n    return data.slice(start, start + take);\n  },\n};\n\nit('pages and terminates', async () => {\n  const p1 = await listPage(repo, { limit: '2' });\n  expect(p1.items.map((i) => i.id)).toEqual(['i3', 'i2']);\n  const p2 = await listPage(repo, { limit: '2', cursor: p1.nextCursor });\n  expect(p2).toMatchObject({ items: [{ id: 'i1' }], nextCursor: null });\n});\n\nit('rejects tampered cursors and bad limits', async () => {\n  expect(() => decodeCursor('not-a-cursor')).toThrow(BadRequestError);\n  await expect(listPage(repo, { limit: '0' })).rejects.toBeInstanceOf(BadRequestError);\n});\n```\n\n## Production concerns\n\n- Sign or encrypt cursors if they must not be forged or reveal data.\n- Index must match the sort exactly; verify with `explain`.\n- Sorting by mutable fields breaks keyset pagination; sort by immutable keys.\n- Cap `limit` and apply authorisation filters before pagination.\n\n## Likely interviewer extensions\n\n- Support a user-selectable sort field safely.\n- Add backwards pagination (`before`).\n- Return a total count cheaply, or explain why you would not.",
+      "followUps": [
+        "When is offset pagination acceptable?",
+        "How would you paginate a result set merged from two sources?",
+        "How does the Relay connection spec model this?"
+      ]
+    },
+    {
+      "slug": "graphql-dataloader-n-plus-one",
+      "title": "Fix a GraphQL N+1 problem with DataLoader",
+      "topic": "GraphQL",
+      "difficulty": "intermediate",
+      "type": "coding",
+      "tags": [
+        "graphql",
+        "dataloader",
+        "n+1",
+        "performance",
+        "coding"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "The N+1 appears because the Post.author resolver runs a query per post. I would create a DataLoader per request, in the GraphQL context, whose batch function receives all author IDs collected in one tick, runs a single IN query, and returns results in exactly the same order as the keys, with null or an error for missing ones. The resolver just calls loader.load. Per-request scope matters so the cache cannot leak data between users.",
+      "revision": "Create DataLoaders per request in context; the batch function takes all keys, does one query, and returns results aligned to key order.",
+      "detailed": "## Problem statement\n\nA query `posts { title author { name } }` runs one query for posts and one per author. Reduce it to two queries.\n\n## Expected solution\n\n```ts\nimport DataLoader from 'dataloader';\n\nexport interface Author { id: string; name: string }\nexport interface Post { id: string; authorId: string; title: string }\n\nexport interface AuthorDb {\n  authorsByIds(ids: readonly string[]): Promise<Author[]>;\n}\n\nexport function createLoaders(db: AuthorDb) {\n  return {\n    author: new DataLoader<string, Author | null>(async (ids) => {\n      const rows = await db.authorsByIds(ids);\n      const byId = new Map(rows.map((a) => [a.id, a]));\n      // Must return one entry per key, in key order.\n      return ids.map((id) => byId.get(id) ?? null);\n    }),\n  };\n}\n\nexport interface Ctx { loaders: ReturnType<typeof createLoaders> }\n\nexport const resolvers = {\n  Post: {\n    author: (post: Post, _args: unknown, ctx: Ctx) => ctx.loaders.author.load(post.authorId),\n  },\n};\n\n// Context factory: called once per request.\n// context: async () => ({ loaders: createLoaders(db) })\n```\n\n## Explanation\n\nDataLoader coalesces every `load` call made in the same event-loop tick into one batch call, and de-duplicates identical keys through its per-instance cache. The batch function contract is strict: the returned array has the same length and order as the keys. Mapping through a `Map` keyed by id guarantees that. Creating loaders per request keeps the memoisation cache scoped to one user, so authorisation-specific data never leaks.\n\n## Time and space complexity\n\nQueries drop from N+1 to 2. Batch function is O(k) for k unique keys plus the database cost of one indexed IN query.\n\n## Edge cases\n\n- Missing author: return `null` (or an `Error` instance for that slot) rather than shortening the array.\n- Duplicate author IDs across posts: loaded once.\n- Database error: every pending load in that batch rejects.\n- Very large batches: set `maxBatchSize` to stay within database parameter limits.\n\n## Unit tests\n\n```ts\nimport { expect, it, vi } from 'vitest';\nimport { createLoaders, resolvers, type Post } from './loaders';\n\nit('batches author lookups into one query', async () => {\n  const authorsByIds = vi.fn(async (ids: readonly string[]) => ids.map((id) => ({ id, name: `n${id}` })));\n  const ctx = { loaders: createLoaders({ authorsByIds }) };\n  const posts: Post[] = [\n    { id: 'p1', authorId: 'a', title: 't' },\n    { id: 'p2', authorId: 'b', title: 't' },\n    { id: 'p3', authorId: 'a', title: 't' },\n  ];\n  const authors = await Promise.all(posts.map((p) => resolvers.Post.author(p, {}, ctx)));\n  expect(authors.map((a) => a?.name)).toEqual(['na', 'nb', 'na']);\n  expect(authorsByIds).toHaveBeenCalledTimes(1);\n  expect(authorsByIds).toHaveBeenCalledWith(['a', 'b']);\n});\n```\n\n## Production concerns\n\n- Expose loader hit and batch-size metrics.\n- Clear or prime the cache after mutations in the same request.\n- Combine with query complexity and depth limits to bound abuse.\n- Consider joins or lookahead in the parent resolver for hot paths; loaders are not always optimal.\n\n## Likely interviewer extensions\n\n- Write a loader for a one-to-many relation (posts by author).\n- Add per-request authorisation inside the batch function.\n- How would you do this with a federated gateway?",
+      "followUps": [
+        "Why must loaders be per request?",
+        "What does the batch function do if a key is missing?",
+        "How does DataLoader know when to dispatch a batch?"
+      ]
+    },
+    {
+      "slug": "react-use-debounced-value-use-fetch",
+      "title": "Build useDebouncedValue and a race-safe useFetch hook",
+      "topic": "React hooks",
+      "difficulty": "intermediate",
+      "type": "coding",
+      "tags": [
+        "react",
+        "hooks",
+        "abortcontroller",
+        "race-condition",
+        "coding"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "useDebouncedValue keeps a copy of the value in state and updates it from a timeout that the effect cleanup cancels, so only the last value within the delay wins. useFetch creates an AbortController per effect run, aborts it in cleanup, and ignores any result whose signal is aborted. That prevents an older, slower response overwriting a newer one and prevents state updates after unmount. I model state as a discriminated union rather than separate booleans.",
+      "revision": "Debounce with a cleanup-cancelled timeout; fetch with a per-effect AbortController, ignore aborted results, and model state as a discriminated union.",
+      "detailed": "## Problem statement\n\nWrite `useDebouncedValue<T>(value, delay)` and `useFetch<T>(url)` that handles loading, errors, URL changes and unmounting without stale updates.\n\n## Expected solution\n\n```ts\nimport { useEffect, useState } from 'react';\n\nexport function useDebouncedValue<T>(value: T, delayMs = 300): T {\n  const [debounced, setDebounced] = useState(value);\n  useEffect(() => {\n    const id = setTimeout(() => setDebounced(value), delayMs);\n    return () => clearTimeout(id);\n  }, [value, delayMs]);\n  return debounced;\n}\n\nexport type FetchState<T> =\n  | { status: 'idle' | 'loading' }\n  | { status: 'success'; data: T }\n  | { status: 'error'; error: Error };\n\nexport function useFetch<T>(url: string | null): FetchState<T> {\n  const [state, setState] = useState<FetchState<T>>({ status: 'idle' });\n\n  useEffect(() => {\n    if (!url) {\n      setState({ status: 'idle' });\n      return;\n    }\n    const controller = new AbortController();\n    setState({ status: 'loading' });\n    fetch(url, { signal: controller.signal })\n      .then(async (res) => {\n        if (!res.ok) throw new Error(`HTTP ${res.status}`);\n        return (await res.json()) as T;\n      })\n      .then(\n        (data) => { if (!controller.signal.aborted) setState({ status: 'success', data }); },\n        (err: unknown) => {\n          if (controller.signal.aborted) return;\n          setState({ status: 'error', error: err instanceof Error ? err : new Error(String(err)) });\n        },\n      );\n    return () => controller.abort();\n  }, [url]);\n\n  return state;\n}\n```\n\n## Explanation\n\nEach effect run owns a controller; the cleanup runs before the next effect and on unmount, so any earlier request is aborted and its handlers become no-ops. Checking `signal.aborted` covers the case where the response had already arrived when the cleanup ran. `fetch` does not reject on 4xx or 5xx, so the `res.ok` check is required. The discriminated union makes impossible states (for example loading with data) unrepresentable. In React 18 development Strict Mode, effects run twice; abort-on-cleanup makes that harmless.\n\n## Time and space complexity\n\nConstant time per render; one network request per distinct URL.\n\n## Edge cases\n\n- `url` is null: idle state, no request.\n- Rapid URL changes: only the last response is applied.\n- Non-JSON or error bodies: `res.json()` rejection is caught.\n- Unmount mid-request: aborted, no state update.\n\n## Unit tests\n\n```ts\nimport { act, renderHook, waitFor } from '@testing-library/react';\nimport { afterEach, expect, it, vi } from 'vitest';\nimport { useDebouncedValue, useFetch } from './hooks';\n\nafterEach(() => vi.restoreAllMocks());\n\nit('debounces', () => {\n  vi.useFakeTimers();\n  const { result, rerender } = renderHook(({ v }) => useDebouncedValue(v, 200), { initialProps: { v: 'a' } });\n  rerender({ v: 'b' });\n  expect(result.current).toBe('a');\n  act(() => { vi.advanceTimersByTime(200); });\n  expect(result.current).toBe('b');\n  vi.useRealTimers();\n});\n\nit('fetches data', async () => {\n  vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ n: 1 })));\n  const { result } = renderHook(() => useFetch<{ n: number }>('/x'));\n  await waitFor(() => expect(result.current).toEqual({ status: 'success', data: { n: 1 } }));\n});\n```\n\n## Production concerns\n\n- In real applications prefer TanStack Query or RTK Query for caching, deduplication, retries and revalidation.\n- Add request deduplication and a cache if many components use the same URL.\n- Validate response shape at runtime (for example with a schema) instead of trusting a cast.\n- Do not put unstable objects (headers, init) in the dependency array.\n\n## Likely interviewer extensions\n\n- Add retry with backoff and a manual `refetch`.\n- Add stale-while-revalidate caching keyed by URL.\n- How would you support Suspense?",
+      "followUps": [
+        "Why does Strict Mode run effects twice and how does this hook survive it?",
+        "What is the difference between debouncing the value and debouncing the callback?",
+        "Why use a discriminated union?"
+      ]
+    },
+    {
+      "slug": "redux-toolkit-slice-async-thunk-selectors",
+      "title": "Redux Toolkit slice with createAsyncThunk and memoised selectors",
+      "topic": "Redux Toolkit",
+      "difficulty": "intermediate",
+      "type": "coding",
+      "tags": [
+        "redux-toolkit",
+        "createAsyncThunk",
+        "selectors",
+        "state-management",
+        "coding"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would define a todos slice with status, error and filter fields. A createAsyncThunk fetches items, passes the thunk's abort signal to fetch, and uses rejectWithValue for HTTP errors so the reducer gets a typed message. extraReducers handle pending, fulfilled and rejected. Derived data, like the filtered list, lives in a createSelector so it only recomputes when its inputs change. I would test with a real store and a mocked fetch.",
+      "revision": "Slice with status and error, a typed thunk using the abort signal and rejectWithValue, extraReducers for lifecycle actions, and createSelector for derived lists.",
+      "detailed": "## Problem statement\n\nCreate a todos slice that loads from `/api/todos`, tracks loading and failure, supports a filter, and exposes a memoised `selectVisibleTodos`.\n\n## Expected solution\n\n```ts\nimport { createAsyncThunk, createSelector, createSlice, type PayloadAction } from '@reduxjs/toolkit';\n\nexport interface Todo { id: number; title: string; done: boolean }\ntype Filter = 'all' | 'open' | 'done';\ninterface TodosState {\n  items: Todo[];\n  status: 'idle' | 'loading' | 'failed';\n  error?: string;\n  filter: Filter;\n}\nconst initialState: TodosState = { items: [], status: 'idle', filter: 'all' };\n\nexport const fetchTodos = createAsyncThunk<Todo[], void, { rejectValue: string }>(\n  'todos/fetch',\n  async (_arg, { signal, rejectWithValue }) => {\n    const res = await fetch('/api/todos', { signal });\n    if (!res.ok) return rejectWithValue(`HTTP ${res.status}`);\n    return (await res.json()) as Todo[];\n  },\n);\n\nconst todosSlice = createSlice({\n  name: 'todos',\n  initialState,\n  reducers: {\n    setFilter(state, action: PayloadAction<Filter>) { state.filter = action.payload; },\n    toggle(state, action: PayloadAction<number>) {\n      const t = state.items.find((i) => i.id === action.payload);\n      if (t) t.done = !t.done;\n    },\n  },\n  extraReducers: (b) => {\n    b.addCase(fetchTodos.pending, (s) => { s.status = 'loading'; s.error = undefined; })\n      .addCase(fetchTodos.fulfilled, (s, a) => { s.status = 'idle'; s.items = a.payload; })\n      .addCase(fetchTodos.rejected, (s, a) => { s.status = 'failed'; s.error = a.payload ?? a.error.message; });\n  },\n});\n\nexport const { setFilter, toggle } = todosSlice.actions;\nexport default todosSlice.reducer;\n\ntype RootState = { todos: TodosState };\nconst selectItems = (s: RootState) => s.todos.items;\nconst selectFilter = (s: RootState) => s.todos.filter;\nexport const selectVisibleTodos = createSelector([selectItems, selectFilter], (items, f) =>\n  f === 'all' ? items : items.filter((t) => (f === 'done' ? t.done : !t.done)),\n);\n```\n\n## Explanation\n\nImmer lets the reducers mutate a draft safely. The thunk generic declares `rejectValue`, so `a.payload` is typed `string | undefined` in the rejected case, while thrown errors land in `a.error`. Passing `signal` allows `promise.abort()` and cancels the request on unmount. `createSelector` returns the same array reference when `items` and `filter` are unchanged, which prevents unnecessary re-renders in `useSelector` consumers. Never put derived data in state.\n\n## Time and space complexity\n\nSelector recompute is O(n) only when inputs change; otherwise O(1).\n\n## Edge cases\n\n- Network failure: fetch rejects, so `a.payload` is undefined and `a.error.message` is used.\n- Concurrent dispatches: add a `condition` option to skip a second request while loading.\n- Toggle for unknown id: ignored.\n- Aborted request: shows as rejected with name `AbortError`; avoid showing it as a user-facing error.\n\n## Unit tests\n\n```ts\nimport { configureStore } from '@reduxjs/toolkit';\nimport { expect, it, vi } from 'vitest';\nimport reducer, { fetchTodos, selectVisibleTodos, setFilter } from './todosSlice';\n\nit('loads and filters', async () => {\n  vi.spyOn(globalThis, 'fetch').mockResolvedValue(\n    new Response(JSON.stringify([{ id: 1, title: 'a', done: true }, { id: 2, title: 'b', done: false }])),\n  );\n  const store = configureStore({ reducer: { todos: reducer } });\n  await store.dispatch(fetchTodos());\n  store.dispatch(setFilter('open'));\n  expect(selectVisibleTodos(store.getState()).map((t) => t.id)).toEqual([2]);\n});\n\nit('records failure', async () => {\n  vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('', { status: 500 }));\n  const store = configureStore({ reducer: { todos: reducer } });\n  await store.dispatch(fetchTodos());\n  expect(store.getState().todos).toMatchObject({ status: 'failed', error: 'HTTP 500' });\n});\n```\n\n## Production concerns\n\n- For server data, RTK Query usually replaces hand-written thunks, with caching and invalidation built in.\n- Normalise collections with `createEntityAdapter` when lists are large.\n- Keep non-serialisable values out of the store.\n- Use typed hooks (`useAppDispatch`, `useAppSelector`) in real code.\n\n## Likely interviewer extensions\n\n- Add optimistic toggle with rollback on failure.\n- Convert this to RTK Query and compare.\n- Parametrise the selector by id and explain memoisation pitfalls.",
+      "followUps": [
+        "Why is `createSelector` needed here?",
+        "What does `rejectWithValue` give you over throwing?",
+        "How do you prevent duplicate in-flight requests?"
+      ]
+    },
+    {
+      "slug": "react-performance-memo-virtualised-list",
+      "title": "Optimise a slow React list with memoisation and windowing",
+      "topic": "React performance",
+      "difficulty": "advanced",
+      "type": "coding",
+      "tags": [
+        "react",
+        "performance",
+        "memoisation",
+        "virtualisation",
+        "coding"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "First I would measure with the React Profiler to find what re-renders and why. Typical fixes: memoise the row component, keep its props referentially stable with useCallback and functional state updates, and avoid creating new objects in render. If the list is thousands of rows, memoisation is not enough, so I would window it: render only the rows in the viewport plus overscan, positioned absolutely inside a spacer of full height. In production I would use a library like TanStack Virtual.",
+      "revision": "Profile first; memoise rows with stable props; for thousands of rows render only the visible window plus overscan inside a full-height spacer.",
+      "detailed": "## Problem statement\n\nA list of 10,000 rows re-renders every row whenever one row is toggled and the page janks. Fix the re-render problem and cap the DOM size.\n\n## Expected solution\n\n```ts\nimport { memo, useCallback, useState, type ReactNode } from 'react';\n\nconst ROW_HEIGHT = 36;\nconst OVERSCAN = 5;\n\nexport function VirtualList<T>(props: {\n  items: readonly T[];\n  height: number;\n  renderRow: (item: T, index: number) => ReactNode;\n}) {\n  const { items, height, renderRow } = props;\n  const [scrollTop, setScrollTop] = useState(0);\n  const start = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);\n  const end = Math.min(items.length, Math.ceil((scrollTop + height) / ROW_HEIGHT) + OVERSCAN);\n  return (\n    <div style={{ height, overflowY: 'auto' }} onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}>\n      <div style={{ height: items.length * ROW_HEIGHT, position: 'relative' }}>\n        {items.slice(start, end).map((item, i) => (\n          <div key={start + i} style={{ position: 'absolute', top: (start + i) * ROW_HEIGHT, height: ROW_HEIGHT, left: 0, right: 0 }}>\n            {renderRow(item, start + i)}\n          </div>\n        ))}\n      </div>\n    </div>\n  );\n}\n\ninterface Todo { id: number; title: string; done: boolean }\n\nconst Row = memo(function Row(props: { todo: Todo; onToggle: (id: number) => void }) {\n  const { todo, onToggle } = props;\n  return (\n    <label>\n      <input type=\"checkbox\" checked={todo.done} onChange={() => onToggle(todo.id)} /> {todo.title}\n    </label>\n  );\n});\n\nexport function TodoList({ initial }: { initial: Todo[] }) {\n  const [todos, setTodos] = useState(initial);\n  const onToggle = useCallback(\n    (id: number) => setTodos((prev) => prev.map((t) => (t.id === id ? { ...t, done: !t.done } : t))),\n    [],\n  );\n  return <VirtualList items={todos} height={360} renderRow={(t) => <Row todo={t} onToggle={onToggle} />} />;\n}\n```\n\n## Explanation\n\nTwo separate problems are solved. Re-rendering: `memo` skips rows whose props are shallow-equal. That only works because `onToggle` is stable (functional `setTodos`, empty dependency array) and unchanged todos keep their object identity when mapped. DOM size: the windowing maths derives the first and last visible index from `scrollTop`, adds overscan to avoid blank flashes, and positions rows absolutely inside a spacer whose height equals the full list. Only about 20 nodes exist regardless of list length. Fixed row height keeps the maths trivial; variable heights need measurement.\n\n## Time and space complexity\n\nRender cost drops from O(n) to O(visible rows) per scroll or toggle. Memory is O(n) for data, O(window) for DOM.\n\n## Edge cases\n\n- Row heights that vary: needs measured sizes and a position index.\n- Keyboard navigation and screen readers: windowed rows are absent from the DOM, so use ARIA (`aria-rowcount`, `aria-rowindex`) or a proven library.\n- Scroll jumps when items are prepended.\n- Index keys: switch to stable ids when rows hold state.\n\n## Unit tests\n\n```ts\nimport { render, screen } from '@testing-library/react';\nimport { expect, it } from 'vitest';\nimport { VirtualList } from './VirtualList';\n\nit('renders only a window of a large list', () => {\n  const items = Array.from({ length: 10_000 }, (_, i) => `row ${i}`);\n  render(<VirtualList items={items} height={360} renderRow={(s) => <span>{s}</span>} />);\n  expect(screen.getByText('row 0')).toBeInTheDocument();\n  expect(screen.queryByText('row 5000')).not.toBeInTheDocument();\n  expect(screen.getAllByText(/^row /).length).toBeLessThan(30);\n});\n```\n\n## Production concerns\n\n- Use TanStack Virtual or react-window rather than hand-rolling, especially for accessibility and dynamic heights.\n- Measure with the Profiler and real devices; React Compiler may remove some manual memoisation, depending on your version.\n- Avoid expensive work in render; move it to selectors or `useMemo` only when profiled.\n- Track interaction metrics (INP) in production.\n\n## Likely interviewer extensions\n\n- Support variable row heights.\n- Add a sticky header and keyboard navigation.\n- When is `memo` harmful?",
+      "followUps": [
+        "Why does `memo` fail if you pass an inline arrow function?",
+        "What is overscan for?",
+        "How would you diagnose re-renders without guessing?"
+      ]
+    },
+    {
+      "slug": "apollo-client-query-mutation-cache-update",
+      "title": "Apollo Client query, mutation and cache update",
+      "topic": "GraphQL clients",
+      "difficulty": "intermediate",
+      "type": "coding",
+      "tags": [
+        "apollo-client",
+        "graphql",
+        "cache",
+        "mutation",
+        "coding"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would write a todos query with useQuery and an addTodo mutation with useMutation. The mutation returns the new object including its id and __typename, so Apollo can normalise it. Instead of refetching the whole list, I update the cached query in the update function using cache.updateQuery, and add an optimisticResponse so the UI changes instantly and rolls back on error. I handle loading and error states explicitly.",
+      "revision": "Query with useQuery; mutation returns id and __typename; update the cached list via cache.updateQuery with an optimisticResponse; handle loading and error.",
+      "detailed": "## Problem statement\n\nShow a todo list and an add form. Adding must update the list immediately without refetching, and roll back if the server rejects it.\n\n## Expected solution\n\n```tsx\nimport { gql } from '@apollo/client';\nimport { useMutation, useQuery } from '@apollo/client/react'; // Apollo Client 4; in v3 import hooks from '@apollo/client'\nimport { useState } from 'react';\n\ninterface Todo { __typename: 'Todo'; id: string; title: string; done: boolean }\n\nexport const TODOS = gql`\n  query Todos { todos { id title done } }\n`;\nconst ADD_TODO = gql`\n  mutation AddTodo($title: String!) { addTodo(title: $title) { id title done } }\n`;\n\nexport function Todos() {\n  const { data, loading, error } = useQuery<{ todos: Todo[] }>(TODOS);\n  const [title, setTitle] = useState('');\n  const [addTodo, { error: addError }] = useMutation<{ addTodo: Todo }, { title: string }>(ADD_TODO, {\n    optimisticResponse: (vars) => ({\n      addTodo: { __typename: 'Todo', id: `temp-${vars.title}`, title: vars.title, done: false },\n    }),\n    update(cache, { data: result }) {\n      const created = result?.addTodo;\n      if (!created) return;\n      cache.updateQuery<{ todos: Todo[] }>({ query: TODOS }, (prev) =>\n        prev ? { todos: [...prev.todos, created] } : prev,\n      );\n    },\n  });\n\n  if (loading) return <p>Loading…</p>;\n  if (error) return <p role=\"alert\">Could not load todos.</p>;\n  return (\n    <>\n      <ul>{data?.todos.map((t) => <li key={t.id}>{t.title}</li>)}</ul>\n      <form onSubmit={(e) => { e.preventDefault(); void addTodo({ variables: { title } }).catch(() => {}); setTitle(''); }}>\n        <input aria-label=\"New todo\" value={title} onChange={(e) => setTitle(e.target.value)} />\n        <button type=\"submit\">Add</button>\n      </form>\n      {addError && <p role=\"alert\">Could not add todo.</p>}\n    </>\n  );\n}\n```\n\n## Explanation\n\nApollo normalises objects by `__typename` and `id`; including both in the mutation selection lets it store the new todo and keep other queries that reference it consistent. The list query holds an array of references, which does not change by itself when a new object is created, so the `update` function writes the new reference into that query. The optimistic response runs `update` immediately on a temporary layer; when the real response arrives the layer is discarded and `update` runs again with the server data, and on failure the layer is rolled back. Note the hooks' import path differs between major versions.\n\n## Time and space complexity\n\nCache write is O(n) for the array copy; no network round trip for the list.\n\n## Edge cases\n\n- Query not yet in the cache when `update` runs: `prev` is null, so return it unchanged.\n- Duplicate entries if a subscription also adds the item; dedupe by id.\n- Optimistic ID differs from the server ID, causing a key change; acceptable for simple lists.\n- Network error: the optimistic row disappears and the error shows.\n\n## Unit tests\n\n```tsx\nimport { MockedProvider } from '@apollo/client/testing/react'; // path differs in Apollo Client 3\nimport { render, screen } from '@testing-library/react';\nimport { expect, it } from 'vitest';\nimport { Todos, TODOS } from './Todos';\n\nit('renders todos from the query', async () => {\n  const mocks = [{\n    request: { query: TODOS },\n    result: { data: { todos: [{ __typename: 'Todo', id: '1', title: 'Write tests', done: false }] } },\n  }];\n  render(<MockedProvider mocks={mocks}><Todos /></MockedProvider>);\n  expect(screen.getByText('Loading…')).toBeInTheDocument();\n  expect(await screen.findByText('Write tests')).toBeInTheDocument();\n});\n```\n\n## Production concerns\n\n- Define a `typePolicies` key function if entities lack `id`.\n- Generate types with GraphQL Code Generator rather than hand-writing them.\n- Use `refetchQueries` when the effect on lists is too complex to patch by hand.\n- Mind cache normalisation and cache-size limits on long sessions.\n\n## Likely interviewer extensions\n\n- Add pagination with `fetchMore` and a `typePolicies` merge function.\n- Show how `refetchQueries` differs and when you would use it.\n- Handle a deletion with `cache.evict`.",
+      "followUps": [
+        "What does normalisation do?",
+        "Why is `__typename` required in the optimistic response?",
+        "When would you prefer refetching over a manual cache update?"
+      ]
+    },
+    {
+      "slug": "rtl-async-search-component-test",
+      "title": "Write React Testing Library tests for an async search",
+      "topic": "Testing React",
+      "difficulty": "intermediate",
+      "type": "coding",
+      "tags": [
+        "react-testing-library",
+        "testing",
+        "async",
+        "race-condition",
+        "coding"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would test behaviour the way a user experiences it. Render the component with a fake search function, type with userEvent, and use findBy queries that wait for the results. I would cover the happy path, an error shown with role alert, and the race condition: two requests in flight, the later one resolves first, then the earlier one resolves, and the screen must still show the later results. Deferred promises give me deterministic control without fake timers.",
+      "revision": "Test as a user: userEvent typing, findBy for async results, a role alert for errors, and a deferred-promise test proving stale responses are ignored.",
+      "detailed": "## Problem statement\n\nImplement a `Search` component that calls an injected async function and renders results, then test success, failure and out-of-order responses.\n\n## Expected solution\n\n```tsx\nimport { useEffect, useState } from 'react';\n\ntype SearchFn = (query: string, signal: AbortSignal) => Promise<string[]>;\n\nexport function Search({ search }: { search: SearchFn }) {\n  const [query, setQuery] = useState('');\n  const [results, setResults] = useState<string[]>([]);\n  const [error, setError] = useState<string | null>(null);\n  const [loading, setLoading] = useState(false);\n\n  useEffect(() => {\n    if (!query) { setResults([]); return; }\n    const controller = new AbortController();\n    setLoading(true);\n    setError(null);\n    search(query, controller.signal)\n      .then((r) => { if (!controller.signal.aborted) setResults(r); })\n      .catch(() => { if (!controller.signal.aborted) setError('Search failed'); })\n      .finally(() => { if (!controller.signal.aborted) setLoading(false); });\n    return () => controller.abort();\n  }, [query, search]);\n\n  return (\n    <div>\n      <label htmlFor=\"q\">Search</label>\n      <input id=\"q\" value={query} onChange={(e) => setQuery(e.target.value)} />\n      <p role=\"status\">{loading ? 'Searching…' : ''}</p>\n      {error && <p role=\"alert\">{error}</p>}\n      <ul>{results.map((r) => <li key={r}>{r}</li>)}</ul>\n    </div>\n  );\n}\n```\n\n## Explanation\n\nThe component is injected with its dependency, so tests do not need to mock modules. Each query change aborts the previous request and the `aborted` guard ensures stale responses never set state, which is the behaviour the race test pins down. The accessible `label`, `role=\"status\"` and `role=\"alert\"` mean tests query by role and name, which both mirrors user behaviour and verifies accessibility basics.\n\n## Time and space complexity\n\nNot applicable; the tests are O(1) each.\n\n## Edge cases\n\n- Empty query clears results and does not call the API.\n- Error then successful retry clears the error.\n- Out-of-order responses.\n- Component unmounts while pending: no state update warning.\n\n## Unit tests\n\n```tsx\nimport { render, screen } from '@testing-library/react';\nimport userEvent from '@testing-library/user-event';\nimport { expect, it, vi } from 'vitest';\nimport { Search } from './Search';\n\nconst deferred = <T,>() => {\n  let resolve!: (v: T) => void;\n  const promise = new Promise<T>((r) => { resolve = r; });\n  return { promise, resolve };\n};\n\nit('shows results', async () => {\n  const search = vi.fn().mockResolvedValue(['apple']);\n  render(<Search search={search} />);\n  await userEvent.type(screen.getByLabelText('Search'), 'a');\n  expect(await screen.findByText('apple')).toBeInTheDocument();\n});\n\nit('shows an alert on failure', async () => {\n  render(<Search search={vi.fn().mockRejectedValue(new Error('x'))} />);\n  await userEvent.type(screen.getByLabelText('Search'), 'a');\n  expect(await screen.findByRole('alert')).toHaveTextContent('Search failed');\n});\n\nit('ignores a stale response', async () => {\n  const first = deferred<string[]>();\n  const second = deferred<string[]>();\n  const search = vi.fn().mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);\n  render(<Search search={search} />);\n  await userEvent.type(screen.getByLabelText('Search'), 'ab');\n  second.resolve(['fresh']);\n  expect(await screen.findByText('fresh')).toBeInTheDocument();\n  first.resolve(['stale']);\n  await Promise.resolve();\n  expect(screen.queryByText('stale')).not.toBeInTheDocument();\n});\n```\n\n## Production concerns\n\n- Run tests in CI with `--coverage` thresholds sensibly, not as the goal.\n- Avoid `waitFor` with arbitrary timeouts; prefer `findBy` and deterministic promises.\n- Use Mock Service Worker for integration-level tests that exercise real fetch code.\n- Fail tests on console errors to catch act warnings.\n\n## Likely interviewer extensions\n\n- Add debouncing and test it with fake timers.\n- Test keyboard navigation through results.\n- How would you test with Mock Service Worker instead of an injected function?",
+      "followUps": [
+        "Why query by role and label instead of test id?",
+        "What causes act warnings and how do you fix them?",
+        "How do you test a component that uses `useFetch`?"
+      ],
+      "related": [
+        "react-use-debounced-value-use-fetch"
+      ]
+    },
+    {
+      "slug": "accessible-form-component-react",
+      "title": "Build an accessible signup form in React",
+      "topic": "Accessibility",
+      "difficulty": "intermediate",
+      "type": "coding",
+      "tags": [
+        "react",
+        "accessibility",
+        "forms",
+        "aria",
+        "coding"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would use real labels tied to inputs, noValidate with my own validation so error messages are consistent, and per-field errors linked with aria-describedby plus aria-invalid. On a failed submit I show an error summary with links or a heading and move focus to it so screen reader users hear it immediately. Buttons disable only during submission and say so. The tests assert roles, names, focus and aria attributes rather than markup.",
+      "revision": "Real labels, aria-invalid and aria-describedby per field, an error summary that receives focus after a failed submit, and tests on roles and focus.",
+      "detailed": "## Problem statement\n\nCreate a signup form with email and password. Invalid submissions must be perceivable and operable with keyboard and screen readers.\n\n## Expected solution\n\n```tsx\nimport { useEffect, useId, useRef, useState, type FormEvent } from 'react';\n\ninterface Values { email: string; password: string }\ntype Errors = Partial<Record<keyof Values, string>>;\n\nexport function validate(v: Values): Errors {\n  const errors: Errors = {};\n  if (!/^\\S+@\\S+\\.\\S+$/.test(v.email)) errors.email = 'Enter an email address in the format name@example.com';\n  if (v.password.length < 12) errors.password = 'Password must be at least 12 characters';\n  return errors;\n}\n\nexport function SignupForm({ onSubmit }: { onSubmit: (v: Values) => Promise<void> }) {\n  const id = useId();\n  const [values, setValues] = useState<Values>({ email: '', password: '' });\n  const [errors, setErrors] = useState<Errors>({});\n  const [submitting, setSubmitting] = useState(false);\n  const summaryRef = useRef<HTMLDivElement>(null);\n\n  useEffect(() => {\n    if (Object.keys(errors).length > 0) summaryRef.current?.focus();\n  }, [errors]);\n\n  async function handleSubmit(e: FormEvent) {\n    e.preventDefault();\n    const found = validate(values);\n    setErrors(found);\n    if (Object.keys(found).length > 0) return;\n    setSubmitting(true);\n    try { await onSubmit(values); } finally { setSubmitting(false); }\n  }\n\n  const field = (name: keyof Values, label: string, type: string) => (\n    <div>\n      <label htmlFor={`${id}-${name}`}>{label}</label>\n      <input\n        id={`${id}-${name}`}\n        type={type}\n        value={values[name]}\n        onChange={(e) => setValues({ ...values, [name]: e.target.value })}\n        aria-invalid={errors[name] ? true : undefined}\n        aria-describedby={errors[name] ? `${id}-${name}-error` : undefined}\n        autoComplete={name === 'email' ? 'email' : 'new-password'}\n      />\n      {errors[name] && <p id={`${id}-${name}-error`}>{errors[name]}</p>}\n    </div>\n  );\n\n  const hasErrors = Object.keys(errors).length > 0;\n  return (\n    <form onSubmit={handleSubmit} noValidate>\n      {hasErrors && (\n        <div ref={summaryRef} tabIndex={-1} role=\"group\" aria-labelledby={`${id}-summary`}>\n          <h2 id={`${id}-summary`}>There is a problem</h2>\n          <ul>{Object.entries(errors).map(([k, m]) => <li key={k}>{m}</li>)}</ul>\n        </div>\n      )}\n      {field('email', 'Email', 'email')}\n      {field('password', 'Password', 'password')}\n      <button type=\"submit\" disabled={submitting}>{submitting ? 'Creating account…' : 'Create account'}</button>\n    </form>\n  );\n}\n```\n\n## Explanation\n\nNative labels give each control an accessible name and a larger click target. `useId` produces unique, SSR-safe ids. `aria-invalid` plus `aria-describedby` makes screen readers announce the error when the field is focused. The error summary is focusable (`tabIndex=-1`) and focused programmatically so keyboard and assistive technology users land on the explanation, a pattern recommended by several government design systems. Colour is never the only indicator of an error, and `autocomplete` values help password managers and users with cognitive or motor impairments.\n\n## Time and space complexity\n\nNot applicable.\n\n## Edge cases\n\n- Both fields empty: the summary lists both messages.\n- Fixing one error and resubmitting updates the summary and refocuses it.\n- Submit while submitting: the button is disabled; guard in the handler for Enter key repeats if needed.\n- Zoom to 200 percent and high-contrast modes: avoid fixed heights and rely on text, not colour.\n\n## Unit tests\n\n```tsx\nimport { render, screen } from '@testing-library/react';\nimport userEvent from '@testing-library/user-event';\nimport { expect, it, vi } from 'vitest';\nimport { SignupForm } from './SignupForm';\n\nit('announces errors and focuses the summary', async () => {\n  const onSubmit = vi.fn();\n  render(<SignupForm onSubmit={onSubmit} />);\n  await userEvent.click(screen.getByRole('button', { name: 'Create account' }));\n  expect(screen.getByRole('group', { name: 'There is a problem' })).toHaveFocus();\n  const email = screen.getByLabelText('Email');\n  expect(email).toHaveAttribute('aria-invalid', 'true');\n  expect(email).toHaveAccessibleDescription(/name@example.com/);\n  expect(onSubmit).not.toHaveBeenCalled();\n});\n```\n\n## Production concerns\n\n- Run automated checks (axe, eslint-plugin-jsx-a11y) in CI, and add manual screen reader checks.\n- Do not rely on placeholder text as labels.\n- Avoid disabling submit before the user has had a chance to see what is wrong.\n- Meet WCAG 2.2 AA targets such as focus visibility and target size.\n\n## Likely interviewer extensions\n\n- Add inline validation on blur without being noisy.\n- Link summary items to their fields.\n- Make the form work without JavaScript (progressive enhancement).",
+      "followUps": [
+        "Why not use the `required` attribute alone?",
+        "When do you use `aria-live` versus moving focus?",
+        "How do you test accessibility automatically and what does that miss?"
+      ]
+    },
+    {
+      "slug": "jwt-verification-rbac-guard-middleware",
+      "title": "Authentication and role-based authorisation middleware",
+      "topic": "Security",
+      "difficulty": "advanced",
+      "type": "coding",
+      "tags": [
+        "jwt",
+        "rbac",
+        "express",
+        "authentication",
+        "coding"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would split authentication from authorisation. The authenticate middleware extracts the bearer token, verifies it with an injected verifier, which in production wraps jose jwtVerify against the issuer's JWKS with fixed algorithms, issuer and audience, then stores a minimal user object in res.locals. A separate requireRole guard checks the roles claim and returns 403 when the user is known but not allowed, 401 when unauthenticated. Injection keeps tests free of real keys.",
+      "revision": "Verify the token with pinned issuer, audience and algorithms; keep authentication and the role guard separate; 401 for missing or bad tokens, 403 for insufficient role.",
+      "detailed": "## Problem statement\n\nWrite Express middleware that verifies a JWT and a `requireRole('admin')` guard. Return correct status codes and never trust unverified claims.\n\n## Expected solution\n\n```ts\nimport type { NextFunction, Request, Response } from 'express';\nimport { createRemoteJWKSet, jwtVerify, type JWTPayload } from 'jose';\n\nexport type Role = 'admin' | 'editor' | 'viewer';\nexport interface AuthUser { id: string; roles: Role[] }\ntype Verify = (token: string) => Promise<JWTPayload>;\n\nconst ROLES: readonly string[] = ['admin', 'editor', 'viewer'];\nconst isRole = (r: unknown): r is Role => typeof r === 'string' && ROLES.includes(r);\n\nexport function jwksVerifier(jwksUrl: string, issuer: string, audience: string): Verify {\n  const jwks = createRemoteJWKSet(new URL(jwksUrl));\n  return async (token) => (await jwtVerify(token, jwks, { issuer, audience, algorithms: ['RS256'] })).payload;\n}\n\nexport function authenticate(verify: Verify) {\n  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {\n    const header = req.header('authorization');\n    const token = header?.startsWith('Bearer ') ? header.slice(7) : undefined;\n    if (!token) { res.status(401).json({ error: 'unauthenticated' }); return; }\n    try {\n      const payload = await verify(token);\n      if (!payload.sub) throw new Error('missing subject');\n      const roles = Array.isArray(payload.roles) ? payload.roles.filter(isRole) : [];\n      res.locals.user = { id: payload.sub, roles } satisfies AuthUser;\n      next();\n    } catch {\n      res.status(401).json({ error: 'invalid token' });\n    }\n  };\n}\n\nexport const requireRole = (...allowed: Role[]) => (_req: Request, res: Response, next: NextFunction): void => {\n  const user = res.locals.user as AuthUser | undefined;\n  if (!user) { res.status(401).json({ error: 'unauthenticated' }); return; }\n  if (!user.roles.some((r) => allowed.includes(r))) { res.status(403).json({ error: 'forbidden' }); return; }\n  next();\n};\n// app.delete('/users/:id', authenticate(verifier), requireRole('admin'), handler);\n```\n\n## Explanation\n\nDecoding a JWT is not verifying it. `jwtVerify` checks the signature against keys from the JWKS (cached and rotated by the library), and the options pin the issuer, audience and algorithm, defeating `alg: none` and key-confusion attacks. Roles are filtered through a type guard so unexpected claim shapes cannot grant access. 401 means we do not know who you are; 403 means we know and the answer is no. Dependency injection of `verify` keeps the middleware deterministic in tests. The `jose` API shown matches current major versions, but check yours.\n\n## Time and space complexity\n\nVerification is O(1) after the JWKS is cached; the first call fetches keys.\n\n## Edge cases\n\n- Missing or malformed header: 401.\n- Expired, wrong issuer or audience: 401.\n- Valid token with no roles: authenticated but forbidden on guarded routes.\n- Role names in claims that you do not recognise are ignored.\n\n## Unit tests\n\n```ts\nimport { expect, it, vi } from 'vitest';\nimport { authenticate, requireRole } from './auth';\n\nconst makeRes = () => {\n  const res: any = { locals: {} };\n  res.status = vi.fn(() => res);\n  res.json = vi.fn(() => res);\n  return res;\n};\nconst req = (authorization?: string): any => ({ header: () => authorization });\n\nit('rejects a missing token', async () => {\n  const res = makeRes(); const next = vi.fn();\n  await authenticate(async () => ({}))(req(), res, next);\n  expect(res.status).toHaveBeenCalledWith(401);\n  expect(next).not.toHaveBeenCalled();\n});\n\nit('allows admins and blocks viewers', async () => {\n  const res = makeRes(); const next = vi.fn();\n  await authenticate(async () => ({ sub: 'u1', roles: ['admin'] }))(req('Bearer t'), res, next);\n  requireRole('admin')(req(), res, next);\n  expect(next).toHaveBeenCalledTimes(2);\n\n  const res2 = makeRes(); const next2 = vi.fn();\n  await authenticate(async () => ({ sub: 'u2', roles: ['viewer'] }))(req('Bearer t'), res2, next2);\n  requireRole('admin')(req(), res2, next2);\n  expect(res2.status).toHaveBeenLastCalledWith(403);\n});\n```\n\n## Production concerns\n\n- Keep access tokens short-lived; handle revocation and refresh separately.\n- Check object-level ownership in handlers, not just role (avoid broken object-level authorisation).\n- Never log tokens; return generic error bodies.\n- Prefer an identity provider and gateway for common checks, with in-service authorisation for business rules.\n\n## Likely interviewer extensions\n\n- Add permission-based (not only role-based) checks.\n- Support multi-tenancy by scoping roles to a tenant claim.\n- Implement this as a NestJS guard.",
+      "followUps": [
+        "Why 401 versus 403?",
+        "What attacks do pinned algorithms prevent?",
+        "Where do you keep authorisation decisions: gateway, service or both?"
+      ]
+    },
+    {
+      "slug": "cache-aside-ttl-stampede-protection",
+      "title": "Cache-aside with TTL and cache stampede protection",
+      "topic": "Caching",
+      "difficulty": "advanced",
+      "type": "coding",
+      "tags": [
+        "caching",
+        "cache-aside",
+        "stampede",
+        "concurrency",
+        "coding"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would implement cache-aside: check the cache, on a miss call the loader and store the result with a TTL. To stop a stampede, I keep a map of in-flight promises per key so concurrent misses share one loader call. I add small random jitter to expiry so many keys do not expire together. Failures are not cached, and invalidate removes a key after writes. In a multi-instance deployment the same idea needs a distributed lock or request coalescing in Redis.",
+      "revision": "Cache-aside with TTL, a per-key in-flight promise map so concurrent misses share one load, TTL jitter, failures not cached, explicit invalidation.",
+      "detailed": "## Problem statement\n\nWrite a `TtlCache.get(key, loader)` that avoids thundering herds when many requests miss the same key at once.\n\n## Expected solution\n\n```ts\ninterface Entry<V> { value: V; expiresAt: number }\n\nexport class TtlCache<V> {\n  private store = new Map<string, Entry<V>>();\n  private inflight = new Map<string, Promise<V>>();\n\n  constructor(\n    private readonly ttlMs: number,\n    private readonly jitter = 0.1,\n    private readonly now: () => number = Date.now,\n    private readonly random: () => number = Math.random,\n  ) {}\n\n  async get(key: string, loader: () => Promise<V>): Promise<V> {\n    const hit = this.store.get(key);\n    if (hit && hit.expiresAt > this.now()) return hit.value;\n\n    const pending = this.inflight.get(key);\n    if (pending) return pending;\n\n    const load = loader()\n      .then((value) => {\n        const ttl = this.ttlMs * (1 + this.random() * this.jitter);\n        this.store.set(key, { value, expiresAt: this.now() + ttl });\n        return value;\n      })\n      .finally(() => this.inflight.delete(key));\n    this.inflight.set(key, load);\n    return load;\n  }\n\n  invalidate(key: string): void {\n    this.store.delete(key);\n  }\n}\n```\n\n{{diagram:cache-aside}}\n\n## Explanation\n\nThe cache returns a fresh entry immediately. On a miss, the first caller stores its loader promise in `inflight`; later callers for the same key return that same promise, so the database sees one query instead of hundreds. The `finally` clears the slot whether the load succeeded or failed, and a failed load is never written to the store. TTL jitter spreads expiry so a batch of keys populated together does not all expire together and cause a synchronised wave of reloads. Injecting `now` and `random` makes the class deterministic to test.\n\n## Time and space complexity\n\nO(1) average per lookup; memory is bounded only by key cardinality, so add a size cap for real use.\n\n## Edge cases\n\n- Loader rejects: all waiting callers reject, nothing is cached, and the next call retries.\n- Key invalidated during an in-flight load: the loader's result may still be stored, so version or generation counters are needed for strict freshness.\n- Expired entries are not evicted until overwritten; add periodic cleanup or an LRU bound.\n- Caching `null` or not-found results: decide deliberately, usually with a shorter negative TTL.\n\n## Unit tests\n\n```ts\nimport { expect, it, vi } from 'vitest';\nimport { TtlCache } from './ttlCache';\n\nit('coalesces concurrent misses and honours TTL', async () => {\n  let t = 0;\n  const loader = vi.fn(async () => 'v');\n  const cache = new TtlCache<string>(1000, 0, () => t);\n  await Promise.all(Array.from({ length: 10 }, () => cache.get('k', loader)));\n  expect(loader).toHaveBeenCalledTimes(1);\n  await cache.get('k', loader);\n  expect(loader).toHaveBeenCalledTimes(1);\n  t = 1001;\n  await cache.get('k', loader);\n  expect(loader).toHaveBeenCalledTimes(2);\n});\n```\n\n## Production concerns\n\n- In-process caches are per instance; use Redis for shared state and `SET key value NX PX` for a lock, or accept per-instance loading.\n- Consider stale-while-revalidate: serve expired data while refreshing in the background.\n- Emit hit, miss and load-time metrics.\n- Never cache user-specific data under a shared key.\n\n## Likely interviewer extensions\n\n- Add stale-while-revalidate.\n- Implement the distributed version with Redis.\n- Add a maximum size with LRU eviction.",
+      "followUps": [
+        "What causes a cache stampede?",
+        "Why add jitter to TTL?",
+        "Cache-aside versus write-through: when each?"
+      ],
+      "diagrams": [
+        {
+          "id": "cache-aside",
+          "title": "Cache-aside with request coalescing",
+          "alt": "A request checks the cache. A hit returns immediately. A miss checks the in-flight map; if a load is already running the request waits for it, otherwise it calls the loader, stores the value with a jittered TTL and releases the waiting requests.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "rq",
+              "label": "Request"
+            },
+            {
+              "id": "ch",
+              "label": "Cache lookup"
+            },
+            {
+              "id": "in",
+              "label": "In-flight load for key?"
+            },
+            {
+              "id": "ld",
+              "label": "Loader (database)"
+            },
+            {
+              "id": "st",
+              "label": "Store with jittered TTL"
+            },
+            {
+              "id": "rs",
+              "label": "Response"
+            }
+          ],
+          "edges": [
+            {
+              "from": "rq",
+              "to": "ch"
+            },
+            {
+              "from": "ch",
+              "to": "rs",
+              "label": "hit"
+            },
+            {
+              "from": "ch",
+              "to": "in",
+              "label": "miss"
+            },
+            {
+              "from": "in",
+              "to": "rs",
+              "label": "yes: share promise"
+            },
+            {
+              "from": "in",
+              "to": "ld",
+              "label": "no"
+            },
+            {
+              "from": "ld",
+              "to": "st"
+            },
+            {
+              "from": "st",
+              "to": "rs"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "idempotent-order-creation-idempotency-key",
+      "title": "Idempotent order creation with an idempotency key",
+      "topic": "Idempotency",
+      "difficulty": "advanced",
+      "type": "coding",
+      "tags": [
+        "idempotency",
+        "orders",
+        "database",
+        "payments",
+        "coding"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would require an Idempotency-Key header and keep a table with the key as a unique primary key, a hash of the request payload, a status and the stored response. The first request inserts the row, which the unique constraint makes atomic, then creates the order and stores the response. A repeat with the same key and payload returns the stored response; the same key with a different payload is a 422; a repeat while the first is still running is a 409. On failure I release the key so the client can retry.",
+      "revision": "Unique-keyed idempotency record with payload hash and status: first insert wins, replays return the stored response, mismatched payload gives 422, in-progress gives 409.",
+      "detailed": "## Problem statement\n\n`POST /orders` may be retried by clients or gateways after timeouts. Ensure that retries never create duplicate orders.\n\n## Expected solution\n\n```ts\nimport { createHash } from 'node:crypto';\n\nexport interface OrderInput { customerId: string; items: { sku: string; qty: number }[] }\nexport interface OrderResponse { orderId: string; total: number }\n\nexport type Stored = { requestHash: string; status: 'in_progress' | 'completed'; response?: OrderResponse };\n\nexport interface IdempotencyStore {\n  /** Atomically insert; backed by a UNIQUE constraint on key. */\n  begin(key: string, requestHash: string): Promise<{ started: true } | { started: false; existing: Stored }>;\n  complete(key: string, response: OrderResponse): Promise<void>;\n  release(key: string): Promise<void>;\n}\n\nexport class IdempotencyError extends Error {\n  constructor(public readonly status: 409 | 422, message: string) {\n    super(message);\n  }\n}\n\nexport async function createOrderIdempotent(\n  store: IdempotencyStore,\n  create: (input: OrderInput) => Promise<OrderResponse>,\n  key: string,\n  input: OrderInput,\n): Promise<OrderResponse> {\n  const requestHash = createHash('sha256').update(JSON.stringify(input)).digest('hex');\n  const begun = await store.begin(key, requestHash);\n\n  if (!begun.started) {\n    const { existing } = begun;\n    if (existing.requestHash !== requestHash) throw new IdempotencyError(422, 'Key reused with a different payload');\n    if (existing.status === 'completed' && existing.response) return existing.response;\n    throw new IdempotencyError(409, 'A request with this key is in progress');\n  }\n\n  try {\n    const response = await create(input);\n    await store.complete(key, response);\n    return response;\n  } catch (err) {\n    await store.release(key);\n    throw err;\n  }\n}\n\n// Postgres: INSERT INTO idempotency_keys (key, request_hash, status) VALUES ($1,$2,'in_progress')\n//           ON CONFLICT (key) DO NOTHING RETURNING key;   -- zero rows means \"exists\", then SELECT it.\n// MongoDB: unique index on key; treat duplicate key error code 11000 as \"exists\".\n```\n\n{{diagram:idem-flow}}\n\n## Explanation\n\nThe unique constraint is the concurrency control: two simultaneous requests both try to insert and exactly one succeeds, so there is no check-then-insert race. Hashing the payload detects clients that reuse a key for different requests, a bug that would otherwise silently return the wrong order. Persisting the response lets a retry get the same answer, including after a crash. Ideally the order insert and `complete` share one database transaction; if they cannot, `in_progress` rows need a lease expiry so a crashed worker does not block the key forever.\n\n## Time and space complexity\n\nO(1) database operations per request plus one hash over the payload.\n\n## Edge cases\n\n- Crash after creating the order but before `complete`: use a transaction or reconcile by a natural unique key such as client order reference.\n- `JSON.stringify` depends on key order; canonicalise before hashing if clients differ.\n- Keys must expire (for example after 24 hours) with a cleanup job.\n- Scope keys per customer or tenant so one client cannot collide with another.\n\n## Unit tests\n\n```ts\nimport { expect, it } from 'vitest';\nimport { createOrderIdempotent, IdempotencyError, type IdempotencyStore, type Stored } from './idempotency';\n\nconst memoryStore = (): IdempotencyStore => {\n  const rows = new Map<string, Stored>();\n  return {\n    async begin(key, requestHash) {\n      const existing = rows.get(key);\n      if (existing) return { started: false, existing };\n      rows.set(key, { requestHash, status: 'in_progress' });\n      return { started: true };\n    },\n    async complete(key, response) { rows.set(key, { ...rows.get(key)!, status: 'completed', response }); },\n    async release(key) { rows.delete(key); },\n  };\n};\n\nit('creates once and replays', async () => {\n  const store = memoryStore();\n  let calls = 0;\n  const create = async () => ({ orderId: `o${++calls}`, total: 10 });\n  const input = { customerId: 'c', items: [{ sku: 's', qty: 1 }] };\n  const a = await createOrderIdempotent(store, create, 'k1', input);\n  const b = await createOrderIdempotent(store, create, 'k1', input);\n  expect(b).toEqual(a);\n  expect(calls).toBe(1);\n  await expect(createOrderIdempotent(store, create, 'k1', { ...input, customerId: 'x' })).rejects.toBeInstanceOf(IdempotencyError);\n});\n```\n\n## Production concerns\n\n- Return the original status code and headers on replay, and a `Idempotent-Replayed` style header if helpful.\n- Downstream calls (payments) need their own idempotency keys derived from yours.\n- Monitor 409 and 422 rates to find client bugs.\n- Use the transactional outbox for events so replays do not republish.\n\n## Likely interviewer extensions\n\n- Add lease expiry for stuck `in_progress` rows.\n- Make payment capture idempotent as well.\n- How would this work across regions?",
+      "followUps": [
+        "Why is a unique constraint better than a read-then-write check?",
+        "What should happen when the first attempt failed with a 500?",
+        "How long should keys be retained?"
+      ],
+      "diagrams": [
+        {
+          "id": "idem-flow",
+          "title": "Idempotency key decision flow",
+          "alt": "An order request inserts its idempotency key. If the insert succeeds the order is created and the response stored. If the key exists with a different payload hash the request is rejected with 422. If it exists and is completed the stored response is returned. If it exists and is still in progress the request gets 409.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "rq",
+              "label": "POST /orders with key"
+            },
+            {
+              "id": "ins",
+              "label": "Insert key (unique)"
+            },
+            {
+              "id": "cr",
+              "label": "Create order, store response"
+            },
+            {
+              "id": "hs",
+              "label": "Same payload hash?"
+            },
+            {
+              "id": "r422",
+              "label": "422 reject"
+            },
+            {
+              "id": "cp",
+              "label": "Completed?"
+            },
+            {
+              "id": "rep",
+              "label": "Return stored response"
+            },
+            {
+              "id": "r409",
+              "label": "409 in progress"
+            }
+          ],
+          "edges": [
+            {
+              "from": "rq",
+              "to": "ins"
+            },
+            {
+              "from": "ins",
+              "to": "cr",
+              "label": "inserted"
+            },
+            {
+              "from": "ins",
+              "to": "hs",
+              "label": "exists"
+            },
+            {
+              "from": "hs",
+              "to": "r422",
+              "label": "no"
+            },
+            {
+              "from": "hs",
+              "to": "cp",
+              "label": "yes"
+            },
+            {
+              "from": "cp",
+              "to": "rep",
+              "label": "yes"
+            },
+            {
+              "from": "cp",
+              "to": "r409",
+              "label": "no"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "retry-exponential-backoff-jitter",
+      "title": "Retry with exponential backoff and full jitter",
+      "topic": "Resilience",
+      "difficulty": "intermediate",
+      "type": "coding",
+      "tags": [
+        "retry",
+        "backoff",
+        "jitter",
+        "resilience",
+        "coding"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would write a retry helper with a maximum attempt count, exponential delay capped at a ceiling, and full jitter, meaning a random delay between zero and the cap, which spreads retries from many clients so they do not synchronise. A shouldRetry predicate restricts retries to transient errors such as network failures, 429 and 5xx. The sleep respects an AbortSignal, and sleep and random are injectable so tests are instant and deterministic.",
+      "revision": "Capped exponential delay with full jitter, a transient-error predicate, an abortable sleep, and injectable sleep and random for deterministic tests.",
+      "detailed": "## Problem statement\n\nWrite `retry(fn, options)` that retries transient failures with backoff and jitter, stops on abort, and rethrows the last error.\n\n## Expected solution\n\n```ts\nexport interface RetryOptions {\n  retries: number;\n  baseMs: number;\n  maxMs: number;\n  shouldRetry?: (error: unknown, attempt: number) => boolean;\n  signal?: AbortSignal;\n  random?: () => number;\n  sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;\n}\n\nexport function backoffDelay(attempt: number, baseMs: number, maxMs: number, random = Math.random): number {\n  return Math.floor(random() * Math.min(maxMs, baseMs * 2 ** attempt));\n}\n\nexport function sleep(ms: number, signal?: AbortSignal): Promise<void> {\n  return new Promise<void>((resolve, reject) => {\n    if (signal?.aborted) return reject(signal.reason);\n    const timer = setTimeout(() => {\n      signal?.removeEventListener('abort', onAbort);\n      resolve();\n    }, ms);\n    function onAbort() {\n      clearTimeout(timer);\n      reject(signal?.reason);\n    }\n    signal?.addEventListener('abort', onAbort, { once: true });\n  });\n}\n\nexport async function retry<T>(fn: (attempt: number) => Promise<T>, opts: RetryOptions): Promise<T> {\n  const { retries, baseMs, maxMs, shouldRetry = () => true, signal, random = Math.random, sleep: wait = sleep } = opts;\n  for (let attempt = 0; ; attempt++) {\n    try {\n      return await fn(attempt);\n    } catch (err) {\n      if (attempt >= retries || signal?.aborted || !shouldRetry(err, attempt)) throw err;\n      await wait(backoffDelay(attempt, baseMs, maxMs, random), signal);\n    }\n  }\n}\n```\n\n## Explanation\n\nWithout jitter, clients that failed together retry together, producing synchronised waves that keep an overloaded dependency down. Full jitter (random between zero and the exponential ceiling) gives the best spread in the well-known analysis of backoff strategies. The cap stops the delay growing without bound. `shouldRetry` matters as much as the delay: retrying a 400 or a non-idempotent write is a bug. The abortable `sleep` means cancelling a request also cancels the waiting.\n\n## Time and space complexity\n\nAt most `retries + 1` calls and O(1) space. Worst-case added latency is the sum of the capped delays.\n\n## Edge cases\n\n- `retries = 0` runs once and throws.\n- Abort during sleep rejects with the signal reason.\n- Rejection with a non-Error value is rethrown as is.\n- Honour a `Retry-After` header when present, overriding the computed delay.\n\n## Unit tests\n\n```ts\nimport { expect, it } from 'vitest';\nimport { retry } from './retry';\n\nit('retries with jittered delays then succeeds', async () => {\n  const delays: number[] = [];\n  let calls = 0;\n  const result = await retry(\n    async () => { if (++calls < 3) throw new Error('boom'); return 'ok'; },\n    { retries: 5, baseMs: 100, maxMs: 1000, random: () => 0.5, sleep: async (ms) => { delays.push(ms); } },\n  );\n  expect(result).toBe('ok');\n  expect(delays).toEqual([50, 100]);\n});\n\nit('does not retry when shouldRetry is false', async () => {\n  let calls = 0;\n  await expect(\n    retry(async () => { calls++; throw new Error('bad request'); }, { retries: 3, baseMs: 1, maxMs: 1, shouldRetry: () => false }),\n  ).rejects.toThrow('bad request');\n  expect(calls).toBe(1);\n});\n```\n\n## Production concerns\n\n- Retries multiply load: combine with a retry budget and a circuit breaker.\n- Only retry idempotent operations or use idempotency keys.\n- Retry at one layer only, otherwise attempts multiply (3 x 3 x 3).\n- Log attempt numbers and emit retry metrics.\n\n## Likely interviewer extensions\n\n- Add a retry budget (for example 10 percent of requests).\n- Honour `Retry-After` and server hints.\n- Combine with a total deadline using `withTimeout`.",
+      "followUps": [
+        "Why full jitter rather than a fixed delay?",
+        "Which HTTP statuses are safe to retry?",
+        "What is retry amplification?"
+      ],
+      "related": [
+        "node-fetch-timeout-abortcontroller",
+        "circuit-breaker-implementation"
+      ]
+    },
+    {
+      "slug": "circuit-breaker-implementation",
+      "title": "Implement a circuit breaker",
+      "topic": "Resilience",
+      "difficulty": "advanced",
+      "type": "coding",
+      "tags": [
+        "circuit-breaker",
+        "resilience",
+        "state-machine",
+        "coding"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would implement the three-state machine. Closed counts consecutive failures; at the threshold it opens and rejects calls immediately with a CircuitOpenError, protecting the failing dependency and freeing callers quickly. After a reset timeout it moves to half-open and lets exactly one probe through; success closes the circuit, failure reopens it. Time is injected for tests, and I would expose state for metrics. Real systems often use a rolling failure rate rather than a simple count.",
+      "revision": "Closed counts failures, open fails fast, half-open allows one probe after a reset timeout; success closes, failure reopens. Inject time for tests.",
+      "detailed": "## Problem statement\n\nWrite a `CircuitBreaker` class with `exec(fn)`, a failure threshold and a reset timeout that fails fast while open.\n\n## Expected solution\n\n```ts\ntype State = 'closed' | 'open' | 'half-open';\n\nexport class CircuitOpenError extends Error {\n  constructor() {\n    super('Circuit is open');\n    this.name = 'CircuitOpenError';\n  }\n}\n\nexport class CircuitBreaker {\n  private state: State = 'closed';\n  private failures = 0;\n  private openedAt = 0;\n  private probing = false;\n\n  constructor(private readonly opts: { failureThreshold: number; resetMs: number; now?: () => number }) {}\n\n  getState(): State {\n    return this.state;\n  }\n\n  async exec<T>(fn: () => Promise<T>): Promise<T> {\n    const now = (this.opts.now ?? Date.now)();\n    if (this.state === 'open') {\n      if (now - this.openedAt < this.opts.resetMs) throw new CircuitOpenError();\n      this.state = 'half-open';\n    }\n    if (this.state === 'half-open') {\n      if (this.probing) throw new CircuitOpenError();\n      this.probing = true;\n    }\n    try {\n      const result = await fn();\n      this.failures = 0;\n      this.probing = false;\n      this.state = 'closed';\n      return result;\n    } catch (err) {\n      this.probing = false;\n      this.failures++;\n      if (this.state === 'half-open' || this.failures >= this.opts.failureThreshold) {\n        this.state = 'open';\n        this.openedAt = now;\n      }\n      throw err;\n    }\n  }\n}\n```\n\n{{diagram:cb-states}}\n\n## Explanation\n\nThe `probing` flag stops a flood of requests hitting a dependency that may still be down the moment the timeout elapses; only one trial call is allowed. Because JavaScript is single-threaded, the state transitions between awaits are race-free, though in-flight calls started before opening still complete and can update the counters. Fail-fast errors should be mapped to a fallback (cached data, a degraded response) at the caller.\n\n## Time and space complexity\n\nO(1) time and space per call.\n\n## Edge cases\n\n- Business errors (400, 404) should not count as failures; add an `isFailure` predicate.\n- A slow dependency should count as failure: combine with a timeout.\n- Multiple instances each hold their own breaker; that is usually fine and avoids shared state.\n- Success in closed state resets the failure count, so intermittent failures may never trip it; use a rolling window if that matters.\n\n## Unit tests\n\n```ts\nimport { expect, it, vi } from 'vitest';\nimport { CircuitBreaker, CircuitOpenError } from './circuitBreaker';\n\nit('opens after failures, then recovers via a probe', async () => {\n  let t = 0;\n  const cb = new CircuitBreaker({ failureThreshold: 2, resetMs: 1000, now: () => t });\n  const bad = vi.fn(async () => { throw new Error('down'); });\n  await expect(cb.exec(bad)).rejects.toThrow('down');\n  await expect(cb.exec(bad)).rejects.toThrow('down');\n  expect(cb.getState()).toBe('open');\n  await expect(cb.exec(bad)).rejects.toBeInstanceOf(CircuitOpenError);\n  expect(bad).toHaveBeenCalledTimes(2);\n\n  t = 1000;\n  await expect(cb.exec(async () => 'ok')).resolves.toBe('ok');\n  expect(cb.getState()).toBe('closed');\n});\n```\n\n## Production concerns\n\n- Use a maintained library (for example opossum) or a service mesh policy where possible.\n- Emit state-change events and metrics, and alert on open circuits.\n- Define explicit fallbacks per dependency.\n- Tune thresholds from observed latency and error data, not guesses.\n\n## Likely interviewer extensions\n\n- Switch to a rolling-window error-rate trip condition.\n- Allow N probe calls in half-open.\n- Combine with bulkheads (concurrency limits) per dependency.",
+      "followUps": [
+        "Circuit breaker versus retry: how do they interact?",
+        "What should callers return while open?",
+        "Why not share breaker state across instances?"
+      ],
+      "related": [
+        "retry-exponential-backoff-jitter"
+      ],
+      "diagrams": [
+        {
+          "id": "cb-states",
+          "title": "Circuit breaker states",
+          "alt": "The circuit starts closed and counts failures. When failures reach the threshold it opens and rejects calls. After the reset timeout it becomes half-open and allows one probe. A successful probe closes the circuit; a failed probe opens it again.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "cl",
+              "label": "Closed: calls flow"
+            },
+            {
+              "id": "op",
+              "label": "Open: fail fast"
+            },
+            {
+              "id": "ho",
+              "label": "Half-open: one probe"
+            }
+          ],
+          "edges": [
+            {
+              "from": "cl",
+              "to": "op",
+              "label": "failures reach threshold"
+            },
+            {
+              "from": "op",
+              "to": "ho",
+              "label": "reset timeout elapsed"
+            },
+            {
+              "from": "ho",
+              "to": "cl",
+              "label": "probe succeeds"
+            },
+            {
+              "from": "ho",
+              "to": "op",
+              "label": "probe fails"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "token-bucket-rate-limiter",
+      "title": "Implement a token bucket rate limiter",
+      "topic": "Rate limiting",
+      "difficulty": "intermediate",
+      "type": "coding",
+      "tags": [
+        "rate-limiting",
+        "token-bucket",
+        "algorithms",
+        "coding"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "A token bucket has a capacity and a refill rate. I store the token count and last refill timestamp, and compute refills lazily on each request from elapsed time rather than running a timer. A request removes a token if available, otherwise it is rejected with a retry-after estimate. Burst capacity is allowed up to the bucket size while the long-run rate is capped. Per-client limits use a Map keyed by API key or IP, and a distributed version moves the logic into a Redis Lua script.",
+      "revision": "Lazy refill from elapsed time, capacity for bursts, tryRemove returning boolean, and a retry-after estimate; per-key buckets, and Redis Lua when distributed.",
+      "detailed": "## Problem statement\n\nWrite `TokenBucket(capacity, refillPerSec)` with `tryRemove()` and `retryAfterMs()`, and show how to use it per client.\n\n## Expected solution\n\n```ts\nexport class TokenBucket {\n  private tokens: number;\n  private last: number;\n\n  constructor(\n    private readonly capacity: number,\n    private readonly refillPerSec: number,\n    private readonly now: () => number = Date.now,\n  ) {\n    if (capacity < 1 || refillPerSec <= 0) throw new RangeError('capacity >= 1 and refillPerSec > 0 required');\n    this.tokens = capacity;\n    this.last = now();\n  }\n\n  tryRemove(n = 1): boolean {\n    this.refill();\n    if (this.tokens >= n) {\n      this.tokens -= n;\n      return true;\n    }\n    return false;\n  }\n\n  retryAfterMs(n = 1): number {\n    this.refill();\n    const missing = n - this.tokens;\n    return missing <= 0 ? 0 : Math.ceil((missing / this.refillPerSec) * 1000);\n  }\n\n  private refill(): void {\n    const t = this.now();\n    const elapsedSec = Math.max(0, t - this.last) / 1000;\n    this.tokens = Math.min(this.capacity, this.tokens + elapsedSec * this.refillPerSec);\n    this.last = t;\n  }\n}\n\nexport class RateLimiter {\n  private buckets = new Map<string, TokenBucket>();\n  constructor(private readonly capacity: number, private readonly refillPerSec: number) {}\n  allow(key: string): { allowed: boolean; retryAfterMs: number } {\n    let bucket = this.buckets.get(key);\n    if (!bucket) {\n      bucket = new TokenBucket(this.capacity, this.refillPerSec);\n      this.buckets.set(key, bucket);\n    }\n    const allowed = bucket.tryRemove();\n    return { allowed, retryAfterMs: allowed ? 0 : bucket.retryAfterMs() };\n  }\n}\n// Express: const r = limiter.allow(req.ip); if (!r.allowed) { res.set('Retry-After', String(Math.ceil(r.retryAfterMs / 1000))); res.status(429).end(); }\n```\n\n## Explanation\n\nLazy refill means no timers and O(1) work. The `Math.max(0, ...)` guards against clock adjustments, and capping at capacity prevents unbounded accumulation during idle periods. Compared with a fixed window, a token bucket avoids the boundary double-burst; compared with a leaky bucket it allows controlled bursts. Returning a retry-after hint lets clients back off properly.\n\n## Time and space complexity\n\nO(1) time per request; O(k) memory for k active keys, so evict idle buckets.\n\n## Edge cases\n\n- Request costing more than capacity can never succeed; validate.\n- Clock moving backwards: elapsed is clamped to zero.\n- Memory growth from many keys: periodically delete buckets that have fully refilled.\n- Behind a proxy, `req.ip` needs a correct trust-proxy setting or all clients share one bucket.\n\n## Unit tests\n\n```ts\nimport { expect, it } from 'vitest';\nimport { TokenBucket } from './tokenBucket';\n\nit('allows bursts then refills over time', () => {\n  let t = 0;\n  const b = new TokenBucket(2, 1, () => t);\n  expect([b.tryRemove(), b.tryRemove(), b.tryRemove()]).toEqual([true, true, false]);\n  expect(b.retryAfterMs()).toBe(1000);\n  t = 1000;\n  expect(b.tryRemove()).toBe(true);\n});\n```\n\n## Production concerns\n\n- Multiple instances need shared state: Redis with an atomic Lua script, or enforce at the gateway.\n- Choose limits per tier and endpoint; expensive endpoints need tighter limits.\n- Return standard headers (`Retry-After`, and the draft RateLimit headers where supported).\n- Rate limit before expensive work such as authentication or parsing large bodies.\n\n## Likely interviewer extensions\n\n- Implement the Redis Lua version.\n- Compare with sliding window log and counter.\n- Add weighted costs per endpoint.",
+      "followUps": [
+        "Token bucket versus leaky bucket?",
+        "What goes wrong with fixed windows?",
+        "How do you rate limit by user behind a shared IP?"
+      ]
+    },
+    {
+      "slug": "lru-cache-implementation",
+      "title": "Implement an LRU cache with O(1) get and set",
+      "topic": "Data structures",
+      "difficulty": "intermediate",
+      "type": "coding",
+      "tags": [
+        "lru",
+        "cache",
+        "data-structures",
+        "algorithms",
+        "coding"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "In JavaScript the simplest correct answer uses a Map, which preserves insertion order. On get I delete and re-insert the key so it becomes the most recently used. On set I do the same, and if the size exceeds capacity I delete the first key from the iterator, which is the least recently used. Both operations are O(1). If the interviewer wants it without Map ordering, I would use a hash map plus a doubly linked list with sentinel nodes.",
+      "revision": "Use a Map's insertion order: delete and re-set on access, evict the first key when over capacity. O(1) get and set; mention the linked-list alternative.",
+      "detailed": "## Problem statement\n\nImplement `LRUCache<K, V>` with `get`, `set` and a capacity. Both operations must be O(1).\n\n## Expected solution\n\n```ts\nexport class LRUCache<K, V> {\n  private readonly map = new Map<K, V>();\n\n  constructor(private readonly capacity: number) {\n    if (!Number.isInteger(capacity) || capacity < 1) {\n      throw new RangeError('capacity must be a positive integer');\n    }\n  }\n\n  get(key: K): V | undefined {\n    if (!this.map.has(key)) return undefined;\n    const value = this.map.get(key) as V;\n    this.map.delete(key);\n    this.map.set(key, value); // now most recently used\n    return value;\n  }\n\n  set(key: K, value: V): void {\n    if (this.map.has(key)) {\n      this.map.delete(key);\n    } else if (this.map.size >= this.capacity) {\n      const oldest = this.map.keys().next().value as K;\n      this.map.delete(oldest);\n    }\n    this.map.set(key, value);\n  }\n\n  get size(): number {\n    return this.map.size;\n  }\n}\n```\n\n## Explanation\n\nThe ECMAScript specification guarantees `Map` iterates in insertion order, so the first key is always the least recently touched. Deleting and re-inserting moves a key to the end in O(1) average time. Using `has` before `get` distinguishes a stored `undefined` value from a missing key. The explicit capacity check protects against `0` or fractional sizes that would make eviction logic misbehave.\n\n## Time and space complexity\n\n`get` and `set` are O(1) average; space is O(capacity).\n\n## Edge cases\n\n- Overwriting an existing key must not evict anything.\n- Capacity of one: every new key evicts the previous.\n- Stored `undefined` values are distinguishable via `has`.\n- Keys that are objects use identity equality.\n\n## Unit tests\n\n```ts\nimport { expect, it } from 'vitest';\nimport { LRUCache } from './lru';\n\nit('evicts the least recently used entry', () => {\n  const c = new LRUCache<string, number>(2);\n  c.set('a', 1);\n  c.set('b', 2);\n  c.get('a');\n  c.set('c', 3);\n  expect(c.get('b')).toBeUndefined();\n  expect(c.get('a')).toBe(1);\n  expect(c.get('c')).toBe(3);\n  expect(c.size).toBe(2);\n});\n\nit('rejects invalid capacity', () => {\n  expect(() => new LRUCache(0)).toThrow(RangeError);\n});\n```\n\n## Production concerns\n\n- For production, use a maintained package such as lru-cache, which adds TTL, size-based limits and disposal hooks.\n- Measure hit ratio; an LRU cache with a poor ratio is overhead.\n- Remember it is per process; memory limits matter in containers.\n- Beware of caching mutable objects that callers might modify.\n\n## Likely interviewer extensions\n\n- Implement with a doubly linked list and hash map.\n- Add TTL per entry.\n- Make it size-aware (evict by bytes rather than count).",
+      "followUps": [
+        "Why is Map insertion order enough?",
+        "LRU versus LFU: when would each win?",
+        "How would you make it thread-safe in a worker-threads setup?"
+      ],
+      "related": [
+        "cache-aside-ttl-stampede-protection"
+      ]
+    },
+    {
+      "slug": "promise-pool-concurrency-limit",
+      "title": "Run async tasks with a concurrency limit (promise pool)",
+      "topic": "Async patterns",
+      "difficulty": "intermediate",
+      "type": "coding",
+      "tags": [
+        "promises",
+        "concurrency",
+        "async",
+        "node",
+        "coding"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would start up to limit worker loops. Each loop repeatedly claims the next index from a shared counter, awaits the task and writes the result into its slot in a pre-sized array, so output order matches input order. Promise.all over the workers resolves when the queue is drained. For fail-fast, a flag stops other workers claiming new items after an error. This avoids both unbounded Promise.all fan-out and a chunked approach that waits for the slowest item in each batch.",
+      "revision": "N worker loops pull indices from a shared counter and write results by index, giving bounded concurrency and ordered results; a failure flag stops new work.",
+      "detailed": "## Problem statement\n\nWrite `promisePool(items, limit, worker)` returning results in input order, running at most `limit` workers at a time.\n\n## Expected solution\n\n```ts\nexport async function promisePool<T, R>(\n  items: readonly T[],\n  limit: number,\n  worker: (item: T, index: number) => Promise<R>,\n): Promise<R[]> {\n  if (!Number.isInteger(limit) || limit < 1) throw new RangeError('limit must be a positive integer');\n  const results = new Array<R>(items.length);\n  let next = 0;\n  let failed = false;\n\n  async function run(): Promise<void> {\n    while (!failed) {\n      const i = next++;\n      if (i >= items.length) return;\n      try {\n        results[i] = await worker(items[i] as T, i);\n      } catch (err) {\n        failed = true;\n        throw err;\n      }\n    }\n  }\n\n  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, run));\n  return results;\n}\n```\n\n## Explanation\n\nJavaScript is single-threaded, so `next++` is atomic between awaits and needs no lock. Each worker loop keeps the pipeline full: as soon as one task finishes the same loop claims another, so throughput is better than processing fixed batches. Results are placed by index to keep ordering deterministic. `Promise.all` rejects on the first failure; the flag stops remaining workers from starting new items, though items already running continue. For collecting every outcome, wrap the worker in try/catch and return a result object instead.\n\n## Time and space complexity\n\nO(n) time across tasks with at most `limit` in flight; O(n) space for results.\n\n## Edge cases\n\n- Empty input returns an empty array without starting workers.\n- Limit larger than item count: only as many workers as items.\n- Limit of zero or negative: validate and throw, otherwise the pool never starts.\n- Worker throws synchronously: the async wrapper turns it into a rejection.\n\n## Unit tests\n\n```ts\nimport { expect, it } from 'vitest';\nimport { promisePool } from './promisePool';\n\nit('respects the limit and preserves order', async () => {\n  let active = 0;\n  let peak = 0;\n  const out = await promisePool([1, 2, 3, 4, 5, 6], 3, async (n) => {\n    active++;\n    peak = Math.max(peak, active);\n    await new Promise((r) => setTimeout(r, 10 - n));\n    active--;\n    return n * 2;\n  });\n  expect(out).toEqual([2, 4, 6, 8, 10, 12]);\n  expect(peak).toBeLessThanOrEqual(3);\n});\n\nit('rejects when a task fails', async () => {\n  await expect(promisePool([1, 2], 1, async (n) => { if (n === 2) throw new Error('x'); return n; })).rejects.toThrow('x');\n});\n```\n\n## Production concerns\n\n- Choose the limit from the downstream capacity (database pool size, API quota), not CPU count.\n- Add per-task timeouts and cancellation via AbortSignal.\n- For streams, prefer async iterators with backpressure.\n- Libraries such as p-limit and p-map cover this; know the mechanism either way.\n\n## Likely interviewer extensions\n\n- Return settled results for all items.\n- Support cancellation with AbortSignal.\n- Add a rate limit (starts per second) in addition to concurrency.",
+      "followUps": [
+        "Why not chunk the array and `Promise.all` each chunk?",
+        "What happens to in-flight tasks when one fails?",
+        "How is this related to backpressure?"
+      ],
+      "related": [
+        "retry-exponential-backoff-jitter"
+      ]
+    },
+    {
+      "slug": "typed-event-emitter-pub-sub",
+      "title": "Typed event emitter for in-process pub/sub",
+      "topic": "TypeScript patterns",
+      "difficulty": "intermediate",
+      "type": "coding",
+      "tags": [
+        "typescript",
+        "events",
+        "pub-sub",
+        "generics",
+        "coding"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would define the contract as an event map type, such as order created with an order ID, and make the emitter generic over it, so on and emit are checked: unknown event names and wrong payloads fail at compile time. on returns an unsubscribe function. Emit snapshots the handlers, runs them with allSettled so one failing subscriber cannot block the others, and reports failures through an error callback. This is in-process only; durability needs a broker.",
+      "revision": "Generic over an event map so on and emit are type-checked; on returns an unsubscribe; emit isolates handler failures with allSettled and reports errors.",
+      "detailed": "## Problem statement\n\nBuild `TypedEmitter<Events>` where event names and payload types are enforced, handlers may be async, and one failing handler does not affect others.\n\n## Expected solution\n\n```ts\ntype Handler<T> = (payload: T) => void | Promise<void>;\n\nexport class TypedEmitter<Events extends Record<string, unknown>> {\n  private handlers = new Map<keyof Events, Set<Handler<Events[keyof Events]>>>();\n\n  constructor(private readonly onError: (event: keyof Events, error: unknown) => void = console.error) {}\n\n  on<K extends keyof Events>(event: K, handler: Handler<Events[K]>): () => void {\n    const set = this.handlers.get(event) ?? new Set();\n    set.add(handler as unknown as Handler<Events[keyof Events]>);\n    this.handlers.set(event, set);\n    return () => this.off(event, handler);\n  }\n\n  off<K extends keyof Events>(event: K, handler: Handler<Events[K]>): void {\n    this.handlers.get(event)?.delete(handler as unknown as Handler<Events[keyof Events]>);\n  }\n\n  async emit<K extends keyof Events>(event: K, payload: Events[K]): Promise<void> {\n    const snapshot = [...(this.handlers.get(event) ?? [])];\n    const results = await Promise.allSettled(snapshot.map(async (h) => h(payload)));\n    for (const r of results) if (r.status === 'rejected') this.onError(event, r.reason);\n  }\n}\n\n// interface AppEvents { 'order.created': { orderId: string }; 'user.deleted': { userId: string } }\n// const bus = new TypedEmitter<AppEvents>();\n```\n\n## Explanation\n\nThe event map is the single source of truth: `bus.emit('order.created', { orderId: 1 })` fails to compile. The `as unknown as` casts are confined to the storage layer, where TypeScript cannot express a heterogeneous map; the public API stays fully typed. Copying handlers before dispatch means a handler that unsubscribes itself during emit does not disturb iteration. `allSettled` isolates failures, and awaiting it lets callers know when all async subscribers have finished. Node's built-in `EventEmitter` is synchronous and treats an unhandled `error` event specially, which is a common source of surprise.\n\n## Time and space complexity\n\nEmit is O(h) for h handlers; subscription is O(1).\n\n## Edge cases\n\n- Handler throws synchronously: the async wrapper converts it to a rejection, so others still run.\n- Emitting with no listeners is a no-op.\n- Subscribing the same function twice is idempotent because a Set is used.\n- Memory leaks from forgotten subscriptions: always call the returned unsubscribe, for example in React effect cleanup.\n\n## Unit tests\n\n```ts\nimport { expect, it, vi } from 'vitest';\nimport { TypedEmitter } from './emitter';\n\ninterface Events { greet: { name: string } }\n\nit('delivers payloads and isolates failures', async () => {\n  const onError = vi.fn();\n  const bus = new TypedEmitter<Events>(onError);\n  const good = vi.fn();\n  bus.on('greet', () => { throw new Error('bad'); });\n  const off = bus.on('greet', good);\n  await bus.emit('greet', { name: 'Ada' });\n  expect(good).toHaveBeenCalledWith({ name: 'Ada' });\n  expect(onError).toHaveBeenCalledTimes(1);\n  off();\n  await bus.emit('greet', { name: 'Bob' });\n  expect(good).toHaveBeenCalledTimes(1);\n});\n```\n\n## Production concerns\n\n- Domain events inside a process are fine; cross-service events need a broker with delivery guarantees.\n- Version event payloads and keep them backward compatible.\n- Do not let handlers hold up request paths; decide between awaiting and fire-and-forget deliberately.\n- Add tracing context to events for debugging.\n\n## Likely interviewer extensions\n\n- Add `once` and a wildcard subscription.\n- Add ordering guarantees or sequential handler execution.\n- How would you extend it to an outbox pattern?",
+      "followUps": [
+        "Why use an event map type instead of strings?",
+        "What are the failure semantics when a handler throws?",
+        "When does in-process pub/sub stop being enough?"
+      ]
+    },
+    {
+      "slug": "node-graceful-shutdown-handler",
+      "title": "Write a safe graceful shutdown handler for a Node server",
+      "topic": "Node operations",
+      "difficulty": "advanced",
+      "type": "coding",
+      "tags": [
+        "node",
+        "graceful-shutdown",
+        "sigterm",
+        "kubernetes",
+        "coding"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "On SIGTERM or SIGINT I run shutdown once. First mark the instance as not ready so the load balancer stops sending traffic, then call server.close so in-flight requests finish, and close idle keep-alive connections. After the server has drained I close dependencies in reverse order of creation, such as queues, then database. A hard timeout, unref'd so it does not hold the process, forces exit code 1 if draining takes too long. Repeated signals are ignored.",
+      "revision": "Run once; fail readiness; stop accepting and drain with server.close and closeIdleConnections; close dependencies in reverse order; hard timeout forces exit.",
+      "detailed": "## Problem statement\n\nImplement `registerGracefulShutdown(server, cleanups, options)` that handles SIGTERM and SIGINT, drains requests, closes resources, and cannot hang forever.\n\n## Expected solution\n\n```ts\nimport type { Server } from 'node:http';\n\nexport interface ShutdownOptions {\n  timeoutMs?: number;\n  signals?: NodeJS.Signals[];\n  exit?: (code: number) => void;\n}\n\nexport function registerGracefulShutdown(\n  server: Server,\n  cleanups: Array<() => Promise<void>>,\n  options: ShutdownOptions = {},\n) {\n  const { timeoutMs = 10_000, signals = ['SIGTERM', 'SIGINT'], exit = (c: number) => process.exit(c) } = options;\n  let shuttingDown = false;\n\n  async function shutdown(signal: string): Promise<void> {\n    if (shuttingDown) return;\n    shuttingDown = true;\n    console.log(JSON.stringify({ msg: 'shutdown started', signal }));\n\n    const force = setTimeout(() => {\n      console.error(JSON.stringify({ msg: 'shutdown timed out, forcing exit' }));\n      exit(1);\n    }, timeoutMs);\n    force.unref();\n\n    try {\n      const closed = new Promise<void>((resolve, reject) => server.close((err) => (err ? reject(err) : resolve())));\n      server.closeIdleConnections?.();\n      await closed;\n      for (const cleanup of [...cleanups].reverse()) await cleanup();\n      clearTimeout(force);\n      exit(0);\n    } catch (err) {\n      clearTimeout(force);\n      console.error(JSON.stringify({ msg: 'shutdown failed', error: String(err) }));\n      exit(1);\n    }\n  }\n\n  for (const s of signals) process.on(s, () => void shutdown(s));\n  return { shutdown, isShuttingDown: () => shuttingDown };\n}\n// readiness: app.get('/ready', (_req, res) => res.sendStatus(handle.isShuttingDown() ? 503 : 200));\n```\n\n{{diagram:shutdown-flow}}\n\n## Explanation\n\nFlipping to not-ready first lets the load balancer remove the instance while it still serves in-flight requests. `server.close` stops accepting connections and resolves once existing ones end; `closeIdleConnections` (Node 18.2 and later) releases keep-alive sockets that would otherwise hold it open. Cleanups run in reverse registration order because later resources usually depend on earlier ones. The timer is `unref`ed so it cannot keep the process alive, and `shuttingDown` makes the handler idempotent. The `exit` function is injectable so tests do not kill the runner.\n\n## Time and space complexity\n\nShutdown time is bounded by the longest in-flight request or the timeout.\n\n## Edge cases\n\n- Second signal while shutting down: ignored by the guard.\n- Long-lived connections (WebSockets, streaming) never go idle: track and close them, or rely on the timeout.\n- A cleanup step throws: exit code 1, but you may want to continue remaining cleanups.\n- Server not yet listening: `close` calls back with an error.\n\n## Unit tests\n\n```ts\nimport { expect, it, vi } from 'vitest';\nimport type { Server } from 'node:http';\nimport { registerGracefulShutdown } from './shutdown';\n\nit('drains, runs cleanups in reverse order and exits 0', async () => {\n  const order: string[] = [];\n  const server = {\n    close: (cb: (e?: Error) => void) => { order.push('close'); cb(); },\n    closeIdleConnections: () => order.push('idle'),\n  } as unknown as Server;\n  const exit = vi.fn();\n  const { shutdown, isShuttingDown } = registerGracefulShutdown(\n    server,\n    [async () => { order.push('db'); }, async () => { order.push('queue'); }],\n    { exit, signals: [] },\n  );\n  await shutdown('SIGTERM');\n  expect(order).toEqual(['close', 'idle', 'queue', 'db']);\n  expect(exit).toHaveBeenCalledWith(0);\n  expect(isShuttingDown()).toBe(true);\n});\n```\n\n## Production concerns\n\n- Match the platform: Kubernetes sends SIGTERM and waits `terminationGracePeriodSeconds`; set your timeout below it and consider a short `preStop` delay so endpoint removal propagates.\n- Stop consuming from queues before closing the database, and finish or return in-flight messages.\n- Handle `uncaughtException` and `unhandledRejection` by logging and shutting down, not by continuing.\n- Flush logs and telemetry before exit.\n\n## Likely interviewer extensions\n\n- Track open sockets and destroy them after the grace period.\n- Drain a queue consumer and acknowledge in-flight messages.\n- Add a `preStop` sleep and explain why it helps.",
+      "followUps": [
+        "Why not call `process.exit` immediately?",
+        "What does `server.close` actually wait for?",
+        "How does readiness differ from liveness during shutdown?"
+      ],
+      "diagrams": [
+        {
+          "id": "shutdown-flow",
+          "title": "Graceful shutdown sequence",
+          "alt": "On a termination signal the process marks itself not ready, stops accepting new connections, waits for in-flight requests to finish, closes dependencies in reverse order and exits with code zero. A timer forces exit with code one if draining takes too long.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "sg",
+              "label": "SIGTERM received"
+            },
+            {
+              "id": "nr",
+              "label": "Mark not ready"
+            },
+            {
+              "id": "dr",
+              "label": "Stop accepting, drain requests"
+            },
+            {
+              "id": "cl",
+              "label": "Close queues then database"
+            },
+            {
+              "id": "ok",
+              "label": "Exit 0"
+            },
+            {
+              "id": "to",
+              "label": "Timeout: exit 1"
+            }
+          ],
+          "edges": [
+            {
+              "from": "sg",
+              "to": "nr"
+            },
+            {
+              "from": "nr",
+              "to": "dr"
+            },
+            {
+              "from": "dr",
+              "to": "cl",
+              "label": "drained"
+            },
+            {
+              "from": "cl",
+              "to": "ok"
+            },
+            {
+              "from": "dr",
+              "to": "to",
+              "label": "too slow"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

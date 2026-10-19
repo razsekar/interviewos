@@ -1,0 +1,991 @@
+{
+  "category": "security-governance",
+  "questions": [
+    {
+      "slug": "authentication-vs-authorisation-in-web-architecture",
+      "title": "What is the difference between authentication and authorisation, and where should each be enforced?",
+      "topic": "Identity and Access",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "authentication",
+        "authorisation",
+        "access-control",
+        "architecture"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Authentication answers who you are; authorisation answers what you may do. I keep them separate in the design. Authentication happens once at an identity provider or login endpoint and produces a verifiable identity. Authorisation happens on every request, on the server, close to the data, using that identity plus roles, attributes and resource ownership. The frontend can hide buttons for usability, but it is never a control. A common failure is authenticating at the gateway and then trusting every internal call with no further checks.",
+      "revision": "Authentication proves identity; authorisation decides permitted actions. Authenticate at the edge or identity provider, authorise on every server-side request near the data.",
+      "detailed": "**Authentication (authn)** establishes who the caller is. **Authorisation (authz)** decides whether that caller may perform a specific action on a specific resource. A user can be perfectly authenticated and still be forbidden: that is a 403, whereas a missing or invalid identity is a 401.\n\n## Where each belongs\n\n| Concern | Typical location | Notes |\n|---|---|---|\n| Authentication | Identity provider, login endpoint, gateway token validation | Delegate to a standard provider rather than build it |\n| Coarse authorisation | Gateway or middleware | Scopes, role presence, tenant match |\n| Fine-grained authorisation | Service or resolver, next to the data | Ownership, attributes, field-level rules |\n| UI hiding | React components | Usability only, never security |\n\n{{diagram:authn-authz}}\n\n## Prevention\n\n- Validate the identity on every request server-side; never trust a user id sent by the client.\n- Deny by default: a new endpoint or GraphQL field has no access until a rule grants it.\n- Centralise policy checks in one module so rules are reviewable and testable.\n\n## Detection\n\n- Log authorisation denials with user, resource and rule; alert on spikes.\n- Automated tests that call each endpoint as an anonymous user, a low-privilege user and a user from another tenant.\n\n## Remediation\n\n- When a missing check is found, fix the class of bug (a shared guard) rather than one route, then review logs for earlier abuse.\n\n## Architectural controls\n\nUse a policy decision point (a library or service) and enforce at every service boundary, including internal calls. Pass the verified identity downstream as a signed token, not as a plain header that any service could forge.\n\n## Common mistakes\n\n- Treating a hidden button or a client-side route guard as access control.\n- Authorising only at the gateway and trusting internal services.\n- Confusing 401 and 403, which leaks or confuses behaviour.\n- Putting roles in a token and never re-checking resource ownership.",
+      "followUps": [
+        "Why is a client-side route guard not a security control?",
+        "How would you propagate identity between internal microservices?",
+        "What does deny by default look like in a GraphQL schema?"
+      ],
+      "related": [
+        "idor-broken-access-control-and-graphql-field-authorisation"
+      ],
+      "diagrams": [
+        {
+          "id": "authn-authz",
+          "title": "Authentication then authorisation",
+          "alt": "A request is authenticated by validating a token at the edge, then each service authorises the action against policy and the resource, returning 401 for no identity, 403 for denied, or the data.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Request with token"
+            },
+            {
+              "id": "n1",
+              "label": "Authenticate: who is it?"
+            },
+            {
+              "id": "n2",
+              "label": "401 if invalid"
+            },
+            {
+              "id": "n3",
+              "label": "Authorise: may they?"
+            },
+            {
+              "id": "n4",
+              "label": "403 if denied"
+            },
+            {
+              "id": "n5",
+              "label": "Resource or data"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2",
+              "label": "fail"
+            },
+            {
+              "from": "n1",
+              "to": "n3",
+              "label": "ok"
+            },
+            {
+              "from": "n3",
+              "to": "n4",
+              "label": "fail"
+            },
+            {
+              "from": "n3",
+              "to": "n5",
+              "label": "ok"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "oauth2-oidc-authorisation-code-pkce-for-spas-and-ssr",
+      "title": "How do OAuth 2.0 and OpenID Connect work for a SPA or Next.js app using authorisation code with PKCE?",
+      "topic": "Identity and Access",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "oauth2",
+        "oidc",
+        "pkce",
+        "nextjs",
+        "spa"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "OAuth 2.0 delegates access; OpenID Connect adds an identity layer on top. For a browser app I use authorisation code with PKCE: the app creates a random code verifier, sends its hash as the challenge to the authorisation endpoint, the user signs in, and the app exchanges the returned code plus the verifier for tokens. Implicit flow is obsolete. In Next.js I prefer the server to run the exchange as a confidential client and keep tokens in an HttpOnly cookie session, so the browser never handles them.",
+      "revision": "Use authorisation code with PKCE. Never implicit. In Next.js, let the server exchange the code and hold tokens, giving the browser only an HttpOnly session cookie.",
+      "detailed": "**OAuth 2.0** is a delegation framework: a client obtains an access token to call an API on a user's behalf. **OpenID Connect (OIDC)** adds an ID token and a userinfo endpoint so the client learns who signed in. OAuth alone is not authentication.\n\n{{diagram:auth-code-pkce}}\n\n## The flow\n\n1. The client generates a high-entropy **code_verifier** and sends its SHA-256 hash as **code_challenge**, plus `state` (CSRF defence) and `nonce` (replay defence for the ID token).\n2. The user authenticates at the identity provider and consents.\n3. The provider redirects back with a one-time **code**.\n4. The client calls the token endpoint with the code and the original verifier. The provider checks the hash matches, which stops a stolen code being redeemed by an attacker.\n5. The client receives an ID token, an access token and usually a refresh token.\n\n## SPA versus SSR\n\n| Pattern | Who holds tokens | Comment |\n|---|---|---|\n| Pure SPA (public client) | Browser memory | PKCE is mandatory; token theft by XSS is the main risk |\n| Next.js server (confidential client) | Server session | Client secret stays server-side; browser gets an HttpOnly cookie |\n| Backend for frontend (BFF) | BFF | Strongest option for sensitive apps; API calls proxied |\n\n## Prevention\n\n- Exact-match registered redirect URIs; no wildcards.\n- Validate `state`, `nonce`, issuer, audience and signature.\n- Request least-privilege scopes.\n\n## Detection and remediation\n\nMonitor failed code exchanges and unusual redirect URIs. If a client secret or refresh token leaks, revoke it at the provider and rotate the secret.\n\n## Common mistakes\n\n- Using implicit flow or the password grant for new work.\n- Skipping `state` validation.\n- Treating an access token as proof of identity.\n- Storing tokens in localStorage because the library defaults to it, without weighing XSS risk.\n- Using open or wildcard redirect URIs.",
+      "followUps": [
+        "Why does PKCE help even for confidential clients?",
+        "What does a backend for frontend add?",
+        "How do you validate an ID token?"
+      ],
+      "related": [
+        "jwt-structure-validation-expiry-and-key-rotation",
+        "where-to-store-tokens-cookies-vs-localstorage"
+      ],
+      "diagrams": [
+        {
+          "id": "auth-code-pkce",
+          "title": "Authorisation code flow with PKCE",
+          "alt": "The app generates a verifier and challenge, redirects the user to the identity provider, receives a one-time code on the redirect URI, then exchanges the code and verifier at the token endpoint for tokens.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "App creates verifier and challenge"
+            },
+            {
+              "id": "n1",
+              "label": "Authorisation endpoint with challenge"
+            },
+            {
+              "id": "n2",
+              "label": "User signs in and consents"
+            },
+            {
+              "id": "n3",
+              "label": "Redirect with code and state"
+            },
+            {
+              "id": "n4",
+              "label": "Token endpoint: code plus verifier"
+            },
+            {
+              "id": "n5",
+              "label": "ID and access tokens"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            },
+            {
+              "from": "n4",
+              "to": "n5"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "jwt-structure-validation-expiry-and-key-rotation",
+      "title": "What is a JWT, how do you validate it properly, and how do expiry and key rotation work?",
+      "topic": "Identity and Access",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "jwt",
+        "tokens",
+        "validation",
+        "key-rotation"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "A JWT is three base64url parts: header, claims and signature. It is signed, not encrypted, so anyone can read the claims. A resource server must verify the signature against the issuer's published keys, pin the allowed algorithm, and check issuer, audience, expiry and not-before. I keep access tokens short-lived, minutes rather than days, because they cannot be revoked easily. Keys rotate by publishing a new key in a JWKS endpoint with a key id, so verifiers pick the right key and old tokens still validate until they expire.",
+      "revision": "A JWT is signed, not secret. Verify signature, pinned algorithm, issuer, audience and expiry. Keep tokens short-lived and rotate keys through a JWKS with key ids.",
+      "detailed": "A JSON Web Token has a **header** (algorithm, key id), a **payload** of claims (`iss`, `sub`, `aud`, `exp`, `iat`, scopes) and a **signature**. Standard JWTs are signed (JWS), so integrity is protected but the content is readable. Never put secrets or unnecessary personal data in claims.\n\n{{diagram:jwt-validation}}\n\n## Validation checklist\n\n| Check | Why |\n|---|---|\n| Signature with the issuer's key | Proves it was not altered |\n| Allowed algorithm pinned | Blocks `alg: none` and algorithm confusion |\n| `iss` matches the expected issuer | Rejects tokens from other issuers |\n| `aud` includes this API | Stops a token for service A being replayed to service B |\n| `exp` and `nbf` with small clock skew | Limits token lifetime |\n| Scopes or roles required for the action | Authorisation, not just authentication |\n\nUse a maintained library; do not hand-roll verification.\n\n## Expiry\n\nAccess tokens are bearer credentials, so whoever holds one can use it. Short lifetimes (commonly 5 to 15 minutes, a policy choice) limit the damage window. Revocation is hard for self-contained tokens; options are short lifetimes, a deny list keyed on token id, or opaque tokens with introspection when immediate revocation matters.\n\n## Key rotation\n\nThe issuer publishes public keys at a **JWKS** URL. Each token carries a `kid`. To rotate: publish the new key, start signing with it, keep the old public key until the last token signed by it has expired, then remove it. Verifiers cache the JWKS and refetch when they see an unknown `kid`, with rate limiting to avoid being used as an amplifier.\n\n## Common mistakes\n\n- Decoding a token and trusting the claims without verifying the signature.\n- Accepting whatever algorithm the header states.\n- Skipping audience checks.\n- Long-lived access tokens with no revocation plan.\n- Storing sensitive data in the payload.\n- Caching the JWKS forever, which breaks rotation.",
+      "followUps": [
+        "When would you choose opaque tokens over JWTs?",
+        "How would you revoke a JWT that has not expired?",
+        "What is algorithm confusion?"
+      ],
+      "related": [
+        "session-vs-token-authentication",
+        "refresh-token-rotation-reuse-detection-and-the-refresh-loop"
+      ],
+      "diagrams": [
+        {
+          "id": "jwt-validation",
+          "title": "JWT validation steps",
+          "alt": "The API reads the key id from the header, fetches the matching key from the cached JWKS, verifies the signature and pinned algorithm, then checks issuer, audience and expiry, and finally checks scopes before allowing the request.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Bearer token"
+            },
+            {
+              "id": "n1",
+              "label": "Read kid, fetch key from JWKS"
+            },
+            {
+              "id": "n2",
+              "label": "Verify signature and algorithm"
+            },
+            {
+              "id": "n3",
+              "label": "Check iss, aud, exp, nbf"
+            },
+            {
+              "id": "n4",
+              "label": "Check scopes"
+            },
+            {
+              "id": "n5",
+              "label": "Allow request"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            },
+            {
+              "from": "n4",
+              "to": "n5"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "session-vs-token-authentication",
+      "title": "Should a web application use server-side sessions or token-based authentication?",
+      "topic": "Identity and Access",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "sessions",
+        "tokens",
+        "jwt",
+        "trade-offs"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "For a browser-first product I default to server-side sessions: an opaque id in an HttpOnly cookie, state stored in Redis or a database. Revocation is instant, nothing sensitive sits in the client, and the model is simple. Tokens suit APIs called by mobile apps, third parties or service-to-service, where cookies are awkward. In a distributed system a hybrid works well: a BFF holds the session with the browser and uses tokens towards back-end services. The choice is about revocation, scale and client type, not fashion.",
+      "revision": "Sessions: opaque cookie, server state, easy revocation. Tokens: stateless, good for APIs and service calls. A BFF often gives sessions to browsers and tokens to services.",
+      "detailed": "Both approaches prove identity on later requests; they differ in **where state lives**.\n\n| Aspect | Server-side session | Token (for example JWT) |\n|---|---|---|\n| Client holds | Opaque random id | Self-contained signed token |\n| Server state | Session store (Redis, database) | None, or a deny list |\n| Revocation | Delete the session: immediate | Hard until expiry |\n| Scaling | Needs shared store or sticky routing | Verifies locally, scales easily |\n| Payload size | Tiny cookie | Larger headers on every call |\n| Typical client | Browser | Mobile, third-party, service-to-service |\n| Stale data | Always current | Claims frozen until refresh |\n\n## Choosing\n\n- **Browser app with its own backend:** sessions in an `HttpOnly; Secure; SameSite` cookie. Pair with CSRF protection.\n- **Public API, mobile client, partner integration:** OAuth access tokens, short-lived, with refresh.\n- **Microservices:** validate a token at the edge and pass a signed internal identity, or use mTLS and service identities.\n\n## Prevention\n\n- Regenerate the session id at login to prevent fixation.\n- Set idle and absolute timeouts.\n- Bind sensitive actions to recent authentication (step-up).\n\n## Detection and remediation\n\nTrack concurrent sessions, location or device changes and failed logins. Provide \"sign out everywhere\", which is trivial with sessions and needs a token version or deny list with stateless tokens.\n\n## Architectural controls\n\nA **backend for frontend** keeps tokens out of the browser: the browser has a session cookie, the BFF holds the access and refresh tokens and calls APIs. This gives revocation, small client surface and standard tokens downstream.\n\n## Common mistakes\n\n- Choosing JWT \"because it is stateless\" and then adding a database lookup on every request for revocation, getting the cost of both.\n- Putting a session id in the URL.\n- Forgetting the session store is now critical infrastructure needing availability and encryption.\n- Using the same long-lived credential for browser and API clients.",
+      "followUps": [
+        "How do you do sign out everywhere with stateless tokens?",
+        "What is session fixation and how do you prevent it?",
+        "How does a BFF change the threat model for a SPA?"
+      ],
+      "related": [
+        "jwt-structure-validation-expiry-and-key-rotation",
+        "where-to-store-tokens-cookies-vs-localstorage"
+      ]
+    },
+    {
+      "slug": "refresh-token-rotation-reuse-detection-and-the-refresh-loop",
+      "title": "How do refresh token rotation and reuse detection work, and what causes a refresh loop?",
+      "topic": "Identity and Access",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "refresh-tokens",
+        "rotation",
+        "oauth2",
+        "incident"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Access tokens are short-lived; a refresh token gets new ones. With rotation, every refresh returns a new refresh token and invalidates the old one. If an old one is presented again, the server assumes theft and revokes the whole token family. The classic failure is a refresh loop: several tabs or parallel requests refresh at once, one wins, the rest present the now-invalid token, get revoked, and the user is kicked out, or the client retries 401s forever. I fix it with a single-flight refresh, a small grace window, and capped retries.",
+      "revision": "Rotate refresh tokens, revoke the family on reuse. Avoid refresh loops with a single-flight refresh, a short grace window and bounded retries on 401.",
+      "detailed": "A **refresh token** lets a client obtain new access tokens without the user signing in again. It is long-lived and therefore a high-value target.\n\n{{diagram:refresh-rotation}}\n\n## Rotation and reuse detection\n\n1. Client sends refresh token R1.\n2. Server issues access token A2 and refresh token R2, and marks R1 as used.\n3. If R1 is presented again, either an attacker or a buggy client has it. The server **revokes the entire family** (R2 included), forcing a new sign-in.\n\nStore only a hash of each refresh token, link tokens to a family id, and set an absolute lifetime plus an idle lifetime.\n\n## The refresh loop failure\n\n| Trigger | Symptom |\n|---|---|\n| Multiple tabs refresh simultaneously | One succeeds, others reuse R1, family revoked, user logged out |\n| Parallel API calls each get 401 and each refresh | Same race inside one tab |\n| Client retries a 401 without bound | Endless refresh then request cycle, load spike on identity provider |\n| Refresh response lost on a flaky network | Client still holds R1, retries, triggers reuse detection |\n| Refresh succeeds but API still returns 401 (audience or scope wrong) | Infinite loop |\n\n## Remediation\n\n- **Single-flight refresh:** one shared promise per client; concurrent callers await it. Across tabs use a lock (for example the Web Locks API) or let a BFF own refresh.\n- **Grace window:** accept the previous token for a few seconds and return the same successor, tolerating lost responses. This is a policy trade-off against replay risk.\n- **Bounded retry:** refresh at most once per request; if the retry still fails, sign out cleanly.\n- **Refresh proactively** shortly before expiry rather than reactively on failure.\n\n## Detection\n\nAlert on reuse-detection events, high refresh rates per user and repeated 401 after refresh.\n\n## Common mistakes\n\n- Rotation without a family, so theft cannot be contained.\n- Treating every reuse as theft without any tolerance for network failures.\n- Retrying 401 in an interceptor with no counter.\n- Storing refresh tokens in localStorage.\n- No absolute lifetime, so a stolen token lives forever.",
+      "followUps": [
+        "How would you coordinate refresh across browser tabs?",
+        "Is a grace window safe?",
+        "How does a BFF simplify refresh handling?"
+      ],
+      "related": [
+        "oauth2-oidc-authorisation-code-pkce-for-spas-and-ssr",
+        "where-to-store-tokens-cookies-vs-localstorage"
+      ],
+      "diagrams": [
+        {
+          "id": "refresh-rotation",
+          "title": "Refresh token rotation and reuse detection",
+          "alt": "The client presents refresh token one and receives a new access token and refresh token two. If token one is presented again the server detects reuse and revokes the whole token family, forcing sign-in.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Client presents R1"
+            },
+            {
+              "id": "n1",
+              "label": "Server issues A2 and R2, marks R1 used"
+            },
+            {
+              "id": "n2",
+              "label": "Normal use continues with R2"
+            },
+            {
+              "id": "n3",
+              "label": "R1 presented again"
+            },
+            {
+              "id": "n4",
+              "label": "Reuse detected"
+            },
+            {
+              "id": "n5",
+              "label": "Revoke token family and require sign-in"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            },
+            {
+              "from": "n4",
+              "to": "n5"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "where-to-store-tokens-cookies-vs-localstorage",
+      "title": "Where should a browser app store tokens: cookies or localStorage, and which cookie flags matter?",
+      "topic": "Identity and Access",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "cookies",
+        "localstorage",
+        "xss",
+        "tokens"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I avoid localStorage for tokens because any XSS can read it and exfiltrate it. An HttpOnly cookie cannot be read by JavaScript, so XSS cannot steal it, though it can still make requests as the user. Cookies bring CSRF concerns, handled with SameSite and tokens. My default is a session cookie with HttpOnly, Secure, SameSite=Lax or Strict, a narrow path and a __Host- prefix, ideally set by a backend that holds the real tokens. If tokens must live in JavaScript, keep them in memory and short-lived.",
+      "revision": "Prefer HttpOnly, Secure, SameSite cookies, ideally a __Host- session set by a BFF. Avoid localStorage for tokens because XSS can read it.",
+      "detailed": "No browser storage is immune to XSS, but the **impact** differs.\n\n| Storage | Readable by injected script | Sent automatically | Main risk |\n|---|---|---|---|\n| localStorage / sessionStorage | Yes | No | Token theft and reuse from anywhere |\n| In-memory variable | Yes, if script runs in the page | No | Lost on reload; still stealable |\n| HttpOnly cookie | No | Yes | CSRF; attacker can act in-session but cannot export the token |\n\n## Cookie flags\n\n```http\nSet-Cookie: __Host-session=opaque-id; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=3600\n```\n\n- **HttpOnly:** hidden from `document.cookie`.\n- **Secure:** only sent over HTTPS.\n- **SameSite:** `Lax` blocks cross-site subrequests except top-level navigations; `Strict` is tighter; `None` requires `Secure` and allows cross-site use.\n- **`__Host-` prefix:** forces Secure, Path=/, and no Domain, so subdomains cannot overwrite it.\n- **Lifetime:** keep short, with server-side expiry as the authority.\n\n## Recommended patterns\n\n1. **Best for sensitive apps:** BFF or Next.js server holds OAuth tokens; the browser has only the session cookie.\n2. **Public SPA calling APIs directly:** access token in memory, refresh through a rotating mechanism, strict CSP to shrink XSS risk.\n\n## Prevention, detection, remediation\n\n- Prevent XSS with output encoding and CSP; add CSRF defences to cookie auth.\n- Detect anomalies such as one session used from two regions.\n- On suspected theft, revoke the server session or token family and rotate secrets.\n\n## Common mistakes\n\n- Putting JWTs in localStorage for convenience.\n- Cookies without `Secure` or with `SameSite=None` unnecessarily.\n- Setting the cookie `Domain` to the parent domain, exposing it to every subdomain.\n- Assuming HttpOnly makes XSS harmless: the attacker can still call your API from the victim's browser.",
+      "followUps": [
+        "Why is HttpOnly not a complete XSS defence?",
+        "When is SameSite=None needed?",
+        "How does the __Host- prefix help?"
+      ],
+      "related": [
+        "xss-in-react-dangerouslysetinnerhtml-and-content-security-policy",
+        "csrf-samesite-and-cors-misconfiguration"
+      ]
+    },
+    {
+      "slug": "xss-in-react-dangerouslysetinnerhtml-and-content-security-policy",
+      "title": "How do you prevent cross-site scripting in a React and Next.js app, and what does CSP add?",
+      "topic": "Application Security",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "xss",
+        "react",
+        "csp",
+        "dompurify"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "React escapes values rendered in JSX, so most XSS comes from escape hatches: dangerouslySetInnerHTML, href or src values with javascript: URLs, direct DOM writes, unsafe markdown rendering, and injecting data into inline scripts during server rendering. I sanitise any untrusted HTML with a maintained library such as DOMPurify, validate URL schemes, and avoid raw HTML where possible. Then I add a Content Security Policy with nonces, no unsafe-inline scripts, as defence in depth. CSP reduces blast radius but never replaces fixing the sink.",
+      "revision": "React escapes JSX by default. Risk lives in dangerouslySetInnerHTML, javascript: URLs, DOM writes and SSR script injection. Sanitise, validate URLs, and add a nonce-based CSP.",
+      "detailed": "**XSS** lets an attacker run script in your origin, which can read the DOM, call APIs as the user and steal non-HttpOnly tokens. Types: stored, reflected and DOM-based.\n\n## React-specific sinks\n\n| Sink | Risk | Safer approach |\n|---|---|---|\n| `dangerouslySetInnerHTML` | Raw HTML executes | Sanitise with DOMPurify; prefer rendering structured data |\n| `<a href={userUrl}>` | `javascript:` URL | Allow only `http`, `https`, `mailto` after parsing with `new URL` |\n| `ref.current.innerHTML = ...` | Bypasses React | Use JSX |\n| Markdown or CMS rich text | Embedded HTML and scripts | Sanitising renderer, allow-list of tags |\n| SSR state in `<script>` | `</script>` breakout | Serialise safely (escape `<`), not raw `JSON.stringify` |\n| Third-party scripts and tags | Supply-chain XSS | Allow-list, SRI, review |\n\n```tsx\nimport DOMPurify from \"isomorphic-dompurify\";\n\nfunction Rich({ html }: { html: string }) {\n  const clean = DOMPurify.sanitize(html, { USE_PROFILES: { html: true } });\n  return <div dangerouslySetInnerHTML={{ __html: clean }} />;\n}\n```\n\n## Content Security Policy\n\nA CSP tells the browser which sources may run. A strong policy uses per-request nonces:\n\n```http\nContent-Security-Policy: default-src 'self'; script-src 'nonce-{random}' 'strict-dynamic'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'\n```\n\nIn Next.js, generate the nonce in middleware and pass it to scripts. Start in `Content-Security-Policy-Report-Only` mode, review reports, then enforce. Exact header syntax and nonce wiring vary by Next.js version, so check the current documentation.\n\n## Prevention, detection, remediation\n\n- Prevent: encode output, sanitise, validate URLs, lint for `dangerouslySetInnerHTML`, enforce Trusted Types where feasible.\n- Detect: CSP violation reports, SAST rules, scheduled DAST scans.\n- Remediate: fix the sink, invalidate sessions that may have been exposed, purge stored payloads, add a regression test.\n\n## Common mistakes\n\n- Sanitising on input but rendering elsewhere unsanitised; sanitise at the point of output.\n- Allowing `unsafe-inline` or wildcard script sources, which defeats CSP.\n- Trusting a CSP as the only control.\n- Writing a regex-based sanitiser.",
+      "followUps": [
+        "What are Trusted Types?",
+        "How do you roll out CSP without breaking production?",
+        "How does stored XSS differ from DOM XSS?"
+      ],
+      "related": [
+        "where-to-store-tokens-cookies-vs-localstorage",
+        "csrf-samesite-and-cors-misconfiguration"
+      ]
+    },
+    {
+      "slug": "csrf-samesite-and-cors-misconfiguration",
+      "title": "How do CSRF, SameSite and CORS relate, and what are common CORS misconfigurations?",
+      "topic": "Application Security",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "csrf",
+        "samesite",
+        "cors",
+        "headers"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "CSRF tricks a logged-in browser into sending a state-changing request, because cookies attach automatically. I defend with SameSite cookies, CSRF tokens or double-submit on mutating requests, Origin header checks, and no state change on GET. CORS is different: it is a browser relaxation of the same-origin policy for reading responses, not an access control. Misconfigurations include reflecting any Origin, combining wildcard-like behaviour with credentials, trusting null, and weak regex allow-lists. I use an explicit allow-list of origins and never rely on CORS to protect an API.",
+      "revision": "CSRF abuses automatic cookies; defend with SameSite, tokens and Origin checks. CORS governs which origins can read responses; use an explicit allow-list, never reflect Origin.",
+      "detailed": "## CSRF\n\nIf authentication is via cookies, the browser attaches them to any request to your site, including ones triggered by a malicious page. The attacker cannot read the response but can cause a state change.\n\n| Defence | Notes |\n|---|---|\n| `SameSite=Lax` or `Strict` cookies | Strong baseline in modern browsers; Lax still sends cookies on top-level GET navigations |\n| Anti-CSRF token (synchroniser or double-submit) | Needed for defence in depth and older clients |\n| Verify `Origin` / `Sec-Fetch-Site` headers | Cheap server-side check on mutating requests |\n| Custom header requirement (for example on JSON APIs) | Forces a CORS preflight |\n| Never mutate state on GET | Lax cookies travel on top-level GETs |\n\nAPIs using an `Authorization: Bearer` header from JavaScript are not CSRF-prone in the same way, because the browser does not attach that header automatically.\n\n## CORS\n\nCORS lets a server tell browsers that a different origin may read its responses. It does **not** stop a request being sent, and it does not protect against non-browser clients. A preflight `OPTIONS` runs for non-simple requests.\n\n```ts\nconst allowed = new Set([\"https://app.example.com\", \"https://admin.example.com\"]);\napp.use((req, res, next) => {\n  const origin = req.headers.origin;\n  if (origin && allowed.has(origin)) {\n    res.setHeader(\"Access-Control-Allow-Origin\", origin);\n    res.setHeader(\"Access-Control-Allow-Credentials\", \"true\");\n    res.setHeader(\"Vary\", \"Origin\");\n  }\n  next();\n});\n```\n\n## Common misconfigurations\n\n- Reflecting the request `Origin` while allowing credentials, which lets any site read authenticated responses.\n- Allowing `null` origin.\n- Regex such as `.example.com$` that also matches `evilexample.com`.\n- `Access-Control-Allow-Origin: *` on endpoints that return private data via other auth means.\n- Missing `Vary: Origin`, causing cache poisoning.\n\n## Detection and remediation\n\nTest with a script that sends crafted `Origin` values; include it in CI. Fix by allow-listing exact origins, review reverse-proxy and CDN CORS layers so they do not conflict.\n\n## Common mistakes\n\n- Treating CORS as authentication.\n- Disabling CSRF protection because \"we use JSON\".\n- Setting SameSite=None without need.",
+      "followUps": [
+        "Why does a Bearer-token API not need CSRF tokens?",
+        "What is a CORS preflight and when does it occur?",
+        "What does Vary: Origin protect against?"
+      ],
+      "related": [
+        "where-to-store-tokens-cookies-vs-localstorage",
+        "xss-in-react-dangerouslysetinnerhtml-and-content-security-policy"
+      ]
+    },
+    {
+      "slug": "sql-and-nosql-injection-prevention-in-node",
+      "title": "How do you prevent SQL and NoSQL injection in a Node.js back end?",
+      "topic": "Application Security",
+      "difficulty": "intermediate",
+      "type": "coding",
+      "tags": [
+        "injection",
+        "sql",
+        "nosql",
+        "nodejs",
+        "graphql"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Injection happens when untrusted input changes the structure of a query. For SQL I always use parameterised queries or a query builder with bound parameters, never string concatenation, and I allow-list anything that cannot be parameterised, such as column names for sorting. For MongoDB the issue is operator injection: a JSON body like {password: {$ne: null}} bypasses a check, so I validate types with a schema and reject objects where strings are expected. The database account has least privilege, so a flaw cannot drop tables or read other schemas.",
+      "revision": "Parameterise SQL, allow-list identifiers, validate types to stop NoSQL operator injection, use least-privilege DB accounts, and validate GraphQL inputs with schemas.",
+      "detailed": "Injection occurs when data is interpreted as code or query structure. The fix is to keep **data and structure separate**.\n\n## SQL\n\n```ts\n// Vulnerable: input becomes SQL\nconst rows = await db.query(`SELECT * FROM users WHERE email = '${email}'`);\n\n// Safe: bound parameter\nconst rows = await db.query(\"SELECT * FROM users WHERE email = $1\", [email]);\n\n// Identifiers cannot be bound: allow-list them\nconst SORTABLE = new Set([\"created_at\", \"name\"]);\nconst col = SORTABLE.has(sort) ? sort : \"created_at\";\nconst sorted = await db.query(`SELECT id, name FROM users ORDER BY ${col}`);\n```\n\nORMs and query builders help but have raw-query escape hatches that need the same care.\n\n## NoSQL (for example MongoDB)\n\n```ts\nimport { z } from \"zod\";\nconst Login = z.object({ email: z.string().email(), password: z.string().min(1) });\nconst { email, password } = Login.parse(req.body); // rejects { \"$ne\": null }\nconst user = await users.findOne({ email });\n```\n\nOperator injection works when an object is passed where a string was expected. Validate types, strip keys beginning with `$`, and avoid running user-supplied JavaScript in `$where`.\n\n## GraphQL notes\n\nGraphQL variables are typed, which helps, but resolvers that build queries from arguments are as vulnerable as any code. Also limit query depth and cost, and disable introspection in production where policy requires.\n\n## Controls by stage\n\n| Stage | Control |\n|---|---|\n| Prevention | Parameterisation, schema validation, least-privilege database users, separate read and write roles |\n| Detection | SAST rules for string-built queries, WAF signals, anomaly alerts on slow or unusual queries |\n| Remediation | Fix the call site, rotate credentials if data was exposed, review audit logs, add regression tests |\n| Architecture | Network-isolate databases, row-level security where supported, no direct DB access from the client |\n\n## Common mistakes\n\n- Escaping by hand instead of parameterising.\n- Forgetting identifiers and `LIMIT` values.\n- Trusting client-side validation.\n- Using one all-powerful database account for the application.\n- Verbose database errors returned to clients.",
+      "followUps": [
+        "Why can identifiers not be parameterised?",
+        "What is operator injection in MongoDB?",
+        "How does row-level security complement parameterisation?"
+      ],
+      "related": [
+        "idor-broken-access-control-and-graphql-field-authorisation"
+      ]
+    },
+    {
+      "slug": "ssrf-and-cloud-metadata-protection-on-aws",
+      "title": "How do you defend against SSRF, especially the cloud metadata risk on AWS?",
+      "topic": "Application Security",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "ssrf",
+        "aws",
+        "imds",
+        "network-security"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "SSRF makes my server fetch a URL an attacker chose, such as an image proxy or webhook feature, so the attacker reaches internal services or the cloud metadata endpoint at 169.254.169.254 and steals instance credentials. I enforce IMDSv2 with a low hop limit, give workloads least-privilege roles, allow-list outbound destinations, resolve DNS and block private ranges after resolution, disable redirects, and run fetchers in an isolated network segment with egress filtering. I also alert on metadata access and unusual role usage.",
+      "revision": "SSRF turns your server into a proxy to internal targets. Allow-list destinations, block private ranges after DNS resolution, enforce IMDSv2, least-privilege roles and egress filtering.",
+      "detailed": "**Server-side request forgery** occurs when a feature fetches a user-supplied URL: link previews, image import, webhooks, PDF renderers, SSO metadata fetchers. Attackers aim at `http://169.254.169.254/` (instance metadata), internal admin panels, and databases without authentication.\n\n{{diagram:ssrf-defence}}\n\n## Why metadata matters\n\nOn a compute instance the metadata service can return temporary role credentials. A stolen credential then lets the attacker call cloud APIs with that role's permissions, which is why role scope is as important as the SSRF fix.\n\n## Prevention\n\n| Control | Detail |\n|---|---|\n| Allow-list destinations | Prefer known hosts over deny lists |\n| Validate after DNS resolution | Reject loopback, link-local, private and reserved ranges; pin the resolved IP to prevent DNS rebinding |\n| Restrict schemes | `https` only; no `file:`, `gopher:` |\n| Disable or re-validate redirects | A safe URL can redirect to an internal one |\n| IMDSv2 required | Session-token based; set a hop limit of 1 for containers where appropriate |\n| Least-privilege IAM roles | Per workload, scoped to needed resources |\n| Egress controls | Security groups, NAT with filtering or a forward proxy |\n| Isolation | Run URL fetching in a separate service with no access to secrets or internal networks |\n\n```ts\nimport { lookup } from \"node:dns/promises\";\nimport ipaddr from \"ipaddr.js\";\n\nasync function assertPublic(host: string) {\n  const { address } = await lookup(host);\n  if (ipaddr.parse(address).range() !== \"unicast\") throw new Error(\"blocked\");\n}\n```\n\n## Detection\n\nMonitor outbound connections to link-local and private addresses, cloud audit logs for role use from unexpected IPs, and unusual fetch volumes.\n\n## Remediation\n\nFix the fetcher, rotate or revoke the exposed role session, review audit logs for actions taken with it, then tighten the role.\n\n## Common mistakes\n\n- Blocking only the literal string `169.254.169.254` (alternate encodings and DNS names bypass it).\n- Validating the hostname once but connecting to a re-resolved address.\n- Leaving IMDSv1 enabled.\n- Giving a front-end-facing service broad IAM permissions.",
+      "followUps": [
+        "What is DNS rebinding?",
+        "Why is limiting IAM role scope part of SSRF defence?",
+        "How would you safely build a link-preview feature?"
+      ],
+      "diagrams": [
+        {
+          "id": "ssrf-defence",
+          "title": "SSRF defence layers",
+          "alt": "A user-supplied URL is checked against an allow-list, resolved and checked for private ranges, fetched from an isolated service with egress filtering, and the metadata service requires IMDSv2, so internal targets stay unreachable.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "User-supplied URL"
+            },
+            {
+              "id": "n1",
+              "label": "Allow-list and scheme check"
+            },
+            {
+              "id": "n2",
+              "label": "Resolve DNS, block private ranges"
+            },
+            {
+              "id": "n3",
+              "label": "Isolated fetcher, no redirects"
+            },
+            {
+              "id": "n4",
+              "label": "Egress filtering"
+            },
+            {
+              "id": "n5",
+              "label": "Internal service or metadata blocked"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            },
+            {
+              "from": "n4",
+              "to": "n5"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "idor-broken-access-control-and-graphql-field-authorisation",
+      "title": "How do you prevent IDOR and broken access control, including field-level authorisation in GraphQL?",
+      "topic": "Application Security",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "idor",
+        "access-control",
+        "graphql",
+        "authorisation"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "IDOR means a user changes an id and reads someone else's object because the server checked who they are but not whether the resource is theirs. I enforce ownership or tenant checks in the data-access layer on every query, not in the route. GraphQL adds risk because one endpoint exposes a graph: every resolver and field needs its own check, nested objects included, since a safe parent can lead to an unsafe child. I use deny by default, a shared authorisation layer, and tests that attempt cross-user and cross-tenant access.",
+      "revision": "Check resource ownership server-side on every access, in the data layer. In GraphQL authorise per resolver and field, including nested objects, with deny by default and cross-tenant tests.",
+      "detailed": "**Broken access control** is consistently among the most common serious web vulnerabilities. IDOR (insecure direct object reference) is the classic form: `GET /orders/1042` works for any logged-in user.\n\n{{diagram:graphql-authz}}\n\n## Prevention\n\n- **Scope queries by identity:** `WHERE id = $1 AND tenant_id = $2 AND owner_id = $3`. A missing row returns 404, which also avoids confirming existence.\n- **Unpredictable ids** (UUIDs) reduce guessing but are not a control by themselves.\n- **Central policy layer:** one `can(user, action, resource)` function used everywhere.\n- **Deny by default:** no rule, no access.\n\n## GraphQL specifics\n\n| Risk | Control |\n|---|---|\n| Resolver trusts the parent | Authorise in every resolver; do not assume the caller reached it legitimately |\n| Sensitive fields (email, salary) | Field-level rules or directives such as `@auth`; or return `null` or omit |\n| Nested traversal to other tenants | Data loaders keyed by tenant and user |\n| Introspection and suggestions reveal schema | Restrict in production if policy requires |\n| Expensive or deep queries | Depth and cost limits, persisted queries, rate limits |\n| Batching and aliases bypass rate limits | Count operations per request |\n\n```ts\nconst resolvers = {\n  Order: {\n    paymentToken: (order, _args, ctx) => {\n      if (!ctx.policy.can(ctx.user, \"read:payment\", order)) return null;\n      return order.paymentToken;\n    },\n  },\n  Query: {\n    order: (_p, { id }, ctx) => ctx.orders.findForUser(id, ctx.user), // scoped query\n  },\n};\n```\n\n## Detection\n\nAutomated authorisation tests per role and tenant, authz-denial logging, and anomaly detection on sequential id enumeration.\n\n## Remediation\n\nAdd the missing check at the data layer, search for the same pattern elsewhere, review access logs for exploitation, and notify per policy if data was exposed.\n\n## Common mistakes\n\n- Authorising on the route but not in the resolver or service.\n- Hiding fields only in the UI.\n- Using the client-supplied user or tenant id.\n- Relying on obscure ids.\n- Writing authorisation tests only for the happy path.",
+      "followUps": [
+        "How do data loaders interact with authorisation?",
+        "Should unauthorised access return 403 or 404?",
+        "How would you test authorisation across all resolvers?"
+      ],
+      "related": [
+        "authentication-vs-authorisation-in-web-architecture",
+        "rbac-vs-abac-and-tenant-isolation"
+      ],
+      "diagrams": [
+        {
+          "id": "graphql-authz",
+          "title": "Authorisation in a GraphQL request",
+          "alt": "A GraphQL request is authenticated, then the query resolver applies a scoped data query, and each nested field resolver runs its own policy check before returning a value or null.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "GraphQL request with identity"
+            },
+            {
+              "id": "n1",
+              "label": "Context: user and tenant"
+            },
+            {
+              "id": "n2",
+              "label": "Query resolver: scoped lookup"
+            },
+            {
+              "id": "n3",
+              "label": "Nested field resolver"
+            },
+            {
+              "id": "n4",
+              "label": "Policy check per field"
+            },
+            {
+              "id": "n5",
+              "label": "Value or null"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            },
+            {
+              "from": "n4",
+              "to": "n5"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "rbac-vs-abac-and-tenant-isolation",
+      "title": "How do RBAC and ABAC differ, and how do you enforce tenant isolation?",
+      "topic": "Application Security",
+      "difficulty": "advanced",
+      "type": "comparison",
+      "tags": [
+        "rbac",
+        "abac",
+        "multi-tenant",
+        "isolation"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "RBAC grants permissions through roles such as admin or editor; it is simple and auditable but suffers role explosion when rules depend on context. ABAC evaluates attributes of the user, resource and environment, such as department, ownership, region or time, which is flexible but harder to reason about and test. Most systems mix them: roles for coarse access, attributes for ownership and tenancy. Tenant isolation I enforce at several layers: a tenant id derived from the verified identity, scoped queries, database row-level security, and tests proving one tenant cannot reach another.",
+      "revision": "RBAC is role-based and simple; ABAC uses attributes and is flexible. Combine them. Enforce tenant isolation from verified identity at query, database and cache layers.",
+      "detailed": "| Aspect | RBAC | ABAC |\n|---|---|---|\n| Decision basis | Role membership | Attributes of subject, resource, action, environment |\n| Strength | Easy to understand and audit | Fine-grained, contextual |\n| Weakness | Role explosion for contextual rules | Policy complexity, harder to test |\n| Example | `editor` can edit articles | Editors can edit articles in their own region during business hours |\n\nA practical hybrid is **RBAC for capabilities plus attribute checks for ownership and tenancy**. Relationship-based models (ReBAC) are another option when permissions follow sharing graphs.\n\n## Tenant isolation\n\n{{diagram:tenant-isolation}}\n\nIsolation models, from stronger to cheaper: separate account or database per tenant, separate schema, shared tables with a `tenant_id` column.\n\n## Prevention\n\n- Derive `tenant_id` from the verified token or session, never from a request parameter.\n- Add `tenant_id` to every query, ideally enforced by a repository base class or database **row-level security** so forgetting it fails closed.\n- Include tenant in cache keys, search indexes, queue messages, file paths and logs.\n- Use per-tenant encryption keys where regulation or risk warrants.\n\n## Detection\n\n- Automated cross-tenant tests in CI: create two tenants, try every endpoint with the other's ids.\n- Alert on queries returning rows from multiple tenants, and on admin impersonation.\n\n## Remediation\n\nWhen a leak is found: contain, identify affected tenants from audit logs, fix at the layer that failed, add the missing test, and follow the disclosure process.\n\n## Architectural controls\n\nExternalise policy (for example a policy engine or library) so it is versioned, reviewed and tested. Add noisy-neighbour limits per tenant. Separate control-plane admin access from tenant data access.\n\n## Common mistakes\n\n- Trusting a `tenantId` field in the request body.\n- Tenant-aware database but tenant-blind cache.\n- Over-broad \"super admin\" roles with no audit trail.\n- Creating a new role for every exception rather than adding an attribute rule.",
+      "followUps": [
+        "When would you move from shared tables to a database per tenant?",
+        "What is row-level security?",
+        "How do you audit privileged support access?"
+      ],
+      "related": [
+        "idor-broken-access-control-and-graphql-field-authorisation"
+      ],
+      "diagrams": [
+        {
+          "id": "tenant-isolation",
+          "title": "Layers of tenant isolation",
+          "alt": "The tenant is taken from the verified token, passed in request context to scoped repository queries, enforced again by database row-level security, and also included in cache keys and logs.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Verified token: tenant id"
+            },
+            {
+              "id": "n1",
+              "label": "Request context"
+            },
+            {
+              "id": "n2",
+              "label": "Scoped repository query"
+            },
+            {
+              "id": "n3",
+              "label": "Database row-level security"
+            },
+            {
+              "id": "n4",
+              "label": "Tenant in cache keys"
+            },
+            {
+              "id": "n5",
+              "label": "Tenant in audit logs"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n1",
+              "to": "n4"
+            },
+            {
+              "from": "n1",
+              "to": "n5"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "password-hashing-and-multi-factor-authentication",
+      "title": "How should passwords be stored, and how does multi-factor authentication fit in?",
+      "topic": "Identity and Access",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "passwords",
+        "hashing",
+        "mfa",
+        "passkeys"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I never store passwords or encrypt them reversibly. I store a slow, salted, memory-hard hash using Argon2id, or bcrypt or scrypt if that is what the platform supports, with parameters tuned to the hardware and reviewed over time. Better still, I avoid owning passwords by delegating to an identity provider. On top I add MFA, preferring phishing-resistant factors such as passkeys or security keys over SMS, plus breached-password checks, rate limiting and lockout that does not enable denial of service.",
+      "revision": "Hash with Argon2id (or bcrypt/scrypt), unique salts, tuned cost. Prefer delegating to an identity provider. Add MFA, favouring passkeys over SMS, and rate-limit login.",
+      "detailed": "## Storing passwords\n\n| Approach | Verdict |\n|---|---|\n| Plain text or reversible encryption | Never |\n| Fast hash (MD5, SHA-256 alone) | Unsuitable: too fast to brute-force |\n| bcrypt, scrypt | Acceptable, widely supported |\n| Argon2id | Common modern recommendation; memory-hard |\n\n```ts\nimport argon2 from \"argon2\";\nconst hash = await argon2.hash(password, { type: argon2.argon2id });\nconst ok = await argon2.verify(hash, attempt);\n```\n\nLibraries generate a unique salt and encode parameters in the hash, so you can **rehash on login** when parameters are strengthened. Cost settings should follow current guidance such as OWASP recommendations; check them rather than copying numbers from memory. Some teams add a server-side **pepper** held in a secrets manager or HSM.\n\n## MFA\n\n- **Factors:** something known, held or inherent.\n- **Strength ranking (broadly):** passkeys and FIDO2 security keys, then authenticator-app TOTP, then push, then SMS or email codes, which are weakest because of SIM swap and phishing.\n- **Recovery** is often the weakest link: protect recovery codes and helpdesk reset processes.\n- **Step-up authentication** requires a fresh factor for sensitive actions such as changing email or payment details.\n\n## Prevention\n\n- Breached-password screening and length-focused policy rather than arbitrary complexity rules.\n- Rate limit per account and per IP; use progressive delays and CAPTCHAs carefully.\n- Generic error messages and consistent timing to prevent account enumeration.\n\n## Detection\n\nAlert on credential-stuffing patterns (many accounts, one IP range), impossible travel and new-device logins.\n\n## Remediation\n\nAfter a database leak: force resets, invalidate sessions and tokens, notify per legal duty, and verify hash parameters.\n\n## Architectural controls\n\nDelegate authentication to a hardened identity provider, support passkeys, and keep the credential store isolated from the main application database.\n\n## Common mistakes\n\n- Using SHA-256 with a salt and calling it secure.\n- SMS as the only second factor for high-risk accounts.\n- Reset links that do not expire or can be reused.\n- Different error messages for unknown user and wrong password.",
+      "followUps": [
+        "Why is a fast hash a problem?",
+        "What makes passkeys phishing-resistant?",
+        "How do you prevent account enumeration?"
+      ],
+      "related": [
+        "authentication-vs-authorisation-in-web-architecture",
+        "api-rate-limiting-security-logging-and-incident-response"
+      ]
+    },
+    {
+      "slug": "dependency-and-supply-chain-security-for-npm",
+      "title": "How do you secure dependencies and the software supply chain in a Node and React project?",
+      "topic": "Application Security",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "supply-chain",
+        "npm",
+        "sbom",
+        "dependencies"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Most of the code in a JavaScript app is third-party, so I treat dependencies as an attack surface. I commit lockfiles and install with npm ci for reproducible builds, run npm audit and automated update tooling in CI, pin or review high-risk packages, and limit install scripts. I generate an SBOM for each build, sign artefacts and record provenance so I can prove what was built from which source. I also scope CI tokens tightly and use trusted publishing where available, because build systems are targets too.",
+      "revision": "Commit lockfiles, use npm ci, audit and auto-update in CI, restrict install scripts, produce SBOMs and signed provenance, and harden CI credentials.",
+      "detailed": "Threats include **known vulnerable versions**, **malicious packages** (typosquatting, dependency confusion, compromised maintainer accounts), **malicious install scripts**, and **tampered build pipelines**.\n\n{{diagram:supply-chain}}\n\n## Prevention\n\n| Control | Detail |\n|---|---|\n| Lockfile committed, `npm ci` in CI | Reproducible and integrity-checked installs |\n| Minimise dependencies | Fewer packages, fewer risks; avoid trivial ones |\n| Scoped registry and namespaces | Counter dependency confusion for internal package names |\n| `--ignore-scripts` or allow-listed scripts | Install scripts run arbitrary code |\n| Review new or updated packages | Maintainer, download history, permissions |\n| Pin GitHub Actions to commit SHAs | Tags can be moved |\n| Least-privilege CI tokens, short-lived credentials | Limit blast radius |\n\n## Detection\n\n- `npm audit` and software composition analysis tools in every pipeline; treat results by reachability and severity, not raw count.\n- Automated dependency update pull requests with tests.\n- Alerts on new install scripts, unexpected network access in builds and registry advisories.\n\n## Visibility and trust\n\n- **SBOM** (for example CycloneDX or SPDX): an inventory of components per build, so a new advisory can be answered in minutes.\n- **Provenance and signing:** attestations (for example SLSA-style provenance, sigstore signing) show which source and pipeline produced an artefact. The npm registry supports provenance for packages published from supported CI; check current documentation for requirements.\n- **Verify before deploy:** admission rules that only run signed images.\n\n## Remediation\n\nWhen a compromised package is announced: identify exposure via SBOM and lockfiles, pin to a safe version, rotate any secrets present on build machines that installed it, rebuild, and review logs for outbound calls.\n\n## Common mistakes\n\n- Running `npm install` in CI and silently changing versions.\n- Ignoring audit output until it becomes noise, or blindly running `npm audit fix --force`.\n- Giving build jobs long-lived cloud admin credentials.\n- Assuming a popular package is safe.",
+      "followUps": [
+        "How do you handle a critical vulnerability with no fixed version?",
+        "What is dependency confusion?",
+        "What does provenance prove and not prove?"
+      ],
+      "related": [
+        "api-rate-limiting-security-logging-and-incident-response"
+      ],
+      "diagrams": [
+        {
+          "id": "supply-chain",
+          "title": "Supply chain controls in the pipeline",
+          "alt": "Source and lockfile feed a locked install, then scanning, SBOM generation, a signed build artefact with provenance, and deployment that only accepts verified artefacts.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Source and lockfile"
+            },
+            {
+              "id": "n1",
+              "label": "npm ci locked install"
+            },
+            {
+              "id": "n2",
+              "label": "Audit and scan"
+            },
+            {
+              "id": "n3",
+              "label": "Build"
+            },
+            {
+              "id": "n4",
+              "label": "SBOM and provenance"
+            },
+            {
+              "id": "n5",
+              "label": "Sign artefact"
+            },
+            {
+              "id": "n6",
+              "label": "Deploy verified only"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            },
+            {
+              "from": "n4",
+              "to": "n5"
+            },
+            {
+              "from": "n5",
+              "to": "n6"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "api-rate-limiting-security-logging-and-incident-response",
+      "title": "How do you design API rate limiting, security logging and incident response?",
+      "topic": "Application Security",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "rate-limiting",
+        "logging",
+        "incident-response",
+        "detection"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Rate limiting protects availability and slows credential stuffing and scraping. I limit at the edge by IP, then in the application by user, token and tenant, with stricter limits on login and password reset, and cost-based limits for GraphQL. Security logging records authentication events, authorisation denials and admin actions as structured, tamper-resistant events without secrets or personal data. Alerts feed an incident process: detect, contain, eradicate, recover and review. The plan has named owners and is rehearsed before it is needed.",
+      "revision": "Layered rate limits (edge, user, tenant, endpoint cost), structured security logs without secrets, alerting, and a rehearsed incident process with named owners.",
+      "detailed": "## Rate limiting\n\n| Layer | Purpose |\n|---|---|\n| CDN or WAF | Absorb volumetric abuse, bot rules, geo and reputation signals |\n| API gateway | Per key or client quotas, burst and sustained limits |\n| Application | Per user, per tenant, per endpoint; strict on login, OTP and reset |\n| GraphQL | Query depth and cost limits, alias and batch counting |\n\nCommon algorithms are token bucket and sliding window, backed by a shared store such as Redis so limits hold across instances. Return `429` with `Retry-After`. Limit by identity as well as IP, because attackers rotate IPs and many users share one.\n\n## Security logging\n\nLog **events that matter**: login success and failure, MFA changes, password resets, token refresh reuse, authorisation denials, privilege changes, admin and data-export actions.\n\n- Use structured fields: timestamp, actor, tenant, action, resource, outcome, request id, source IP.\n- **Never log** passwords, tokens, full card numbers or unnecessary personal data. Redact at the logger.\n- Ship to central storage with restricted, append-only access and retention matching policy.\n- Correlate with request ids across frontend, API gateway and services.\n\n## Detection\n\nAlert on bursts of failed logins, many 403s from one user (enumeration), use of one token from several regions, large exports and unusual admin actions. Tune to reduce alert fatigue.\n\n## Incident response\n\n1. **Prepare:** roles, contacts, runbooks, log access, legal and communications paths.\n2. **Detect and triage:** classify severity.\n3. **Contain:** revoke tokens, block IPs, disable a feature, isolate a host.\n4. **Eradicate and recover:** fix root cause, rotate secrets, restore from known-good.\n5. **Communicate:** internal updates and external notification where law or contract requires.\n6. **Review:** blameless post-incident review with tracked actions.\n\n## Architectural controls\n\nKill switches and feature flags, short-lived credentials that make rotation cheap, and backups tested for restore.\n\n## Common mistakes\n\n- IP-only limits that block shared networks yet miss distributed attacks.\n- Logs full of sensitive data, becoming a breach in themselves.\n- Alerts nobody owns.\n- An incident plan that has never been exercised.",
+      "followUps": [
+        "How would you rate-limit a GraphQL API?",
+        "What should never appear in logs?",
+        "What goes into a blameless post-incident review?"
+      ],
+      "related": [
+        "password-hashing-and-multi-factor-authentication",
+        "dependency-and-supply-chain-security-for-npm"
+      ]
+    },
+    {
+      "slug": "privacy-by-design-pii-minimisation-and-encryption",
+      "title": "How do privacy by design, PII minimisation and encryption in transit and at rest fit together?",
+      "topic": "Data Protection",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "privacy",
+        "pii",
+        "encryption",
+        "kms",
+        "aws"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Privacy by design means deciding up front what personal data I need, why, and for how long, and collecting nothing more. I classify data, minimise and pseudonymise it, set retention with automated deletion, and keep PII out of logs and analytics. Encryption in transit is TLS everywhere, including internal hops. At rest I use managed keys, such as AWS KMS, with envelope encryption, access to keys separated from access to data, and field-level encryption for the most sensitive values. Encryption complements minimisation and access control, it does not replace them.",
+      "revision": "Collect less, classify, set retention, keep PII out of logs. TLS everywhere; at rest use KMS-managed envelope encryption with separated key access. Encryption is not a substitute for minimisation.",
+      "detailed": "**Privacy by design** builds data protection into architecture rather than adding it later. Legal requirements vary by jurisdiction (for example GDPR in the EU), so confirm obligations with legal and compliance colleagues; the engineering patterns below are common building blocks.\n\n{{diagram:data-protection}}\n\n## Minimisation and lifecycle\n\n| Practice | Example |\n|---|---|\n| Data inventory and classification | Tag fields: public, internal, personal, sensitive |\n| Collect only what is needed | Drop optional fields no feature uses |\n| Pseudonymise or tokenise | Replace identifiers with tokens in analytics |\n| Retention and deletion | Scheduled deletion, plus handling of erasure requests including backups and replicas |\n| Purpose limitation and consent | Record the basis for processing |\n| Keep PII out of logs, URLs and error reports | Redaction at the logger and in front-end monitoring |\n\n## Encryption in transit\n\n- TLS on every connection: browser to edge, edge to service, service to database. Use current protocol versions and HSTS.\n- Consider mutual TLS between services in higher-risk environments.\n\n## Encryption at rest on AWS\n\n- Enable encryption for S3, RDS, EBS and DynamoDB using **KMS** keys.\n- **Envelope encryption:** a data key encrypts the data; KMS keys encrypt the data key.\n- Use customer-managed keys when you need key policies, rotation control and audit through CloudTrail.\n- **Separate duties:** the role that reads data should not administer keys.\n- **Field-level or application-level encryption** for the most sensitive values, so a database dump alone is useless.\n\n## Detection\n\nData discovery scans for unexpected PII in buckets and logs, key-usage anomaly alerts and access reviews.\n\n## Remediation\n\nOn exposure: contain, identify affected data subjects from inventory and logs, rotate keys and secrets where needed, and follow breach notification procedures with legal guidance.\n\n## Common mistakes\n\n- \"We encrypt the disk\" as the whole privacy story.\n- Logging request bodies containing personal data.\n- Deleting from the primary database but not from search indexes, caches and analytics copies.\n- Giving application roles permission to both use and manage keys.\n- Hard-coding keys or storing them beside the data.",
+      "followUps": [
+        "What is envelope encryption and why use it?",
+        "How would you handle a right-to-erasure request across systems?",
+        "When is field-level encryption worth the cost?"
+      ],
+      "related": [
+        "api-rate-limiting-security-logging-and-incident-response"
+      ],
+      "diagrams": [
+        {
+          "id": "data-protection",
+          "title": "Data protection lifecycle",
+          "alt": "Data is classified and minimised on collection, transmitted over TLS, stored encrypted with KMS envelope keys, accessed under least privilege with audit logging, and deleted at the end of its retention period.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Classify and minimise"
+            },
+            {
+              "id": "n1",
+              "label": "Collect over TLS"
+            },
+            {
+              "id": "n2",
+              "label": "Store with KMS envelope encryption"
+            },
+            {
+              "id": "n3",
+              "label": "Least-privilege access and audit"
+            },
+            {
+              "id": "n4",
+              "label": "Retention expires"
+            },
+            {
+              "id": "n5",
+              "label": "Delete everywhere"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            },
+            {
+              "from": "n4",
+              "to": "n5"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

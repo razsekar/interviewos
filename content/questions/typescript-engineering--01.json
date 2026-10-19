@@ -1,0 +1,1357 @@
+{
+  "category": "typescript-engineering",
+  "questions": [
+    {
+      "slug": "narrowing-and-discriminated-unions",
+      "title": "How do type narrowing and discriminated unions work in TypeScript?",
+      "topic": "Type system",
+      "difficulty": "intermediate",
+      "type": "coding",
+      "tags": [
+        "typescript",
+        "narrowing",
+        "unions",
+        "exhaustiveness"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Narrowing is how the compiler refines a union to a more specific type inside a branch, using typeof, instanceof, in, equality, truthiness or custom type guards. A discriminated union gives each variant a literal tag field such as kind or type, so a switch on that tag narrows the whole object. I add a never-based exhaustiveness check so adding a new variant produces a compile error wherever it is not handled, which makes state machines and API results safe.",
+      "revision": "Narrowing refines unions via typeof, in, instanceof and guards; discriminated unions use a literal tag, and a never check enforces exhaustive handling.",
+      "detailed": "**Narrowing** lets the compiler know more about a value inside a branch than it does outside.\n\n## Narrowing tools\n\n| Tool | Example |\n|---|---|\n| typeof | `typeof x === 'string'` |\n| instanceof | `err instanceof HttpError` |\n| in operator | `'items' in res` |\n| Equality | `status === 'ok'` |\n| Truthiness | `if (user)` removes null and undefined |\n| Type predicate | `function isUser(x: unknown): x is User` |\n\n## Discriminated unions\n\n```ts\ntype LoadState<T> =\n  | { status: 'idle' }\n  | { status: 'loading' }\n  | { status: 'success'; data: T }\n  | { status: 'error'; error: Error };\n\nfunction render(s: LoadState<Order[]>) {\n  switch (s.status) {\n    case 'success': return s.data.length;   // data is available here\n    case 'error':   return s.error.message;\n    case 'idle':\n    case 'loading': return 0;\n    default: return assertNever(s);\n  }\n}\n\nfunction assertNever(x: never): never {\n  throw new Error('Unhandled variant: ' + JSON.stringify(x));\n}\n```\n\n{{diagram:narrow}}\n\nIf a new variant such as `{ status: 'stale' }` is added, `assertNever(s)` fails to compile because `s` is no longer `never`.\n\n## Why this beats optional fields\n\nAn interface with `data?: T` and `error?: Error` allows impossible states (both set, neither set). A union **makes illegal states unrepresentable**.\n\n## Common mistakes\n\n- Using boolean flags (isLoading, isError) that can contradict each other.\n- Tag fields typed as `string` instead of literals, which prevents narrowing.\n- Forgetting that narrowing can be lost across function calls or in callbacks when values are mutable.\n- Casting with `as` instead of narrowing, which hides errors.",
+      "followUps": [
+        "How do you write a custom type guard safely?",
+        "What does the never type represent?",
+        "How do discriminated unions model API responses?"
+      ],
+      "related": [
+        "unsafe-any-unknown-satisfies-type-guards",
+        "error-modelling-result-types-vs-exceptions"
+      ],
+      "diagrams": [
+        {
+          "id": "narrow",
+          "title": "Narrowing a discriminated union",
+          "alt": "A union value is checked on its status tag; each branch gives the compiler a specific variant, and a default branch assigns the leftover to never to enforce exhaustiveness.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "LoadState union"
+            },
+            {
+              "id": "n1",
+              "label": "switch on status"
+            },
+            {
+              "id": "n2",
+              "label": "success branch has data"
+            },
+            {
+              "id": "n3",
+              "label": "error branch has error"
+            },
+            {
+              "id": "n4",
+              "label": "default is never"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n1",
+              "to": "n3"
+            },
+            {
+              "from": "n1",
+              "to": "n4"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "generics-constraints-defaults-inference",
+      "title": "How do generics work: constraints, defaults and inference?",
+      "topic": "Generics",
+      "difficulty": "intermediate",
+      "type": "coding",
+      "tags": [
+        "typescript",
+        "generics",
+        "constraints",
+        "inference"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Generics let a function or type work over many types while keeping the relationship between inputs and outputs. A constraint with extends limits what is allowed so I can use known properties, a default type parameter supplies a fallback, and inference usually works out the type argument from the call so callers rarely write it. I keep generics minimal, name parameters meaningfully, and avoid generics that appear only once, because they add noise without safety.",
+      "revision": "Generics relate input and output types; extends constrains, defaults supply fallbacks, inference fills arguments; use them only when they express a real relationship.",
+      "detailed": "A **generic** is a type parameter that captures a relationship, such as \"returns the same type it receives\".\n\n## Constraints\n\n```ts\nfunction pluck<T, K extends keyof T>(items: T[], key: K): T[K][] {\n  return items.map(i => i[key]);\n}\n\nconst names = pluck([{ id: 1, name: 'a' }], 'name');   // string[]\n// pluck(items, 'missing');  // compile error\n```\n\n`K extends keyof T` ties the key to the object type, so the return type is exact.\n\n## Defaults\n\n```ts\ninterface ApiResponse<TData = unknown, TError = { message: string }> {\n  data?: TData;\n  error?: TError;\n}\nconst r: ApiResponse = {};                  // uses defaults\nconst o: ApiResponse<Order[]> = { data: [] };\n```\n\n## Inference\n\nThe compiler infers type arguments from values passed. Explicit arguments are needed when nothing in the call carries the type (for example, an empty array or a factory).\n\n{{diagram:infer}}\n\n## Generic React and HTTP helpers\n\n```ts\nasync function getJson<T>(url: string, parse: (x: unknown) => T): Promise<T> {\n  const res = await fetch(url);\n  return parse(await res.json());   // validation provides the runtime guarantee\n}\n```\n\nWriting `getJson<User>(url)` with no parser is a **lie**: the type is asserted, not checked.\n\n## Guidelines\n\n| Do | Avoid |\n|---|---|\n| Use a parameter at least twice (input and output) | A generic used once, where `unknown` or a union suffices |\n| Constrain with the minimal interface needed | Over-constraining to concrete classes |\n| Provide defaults for ergonomic public types | Many type parameters with no defaults |\n\n## Common mistakes\n\n- Returning `T` from a function that actually fabricates a value.\n- Using `any` inside generic code, which defeats callers' safety.\n- Complex conditional generics that are unreadable and slow to compile.",
+      "followUps": [
+        "What does keyof do and how is it used with generics?",
+        "When must you pass explicit type arguments?",
+        "Why is a generic that appears once a smell?"
+      ],
+      "related": [
+        "utility-types-mapped-conditional-types",
+        "runtime-validation-vs-compile-time-types"
+      ],
+      "diagrams": [
+        {
+          "id": "infer",
+          "title": "Generic inference at a call site",
+          "alt": "The compiler reads the argument types at a call, infers the type parameter, checks it against any constraint, and substitutes it into the return type.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Call with arguments"
+            },
+            {
+              "id": "n1",
+              "label": "Infer T from values"
+            },
+            {
+              "id": "n2",
+              "label": "Check constraint extends"
+            },
+            {
+              "id": "n3",
+              "label": "Substitute into return type"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "utility-types-mapped-conditional-types",
+      "title": "What are the main utility types, and how do mapped and conditional types work?",
+      "topic": "Type transformations",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "typescript",
+        "utility-types",
+        "mapped-types",
+        "conditional-types"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Utility types transform existing types: Partial makes properties optional, Required the reverse, Pick selects keys, Omit removes them, Record builds a map type, ReturnType and Parameters extract function types, and Awaited unwraps promises. They are built from mapped types, which iterate over keys, and conditional types, which choose a type with extends and can use infer. I use them to derive types from a single source of truth instead of duplicating definitions.",
+      "revision": "Partial, Required, Pick, Omit, Record, ReturnType, Awaited derive types; they are built from mapped types over keys and conditional types with infer.",
+      "detailed": "Utility types let you **derive** types rather than copy them, so one definition changes everything that depends on it.\n\n## Common utilities\n\n| Utility | Result |\n|---|---|\n| Partial<T> | All properties optional (PATCH payloads) |\n| Required<T> | All properties required |\n| Readonly<T> | All properties readonly |\n| Pick<T, K> | Only keys K |\n| Omit<T, K> | Everything except K (for example, without id) |\n| Record<K, V> | Object with keys K and values V |\n| ReturnType<F> | Return type of function F |\n| Parameters<F> | Tuple of F's parameter types |\n| Awaited<T> | Resolved type of a promise |\n| NonNullable<T> | Removes null and undefined |\n\n```ts\ninterface User { id: string; email: string; role: 'admin' | 'user' }\n\ntype CreateUserDto = Omit<User, 'id'>;\ntype UpdateUserDto = Partial<Omit<User, 'id'>>;\ntype RoleCounts = Record<User['role'], number>;\n\nasync function load() { return { id: '1', items: [1, 2] }; }\ntype Loaded = Awaited<ReturnType<typeof load>>;   // { id: string; items: number[] }\n```\n\n{{diagram:derive}}\n\n## Mapped types\n\n```ts\ntype Nullable<T> = { [K in keyof T]: T[K] | null };\ntype Getters<T> = { [K in keyof T as `get_${string & K}`]: () => T[K] };  // key remapping\n```\n\n## Conditional types\n\n```ts\ntype ElementOf<T> = T extends (infer U)[] ? U : never;\ntype A = ElementOf<string[]>;   // string\n```\n\nConditional types **distribute** over unions when the checked type is a naked type parameter.\n\n## Common mistakes\n\n- Redefining DTO shapes by hand when they can be derived.\n- Deep, clever conditional types that slow compilation and confuse readers.\n- Using Omit on a union, which flattens it; use a distributive helper if needed.\n- Assuming Partial is deep; it only affects the top level.",
+      "followUps": [
+        "How would you write a DeepPartial type?",
+        "What is distribution in conditional types?",
+        "When is Record better than an index signature?"
+      ],
+      "related": [
+        "generics-constraints-defaults-inference",
+        "dto-validation-in-nestjs"
+      ],
+      "diagrams": [
+        {
+          "id": "derive",
+          "title": "Deriving types from one source",
+          "alt": "A base User interface is the single source; Omit, Partial and Pick derive the create DTO, update DTO and public profile types so changes propagate automatically.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "User interface"
+            },
+            {
+              "id": "n1",
+              "label": "Omit id: CreateUserDto"
+            },
+            {
+              "id": "n2",
+              "label": "Partial of Omit: UpdateUserDto"
+            },
+            {
+              "id": "n3",
+              "label": "Pick fields: PublicProfile"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n0",
+              "to": "n2"
+            },
+            {
+              "from": "n0",
+              "to": "n3"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "interfaces-vs-type-aliases",
+      "title": "Interfaces vs type aliases: when do you use each?",
+      "topic": "Type system",
+      "difficulty": "beginner",
+      "type": "comparison",
+      "tags": [
+        "typescript",
+        "interface",
+        "type-alias",
+        "conventions"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "For object shapes they are largely interchangeable. Interfaces support declaration merging and extend cleanly, and often give clearer error messages, so I use them for public object contracts and class shapes. Type aliases can name unions, intersections, tuples, primitives and mapped or conditional types, which interfaces cannot. I pick one convention per codebase, usually interface for object shapes and type for everything else, and enforce it with lint.",
+      "revision": "Interfaces merge and extend, suit object contracts; type aliases name unions, tuples and computed types; choose a team convention and lint it.",
+      "detailed": "Both describe the shape of data. The differences are in **what each can express** and how they compose.\n\n## Comparison\n\n| Capability | interface | type alias |\n|---|---|---|\n| Object shape | Yes | Yes |\n| Union, tuple, primitive alias | No | Yes |\n| Mapped and conditional types | No | Yes |\n| Declaration merging | Yes (same name merges) | No (duplicate error) |\n| Extending | `extends` | Intersection `&` |\n| Implemented by a class | Yes | Yes, for object types |\n| Error messages | Often clearer named types | Can expand to long structural text |\n\n```ts\ninterface Product { id: string; name: string }\ninterface DigitalProduct extends Product { downloadUrl: string }\n\ntype Id = string | number;\ntype Result<T> = { ok: true; value: T } | { ok: false; error: Error };\ntype Pair = [string, number];\n```\n\n{{diagram:choose}}\n\n## Declaration merging\n\n```ts\ninterface Window { appVersion: string }   // augments the global type\n```\n\nThis is how libraries are augmented. A type alias cannot do this.\n\n## Practical rule\n\n- Use **interface** for public object contracts, class shapes and anything consumers may augment.\n- Use **type** for unions, tuples, function types, mapped and conditional types, and compositions.\n- Be consistent. Mixed use is not a bug, but surprises readers.\n\n## Common mistakes\n\n- Believing one is faster or \"more correct\" universally; differences are minor and version-dependent.\n- Using intersections of many large types where extends would give better errors.\n- Accidentally merging two unrelated interfaces with the same name in global scope.\n- Debating it in reviews rather than automating a convention.",
+      "followUps": [
+        "How does declaration merging help library authors?",
+        "What happens when intersected types have conflicting properties?",
+        "How do you enforce a convention with lint rules?"
+      ],
+      "related": [
+        "declaration-merging-and-module-augmentation",
+        "utility-types-mapped-conditional-types"
+      ],
+      "diagrams": [
+        {
+          "id": "choose",
+          "title": "Interface or type alias",
+          "alt": "A decision flow: if the shape is a union, tuple or computed type use a type alias; if it is an object contract that may be extended or augmented use an interface.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Describe a shape"
+            },
+            {
+              "id": "n1",
+              "label": "Union, tuple or computed?"
+            },
+            {
+              "id": "n2",
+              "label": "Type alias"
+            },
+            {
+              "id": "n3",
+              "label": "Object contract?"
+            },
+            {
+              "id": "n4",
+              "label": "Interface"
+            },
+            {
+              "id": "n5",
+              "label": "Follow team convention"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2",
+              "label": "yes"
+            },
+            {
+              "from": "n1",
+              "to": "n3",
+              "label": "no"
+            },
+            {
+              "from": "n3",
+              "to": "n4",
+              "label": "yes"
+            },
+            {
+              "from": "n3",
+              "to": "n5",
+              "label": "no"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "strict-mode-flags-that-matter",
+      "title": "Which TypeScript strict mode flags matter most?",
+      "topic": "Compiler configuration",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "typescript",
+        "tsconfig",
+        "strict",
+        "compiler-options"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I enable strict, which switches on strictNullChecks, noImplicitAny, strictFunctionTypes, strictBindCallApply, strictPropertyInitialization, useUnknownInCatchVariables and alwaysStrict. The biggest wins are strictNullChecks and noImplicitAny. I add noUncheckedIndexedAccess for safer array and record access, exactOptionalPropertyTypes where the team can cope, and noImplicitOverride and noFallthroughCasesInSwitch. For legacy code I raise strictness gradually.",
+      "revision": "Enable strict, especially strictNullChecks and noImplicitAny; add noUncheckedIndexedAccess and noImplicitOverride; ratchet up gradually in legacy code.",
+      "detailed": "The **strict** flag is a family; enabling it turns on a set of checks that remove whole classes of runtime errors.\n\n## What strict includes (set may grow between versions)\n\n| Flag | Protects against |\n|---|---|\n| strictNullChecks | Null and undefined slipping into values |\n| noImplicitAny | Silent `any` from missing annotations |\n| strictFunctionTypes | Unsound parameter variance in callbacks |\n| strictBindCallApply | Wrong arguments to bind, call and apply |\n| strictPropertyInitialization | Class fields never assigned |\n| useUnknownInCatchVariables | Treating caught errors as safe |\n| alwaysStrict | Emits \"use strict\" |\n\n## Valuable extras (not part of strict)\n\n| Flag | Effect |\n|---|---|\n| noUncheckedIndexedAccess | `arr[i]` and record lookups include undefined |\n| exactOptionalPropertyTypes | Distinguishes missing from explicitly undefined |\n| noImplicitOverride | Requires `override` keyword |\n| noFallthroughCasesInSwitch | Flags accidental fall-through |\n| noImplicitReturns | Every code path returns |\n| forceConsistentCasingInFileNames | Cross-platform import safety |\n\n```json\n{\n  \"compilerOptions\": {\n    \"strict\": true,\n    \"noUncheckedIndexedAccess\": true,\n    \"noImplicitOverride\": true,\n    \"noFallthroughCasesInSwitch\": true\n  }\n}\n```\n\n{{diagram:ratchet}}\n\n## Adopting in a legacy codebase\n\nTurn on one flag at a time, fix errors per module, and use a ratchet in CI so error counts never rise. Enabling strict globally in one pull request is rarely viable.\n\n## Common mistakes\n\n- Starting new projects without strict, then paying to migrate later.\n- Silencing errors with `as any` or non-null assertions (`!`) rather than modelling absence.\n- Assuming strict covers runtime data; external input still needs validation.\n- Forgetting that `catch (e)` is `unknown` and must be narrowed.",
+      "followUps": [
+        "What does noUncheckedIndexedAccess change in practice?",
+        "How would you ratchet strictness in CI?",
+        "Why is the non-null assertion operator risky?"
+      ],
+      "related": [
+        "migrating-javascript-to-typescript-incrementally",
+        "unsafe-any-unknown-satisfies-type-guards"
+      ],
+      "diagrams": [
+        {
+          "id": "ratchet",
+          "title": "Ratcheting strictness",
+          "alt": "Enable one flag, fix errors module by module, record the error baseline in CI so it cannot rise, then move to the next flag until full strict mode is on.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Pick one flag"
+            },
+            {
+              "id": "n1",
+              "label": "Fix errors per module"
+            },
+            {
+              "id": "n2",
+              "label": "CI baseline blocks regressions"
+            },
+            {
+              "id": "n3",
+              "label": "Next flag"
+            },
+            {
+              "id": "n4",
+              "label": "Full strict"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n1"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "unsafe-any-unknown-satisfies-type-guards",
+      "title": "How do you avoid unsafe any using unknown, satisfies and type guards?",
+      "topic": "Type safety",
+      "difficulty": "intermediate",
+      "type": "coding",
+      "tags": [
+        "typescript",
+        "any",
+        "unknown",
+        "satisfies",
+        "type-guards"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "any switches off checking and spreads silently, so I avoid it. For values I cannot trust, such as parsed JSON or caught errors, I use unknown, which forces me to narrow before use. Type guards and assertion functions do that narrowing safely, ideally backed by a runtime validator. The satisfies operator checks an expression against a type without widening it, so I keep precise literal types while still catching mistakes. Lint rules such as no-explicit-any back this up.",
+      "revision": "Prefer unknown to any and narrow with guards or validators; satisfies checks shape while keeping precise inferred types; lint against explicit any.",
+      "detailed": "`any` is contagious: assign it anywhere and checking stops, often far from the source.\n\n## unknown instead of any\n\n```ts\nfunction parse(json: string): unknown { return JSON.parse(json); }\n\nconst data = parse(text);\n// data.name;           // error: must narrow first\nif (typeof data === 'object' && data !== null && 'name' in data) {\n  console.log((data as { name: unknown }).name);\n}\n```\n\n## Type guards and assertion functions\n\n```ts\ninterface User { id: string; email: string }\n\nfunction isUser(x: unknown): x is User {\n  return typeof x === 'object' && x !== null\n    && typeof (x as any).id === 'string' && typeof (x as any).email === 'string';\n}\n\nfunction assertUser(x: unknown): asserts x is User {\n  if (!isUser(x)) throw new TypeError('Invalid user');\n}\n```\n\nA hand-written guard is only as correct as its body; prefer a schema validator for non-trivial shapes.\n\n## satisfies\n\n```ts\nconst routes = {\n  home: { path: '/', auth: false },\n  admin: { path: '/admin', auth: true },\n} satisfies Record<string, { path: string; auth: boolean }>;\n\nroutes.admin.path;   // typed as string, keys known: 'home' | 'admin'\n```\n\nAnnotating with `: Record<string, ...>` would lose the specific keys; `satisfies` validates yet keeps inference (available in TypeScript 4.9 and later).\n\n{{diagram:boundary}}\n\n## Where any hides\n\n| Source | Safer alternative |\n|---|---|\n| JSON.parse, response.json() | unknown plus validation |\n| catch clauses | useUnknownInCatchVariables, narrow |\n| Third-party untyped modules | Write a minimal declaration |\n| Event handlers and callbacks | Proper generic types |\n\n## Common mistakes\n\n- Using `as` to assert a shape that was never checked.\n- Writing guards that only check one property of a larger shape.\n- Sprinkling `any` \"temporarily\" with no tracking.\n- Enabling lint rules but allowing blanket disables.",
+      "followUps": [
+        "What is the difference between a type guard and an assertion function?",
+        "When is as const useful?",
+        "How do you type untyped third-party modules?"
+      ],
+      "related": [
+        "runtime-validation-vs-compile-time-types",
+        "narrowing-and-discriminated-unions"
+      ],
+      "diagrams": [
+        {
+          "id": "boundary",
+          "title": "Untrusted data crossing into typed code",
+          "alt": "External data enters as unknown, passes through a guard or schema validator, and only then becomes a typed value used by the rest of the application.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "External data"
+            },
+            {
+              "id": "n1",
+              "label": "unknown"
+            },
+            {
+              "id": "n2",
+              "label": "Guard or schema validator"
+            },
+            {
+              "id": "n3",
+              "label": "Typed value"
+            },
+            {
+              "id": "n4",
+              "label": "Application logic"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "runtime-validation-vs-compile-time-types",
+      "title": "Why do you need runtime validation as well as TypeScript types (Zod, parse, don't validate)?",
+      "topic": "Validation",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "typescript",
+        "zod",
+        "validation",
+        "parse-dont-validate"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "TypeScript types are erased at runtime, so they cannot protect against data from the network, storage, environment variables or users. I validate at every trust boundary with a schema library such as Zod, or class-validator in NestJS, and follow parse-don't-validate: the output of parsing is a new, precisely typed value, so downstream code never rechecks. I derive the static type from the schema with z.infer to keep one source of truth.",
+      "revision": "Types vanish at runtime; validate at trust boundaries with schemas, parse into trusted typed values, and infer static types from the schema.",
+      "detailed": "The compiler checks your **code**, not the **data** that arrives while the program runs.\n\n## The gap\n\n```ts\nconst res = await fetch('/api/user');\nconst user = (await res.json()) as User;   // an assertion, not a check\n```\n\nIf the server changes a field, the compiler is still satisfied; the failure appears later, far from the cause.\n\n{{diagram:parse}}\n\n## Parse, don't validate\n\nValidation answers \"is it okay?\" and leaves you with the same loose value. **Parsing** returns a new value of a stricter type, so the type proves the check happened.\n\n```ts\nimport { z } from 'zod';\n\nconst UserSchema = z.object({\n  id: z.string().uuid(),\n  email: z.string().email(),\n  age: z.number().int().min(0).optional(),\n});\ntype User = z.infer<typeof UserSchema>;\n\nconst result = UserSchema.safeParse(await res.json());\nif (!result.success) throw new HttpError(502, 'Bad upstream response');\nconst user: User = result.data;\n```\n\n## Where to validate\n\n| Boundary | Examples |\n|---|---|\n| Incoming HTTP | Body, query, params, headers |\n| Outgoing responses from other services | Third-party APIs |\n| Persistence | Documents read from MongoDB, caches |\n| Environment | Configuration at start-up, failing fast |\n| Browser | localStorage, URL params, postMessage |\n\n## Choosing a library\n\n| Library | Notes |\n|---|---|\n| Zod and similar schema libraries | Schema first, inferred types, works on both client and server |\n| class-validator and class-transformer | Decorator based, natural in NestJS |\n| JSON Schema or OpenAPI validators | Contract driven, language neutral |\n\nAPIs and defaults differ between versions; check the documentation of your chosen library.\n\n## Common mistakes\n\n- Using `as` on external data.\n- Validating at the edge and then passing the unparsed original onwards.\n- Maintaining a hand-written interface and a separate validator that drift apart.\n- Returning raw validation errors with internal details to clients.",
+      "followUps": [
+        "How do you validate environment variables at start-up?",
+        "What are the trade-offs between Zod and class-validator?",
+        "How do you share one schema between client and server?"
+      ],
+      "related": [
+        "dto-validation-in-nestjs",
+        "typed-api-contracts-shared-types"
+      ],
+      "diagrams": [
+        {
+          "id": "parse",
+          "title": "Parsing at a trust boundary",
+          "alt": "Untrusted input is parsed by a schema at the boundary; failures are rejected with an error, and successes become a precisely typed value that the rest of the code trusts.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Untrusted input"
+            },
+            {
+              "id": "n1",
+              "label": "Schema parse"
+            },
+            {
+              "id": "n2",
+              "label": "Reject with error"
+            },
+            {
+              "id": "n3",
+              "label": "Typed trusted value"
+            },
+            {
+              "id": "n4",
+              "label": "Business logic"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2",
+              "label": "invalid"
+            },
+            {
+              "from": "n1",
+              "to": "n3",
+              "label": "valid"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "dto-validation-in-nestjs",
+      "title": "How do you validate DTOs in NestJS with ValidationPipe and class-validator?",
+      "topic": "NestJS and TypeScript",
+      "difficulty": "intermediate",
+      "type": "coding",
+      "tags": [
+        "nestjs",
+        "dto",
+        "class-validator",
+        "validation-pipe"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "In NestJS I define DTO classes decorated with class-validator rules, and enable a global ValidationPipe with transform, whitelist and forbidNonWhitelisted. The pipe converts the plain body into a class instance, validates it and returns a structured 400 on failure, while whitelist strips unknown properties, which helps prevent mass assignment. Classes, not interfaces, are needed because decorators and metadata exist only at runtime. I derive update DTOs with PartialType and keep responses typed separately.",
+      "revision": "Use decorated DTO classes with a global ValidationPipe (transform, whitelist, forbidNonWhitelisted); classes carry runtime metadata, interfaces do not.",
+      "detailed": "NestJS validates incoming data with **pipes**. DTOs must be **classes** because TypeScript interfaces are erased and carry no runtime metadata.\n\n## DTO and pipe\n\n```ts\nimport { IsEmail, IsInt, IsOptional, Length, Min } from 'class-validator';\nimport { PartialType } from '@nestjs/mapped-types';\n\nexport class CreateUserDto {\n  @IsEmail() email!: string;\n  @Length(8, 64) password!: string;\n  @IsOptional() @IsInt() @Min(0) age?: number;\n}\nexport class UpdateUserDto extends PartialType(CreateUserDto) {}\n\n// main.ts\napp.useGlobalPipes(new ValidationPipe({\n  transform: true,\n  whitelist: true,\n  forbidNonWhitelisted: true,\n}));\n```\n\n{{diagram:pipe}}\n\n## Options that matter\n\n| Option | Effect |\n|---|---|\n| transform | Converts payload to DTO instance and primitives (for example, string to number) |\n| whitelist | Strips properties without decorators |\n| forbidNonWhitelisted | Rejects unknown properties with an error |\n| stopAtFirstError | Reduces error noise |\n| exceptionFactory | Custom error shape |\n\n## Practices\n\n- Validate **params and queries** too, using DTOs or ParseIntPipe, ParseUUIDPipe.\n- **Nested objects** need `@ValidateNested()` and `@Type(() => Child)`.\n- Keep **response DTOs** separate and serialise explicitly (ClassSerializerInterceptor) so passwords and internal fields do not leak.\n- Use an enum with `@IsEnum` instead of free strings.\n- Share contracts with the frontend carefully; class-validator decorators do not belong in browser bundles.\n\n## Common mistakes\n\n- Using interfaces as DTOs, so nothing is validated.\n- Forgetting whitelist, enabling mass assignment such as `isAdmin`.\n- Skipping `@ValidateNested`, so inner objects are unchecked.\n- Reusing database entities as DTOs and leaking fields.\n\nBehaviour of options can change between versions; confirm in current documentation.",
+      "followUps": [
+        "How do you validate nested arrays of objects?",
+        "How would you return a consistent error format?",
+        "Would you use Zod in NestJS instead, and how?"
+      ],
+      "related": [
+        "runtime-validation-vs-compile-time-types",
+        "typed-api-contracts-shared-types"
+      ],
+      "diagrams": [
+        {
+          "id": "pipe",
+          "title": "Request validation in NestJS",
+          "alt": "An incoming request body passes through the global ValidationPipe which transforms it to a DTO class instance and validates it; failures return 400 and valid data reaches the controller.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "HTTP request body"
+            },
+            {
+              "id": "n1",
+              "label": "ValidationPipe transform and whitelist"
+            },
+            {
+              "id": "n2",
+              "label": "DTO instance validated"
+            },
+            {
+              "id": "n3",
+              "label": "Controller handler"
+            },
+            {
+              "id": "n4",
+              "label": "Service layer"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3",
+              "label": "valid"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "typed-api-contracts-shared-types",
+      "title": "How do you share typed API contracts between frontend and backend?",
+      "topic": "API contracts",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "typescript",
+        "monorepo",
+        "openapi",
+        "graphql-codegen"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I choose one source of truth for the contract and generate or import types from it. In a TypeScript monorepo that can be a shared package of schemas and inferred types. Across teams or languages I use an OpenAPI document or GraphQL schema with code generation for types and clients. Runtime validation still guards the boundary, and breaking-change checks run in CI. I avoid copying interfaces by hand, because they drift silently.",
+      "revision": "One contract source: shared monorepo package, OpenAPI or GraphQL schema with codegen; keep runtime validation and CI breaking-change checks.",
+      "detailed": "A typed contract only helps if both sides **derive from the same definition**.\n\n{{diagram:contract}}\n\n## Options\n\n| Approach | Strengths | Trade-offs |\n|---|---|---|\n| Shared package in a monorepo | Simple, one language, schemas plus inferred types | Couples release cycles, TypeScript only |\n| OpenAPI spec with generators | Language neutral, docs, mocks, client SDKs | Spec must be kept truthful; code-first or spec-first discipline |\n| GraphQL schema with codegen | Typed operations per query, fragments | Needs GraphQL stack; resolver types matter too |\n| tRPC or similar end-to-end inference | No codegen, immediate feedback | Tight coupling, mostly TypeScript-to-TypeScript |\n\n## Shared schema package\n\n```ts\n// packages/contracts/src/order.ts\nexport const OrderSchema = z.object({ id: z.string(), total: z.number(), status: z.enum(['pending', 'paid']) });\nexport type Order = z.infer<typeof OrderSchema>;\n\n// server validates incoming bodies; client validates responses in a typed fetch helper\n```\n\n## OpenAPI flow\n\n1. NestJS decorators or a hand-authored spec produce `openapi.json`.\n2. A generator emits types and a client into a package.\n3. CI diffs the spec against main and flags breaking changes.\n4. Frontend upgrades the generated package deliberately.\n\n## Governance\n\n- Version contracts; deprecate before removing fields.\n- Mark optional versus nullable explicitly.\n- Do not generate types from live production responses.\n- Keep generated code out of manual edits, and regenerate in CI.\n\n## Common mistakes\n\n- Hand-copying interfaces into the frontend.\n- Trusting compile-time types without validating real responses.\n- Sharing database entities as the API contract.\n- Treating generated types as proof the server behaves as documented.",
+      "followUps": [
+        "How do you detect breaking API changes in CI?",
+        "When would tRPC be a poor fit?",
+        "How do you version contracts for mobile clients?"
+      ],
+      "related": [
+        "runtime-validation-vs-compile-time-types",
+        "tsconfig-project-references-monorepos"
+      ],
+      "diagrams": [
+        {
+          "id": "contract",
+          "title": "Single source for the API contract",
+          "alt": "A contract source such as a schema or OpenAPI document generates types and clients for both the frontend and backend, with CI checking for breaking changes before release.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Contract source"
+            },
+            {
+              "id": "n1",
+              "label": "Codegen or inferred types"
+            },
+            {
+              "id": "n2",
+              "label": "Backend implements"
+            },
+            {
+              "id": "n3",
+              "label": "Frontend client"
+            },
+            {
+              "id": "n4",
+              "label": "CI breaking-change check"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n1",
+              "to": "n3"
+            },
+            {
+              "from": "n0",
+              "to": "n4"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "error-modelling-result-types-vs-exceptions",
+      "title": "How do you model errors in TypeScript: Result types vs exceptions and custom error classes?",
+      "topic": "Error handling",
+      "difficulty": "advanced",
+      "type": "comparison",
+      "tags": [
+        "typescript",
+        "errors",
+        "result-type",
+        "custom-errors"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Exceptions are untyped in TypeScript, since catch variables are unknown and function signatures do not list what they throw. I use exceptions for unexpected failures and programmer errors, handled centrally, and custom Error subclasses with a code and cause for classification. For expected, recoverable outcomes such as validation failures or not found, a Result discriminated union makes the failure visible in the type and forces callers to handle it. I pick one convention per layer.",
+      "revision": "Exceptions for unexpected failures with custom error classes; Result unions for expected, recoverable outcomes so callers must handle them.",
+      "detailed": "TypeScript cannot express what a function throws, so error handling is a **design choice**.\n\n## Custom error classes\n\n```ts\nexport class AppError extends Error {\n  constructor(message: string, readonly code: string, readonly status = 500, options?: ErrorOptions) {\n    super(message, options);\n    this.name = new.target.name;\n  }\n}\nexport class NotFoundError extends AppError {\n  constructor(what: string) { super(what + ' not found', 'NOT_FOUND', 404); }\n}\n```\n\nUse `instanceof` to narrow in handlers, and `cause` to keep the underlying error. `ErrorOptions` and `cause` need a sufficiently recent target and lib setting.\n\n## Result type\n\n```ts\ntype Result<T, E = AppError> = { ok: true; value: T } | { ok: false; error: E };\n\nfunction parseAge(s: string): Result<number, 'NaN' | 'Negative'> {\n  const n = Number(s);\n  if (Number.isNaN(n)) return { ok: false, error: 'NaN' };\n  if (n < 0) return { ok: false, error: 'Negative' };\n  return { ok: true, value: n };\n}\n\nconst r = parseAge(input);\nif (!r.ok) return r.error;      // narrowed\nuse(r.value);\n```\n\n{{diagram:errors}}\n\n## Comparison\n\n| Aspect | Exceptions | Result values |\n|---|---|---|\n| Visible in signature | No | Yes |\n| Forced handling | No | Yes, by narrowing |\n| Propagation | Automatic through stack | Manual, or helper functions |\n| Best for | Unexpected, infrastructure failures | Validation, business rule outcomes |\n| Async | Rejected promises | Promise<Result<T>> |\n\n## Practices\n\n- Map errors to HTTP responses in **one** place, such as a NestJS exception filter or Express error middleware.\n- Never leak stack traces or internals to clients.\n- Always narrow `catch (e: unknown)` before reading properties.\n- Reject promises with Error objects, not strings.\n\n## Common mistakes\n\n- Mixing both styles in the same layer without a rule.\n- Catching an error just to log and rethrow without context.\n- Using Result everywhere and recreating exception propagation by hand.\n- Subclassing Error without setting the name or prototype correctly for older targets.",
+      "followUps": [
+        "How do you centralise error-to-HTTP mapping in NestJS?",
+        "How do you type errors across async boundaries?",
+        "When would you use a library for Result types?"
+      ],
+      "related": [
+        "narrowing-and-discriminated-unions",
+        "async-typing-pitfalls"
+      ],
+      "diagrams": [
+        {
+          "id": "errors",
+          "title": "Choosing an error strategy",
+          "alt": "Expected outcomes such as validation failures return a Result value that callers must narrow, while unexpected failures throw custom errors handled by a central handler that maps them to responses.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Something can fail"
+            },
+            {
+              "id": "n1",
+              "label": "Expected and recoverable?"
+            },
+            {
+              "id": "n2",
+              "label": "Return Result value"
+            },
+            {
+              "id": "n3",
+              "label": "Throw custom error"
+            },
+            {
+              "id": "n4",
+              "label": "Caller narrows ok flag"
+            },
+            {
+              "id": "n5",
+              "label": "Central handler maps to response"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2",
+              "label": "yes"
+            },
+            {
+              "from": "n1",
+              "to": "n3",
+              "label": "no"
+            },
+            {
+              "from": "n2",
+              "to": "n4"
+            },
+            {
+              "from": "n3",
+              "to": "n5"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "async-typing-pitfalls",
+      "title": "What are common async typing pitfalls in TypeScript?",
+      "topic": "Async and Promises",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "typescript",
+        "async-await",
+        "promises",
+        "pitfalls"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "The main pitfalls are floating promises that nobody awaits or catches, passing an async function where a void callback is expected, forgetting that async functions always return a Promise, using forEach with await, sequential awaits that should run in parallel, and asserting the result of response.json() without validation. I enable no-floating-promises and no-misused-promises lint rules, use Promise.all or allSettled deliberately, and type results with Awaited and unknown.",
+      "revision": "Avoid floating promises, async callbacks where void is expected, await in forEach and unvalidated json(); use Promise.all deliberately and lint the rest.",
+      "detailed": "TypeScript tracks promise types, but several **runtime behaviours** slip past the compiler unless lint rules help.\n\n## Pitfalls and fixes\n\n| Pitfall | Why it hurts | Fix |\n|---|---|---|\n| Floating promise | Errors vanish as unhandled rejections | await it, or `void p.catch(...)` deliberately |\n| Async function in a void callback | Rejection never handled (for example, event handlers) | Wrap with a handler that catches |\n| `await` inside forEach | forEach ignores returned promises | for...of or Promise.all with map |\n| Sequential awaits | Latency adds up | Promise.all for independent calls |\n| `res.json() as T` | Type is asserted, not checked | Validate then type |\n| Returning `Promise<Promise<T>>` thinking | Flattened automatically, but confusing types | Use Awaited<T> where needed |\n\n```ts\n// bad\nitems.forEach(async i => { await save(i); });\n\n// good: parallel\nawait Promise.all(items.map(i => save(i)));\n\n// good: limited concurrency or order-dependent\nfor (const i of items) await save(i);\n\n// independent calls\nconst [user, orders] = await Promise.all([getUser(id), getOrders(id)]);\n```\n\n{{diagram:parallel}}\n\n## Promise.all versus allSettled\n\n`Promise.all` rejects on the first failure but does not cancel other work. Use `Promise.allSettled` when partial results are acceptable, and narrow each outcome by its `status`.\n\n## Typing helpers\n\n```ts\ntype Data = Awaited<ReturnType<typeof getUser>>;\nasync function safe<T>(p: Promise<T>): Promise<[Error, undefined] | [undefined, T]> {\n  try { return [undefined, await p]; } catch (e) { return [e instanceof Error ? e : new Error(String(e)), undefined]; }\n}\n```\n\n## Lint rules\n\n- @typescript-eslint/no-floating-promises\n- @typescript-eslint/no-misused-promises\n- @typescript-eslint/await-thenable\n\n## Common mistakes\n\n- Unbounded Promise.all over thousands of items, overloading a service.\n- Missing try/catch around the top-level await in start-up code.\n- Mixing callbacks and promises inconsistently.\n- Ignoring cancellation; use AbortController where supported.",
+      "followUps": [
+        "How do you limit concurrency across many promises?",
+        "What is the difference between Promise.all and allSettled?",
+        "How do you handle cancellation in typed async code?"
+      ],
+      "related": [
+        "error-modelling-result-types-vs-exceptions",
+        "unsafe-any-unknown-satisfies-type-guards"
+      ],
+      "diagrams": [
+        {
+          "id": "parallel",
+          "title": "Sequential versus parallel awaits",
+          "alt": "Two independent calls awaited one after another take the sum of their latencies, while starting both and awaiting Promise.all takes roughly the longer of the two.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Start getUser"
+            },
+            {
+              "id": "n1",
+              "label": "Wait for user"
+            },
+            {
+              "id": "n2",
+              "label": "Start getOrders"
+            },
+            {
+              "id": "n3",
+              "label": "Wait for orders"
+            },
+            {
+              "id": "n4",
+              "label": "Start both then Promise.all"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n4",
+              "to": "n3"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "branded-opaque-types-ids-money",
+      "title": "What are branded or opaque types, and how do they protect IDs and money?",
+      "topic": "Domain modelling",
+      "difficulty": "advanced",
+      "type": "coding",
+      "tags": [
+        "typescript",
+        "branded-types",
+        "domain-modelling",
+        "money"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "TypeScript is structural, so a UserId and an OrderId that are both strings are interchangeable and mistakes compile. A branded type intersects the base type with a phantom marker, such as string and a unique brand, making them incompatible. I create values only through a constructor or parser that validates, so a Cents or Email value is trustworthy by construction. For money I store integer minor units with a currency, not floating point numbers.",
+      "revision": "Brand primitives with a phantom marker so UserId and OrderId cannot be mixed; create via validating constructors; store money as integer minor units plus currency.",
+      "detailed": "Structural typing treats types with the same shape as identical, so **plain strings and numbers cannot distinguish concepts**.\n\n## The problem\n\n```ts\nfunction getOrder(orderId: string, userId: string) { /* ... */ }\ngetOrder(user.id, order.id);   // swapped, compiles fine\n```\n\n## Branding\n\n```ts\ndeclare const brand: unique symbol;\ntype Brand<T, B extends string> = T & { readonly [brand]: B };\n\ntype UserId = Brand<string, 'UserId'>;\ntype OrderId = Brand<string, 'OrderId'>;\ntype Cents = Brand<number, 'Cents'>;\n\nconst UserId = (s: string): UserId => {\n  if (!/^usr_[a-z0-9]+$/.test(s)) throw new Error('Invalid user id');\n  return s as UserId;           // the only unchecked cast, inside the constructor\n};\n\nfunction getOrder(orderId: OrderId, userId: UserId) {}\n// getOrder(userId, orderId);   // compile error\n```\n\n{{diagram:brand}}\n\nThe brand exists only in the type system; there is **no runtime cost**.\n\n## Money\n\n| Pitfall | Safer practice |\n|---|---|\n| `0.1 + 0.2 !== 0.3` | Integer minor units (cents) |\n| Mixing currencies | Money = { amount: Cents; currency: 'GBP' } |\n| Rounding anywhere | One rounding policy in one module |\n| Trusting client totals | Compute on the server |\n\n```ts\ntype Money = { readonly amount: Cents; readonly currency: 'GBP' | 'EUR' | 'USD' };\nconst add = (a: Money, b: Money): Money => {\n  if (a.currency !== b.currency) throw new Error('Currency mismatch');\n  return { amount: (a.amount + b.amount) as Cents, currency: a.currency };\n};\n```\n\nLibraries for decimal arithmetic or schema-based brands (for example, Zod's brand) can formalise this.\n\n## Common mistakes\n\n- Casting freely with `as UserId` across the codebase, defeating the purpose.\n- Branding without validation, so the brand claims more than is true.\n- Using floating point for money.\n- Forgetting that brands vanish after JSON serialisation; re-parse at boundaries.",
+      "followUps": [
+        "How would you integrate branded types with Zod parsing?",
+        "What are the trade-offs of branding every identifier?",
+        "How do you store and display money safely end to end?"
+      ],
+      "related": [
+        "runtime-validation-vs-compile-time-types",
+        "generics-constraints-defaults-inference"
+      ],
+      "diagrams": [
+        {
+          "id": "brand",
+          "title": "Branded types blocking mix-ups",
+          "alt": "A raw string passes through a validating constructor to become a UserId; a function expecting OrderId rejects the UserId at compile time, preventing swapped arguments.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Raw string"
+            },
+            {
+              "id": "n1",
+              "label": "Validating constructor"
+            },
+            {
+              "id": "n2",
+              "label": "UserId"
+            },
+            {
+              "id": "n3",
+              "label": "Function expects OrderId"
+            },
+            {
+              "id": "n4",
+              "label": "Compile error"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "tsconfig-project-references-monorepos",
+      "title": "How do tsconfig and project references work in a TypeScript monorepo?",
+      "topic": "Build configuration",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "typescript",
+        "tsconfig",
+        "monorepo",
+        "project-references"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I keep a shared base tsconfig with strict options and extend it per package. With project references, each package sets composite true and declares its dependencies in references, so tsc --build compiles in dependency order, caches outputs through tsbuildinfo, and only rebuilds what changed. That also enforces boundaries, because a package can import only what it references. Workspaces link packages, and bundlers or test runners need matching path resolution.",
+      "revision": "Base tsconfig extended per package; composite plus references let tsc --build compile in order incrementally and enforce package boundaries.",
+      "detailed": "In a monorepo, one giant tsconfig becomes slow and blurs boundaries. **Project references** split the program into independently built pieces.\n\n## Layout\n\n```text\ntsconfig.base.json\npackages/\n  contracts/   tsconfig.json   (composite)\n  ui/          tsconfig.json   references: contracts\napps/\n  web/         tsconfig.json   references: ui, contracts\n  api/         tsconfig.json   references: contracts\ntsconfig.json  (solution file with references only)\n```\n\n{{diagram:refs}}\n\n## Configuration\n\n```json\n// tsconfig.base.json\n{ \"compilerOptions\": { \"strict\": true, \"target\": \"ES2022\", \"module\": \"NodeNext\", \"declaration\": true, \"skipLibCheck\": true } }\n\n// packages/contracts/tsconfig.json\n{ \"extends\": \"../../tsconfig.base.json\",\n  \"compilerOptions\": { \"composite\": true, \"outDir\": \"dist\", \"rootDir\": \"src\" },\n  \"include\": [\"src\"] }\n\n// apps/api/tsconfig.json\n{ \"extends\": \"../../tsconfig.base.json\",\n  \"references\": [{ \"path\": \"../../packages/contracts\" }],\n  \"include\": [\"src\"] }\n```\n\nRun `tsc --build` (or `tsc -b`) to build in dependency order with incremental output.\n\n## Benefits and costs\n\n| Benefit | Cost |\n|---|---|\n| Incremental builds and faster editor feedback | More config files |\n| Enforced dependency boundaries | Must keep references in sync |\n| Declaration output per package | Build step before consuming packages in dev, unless tooling maps sources |\n| Parallelisable CI | Extra learning curve |\n\n## Practical points\n\n- Use package manager workspaces (npm, pnpm, yarn) to link packages by name.\n- Align **module resolution** across tsc, bundler and test runner; mismatches are the usual source of \"works in editor, fails at runtime\".\n- Avoid path aliases that only the compiler understands unless the bundler also resolves them.\n- Task runners and build caches (such as Nx or Turborepo) layer on top.\n\n## Common mistakes\n\n- Forgetting `composite` or `declaration`, so references fail.\n- Importing another package's `src` directly, bypassing the boundary.\n- Committing build output or tsbuildinfo files.\n- Using different strictness levels per package without a plan.",
+      "followUps": [
+        "How do you make local development fast without rebuilding packages?",
+        "How do path aliases interact with bundlers and Jest?",
+        "When would you avoid project references?"
+      ],
+      "related": [
+        "typed-api-contracts-shared-types",
+        "typescript-performance-and-build-time"
+      ],
+      "diagrams": [
+        {
+          "id": "refs",
+          "title": "Project reference graph",
+          "alt": "The contracts package is built first, the ui package depends on contracts, and the web and api apps reference them; tsc build compiles in dependency order.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "contracts package"
+            },
+            {
+              "id": "n1",
+              "label": "ui package"
+            },
+            {
+              "id": "n2",
+              "label": "web app"
+            },
+            {
+              "id": "n3",
+              "label": "api app"
+            },
+            {
+              "id": "n4",
+              "label": "tsc --build"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1",
+              "label": "referenced by"
+            },
+            {
+              "from": "n0",
+              "to": "n3"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n0",
+              "to": "n2"
+            },
+            {
+              "from": "n4",
+              "to": "n0",
+              "label": "builds first"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "type-safe-react-props-and-events",
+      "title": "How do you write type-safe React props and event handlers in TypeScript?",
+      "topic": "TypeScript with React",
+      "difficulty": "beginner",
+      "type": "coding",
+      "tags": [
+        "typescript",
+        "react",
+        "props",
+        "events"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I type props with an interface or type for the component, reuse built-in types such as ComponentPropsWithoutRef for wrappers, and use discriminated unions for props that depend on each other. Event handlers use React's event types, like ChangeEvent of HTMLInputElement, or are inferred from inline handlers. Children are ReactNode. I avoid React.FC by default, avoid any for events, and use generics for reusable list or select components.",
+      "revision": "Type props with interfaces or unions, wrap native elements with ComponentPropsWithoutRef, use React event types, generics for reusable components.",
+      "detailed": "Type-safe components catch wrong props and handler misuse at compile time.\n\n## Props\n\n```tsx\ninterface ButtonProps extends React.ComponentPropsWithoutRef<'button'> {\n  variant?: 'primary' | 'secondary';\n  loading?: boolean;\n}\n\nexport function Button({ variant = 'primary', loading, children, ...rest }: ButtonProps) {\n  return <button {...rest} disabled={loading || rest.disabled} data-variant={variant}>{children}</button>;\n}\n```\n\nExtending native props means `onClick`, `type`, `aria-*` all work without redeclaring them.\n\n## Props that depend on each other\n\n```tsx\ntype AlertProps =\n  | { kind: 'info'; message: string }\n  | { kind: 'action'; message: string; onConfirm: () => void };\n// kind 'action' requires onConfirm; 'info' forbids relying on it\n```\n\n{{diagram:props}}\n\n## Events\n\n```tsx\nfunction SearchBox({ onSearch }: { onSearch: (q: string) => void }) {\n  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => onSearch(e.target.value);\n  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => { e.preventDefault(); };\n  return <form onSubmit={handleSubmit}><input onChange={handleChange} /></form>;\n}\n```\n\n## Generic components\n\n```tsx\ninterface ListProps<T> { items: T[]; getKey: (item: T) => string; render: (item: T) => React.ReactNode }\nexport function List<T>({ items, getKey, render }: ListProps<T>) {\n  return <ul>{items.map(i => <li key={getKey(i)}>{render(i)}</li>)}</ul>;\n}\n```\n\n## Useful types\n\n| Need | Type |\n|---|---|\n| Children | React.ReactNode |\n| Style objects | React.CSSProperties |\n| Refs | React.RefObject<T>, ref forwarding types |\n| Hooks state | useState<User | null>(null) |\n| Element props | React.ComponentProps<typeof Button> |\n\n## Common mistakes\n\n- Typing events as `any`.\n- Optional props that should be a discriminated union.\n- Using React.FC and accidentally affecting children or generics typing (behaviour changed across versions).\n- Spreading unknown props onto DOM elements without a rest type.",
+      "followUps": [
+        "How do you type a polymorphic \"as\" prop?",
+        "How do you type useReducer with discriminated actions?",
+        "How do you type context with a null default safely?"
+      ],
+      "related": [
+        "narrowing-and-discriminated-unions",
+        "generics-constraints-defaults-inference"
+      ],
+      "diagrams": [
+        {
+          "id": "props",
+          "title": "Props as a discriminated union",
+          "alt": "A component receives props with a kind tag; the info kind needs only a message while the action kind requires an onConfirm callback, which the compiler enforces at the call site.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Caller passes props"
+            },
+            {
+              "id": "n1",
+              "label": "kind tag checked"
+            },
+            {
+              "id": "n2",
+              "label": "info: message only"
+            },
+            {
+              "id": "n3",
+              "label": "action: message and onConfirm"
+            },
+            {
+              "id": "n4",
+              "label": "Compile error if missing"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n1",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "declaration-merging-and-module-augmentation",
+      "title": "What are declaration merging and module augmentation, and when do you use them?",
+      "topic": "Type system",
+      "difficulty": "advanced",
+      "type": "conceptual",
+      "tags": [
+        "typescript",
+        "declaration-merging",
+        "module-augmentation",
+        "express"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Declaration merging means TypeScript combines multiple declarations with the same name, such as interfaces, or a namespace with a function. Module augmentation uses that to add properties to types from another module, for example adding a user field to Express's Request or extending a theme type in a UI library. It is useful for typing middleware-added data and global config, but it is global and invisible at the use site, so I keep it small, documented and in one place.",
+      "revision": "Same-name declarations merge; module augmentation adds members to third-party types, such as Request.user, but is global, so keep it minimal and centralised.",
+      "detailed": "TypeScript **merges** certain declarations that share a name and scope. Interfaces merge member by member.\n\n## Interface merging\n\n```ts\ninterface Settings { theme: 'light' | 'dark' }\ninterface Settings { locale: string }\n// Settings has both theme and locale\n```\n\n## Module augmentation\n\n```ts\n// types/express.d.ts  (must be a module: contains an import or export)\nimport 'express';\n\ndeclare module 'express-serve-static-core' {\n  interface Request {\n    user?: { id: string; roles: string[] };\n  }\n}\n```\n\nNow middleware that sets `req.user` is typed in every handler. The exact module name to augment depends on the library and version, so check its typings.\n\n{{diagram:augment}}\n\n## Global augmentation\n\n```ts\nexport {};\ndeclare global {\n  interface Window { __APP_CONFIG__: { apiBase: string } }\n  namespace NodeJS { interface ProcessEnv { DATABASE_URL: string } }\n}\n```\n\n## Where it fits\n\n| Use | Example |\n|---|---|\n| Middleware-added request data | Authenticated user, request id |\n| Typed environment | ProcessEnv keys |\n| Library extension points | Theme or route-meta interfaces designed for augmentation |\n| Untyped globals | Window fields injected by the host page |\n\n## Risks\n\n- **Global effect**: every file sees the change, even when the runtime never sets it.\n- Optional versus required: `user` is only set after auth middleware; marking it required hides bugs.\n- The `.d.ts` must be included by tsconfig, or the augmentation silently does nothing.\n- Conflicts between libraries augmenting the same interface.\n\n## Common mistakes\n\n- Putting the augmentation file outside `include`.\n- Declaring `ProcessEnv` keys as strings without validating them at start-up.\n- Using augmentation to avoid proper dependency injection.\n- Writing a declaration file with no import or export, which makes it a global script and overrides rather than augments the module.",
+      "followUps": [
+        "How would you type request-scoped context without augmentation?",
+        "Why must an augmentation file be a module?",
+        "How do you validate process.env at start-up?"
+      ],
+      "related": [
+        "interfaces-vs-type-aliases",
+        "runtime-validation-vs-compile-time-types"
+      ],
+      "diagrams": [
+        {
+          "id": "augment",
+          "title": "Augmenting a library type",
+          "alt": "A declaration file augments the Request interface of a web framework; the compiler merges the new user field into the library type so handlers can read request user without casts.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Library Request interface"
+            },
+            {
+              "id": "n1",
+              "label": "Augmentation d.ts"
+            },
+            {
+              "id": "n2",
+              "label": "Merged Request type"
+            },
+            {
+              "id": "n3",
+              "label": "Auth middleware sets user"
+            },
+            {
+              "id": "n4",
+              "label": "Handlers read req.user"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n2"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            },
+            {
+              "from": "n2",
+              "to": "n4"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "migrating-javascript-to-typescript-incrementally",
+      "title": "How do you migrate a JavaScript codebase to TypeScript incrementally?",
+      "topic": "Migration",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "typescript",
+        "migration",
+        "allowJs",
+        "legacy"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I migrate gradually while the app keeps shipping. Add TypeScript and a tsconfig with allowJs and checkJs where useful, get the build and tests running, then convert files in dependency order, leaves first, starting with shared utilities and API types. New code is written in TypeScript. Strictness is raised in steps, with a CI ratchet on error counts. I replace any with real types over time and add runtime validation at boundaries.",
+      "revision": "Add tsconfig with allowJs, convert leaf modules first, write new code in TypeScript, ratchet strictness in CI, and validate data at boundaries.",
+      "detailed": "A big-bang rewrite stalls feature work. TypeScript supports **mixed JS and TS** projects so you can migrate file by file.\n\n{{diagram:path}}\n\n## Step plan\n\n1. **Tooling**: install TypeScript and types for dependencies (`@types/*`), add a tsconfig with `allowJs: true`, and make the existing build and tests run unchanged.\n2. **Soft checking**: enable `checkJs` selectively, or add `// @ts-check` and JSDoc types to important JS files to get value before renaming.\n3. **Shared first**: convert utilities, constants and API types, since many files depend on them.\n4. **Leaf-first conversion**: rename `.js` to `.ts` or `.tsx` for modules with few dependents, fix errors, then move up.\n5. **New code in TypeScript** by policy, enforced in review.\n6. **Strictness ratchet**: start lenient (`noImplicitAny: false`), then enable flags progressively, with CI failing if error counts or `any` count increase.\n7. **Boundaries**: add schema validation for API responses and configuration, since types alone do not prove runtime data.\n\n## tsconfig starter\n\n```json\n{\n  \"compilerOptions\": {\n    \"allowJs\": true,\n    \"checkJs\": false,\n    \"noEmit\": true,\n    \"strict\": false,\n    \"esModuleInterop\": true,\n    \"skipLibCheck\": true\n  },\n  \"include\": [\"src\"]\n}\n```\n\n## Handling pain points\n\n| Problem | Approach |\n|---|---|\n| Untyped dependency | Install @types or write a small .d.ts |\n| Dynamic objects | Record types, then proper interfaces |\n| Large implicit-any areas | `unknown` plus narrowing, or temporary typed escapes with a TODO and tracking |\n| Test files | Convert with the code they exercise |\n\nTools that auto-add types can speed up the first pass, but review their output; they often infer weak types.\n\n## Common mistakes\n\n- Converting everything with `any` and declaring victory.\n- Mixing refactors and type conversion in the same pull request.\n- Ignoring the build pipeline, so slow type checks block developers.\n- No ownership or deadline, leaving the codebase half-migrated forever.",
+      "followUps": [
+        "How do you track migration progress?",
+        "How would you handle an untyped internal library?",
+        "What do you do about build and test tooling changes?"
+      ],
+      "related": [
+        "strict-mode-flags-that-matter",
+        "typescript-performance-and-build-time"
+      ],
+      "diagrams": [
+        {
+          "id": "path",
+          "title": "Incremental JS to TS migration",
+          "alt": "Tooling and allowJs come first, then shared utilities and types are converted, then leaf modules upwards, while new code is written in TypeScript and strictness is raised by a CI ratchet.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Add tsconfig with allowJs"
+            },
+            {
+              "id": "n1",
+              "label": "Convert shared types and utilities"
+            },
+            {
+              "id": "n2",
+              "label": "Convert leaf modules upward"
+            },
+            {
+              "id": "n3",
+              "label": "Write new code in TypeScript"
+            },
+            {
+              "id": "n4",
+              "label": "Raise strictness with CI ratchet"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "typescript-performance-and-build-time",
+      "title": "What causes TypeScript performance and build-time problems, and how do you fix them?",
+      "topic": "Tooling performance",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "typescript",
+        "performance",
+        "build",
+        "tsc"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Slow type checking usually comes from very large programs, overly complex conditional or recursive types, huge unions, heavy inferred types in public APIs, deep dependency type graphs, and checking declaration files in node_modules. I measure with tsc --extendedDiagnostics and --generateTrace, then apply fixes: skipLibCheck, incremental builds, project references, explicit return types on exported functions, simpler types, and separating type checking from transpilation using a fast transpiler plus tsc --noEmit in CI.",
+      "revision": "Measure with extendedDiagnostics and traces; fix with skipLibCheck, incremental and project references, explicit exported types, simpler types, and a separate typecheck step.",
+      "detailed": "Compile time is affected by **program size** and **type complexity**. Measure before changing anything.\n\n## Measure\n\n```bash\ntsc --noEmit --extendedDiagnostics     # files, types, instantiations, time\ntsc --noEmit --generateTrace ./trace   # analyse in a trace viewer\ntsc --listFiles | wc -l                # what is being included\n```\n\n{{diagram:tune}}\n\n## Common causes and fixes\n\n| Cause | Fix |\n|---|---|\n| Too many files included (tests, build output, node_modules sprawl) | Tight include and exclude; do not include dist |\n| Checking all declaration files | skipLibCheck: true |\n| Full rebuild every time | incremental plus tsbuildinfo, or tsc --build |\n| One huge program in a monorepo | Project references, per-package builds |\n| Heavy inferred types exported across modules | Explicit return types and named interfaces |\n| Giant unions, deep recursive conditional types | Simplify, cap recursion, use interfaces |\n| Large type-heavy libraries (query builders, schema libs) | Isolate usage behind typed wrappers |\n| Duplicate dependency versions | Dedupe so types are not instantiated twice |\n\n## Separate transpile from type check\n\nUse a fast transpiler (for example SWC, esbuild or Babel) for bundling and dev servers, and run `tsc --noEmit` as a separate parallel step in CI and pre-commit. The bundler then does not wait on the type checker.\n\n```ts\n// public API: annotate, do not leave to inference\nexport function buildQuery(filters: Filters): QueryPlan { /* ... */ }\n```\n\n## Editor performance\n\n- Open the workspace at the package level where possible.\n- Limit auto-imports from huge barrel files; barrels also hurt bundling and tree shaking.\n- Keep the editor's TypeScript version aligned with the workspace.\n\nAvailable flags and tool speeds change across versions; benchmark on your own codebase.\n\n## Common mistakes\n\n- Guessing at causes instead of reading diagnostics.\n- Disabling type checking altogether to \"fix\" build time.\n- Adding clever type-level code for minor convenience.\n- Relying on inferred return types across module boundaries.",
+      "followUps": [
+        "How would you read a TypeScript trace to find the slow file?",
+        "Why can barrel files hurt build performance?",
+        "How do you keep CI type checks fast on large PRs?"
+      ],
+      "related": [
+        "tsconfig-project-references-monorepos",
+        "utility-types-mapped-conditional-types"
+      ],
+      "diagrams": [
+        {
+          "id": "tune",
+          "title": "Tuning TypeScript build time",
+          "alt": "Measure with diagnostics and traces, identify whether program size or type complexity dominates, apply targeted fixes such as skipLibCheck, incremental builds, references or simpler types, then measure again.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Measure with diagnostics and trace"
+            },
+            {
+              "id": "n1",
+              "label": "Program size or type complexity?"
+            },
+            {
+              "id": "n2",
+              "label": "Trim includes, skipLibCheck, references"
+            },
+            {
+              "id": "n3",
+              "label": "Simplify types, annotate exports"
+            },
+            {
+              "id": "n4",
+              "label": "Measure again"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2",
+              "label": "size"
+            },
+            {
+              "from": "n1",
+              "to": "n3",
+              "label": "complexity"
+            },
+            {
+              "from": "n2",
+              "to": "n4"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

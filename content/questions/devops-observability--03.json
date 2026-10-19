@@ -1,0 +1,735 @@
+{
+  "category": "devops-observability",
+  "questions": [
+    {
+      "slug": "cicd-pipeline-react-nextjs-node-graphql",
+      "title": "Design a CI/CD pipeline for a React or Next.js frontend and a Node GraphQL backend",
+      "topic": "Delivery Pipelines",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "cicd",
+        "github-actions",
+        "nextjs",
+        "graphql",
+        "pipeline"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would run the same gated stages on every pull request: install with a cached lockfile, lint, type-check, unit tests, build, dependency and secret scanning, then container image scanning. On merge to main, the pipeline builds one immutable image tagged with the commit SHA, deploys to staging, runs smoke and contract tests including GraphQL schema checks, and promotes the same artefact to production behind approval. Credentials use OIDC federation rather than stored keys, and rollback is a redeploy of the previous image.",
+      "revision": "Lint, type-check, test, scan, build once, deploy to staging, smoke and schema checks, then promote the same artefact with approval. Use OIDC, not stored keys.",
+      "detailed": "## Stages\n\n{{diagram:pipeline}}\n\n| Stage | Purpose | Fails the build when |\n|---|---|---|\n| Install | Reproducible dependencies from lockfile | Lockfile out of sync |\n| Lint and format | Style and common bugs | Rule violations |\n| Type-check | `tsc --noEmit` | Type errors |\n| Unit and component tests | Behaviour | Test failure or coverage gate |\n| GraphQL schema check | Detect breaking changes | Removed or changed fields used by clients |\n| Dependency and secret scan | Known vulnerabilities, leaked keys | High severity findings |\n| Build and image scan | Immutable artefact | Build or critical image issue |\n| Deploy staging and smoke | Real environment check | Health or smoke failure |\n| Promote to production | Same artefact, approval gate | Approval refused |\n\n## Illustrative GitHub Actions workflow\n\n```yaml\nname: ci\non:\n  pull_request:\n  push:\n    branches: [main]\npermissions:\n  contents: read\n  id-token: write   # for OIDC to AWS\njobs:\n  verify:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions/setup-node@v4\n        with:\n          node-version: 20\n          cache: npm\n      - run: npm ci\n      - run: npm run lint\n      - run: npm run typecheck\n      - run: npm test -- --ci\n      - run: npm audit --audit-level=high\n      - run: npm run build\n  deploy:\n    needs: verify\n    if: github.ref == 'refs/heads/main'\n    runs-on: ubuntu-latest\n    environment: production   # approval rule lives here\n    steps:\n      - uses: actions/checkout@v4\n      - uses: aws-actions/configure-aws-credentials@v4\n        with:\n          role-to-assume: ${{ vars.DEPLOY_ROLE_ARN }}\n          aws-region: eu-west-1\n      - run: ./scripts/build-push-deploy.sh ${{ github.sha }}\n```\n\nPin third-party actions to a commit SHA in real use and verify current action versions.\n\n## Design points\n\n- **Build once**: promote the same image through environments; configuration comes from the environment.\n- **Deploy** the frontend as static assets to S3 and CloudFront (invalidate or use hashed files) or as a container; deploy the backend to ECS with a rolling or blue-green strategy and automatic rollback.\n- **Branch protection** requires the verify job and reviews.\n- **Parallelise** lint, type-check and tests; cache dependencies.\n\n## Failure modes\n\nFlaky tests erode trust; quarantine and fix them. A shared deploy role with admin rights is a security risk; scope it per environment. Concurrent deployments need a concurrency group.\n\n## Common mistakes\n\n- Rebuilding for production, so the tested artefact differs.\n- Storing long-lived cloud keys as secrets.\n- Skipping schema checks, so a field removal breaks the frontend.\n- Running database migrations with no plan for rollback.",
+      "followUps": [
+        "How would you cut pipeline time from 25 minutes to under 10?",
+        "How do you gate breaking GraphQL schema changes?",
+        "How do you handle environment-specific config for a Next.js build?"
+      ],
+      "diagrams": [
+        {
+          "id": "pipeline",
+          "title": "CI/CD stages",
+          "alt": "Pull requests run install, lint, type-check, tests, scans and build; merge to main builds an immutable image, deploys to staging with smoke tests, then promotes to production after approval with rollback available.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "pr",
+              "label": "Pull request"
+            },
+            {
+              "id": "ci",
+              "label": "Lint, type-check, test"
+            },
+            {
+              "id": "sc",
+              "label": "Dependency and secret scan"
+            },
+            {
+              "id": "bd",
+              "label": "Build image once"
+            },
+            {
+              "id": "st",
+              "label": "Deploy staging"
+            },
+            {
+              "id": "sm",
+              "label": "Smoke and schema checks"
+            },
+            {
+              "id": "ap",
+              "label": "Approval"
+            },
+            {
+              "id": "pd",
+              "label": "Production"
+            }
+          ],
+          "edges": [
+            {
+              "from": "pr",
+              "to": "ci"
+            },
+            {
+              "from": "ci",
+              "to": "sc"
+            },
+            {
+              "from": "sc",
+              "to": "bd"
+            },
+            {
+              "from": "bd",
+              "to": "st"
+            },
+            {
+              "from": "st",
+              "to": "sm"
+            },
+            {
+              "from": "sm",
+              "to": "ap"
+            },
+            {
+              "from": "ap",
+              "to": "pd"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "docker-image-optimisation-node",
+      "title": "How do you optimise and harden a Docker image for a Node application?",
+      "topic": "Containers",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "docker",
+        "containers",
+        "node",
+        "security",
+        "multi-stage"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I use a multi-stage build: one stage installs all dependencies and compiles, the final stage copies only production dependencies and built output onto a slim base image. I order layers so dependency installation is cached until the lockfile changes, add a dockerignore file, run as a non-root user, avoid secrets in layers, pin base image versions, scan images, and set a proper start command with signal handling. The result is smaller, faster to pull and has a smaller attack surface.",
+      "revision": "Multi-stage build, slim pinned base, lockfile-first layer caching, dockerignore, non-root user, no secrets in layers, scan images.",
+      "detailed": "## Dockerfile pattern\n\n```dockerfile\n# build stage\nFROM node:20-slim AS build\nWORKDIR /app\nCOPY package.json package-lock.json ./\nRUN npm ci\nCOPY . .\nRUN npm run build && npm prune --omit=dev\n\n# runtime stage\nFROM node:20-slim\nENV NODE_ENV=production\nWORKDIR /app\nCOPY --from=build --chown=node:node /app/dist ./dist\nCOPY --from=build --chown=node:node /app/node_modules ./node_modules\nCOPY --from=build --chown=node:node /app/package.json ./\nUSER node\nEXPOSE 3000\nCMD [\"node\", \"dist/server.js\"]\n```\n\nPin to a specific minor tag or digest in real projects and verify current supported Node versions.\n\n## Techniques\n\n| Technique | Benefit |\n|---|---|\n| Multi-stage build | Dev tools and source stay out of the final image |\n| Copy lockfile first | Dependency layer is cached until dependencies change |\n| `.dockerignore` | Excludes `node_modules`, `.git`, `.env`, tests from context |\n| Slim or distroless base | Fewer packages, fewer vulnerabilities; Alpine uses musl, which can affect native modules |\n| Non-root user | Limits damage from a compromise |\n| Run `node` directly | Proper signal handling; use an init such as tini or `--init` if needed |\n| BuildKit cache mounts | Faster repeated builds in CI |\n\n{{diagram:docker-stages}}\n\n## Security points\n\n- Never `COPY` `.env` files or pass secrets as build arguments; use BuildKit secrets or runtime injection.\n- Scan images (for example in ECR scanning or a CI scanner) and rebuild regularly for base image patches.\n- Use a read-only root filesystem where the app allows it.\n- Add a `HEALTHCHECK` or rely on the orchestrator's probes.\n\n## Failure modes\n\nUsing `latest` makes builds non-reproducible. Large images slow scaling events because pulls dominate task start time. Missing signal handling causes slow shutdowns and dropped requests.\n\n## Common mistakes\n\n- Copying the whole context before installing dependencies, which busts the cache every time.\n- Shipping dev dependencies and compilers in production.\n- Running as root.\n- Baking environment-specific configuration into the image.",
+      "followUps": [
+        "How do BuildKit secrets avoid leaking credentials into layers?",
+        "Alpine or Debian slim for Node: how do you choose?",
+        "How do you handle graceful shutdown in a container?"
+      ],
+      "diagrams": [
+        {
+          "id": "docker-stages",
+          "title": "Multi-stage image build",
+          "alt": "A build stage installs dependencies, compiles and prunes dev dependencies; only the built output and production modules are copied to a slim runtime stage that runs as a non-root user.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "src",
+              "label": "Source and lockfile"
+            },
+            {
+              "id": "bs",
+              "label": "Build stage"
+            },
+            {
+              "id": "art",
+              "label": "Built output and prod modules"
+            },
+            {
+              "id": "rt",
+              "label": "Slim runtime stage non-root"
+            },
+            {
+              "id": "reg",
+              "label": "Registry with scan"
+            }
+          ],
+          "edges": [
+            {
+              "from": "src",
+              "to": "bs"
+            },
+            {
+              "from": "bs",
+              "to": "art"
+            },
+            {
+              "from": "art",
+              "to": "rt",
+              "label": "COPY --from"
+            },
+            {
+              "from": "rt",
+              "to": "reg"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "terraform-basics-state-modules-drift",
+      "title": "Explain Terraform basics: state, modules and drift",
+      "topic": "Infrastructure as Code",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "terraform",
+        "iac",
+        "state",
+        "modules",
+        "drift"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Terraform describes infrastructure declaratively. Plan compares the configuration with the recorded state and real resources, and apply makes the changes. State maps configuration to real resources, so it must be stored remotely with locking, for example S3 with a locking mechanism or a managed backend, and treated as sensitive. Modules package reusable configuration with inputs and outputs. Drift is when real infrastructure differs from the code; I detect it with scheduled plans and fix it by reconciling or importing, not by console edits.",
+      "revision": "Declarative plan then apply; remote locked state; modules for reuse; detect drift with scheduled plans and keep changes in code.",
+      "detailed": "## Core workflow\n\n1. `terraform init` downloads providers and configures the backend.\n2. `terraform plan` shows the diff between configuration, state and reality.\n3. `terraform apply` executes the plan.\n4. Review the plan in the pull request before apply.\n\n```hcl\nterraform {\n  backend \"s3\" {\n    bucket = \"example-tf-state\"\n    key    = \"app/prod.tfstate\"\n    region = \"eu-west-1\"\n  }\n}\n\nmodule \"network\" {\n  source     = \"./modules/vpc\"\n  cidr_block = \"10.0.0.0/16\"\n}\n```\n\nThe backend locking options differ by Terraform version, so verify current documentation.\n\n## State\n\n| Concern | Practice |\n|---|---|\n| Location | Remote backend, versioned and encrypted |\n| Concurrency | State locking so two applies cannot collide |\n| Sensitivity | State can contain secrets; restrict access |\n| Blast radius | Split state per environment and per component |\n\n## Modules\n\nModules wrap resources behind **variables** and **outputs**: a VPC module, an ECS service module. Version them and pin versions. Avoid modules that are thin wrappers with dozens of pass-through variables.\n\n## Drift\n\n{{diagram:tf-drift}}\n\nDrift arises from console edits, emergency fixes or other automation. Run scheduled `plan` in CI with `-detailed-exitcode`, alert on differences, then either update the code to match or re-apply. Use `terraform import` to bring unmanaged resources under control, and `moved` blocks for refactors.\n\n## Failure modes\n\n- Lost or corrupted state; mitigate with versioning and backups.\n- A plan that destroys and recreates a database because of a renamed attribute; use `prevent_destroy` and read plans carefully.\n- Provider upgrades changing behaviour; pin versions.\n- Secrets in plain text variables.\n\n## Common mistakes\n\n- Local state on a laptop.\n- One giant state file for everything.\n- Applying without reviewing the plan.\n- Hand-editing resources in the console after Terraform created them.",
+      "followUps": [
+        "How would you structure Terraform for dev, staging and production?",
+        "What does terraform import do and when do you use it?",
+        "How do you stop a pipeline from destroying a database?"
+      ],
+      "diagrams": [
+        {
+          "id": "tf-drift",
+          "title": "Terraform drift handling",
+          "alt": "Code and state define desired infrastructure; a scheduled plan compares them with real resources, detects drift from console changes, and the team either updates the code or re-applies to reconcile.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "cd",
+              "label": "Configuration in Git"
+            },
+            {
+              "id": "st",
+              "label": "Remote state"
+            },
+            {
+              "id": "pl",
+              "label": "Scheduled plan"
+            },
+            {
+              "id": "rl",
+              "label": "Real resources"
+            },
+            {
+              "id": "dr",
+              "label": "Drift detected"
+            },
+            {
+              "id": "fx",
+              "label": "Update code or re-apply"
+            }
+          ],
+          "edges": [
+            {
+              "from": "cd",
+              "to": "pl"
+            },
+            {
+              "from": "st",
+              "to": "pl"
+            },
+            {
+              "from": "rl",
+              "to": "pl"
+            },
+            {
+              "from": "pl",
+              "to": "dr"
+            },
+            {
+              "from": "dr",
+              "to": "fx"
+            },
+            {
+              "from": "fx",
+              "to": "cd"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "kubernetes-fundamentals-and-ecs-vs-eks",
+      "title": "Kubernetes fundamentals: what are the core objects, and how does it compare with ECS?",
+      "topic": "Containers",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "kubernetes",
+        "eks",
+        "ecs",
+        "containers",
+        "orchestration"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Kubernetes runs containers as pods managed by controllers. A Deployment keeps a desired number of replicas and handles rolling updates, a Service gives pods a stable address, an Ingress or load balancer controller exposes HTTP routes, and ConfigMaps and Secrets inject configuration. The control plane schedules pods onto nodes. Compared with ECS, Kubernetes is more portable and extensible but carries more operational overhead, while ECS integrates tightly with AWS and is simpler to run.",
+      "revision": "Pod, Deployment, Service, Ingress, ConfigMap and Secret are the core objects. EKS offers portability and ecosystem; ECS offers simplicity on AWS.",
+      "detailed": "## Core objects\n\n| Object | Role |\n|---|---|\n| Pod | One or more containers sharing network and storage |\n| Deployment (ReplicaSet) | Desired replicas and rolling updates |\n| Service | Stable virtual IP and DNS in front of pods |\n| Ingress or Gateway | HTTP routing into the cluster; on EKS typically the AWS Load Balancer Controller creating an ALB |\n| ConfigMap and Secret | Configuration and sensitive values; Secrets are base64 encoded by default, so enable encryption at rest and tighter access |\n| HPA | Scales replicas on metrics |\n| Namespace, RBAC | Isolation and access control |\n\n```yaml\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: api\nspec:\n  replicas: 3\n  selector:\n    matchLabels: { app: api }\n  template:\n    metadata:\n      labels: { app: api }\n    spec:\n      containers:\n        - name: api\n          image: example/api:1.4.2\n          resources:\n            requests: { cpu: 250m, memory: 256Mi }\n            limits: { memory: 512Mi }\n```\n\n{{diagram:k8s-objects}}\n\n## ECS vs EKS\n\n| Aspect | ECS | EKS |\n|---|---|---|\n| Learning curve | Lower | Higher |\n| Portability | AWS specific | Kubernetes standard |\n| Ecosystem | AWS-native | Helm, operators, service meshes, GitOps tools |\n| Operations | Fewer moving parts | Upgrades, add-ons, networking, RBAC |\n| IAM | Task roles | IAM roles for service accounts or pod identity (verify current approach) |\n| Cost | No control plane fee | Control plane fee plus nodes (verify current pricing) |\n\n## Failure modes\n\nMissing resource requests cause noisy neighbours and poor scheduling. Misconfigured probes cause restarts or traffic to unready pods. Cluster version upgrades can break deprecated APIs.\n\n## Common mistakes\n\n- Choosing Kubernetes without anyone to operate it.\n- No resource requests and limits.\n- Using `latest` image tags.\n- Treating Kubernetes Secrets as encrypted by default.",
+      "followUps": [
+        "What happens when you apply a Deployment change?",
+        "How do requests/limits affect scheduling and throttling?",
+        "When does the extra complexity of EKS pay off?"
+      ],
+      "diagrams": [
+        {
+          "id": "k8s-objects",
+          "title": "Kubernetes request path",
+          "alt": "An external client reaches an Ingress or load balancer, which routes to a Service, which balances across pods managed by a Deployment; ConfigMaps and Secrets are injected into the pods and an autoscaler adjusts replicas.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "cl",
+              "label": "Client"
+            },
+            {
+              "id": "ing",
+              "label": "Ingress or ALB"
+            },
+            {
+              "id": "svc",
+              "label": "Service"
+            },
+            {
+              "id": "dep",
+              "label": "Deployment"
+            },
+            {
+              "id": "p1",
+              "label": "Pod"
+            },
+            {
+              "id": "p2",
+              "label": "Pod"
+            },
+            {
+              "id": "cfg",
+              "label": "ConfigMap and Secret"
+            },
+            {
+              "id": "hpa",
+              "label": "Autoscaler"
+            }
+          ],
+          "edges": [
+            {
+              "from": "cl",
+              "to": "ing"
+            },
+            {
+              "from": "ing",
+              "to": "svc"
+            },
+            {
+              "from": "svc",
+              "to": "p1"
+            },
+            {
+              "from": "svc",
+              "to": "p2"
+            },
+            {
+              "from": "dep",
+              "to": "p1",
+              "label": "manages"
+            },
+            {
+              "from": "dep",
+              "to": "p2",
+              "label": "manages"
+            },
+            {
+              "from": "cfg",
+              "to": "p1"
+            },
+            {
+              "from": "cfg",
+              "to": "p2"
+            },
+            {
+              "from": "hpa",
+              "to": "dep",
+              "label": "replicas"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "rolling-blue-green-canary-with-feature-flags",
+      "title": "Rolling, blue-green and canary releases with feature flags: how do you choose?",
+      "topic": "Release Strategies",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "deployment",
+        "rolling",
+        "blue-green",
+        "canary",
+        "feature-flags"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Rolling replaces instances gradually, is cheap and the default, but old and new versions coexist and rollback is slower. Blue-green runs two full environments and switches traffic, giving fast rollback at higher cost. Canary sends a small percentage of traffic to the new version and watches metrics before widening. Feature flags separate deploying code from releasing behaviour, so I can ship dark code and enable it gradually. I combine them: rolling or canary for the binary, flags for risky features, and backwards-compatible database changes.",
+      "revision": "Rolling: gradual and cheap. Blue-green: instant switch and rollback, double capacity. Canary: small traffic slice with metrics. Flags decouple deploy from release.",
+      "detailed": "## Comparison\n\n| Strategy | How it works | Rollback | Cost | Watch for |\n|---|---|---|---|---|\n| Rolling | Replace instances in batches | Redeploy previous version | Low | Mixed versions during rollout |\n| Blue-green | Two environments, switch traffic | Switch back quickly | High while both run | Shared database compatibility |\n| Canary | Route small share to new version | Shift traffic back | Medium | Needs good metrics and traffic splitting |\n| Feature flag | Code deployed off, enabled by rule | Turn flag off | Low | Flag debt and testing combinations |\n\n{{diagram:release-paths}}\n\n## On AWS\n\n- **ECS** supports rolling updates natively and blue-green or canary via CodeDeploy with an ALB; check current options in the documentation.\n- **ALB weighted target groups** can split traffic between versions.\n- **Lambda** aliases support weighted traffic shifting.\n- **CloudFront** continuous deployment can stage a CDN configuration change; verify current features.\n\n## Using feature flags well\n\n1. Keep flags short-lived and named by owner and purpose.\n2. Evaluate flags server-side for sensitive features; client-side flags can be inspected by users.\n3. Default to safe behaviour if the flag service is unavailable.\n4. Remove the flag after full rollout.\n5. Separate **release flags** (temporary) from **permission or operational flags** (long-lived).\n\n## Canary criteria\n\nDefine success metrics before rollout: error rate, latency percentile, business conversion. Automate rollback when thresholds are breached, and keep the canary long enough to see low-frequency errors.\n\n## Failure modes\n\nBoth versions must work with the same database schema. Sticky sessions can skew canary results. A canary with too little traffic gives no signal. Flags left on permanently create untested paths.\n\n## Common mistakes\n\n- Choosing blue-green without planning data compatibility.\n- Judging a canary by averages rather than error and tail latency.\n- Never deleting old flags.\n- Treating a feature flag as a security control.",
+      "followUps": [
+        "How would you automate canary rollback on error rate?",
+        "What are the risks of long-lived feature flags?",
+        "How do sticky sessions affect a canary?"
+      ],
+      "diagrams": [
+        {
+          "id": "release-paths",
+          "title": "Release strategy paths",
+          "alt": "A new version is deployed through rolling replacement, a blue-green switch or a canary slice, while feature flags keep new behaviour off until enabled gradually; metrics decide whether to widen or roll back.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "nv",
+              "label": "New version built"
+            },
+            {
+              "id": "ro",
+              "label": "Rolling batches"
+            },
+            {
+              "id": "bg",
+              "label": "Blue-green switch"
+            },
+            {
+              "id": "cn",
+              "label": "Canary slice"
+            },
+            {
+              "id": "ff",
+              "label": "Feature flag off then gradual"
+            },
+            {
+              "id": "mt",
+              "label": "Metrics and alarms"
+            },
+            {
+              "id": "dec",
+              "label": "Widen or roll back"
+            }
+          ],
+          "edges": [
+            {
+              "from": "nv",
+              "to": "ro"
+            },
+            {
+              "from": "nv",
+              "to": "bg"
+            },
+            {
+              "from": "nv",
+              "to": "cn"
+            },
+            {
+              "from": "ro",
+              "to": "ff"
+            },
+            {
+              "from": "bg",
+              "to": "ff"
+            },
+            {
+              "from": "cn",
+              "to": "ff"
+            },
+            {
+              "from": "ff",
+              "to": "mt"
+            },
+            {
+              "from": "mt",
+              "to": "dec"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "database-migration-safety-in-releases",
+      "title": "How do you make database migrations safe in continuous delivery?",
+      "topic": "Release Strategies",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "database",
+        "migrations",
+        "expand-contract",
+        "rollback",
+        "zero-downtime"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I make migrations backwards compatible using expand and contract. First add new nullable columns or tables, deploy code that works with both shapes, backfill data in small batches, switch reads and writes, and only later remove old structures in a separate release. Migrations are versioned, reviewed, tested against production-like data, run once from the pipeline with a lock, and have a restore point taken beforehand. Rolling back application code must remain safe at every step.",
+      "revision": "Expand and contract: additive change, dual-compatible code, batched backfill, switch, later cleanup. Version, test, lock, snapshot, and keep rollback safe.",
+      "detailed": "The risk is that application versions and schema versions do not change at the same instant. During rolling, blue-green or canary releases, **old and new code run against the same database**.\n\n## Expand and contract\n\n{{diagram:expand-contract}}\n\nExample: renaming `fullName` into `firstName` and `lastName`.\n\n1. **Expand**: add the new nullable columns. No code depends on them yet.\n2. **Deploy** code that writes both old and new fields and reads the new ones with a fallback.\n3. **Backfill** existing rows in small batches with throttling.\n4. **Verify** counts and sample data.\n5. **Switch** reads fully to the new fields.\n6. **Contract**: after rollback is no longer needed, drop the old column in a later release.\n\n## Safe and unsafe changes\n\n| Change | Risk | Safer approach |\n|---|---|---|\n| Add nullable column | Low | Direct |\n| Add NOT NULL column | Table rewrite or failures | Add nullable, backfill, then enforce |\n| Rename or drop column | Old code breaks | Expand and contract |\n| Add index | Locks or heavy IO on large tables | Online or concurrent index creation where the engine supports it |\n| Large backfill | Long locks, replica lag | Batches with pauses |\n| Change data type | Rewrite and compatibility | New column plus migration |\n\n## Pipeline practices\n\n- Use a migration tool with ordered, immutable files and a history table.\n- Run migrations as a **separate pipeline step** before or alongside deployment, with a lock so only one runner proceeds.\n- Test on a copy with realistic data volume and measure time.\n- Take a snapshot or confirm point-in-time recovery before risky changes.\n- Keep rollback scripts only where they are truly safe; often roll forward instead.\n\n## MongoDB note\n\nSchemaless does not mean migration-free. Handle documents of multiple shapes in code, version documents with a schema field, and migrate lazily or in batches.\n\n## Failure modes\n\nLong locks block traffic, replicas lag, migrations half-apply, and rollback of code fails because a column was dropped early.\n\n## Common mistakes\n\n- Dropping columns in the same release that stops using them.\n- Running migrations automatically from every container start.\n- Testing only on tiny datasets.\n- No restore point before destructive changes.",
+      "followUps": [
+        "How would you backfill 100 million rows without downtime?",
+        "Why roll forward rather than roll back a migration?",
+        "How do you manage schema changes in MongoDB?"
+      ],
+      "diagrams": [
+        {
+          "id": "expand-contract",
+          "title": "Expand and contract migration",
+          "alt": "The schema is first expanded additively, code is deployed that works with both shapes, data is backfilled in batches, reads switch to the new structure, and the old structure is removed in a later release.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "ex",
+              "label": "Expand add new fields"
+            },
+            {
+              "id": "dc",
+              "label": "Deploy dual-compatible code"
+            },
+            {
+              "id": "bf",
+              "label": "Backfill in batches"
+            },
+            {
+              "id": "sw",
+              "label": "Switch reads and writes"
+            },
+            {
+              "id": "ct",
+              "label": "Contract remove old fields later"
+            }
+          ],
+          "edges": [
+            {
+              "from": "ex",
+              "to": "dc"
+            },
+            {
+              "from": "dc",
+              "to": "bf"
+            },
+            {
+              "from": "bf",
+              "to": "sw"
+            },
+            {
+              "from": "sw",
+              "to": "ct"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "readiness-vs-liveness-probes-and-health-checks",
+      "title": "Readiness vs liveness probes and health checks: what should each verify?",
+      "topic": "Reliability",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "probes",
+        "health-checks",
+        "kubernetes",
+        "ecs",
+        "alb"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Liveness answers whether the process is stuck and should be restarted; readiness answers whether it can serve traffic right now. Liveness should be cheap and independent of dependencies, otherwise a database outage restarts every healthy pod. Readiness can include critical dependencies and warm-up, and removes the instance from the load balancer without restarting it. A startup probe protects slow starts. On ECS and ALB, target group health checks play the readiness role, and container health checks play a liveness-like role.",
+      "revision": "Liveness: restart if wedged, no dependency checks. Readiness: receive traffic only when able. Startup probe covers slow boots.",
+      "detailed": "## What each probe means\n\n| Probe | Question | Action on failure |\n|---|---|---|\n| Liveness | Is the process stuck or deadlocked? | Restart the container |\n| Readiness | Can it serve requests now? | Remove from load balancing, no restart |\n| Startup | Has it finished starting? | Delays other probes; restart if it never starts |\n\n{{diagram:probe-flow}}\n\n## Endpoint design for a Node service\n\n```yaml\nlivenessProbe:\n  httpGet: { path: /healthz, port: 3000 }\n  periodSeconds: 10\n  failureThreshold: 3\nreadinessProbe:\n  httpGet: { path: /ready, port: 3000 }\n  periodSeconds: 5\nstartupProbe:\n  httpGet: { path: /healthz, port: 3000 }\n  failureThreshold: 30\n  periodSeconds: 2\n```\n\n- `/healthz` returns 200 if the event loop responds. It does not call the database.\n- `/ready` returns 200 only after startup tasks finish, the connection pool is initialised and critical dependencies respond within a short timeout. It returns 503 during shutdown so traffic drains.\n\n## On AWS\n\n- **ALB target group health checks** decide whether a target receives traffic; keep the path lightweight and tune interval and thresholds.\n- **ECS** uses container health check commands and the load balancer health check grace period for slow starts.\n- **Kubernetes on EKS** uses the probes above.\n\n## Failure modes\n\n- **Cascading restarts**: liveness depends on a database, which fails, so all pods restart and make recovery worse.\n- **Flapping readiness** from tight timeouts.\n- **Slow start killed** by an aggressive liveness probe.\n- **Health checks that always return 200** hide real failures.\n- **Expensive readiness checks** become a load source themselves.\n\n## Graceful shutdown\n\nOn SIGTERM, fail readiness first, finish in-flight requests, close connections, then exit within the termination grace period.\n\n## Common mistakes\n\n- Using one endpoint for both probes.\n- Checking every downstream service in readiness, so one optional dependency takes the app offline.\n- Not setting resource limits, so probes time out under CPU starvation.",
+      "followUps": [
+        "Should readiness include the database check?",
+        "How do you handle a slow-starting application?",
+        "How does graceful shutdown interact with the load balancer?"
+      ],
+      "diagrams": [
+        {
+          "id": "probe-flow",
+          "title": "Probe behaviour",
+          "alt": "A startup probe gates the others; readiness controls whether the instance receives load balancer traffic; liveness failures cause a restart.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "st",
+              "label": "Container starts"
+            },
+            {
+              "id": "sp",
+              "label": "Startup probe passes"
+            },
+            {
+              "id": "rd",
+              "label": "Readiness probe"
+            },
+            {
+              "id": "tr",
+              "label": "Receives traffic"
+            },
+            {
+              "id": "lv",
+              "label": "Liveness probe"
+            },
+            {
+              "id": "rs",
+              "label": "Restart container"
+            }
+          ],
+          "edges": [
+            {
+              "from": "st",
+              "to": "sp"
+            },
+            {
+              "from": "sp",
+              "to": "rd"
+            },
+            {
+              "from": "rd",
+              "to": "tr",
+              "label": "pass"
+            },
+            {
+              "from": "rd",
+              "to": "sp",
+              "label": "fail removes from traffic"
+            },
+            {
+              "from": "sp",
+              "to": "lv"
+            },
+            {
+              "from": "lv",
+              "to": "rs",
+              "label": "fail"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "slis-slos-error-budgets-and-incident-rca",
+      "title": "SLIs, SLOs and error budgets, and how do you run an incident and RCA?",
+      "topic": "Incident Response",
+      "difficulty": "advanced",
+      "type": "conceptual",
+      "tags": [
+        "sre",
+        "slo",
+        "sli",
+        "error-budget",
+        "incident",
+        "rca"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "An SLI is a measured indicator such as the proportion of successful requests, an SLO is the target for it over a window, and the error budget is the allowed unreliability. I choose SLIs users feel, like availability and latency percentiles at the load balancer, set realistic SLOs, and alert on budget burn rate rather than every blip. During incidents I assign an incident commander, communicate, mitigate first, and investigate after. Afterwards I run a blameless review that finds contributing causes and tracks owned actions.",
+      "revision": "SLI measures, SLO targets, error budget allows change. Alert on burn rate. Incident: mitigate first, communicate, blameless RCA with owned actions.",
+      "detailed": "## Definitions\n\n| Term | Meaning | Example |\n|---|---|---|\n| SLI | Measurement of service level | Share of GraphQL requests succeeding under 500 ms |\n| SLO | Target for the SLI over a window | 99.9 percent over 30 days |\n| SLA | External contract with consequences | Credits if availability falls below the promise |\n| Error budget | 100 percent minus the SLO | 0.1 percent of requests may fail, about 43 minutes of full outage in 30 days |\n\n{{diagram:slo-loop}}\n\n## Using the budget\n\nIf budget remains, ship features. If it is exhausted, prioritise reliability work and slow risky releases. This turns reliability into an explicit trade-off between product and engineering.\n\n## Choosing SLIs\n\nFor a MERN system: **availability** (non-5xx and valid GraphQL responses), **latency** (p95 or p99 at the ALB), **freshness or correctness** for data pipelines, and **queue age** for async work. GraphQL returns 200 with errors, so measure the errors array too.\n\n## Alerting\n\nUse **multi-window burn-rate alerts**: a fast burn pages immediately, a slow burn creates a ticket. Alert on symptoms users feel, with runbooks, not on every CPU spike.\n\n## Incident management\n\n1. **Detect and declare** with severity levels.\n2. **Roles**: incident commander, communications lead, operations lead.\n3. **Mitigate first**: roll back, fail over, scale or disable a feature flag.\n4. **Communicate** on a regular cadence to stakeholders and a status page.\n5. **Resolve and hand over**.\n6. **Review** within a few days.\n\n## Blameless RCA\n\nBuild a timeline from logs, traces, deploys and CloudTrail. Ask why repeatedly to find **contributing factors**, not a single culprit: missing test, weak alarm, risky process. Record what went well, then create actions with owners and dates, such as better alarms, automated rollback or a runbook.\n\n## Common mistakes\n\n- A 100 percent SLO, which is unachievable and blocks all change.\n- Alerting on causes rather than user impact.\n- Naming a person as the root cause.\n- Writing actions that nobody owns or tracks.\n- Investigating before mitigating while users are affected.",
+      "followUps": [
+        "How would you calculate a burn-rate alert threshold?",
+        "What goes into a good incident timeline?",
+        "How do you decide an SLO with a product owner?"
+      ],
+      "diagrams": [
+        {
+          "id": "slo-loop",
+          "title": "SLO feedback loop",
+          "alt": "Measured SLIs are compared with the SLO to compute the error budget; a healthy budget allows releases, while a depleted budget triggers reliability work, and incidents feed back into reviews and actions.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "sli",
+              "label": "Measure SLIs"
+            },
+            {
+              "id": "slo",
+              "label": "Compare with SLO"
+            },
+            {
+              "id": "eb",
+              "label": "Error budget remaining"
+            },
+            {
+              "id": "go",
+              "label": "Ship features"
+            },
+            {
+              "id": "rl",
+              "label": "Reliability work"
+            },
+            {
+              "id": "in",
+              "label": "Incident and RCA actions"
+            }
+          ],
+          "edges": [
+            {
+              "from": "sli",
+              "to": "slo"
+            },
+            {
+              "from": "slo",
+              "to": "eb"
+            },
+            {
+              "from": "eb",
+              "to": "go",
+              "label": "healthy"
+            },
+            {
+              "from": "eb",
+              "to": "rl",
+              "label": "depleted"
+            },
+            {
+              "from": "rl",
+              "to": "sli"
+            },
+            {
+              "from": "in",
+              "to": "rl"
+            },
+            {
+              "from": "go",
+              "to": "sli"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

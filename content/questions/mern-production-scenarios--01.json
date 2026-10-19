@@ -1,0 +1,1879 @@
+{
+  "category": "mern-production-scenarios",
+  "questions": [
+    {
+      "slug": "nodejs-api-latency-spike",
+      "title": "The Node.js API latency suddenly increases. How do you investigate?",
+      "topic": "Performance incidents",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "nodejs",
+        "latency",
+        "observability",
+        "performance"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I start by scoping it: which routes, which percentile, since when, and what changed. Then I read dashboards for p95 and p99, event loop lag, CPU, and downstream timings, and use traces to find the slow span. I isolate whether the time is in our code, the database, or a dependency. I mitigate first by rolling back or shedding load, then fix the cause and add alerts on latency and event loop lag.",
+      "revision": "Scope, trace the slow span, isolate the layer, mitigate by rollback or shedding, then fix and alert on p99 and event loop lag.",
+      "detailed": "Latency incidents are solved by narrowing the layer quickly, not by guessing at code.\n\n{{diagram:latency}}\n\n## Clarify\n\nAsk which endpoints, which percentile (p50 versus p99), which tenants or regions, the exact start time, and what changed: deploys, feature flags, traffic mix, data growth, dependency releases. Agree what impact threshold counts as an incident against the SLO.\n\n## Observe\n\nOpen the service dashboard: request rate, error rate, p50/p95/p99, CPU, memory, event loop lag (`perf_hooks.monitorEventLoopDelay`), GC pauses and downstream call durations. Overlay deployment markers. In X-Ray or another tracing tool, compare a slow trace with a fast one for the same route.\n\n## Isolate\n\nSplit the request time into segments: load balancer, Node handler, database, cache, third party. If trace spans are short but total time is long, suspect event loop blocking or queueing. Compare one instance with the fleet to spot a noisy host. Check whether the slow routes share a table, a cache key or a dependency.\n\n## Diagnose\n\nUse `clinic doctor` or `clinic flame` and `node --cpu-prof` on a canary to see synchronous hot spots such as JSON parsing, regex backtracking or crypto. Run `EXPLAIN (ANALYZE, BUFFERS)` for slow queries, and check missing indexes, N+1 patterns and lock waits in `pg_stat_activity`. Confirm with a hypothesis test: does latency correlate with payload size, tenant, or a deploy?\n\n| Signal | Likely cause | Decision |\n| --- | --- | --- |\n| Event loop lag high, CPU high | Synchronous work blocking the loop | Profile with clinic flame, move work to workers or optimise |\n| Event loop normal, DB span long | Slow query or lock wait | EXPLAIN ANALYZE, add index, fix N+1 |\n| One dependency span long | Downstream degradation | Timeout, circuit breaker, cache or fallback |\n\nIllustrative snippet (adapt to your stack):\n\n```js\n// Illustrative: measure event loop delay\nconst { monitorEventLoopDelay } = require('perf_hooks');\nconst h = monitorEventLoopDelay({ resolution: 20 });\nh.enable();\nsetInterval(() => {\n  console.log({ p99_ms: h.percentile(99) / 1e6 });\n  h.reset();\n}, 10000);\n```\n\n## Mitigate\n\nChoose the cheapest safe action: roll back the suspect release, disable the feature flag, scale out if CPU-bound, add timeouts and circuit breakers on the slow dependency, or shed non-critical traffic. Communicate status and an ETA on the incident channel.\n\n## Recover\n\nShip the root-cause fix behind a flag, verify p99 returns to the baseline in the dashboard, and keep the canary running before full rollout. Write a blameless review with the timeline.\n\n## Prevent\n\nAdd SLO-based alerts on p99 and event loop lag, per-route latency budgets, load tests in CI for hot paths, slow query logging, and query-plan review in pull requests.\n\n## Common mistakes\n\n- Restarting everything before collecting traces or profiles.\n- Looking only at averages, which hide p99 pain.\n- Scaling out when the real bottleneck is a single database.\n",
+      "diagrams": [
+        {
+          "id": "latency",
+          "title": "Latency investigation path",
+          "alt": "Alert on latency leads to scoping routes and percentiles, then reading dashboards and traces. The investigation splits into event loop, database and dependency branches, each leading to mitigation, a verified fix and prevention.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Latency alert"
+            },
+            {
+              "id": "n1",
+              "label": "Scope routes and percentiles"
+            },
+            {
+              "id": "n2",
+              "label": "Dashboards and traces"
+            },
+            {
+              "id": "n3",
+              "label": "Event loop blocked"
+            },
+            {
+              "id": "n4",
+              "label": "Slow database"
+            },
+            {
+              "id": "n5",
+              "label": "Slow dependency"
+            },
+            {
+              "id": "n6",
+              "label": "Mitigate"
+            },
+            {
+              "id": "n7",
+              "label": "Fix and verify"
+            },
+            {
+              "id": "n8",
+              "label": "Prevent"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n2",
+              "to": "n4"
+            },
+            {
+              "from": "n2",
+              "to": "n5"
+            },
+            {
+              "from": "n3",
+              "to": "n6"
+            },
+            {
+              "from": "n4",
+              "to": "n6"
+            },
+            {
+              "from": "n5",
+              "to": "n6"
+            },
+            {
+              "from": "n6",
+              "to": "n7"
+            },
+            {
+              "from": "n7",
+              "to": "n8"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you profile production safely?",
+        "When do you roll back versus fix forward?",
+        "How do you set latency alerts that avoid noise?"
+      ],
+      "related": [
+        "database-connection-pool-exhausted",
+        "application-passes-tests-fails-under-load"
+      ]
+    },
+    {
+      "slug": "react-components-rerender-excessively",
+      "title": "React components re-render excessively and the UI feels slow. What do you do?",
+      "topic": "Frontend performance",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "react",
+        "performance",
+        "profiler",
+        "rendering"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I reproduce the slow interaction with the React Profiler and record which components render and why. Usually the cause is unstable props, context values changing, state held too high, or large lists. I fix the structure first by moving state down or splitting context, then use memoisation where the profile proves it helps, and virtualise long lists. I verify with before and after profiles and guard against regressions.",
+      "revision": "Profile the interaction, find why components render, fix state placement and context first, memoise on evidence, verify.",
+      "detailed": "Excessive re-rendering is diagnosed with the Profiler, not by sprinkling memo everywhere.\n\n## Clarify\n\nWhich interaction is slow: typing, scrolling, route change? On which devices? Is it a regression or a long-standing issue? What is the target, such as an interaction under 200 ms (INP)?\n\n## Observe\n\nRecord a session in React DevTools Profiler with 'Record why each component rendered' enabled. Look at the flamegraph for wide, frequently rendering components. Add a Chrome Performance trace to see long tasks, and check INP in field data or the Web Vitals library.\n\n## Isolate\n\nIdentify the first component in each commit that rendered for a reason: state change, parent render, props change or context change. Check whether a parent creating new object, array or function props defeats `React.memo`. Look for context providers whose value changes on every render.\n\n## Diagnose\n\nCommon causes: state lifted too high, inline object props, a single large context, derived data recomputed per render, keys that change, and unvirtualised lists. Strict Mode double rendering in development can mislead, so profile a production build. Confirm by measuring commit duration before and after each change.\n\n| Signal | Likely cause | Decision |\n| --- | --- | --- |\n| Whole tree renders on each keystroke | State too high | Move state down or split component |\n| Consumers render when unrelated context changes | Context value churn | Split contexts or use selectors |\n| List scroll janks | Too many DOM nodes | Virtualise and memoise rows |\n\nIllustrative snippet (adapt to your stack):\n\n```jsx\n// Illustrative: stable context value\nconst value = useMemo(() => ({ user, setUser }), [user]);\nreturn <UserContext.Provider value={value}>{children}</UserContext.Provider>;\n```\n\n## Mitigate\n\nIf a release caused it, revert or flag it. Otherwise ship small safe fixes: debounce input, defer non-urgent updates with `useDeferredValue` or `startTransition`, and virtualise the largest list.\n\n## Recover\n\nMove state closer to where it is used, split contexts or use a selector-based store, stabilise props with `useMemo`/`useCallback` only where the profile shows benefit, and use `react-window` or similar for long lists. Re-profile and compare commit times.\n\n## Prevent\n\nAdd a performance budget to key interactions, Lighthouse and INP monitoring, and a code review checklist covering context shape and prop stability. Keep a profiling guide in the repository.\n\n## Common mistakes\n\n- Wrapping everything in memo without measuring.\n- Profiling a development build.\n- Fixing symptoms with debounce while leaving state in the wrong place.\n",
+      "followUps": [
+        "When is memoisation harmful?",
+        "How would you track INP in production?",
+        "How do you decide between context and a state library?"
+      ],
+      "related": [
+        "release-degrades-core-web-vitals",
+        "frontend-bundle-becomes-much-larger"
+      ]
+    },
+    {
+      "slug": "graphql-queries-overload-database",
+      "title": "GraphQL queries are overloading the database. How do you respond?",
+      "topic": "GraphQL incidents",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "graphql",
+        "database",
+        "n-plus-one",
+        "apollo"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I find the expensive operations using Apollo tracing or field-level metrics, and correlate them with slow query logs. The usual cause is N+1 resolvers or unbounded nested queries. I mitigate with rate limits, query depth and cost limits, and persisted queries, then fix with DataLoader batching, proper indexes, pagination and caching. I keep per-operation database cost visible so regressions are caught.",
+      "revision": "Find costly operations via tracing, mitigate with limits, fix N+1 with DataLoader, pagination and indexes, and monitor per-operation cost.",
+      "detailed": "GraphQL lets clients shape load, so protection and visibility belong in the gateway.\n\n{{diagram:gql}}\n\n## Clarify\n\nWhich operations, clients and tenants are involved? Is traffic from our app, a partner or an abusive script? Did a schema or client release change query shape? Which database metrics are saturated: CPU, connections, IOPS?\n\n## Observe\n\nUse Apollo Studio traces or an OpenTelemetry plugin to rank operations by total resolver time and call count. Check database CPU, active connections and the slow query log. In `pg_stat_statements`, sort by total time and calls to see repeated patterns.\n\n## Isolate\n\nMatch top operations to top SQL statements. A resolver executing the same query N times per request signals N+1. Compare operation names across clients: one client version may issue a heavy query. Check whether a query has no pagination or a deep nested selection.\n\n## Diagnose\n\nConfirm with `EXPLAIN (ANALYZE, BUFFERS)` for the heaviest statements: sequential scans, missing indexes, bad join order. Count queries per request in a test. Check cache hit rates and whether DataLoader is created per request rather than shared.\n\n| Signal | Likely cause | Decision |\n| --- | --- | --- |\n| Same query repeated per list item | N+1 resolver | DataLoader batching |\n| Single query slow | Missing index or poor plan | EXPLAIN ANALYZE, add index |\n| Huge nested selection | Unbounded query | Depth and cost limits, pagination |\n\nIllustrative snippet (adapt to your stack):\n\n```js\n// Illustrative: per-request DataLoader\nconst loaders = () => ({\n  user: new DataLoader(ids => db.users.findByIds(ids)),\n});\n// context: ({ req }) => ({ loaders: loaders() })\n```\n\n## Mitigate\n\nThrottle or block the offending operation by name, enforce depth and complexity limits, require persisted queries for public clients, and add a temporary cache. Scale the database only as a stopgap.\n\n## Recover\n\nBatch with DataLoader, add composite indexes after testing, paginate lists with cursors, push filters into SQL, and cache stable fields. Remove or deprecate the abusive query shape with a communicated client fix.\n\n## Prevent\n\nTrack database time per operation, set complexity budgets, run query-count assertions in tests, and review schema changes for fan-out. Use persisted-query allow-lists for first-party clients.\n\n## Common mistakes\n\n- Adding read replicas before fixing the query shape.\n- Sharing one DataLoader across requests, leaking data and cache.\n- Limiting by request count while ignoring query cost.\n",
+      "diagrams": [
+        {
+          "id": "gql",
+          "title": "GraphQL load control",
+          "alt": "Clients send operations to a GraphQL gateway that applies depth and cost limits and persisted query checks. Resolvers use DataLoader to batch queries to the database, while tracing and slow query logs feed dashboards used to find expensive operations.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Clients"
+            },
+            {
+              "id": "n1",
+              "label": "Gateway: limits and persisted queries"
+            },
+            {
+              "id": "n2",
+              "label": "Resolvers"
+            },
+            {
+              "id": "n3",
+              "label": "DataLoader batching"
+            },
+            {
+              "id": "n4",
+              "label": "Database"
+            },
+            {
+              "id": "n5",
+              "label": "Tracing and slow query log"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            },
+            {
+              "from": "n2",
+              "to": "n5"
+            },
+            {
+              "from": "n4",
+              "to": "n5"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you design a query cost limit?",
+        "When do persisted queries help?",
+        "How do you avoid breaking legitimate clients?"
+      ],
+      "related": [
+        "nodejs-api-latency-spike",
+        "database-connection-pool-exhausted"
+      ]
+    },
+    {
+      "slug": "aws-costs-rise-unexpectedly",
+      "title": "AWS costs rise unexpectedly for a MERN application. How do you find out why?",
+      "topic": "Cost incidents",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "aws",
+        "finops",
+        "cost-explorer",
+        "cloud"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I open Cost Explorer grouped by service, usage type, and cost allocation tags to see what moved and when. Then I match it to events such as a deployment, traffic spike, log volume, NAT data transfer or an unattached resource. I stop the bleeding with budgets and quick limits, fix the root cause, and prevent repeats with tagging, anomaly detection, and budget alerts.",
+      "revision": "Group Cost Explorer by service, usage type and tag, match to events, stop waste, then add budgets and anomaly alerts.",
+      "detailed": "Cost incidents are diagnosed like outages: find the change, then control it.\n\n## Clarify\n\nWhich account, environment and time window? Is the rise absolute or per request? What was released or launched? What is the budget and who owns it?\n\n## Observe\n\nIn Cost Explorer, group by service, then usage type, region and linked account. Check the Cost and Usage Report in Athena for line items. Review AWS Cost Anomaly Detection alerts and tag coverage. Compare daily cost against request volume.\n\n## Isolate\n\nFind the single service or usage type that moved: data transfer, NAT gateway bytes, CloudWatch Logs ingestion, DynamoDB or RDS I/O, Lambda invocations, or idle EC2. Tag by team to find the owner. Compare with traffic to see whether unit cost changed.\n\n## Diagnose\n\nTypical causes: debug logging left on, cross-AZ or NAT traffic, an infinite retry loop, unbounded S3 or log retention, oversized instances after a scale event, or a missing CDN cache. Verify with CloudWatch Logs Insights volume by log group and VPC flow logs for traffic.\n\n| Signal | Likely cause | Decision |\n| --- | --- | --- |\n| Logs ingestion jumps | Verbose logging or loop | Log level, retention, sampling |\n| Data transfer or NAT rises | Traffic path or cache miss | VPC endpoints, CDN caching |\n| Compute rises with flat traffic | Idle or oversized capacity | Right-size, schedule, autoscale limits |\n\nIllustrative snippet (adapt to your stack):\n\n```sql\n-- Illustrative: Athena over the Cost and Usage Report\nSELECT line_item_usage_type, SUM(line_item_unblended_cost) AS cost\nFROM cur_table\nWHERE line_item_usage_start_date >= date '<start>'\nGROUP BY 1 ORDER BY cost DESC LIMIT 20;\n```\n\n## Mitigate\n\nReduce log level, set retention, disable the runaway job, add a cache rule or VPC endpoint, and set a budget action or alert. Avoid deleting resources before confirming they are unused.\n\n## Recover\n\nRight-size or schedule resources, shorten retention, add S3 and ECR lifecycle policies, and confirm the next billing data trend returns to baseline.\n\n## Prevent\n\nEnforce cost allocation tags, set AWS Budgets and Cost Anomaly Detection per team, show unit cost per request on a dashboard, and review costs in release checklists.\n\n## Common mistakes\n\n- Cutting resources without checking owners and dependencies.\n- Looking at total spend instead of unit cost.\n- Leaving untagged resources so no team owns the spike.\n",
+      "followUps": [
+        "How would you set a budget for a new service?",
+        "What is a unit cost metric?",
+        "How do you control log cost safely?"
+      ],
+      "related": [
+        "critical-service-unavailable-peak-traffic"
+      ]
+    },
+    {
+      "slug": "nodejs-memory-grows-continuously",
+      "title": "Node.js memory grows continuously until the container is killed. How do you investigate?",
+      "topic": "Memory incidents",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "nodejs",
+        "memory-leak",
+        "heap-snapshot",
+        "containers"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I confirm it is a leak and not normal caching by watching heap used after garbage collection over time. Then I capture heap snapshots at intervals using node --inspect or a signal handler, and compare them for growing retained objects. Typical causes are unbounded caches, listeners never removed, closures, and buffers. I mitigate with restarts and limits, fix the retaining path, and add memory alerts.",
+      "revision": "Confirm growth after GC, compare heap snapshots, find the retaining path, mitigate with limits, fix and alert.",
+      "detailed": "A leak is proved by growth that survives garbage collection, then found by snapshot diffing.\n\n{{diagram:mem}}\n\n## Clarify\n\nIs it RSS, heap, or external memory? How fast does it grow and does it follow traffic or a specific route? Since which release? What are container limits and OOM kill timestamps?\n\n## Observe\n\nChart `process.memoryUsage()` (rss, heapUsed, external, arrayBuffers), GC metrics and container memory against restarts. Look for a sawtooth pattern with a rising baseline. Check OOMKilled events in the orchestrator.\n\n## Isolate\n\nReproduce on a canary or staging with a load generator. Check if growth tracks a route, a tenant or a job. Compare heapUsed after forced GC (with `--expose-gc` in a test) with RSS to separate heap leaks from native or Buffer growth.\n\n## Diagnose\n\nTake two or three heap snapshots via `node --inspect` and Chrome DevTools, or `v8.writeHeapSnapshot()`, then use the Comparison view to sort by delta and inspect retainers. Common culprits: unbounded Map or array caches, event listeners added per request, timers, long-lived promises, and large logs. Use `clinic heapprofiler` for allocation sites.\n\n| Signal | Likely cause | Decision |\n| --- | --- | --- |\n| heapUsed rises after GC | JS object leak | Heap snapshot diff and retainers |\n| RSS rises, heap flat | Buffers or native memory | Check external and arrayBuffers, streams |\n| Memory tracks one route | Unbounded per-request state | Reproduce and bound or stream |\n\nIllustrative snippet (adapt to your stack):\n\n```js\n// Illustrative: write a heap snapshot on signal\nconst v8 = require('v8');\nprocess.on('SIGUSR2', () => {\n  console.log(v8.writeHeapSnapshot());\n});\n```\n\n## Mitigate\n\nSet `--max-old-space-size` below the container limit, schedule rolling restarts, cap the offending cache, and scale out temporarily. Take a snapshot before restarting a bad instance.\n\n## Recover\n\nFix the retaining reference, such as an LRU cache with a size bound, listener cleanup, or stream backpressure. Verify with a soak test showing a flat baseline after GC.\n\n## Prevent\n\nAlert on heap baseline trend, add soak tests in CI or a nightly job, bound every in-memory cache, and review listener and timer lifecycles in code review.\n\n## Common mistakes\n\n- Raising memory limits without finding the leak.\n- Taking only one snapshot, so there is nothing to compare.\n- Treating a warm cache as a leak or the reverse.\n",
+      "diagrams": [
+        {
+          "id": "mem",
+          "title": "Memory leak investigation",
+          "alt": "Memory alert leads to chart analysis of heap and RSS. If heap grows after garbage collection the team takes snapshots and compares them to find retainers, then caps or fixes the cause. If only RSS grows they inspect buffers and native memory.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Memory alert"
+            },
+            {
+              "id": "n1",
+              "label": "Chart heap, RSS, external"
+            },
+            {
+              "id": "n2",
+              "label": "Heap grows after GC"
+            },
+            {
+              "id": "n3",
+              "label": "RSS grows only"
+            },
+            {
+              "id": "n4",
+              "label": "Snapshot diff and retainers"
+            },
+            {
+              "id": "n5",
+              "label": "Check buffers and streams"
+            },
+            {
+              "id": "n6",
+              "label": "Fix and soak test"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n1",
+              "to": "n3"
+            },
+            {
+              "from": "n2",
+              "to": "n4"
+            },
+            {
+              "from": "n3",
+              "to": "n5"
+            },
+            {
+              "from": "n4",
+              "to": "n6"
+            },
+            {
+              "from": "n5",
+              "to": "n6"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you take snapshots safely in production?",
+        "What is the difference between heap and RSS?",
+        "How do you design a bounded cache?"
+      ]
+    },
+    {
+      "slug": "database-connection-pool-exhausted",
+      "title": "The database connection pool is exhausted and requests are timing out. What do you do?",
+      "topic": "Database incidents",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "database",
+        "connection-pool",
+        "postgres",
+        "mongodb"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I check pool metrics and the database's own view of connections, for example pg_stat_activity, to see whether connections are leaked, held by long transactions, or simply too few for load. I mitigate by killing stuck sessions, adding timeouts and shedding load, and then fix the leak or slow query. I size pools against database limits across all instances and consider a pooler like PgBouncer.",
+      "revision": "Compare pool and database views, find leaks or long transactions, mitigate with timeouts, fix, and size pools across instances.",
+      "detailed": "Pool exhaustion is usually held connections, not too small a pool.\n\n{{diagram:pool}}\n\n## Clarify\n\nWhich service and database? When did it start? Are errors acquire timeouts or database 'too many connections'? Did instance count, traffic or a release change?\n\n## Observe\n\nCheck pool metrics: in-use, idle, waiting, acquire time. In the database, query `pg_stat_activity` for state, wait events and age, or `db.currentOp()` for MongoDB. Compare total connections with `max_connections` across all instances and workers.\n\n## Isolate\n\nDetermine whether connections are busy or idle in transaction. Group by application name and query. Check whether instance autoscaling multiplied the pool total. Look for a single slow query holding many connections.\n\n## Diagnose\n\nLook for leaked connections (missing release on error paths), transactions that wrap external calls, long locks, slow queries and retry storms. Use `EXPLAIN ANALYZE` on the longest queries. Confirm leaks by watching in-use count fail to return to baseline when traffic drops.\n\n| Signal | Likely cause | Decision |\n| --- | --- | --- |\n| In-use stays high at low traffic | Connection leak | Audit release paths |\n| Many idle in transaction | Transaction scope too wide | Shorten, set idle timeout |\n| Sum of pools exceeds max_connections | Sizing across instances | Pooler and recalculated limits |\n\nIllustrative snippet (adapt to your stack):\n\n```sql\n-- Illustrative: Postgres connection states\nSELECT state, wait_event_type, count(*), max(now() - xact_start) AS oldest\nFROM pg_stat_activity\nGROUP BY 1, 2 ORDER BY 3 DESC;\n```\n\n## Mitigate\n\nTerminate idle-in-transaction sessions, set statement and idle timeouts, reduce concurrency, and scale out only if the database has headroom. Add a temporary rate limit to protect the database.\n\n## Recover\n\nFix release paths using `finally`, shorten transactions, optimise slow queries, and add a pooler such as PgBouncer. Resize pools so the per-instance pool times maximum instances stays under the database limit.\n\n## Prevent\n\nAlert on pool wait time and saturation, set timeouts by default, load test with autoscaling, and review any code holding a connection across network calls.\n\n## Common mistakes\n\n- Raising the pool size, which pushes the database over its limit.\n- Holding a transaction open during an HTTP call.\n- Ignoring that each autoscaled instance has its own pool.\n",
+      "diagrams": [
+        {
+          "id": "pool",
+          "title": "Connection pool exhaustion",
+          "alt": "Multiple API instances each hold a connection pool to a pooler in front of the database. A slow query or leaked connection holds connections, so waiting requests queue and time out. Metrics from the pool and the database show saturation.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "API instance A pool"
+            },
+            {
+              "id": "n1",
+              "label": "API instance B pool"
+            },
+            {
+              "id": "n2",
+              "label": "Connection pooler"
+            },
+            {
+              "id": "n3",
+              "label": "Database"
+            },
+            {
+              "id": "n4",
+              "label": "Slow query or leak"
+            },
+            {
+              "id": "n5",
+              "label": "Waiting requests time out"
+            },
+            {
+              "id": "n6",
+              "label": "Pool and DB metrics"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n2"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n4",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n5"
+            },
+            {
+              "from": "n2",
+              "to": "n6"
+            },
+            {
+              "from": "n3",
+              "to": "n6"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you size a pool?",
+        "What does PgBouncer change?",
+        "How do you handle MongoDB connection storms?"
+      ],
+      "related": [
+        "nodejs-api-latency-spike",
+        "migration-locks-critical-table"
+      ]
+    },
+    {
+      "slug": "deployment-causes-intermittent-5xx",
+      "title": "A deployment causes intermittent 5xx errors. How do you handle it?",
+      "topic": "Release incidents",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "deployment",
+        "5xx",
+        "rollback",
+        "canary"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I correlate the error start with the deployment marker and decide quickly whether to roll back, since user impact comes first. I check whether errors affect all instances or only new ones, read error logs and traces for the failing path, and look at health checks, config and migrations. After rollback I reproduce, fix, and re-release through a canary with automatic rollback criteria.",
+      "revision": "Correlate with the deploy, roll back to stop impact, find the failing path, then fix and canary with automated guards.",
+      "detailed": "If 5xx follows a deployment, restore service first and investigate second.\n\n{{diagram:deploy}}\n\n## Clarify\n\nWhen did errors start versus the deploy? What percentage and which routes? Are errors from the load balancer (502/503/504) or the app (500)? Is rollback safe given any database changes?\n\n## Observe\n\nCompare error rate by instance version, by availability zone and by route. Read ALB or gateway metrics for 5xx source and target response time. Use CloudWatch Logs Insights to group errors by message. Check deployment events, health checks and recent config changes.\n\n## Isolate\n\nIf only new tasks fail, suspect the build, config or secrets. If failures occur during rollout only, suspect draining, readiness probes or connection resets. If all instances fail on one route, suspect a code or data contract change. Check dependency version differences and migrations.\n\n## Diagnose\n\nInspect stack traces and traces for the failing path. Common causes: missing environment variable, incompatible schema, readiness probe passing too early, graceful shutdown dropping requests, and a client or API contract break. Reproduce locally with production-like config.\n\n| Signal | Likely cause | Decision |\n| --- | --- | --- |\n| Errors only on new version | Build or config defect | Roll back, compare config |\n| Errors only during rollout | Draining or readiness issue | Fix probes and graceful shutdown |\n| Errors on one route | Contract or data break | Feature flag off, patch |\n\nIllustrative snippet (adapt to your stack):\n\n```\n# Illustrative CloudWatch Logs Insights query\nfields @timestamp, @message\n| filter @message like /ERROR/\n| stats count() by bin(1m), version\n```\n\n## Mitigate\n\nRoll back through the deployment tool or shift traffic to the previous version (blue-green or canary weight to 0). If a schema change blocks rollback, disable the feature flag instead.\n\n## Recover\n\nFix the cause, add a test that reproduces it, redeploy to a small canary, and watch error rate and latency before expanding. Confirm client retries have drained.\n\n## Prevent\n\nUse progressive delivery with automatic rollback on error rate, proper readiness checks, graceful shutdown handling, backward-compatible migrations, and pre-release smoke tests.\n\n## Common mistakes\n\n- Debugging while customers see errors instead of rolling back.\n- Releasing a migration and code that cannot be rolled back separately.\n- No readiness check, so traffic hits unready instances.\n",
+      "diagrams": [
+        {
+          "id": "deploy",
+          "title": "Progressive rollout with rollback",
+          "alt": "A new version receives a small canary share of traffic while metrics are compared with the stable version. If error rate stays within limits the rollout expands. If it exceeds limits an automatic rollback returns all traffic to the previous version.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "New version"
+            },
+            {
+              "id": "n1",
+              "label": "Canary traffic"
+            },
+            {
+              "id": "n2",
+              "label": "Compare error and latency"
+            },
+            {
+              "id": "n3",
+              "label": "Within limits"
+            },
+            {
+              "id": "n4",
+              "label": "Expand rollout"
+            },
+            {
+              "id": "n5",
+              "label": "Exceeds limits"
+            },
+            {
+              "id": "n6",
+              "label": "Automatic rollback"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            },
+            {
+              "from": "n2",
+              "to": "n5"
+            },
+            {
+              "from": "n5",
+              "to": "n6"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you design automatic rollback?",
+        "What is an expand-contract migration?",
+        "How do you confirm a rollback worked?"
+      ],
+      "related": [
+        "migration-locks-critical-table"
+      ]
+    },
+    {
+      "slug": "users-see-stale-cached-data",
+      "title": "Users see stale cached data after updates. How do you diagnose and fix it?",
+      "topic": "Caching incidents",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "caching",
+        "cache-invalidation",
+        "redis",
+        "cdn"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I map every cache layer between the user and the source of truth: browser, service worker, CDN, API cache, Redis and database replicas. Then I inspect headers and compare responses at each layer to find where stale data lives. I mitigate with targeted invalidation, and fix the invalidation path, TTLs and keys. I prevent recurrence by documenting cache ownership and testing write-then-read behaviour.",
+      "revision": "Map cache layers, compare responses per layer, invalidate narrowly, fix keys and invalidation, and test write-then-read.",
+      "detailed": "Stale data is found by walking the cache layers one at a time.\n\n{{diagram:cache}}\n\n## Clarify\n\nWhich data, which users, how stale, and since when? Is it consistently stale or intermittently? What is acceptable freshness for this data? Did caching rules change recently?\n\n## Observe\n\nInspect response headers: `Cache-Control`, `Age`, `ETag`, `Vary`, and CDN hit or miss headers. Compare `curl -I` against origin, CDN and the application. Check Redis key TTLs and replica lag metrics.\n\n## Isolate\n\nRequest the same resource with cache bypass at each layer: browser hard reload, CDN with a cache-busting parameter, API directly, then database primary. The first layer returning fresh data is just below the stale one. Check whether only some users or regions are affected.\n\n## Diagnose\n\nLook for missing invalidation on a write path, keys that omit tenant or locale, a long `s-maxage` or `stale-while-revalidate`, read-after-write on replicas, and races where a stale value is written back. Check logs around the update for the invalidation event.\n\n| Signal | Likely cause | Decision |\n| --- | --- | --- |\n| Stale at CDN only | TTL or missing purge | Surrogate-key purge, shorter TTL |\n| Stale in Redis | Missing invalidation | Delete on write, version keys |\n| Stale on some requests | Replica lag | Read from primary for fresh paths |\n\nIllustrative snippet (adapt to your stack):\n\n```bash\n# Illustrative: compare layers\ncurl -sI https://example.test/api/item/1 | grep -i -E 'cache|age|etag|vary'\n```\n\n## Mitigate\n\nPurge the specific URLs or keys, lower TTLs temporarily, and route reads for affected data to the primary. Avoid a full purge of the CDN that overloads the origin.\n\n## Recover\n\nFix invalidation on the write path, correct keys and `Vary`, add versioned keys or surrogate keys, and verify freshness within the target window.\n\n## Prevent\n\nDocument cache layers and ownership, define freshness per data type, add integration tests for write-then-read, and monitor cache hit ratio and staleness.\n\n## Common mistakes\n\n- Purging everything and causing an origin stampede.\n- Caching personalised data under a shared key.\n- Using long TTLs with no invalidation plan.\n",
+      "diagrams": [
+        {
+          "id": "cache",
+          "title": "Cache layers to inspect",
+          "alt": "A user request passes through browser cache, CDN, API cache and Redis before reaching the database. Each layer is checked in turn to find where stale content is served and where invalidation is missing.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "User"
+            },
+            {
+              "id": "n1",
+              "label": "Browser cache"
+            },
+            {
+              "id": "n2",
+              "label": "CDN"
+            },
+            {
+              "id": "n3",
+              "label": "API cache"
+            },
+            {
+              "id": "n4",
+              "label": "Redis"
+            },
+            {
+              "id": "n5",
+              "label": "Database source of truth"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            },
+            {
+              "from": "n4",
+              "to": "n5"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you design invalidation for product data?",
+        "What is stale-while-revalidate?",
+        "How do you test cache correctness?"
+      ],
+      "related": [
+        "cdn-serves-stale-product-prices"
+      ]
+    },
+    {
+      "slug": "auth-works-locally-fails-in-production",
+      "title": "Authentication works locally but fails in production. How do you troubleshoot?",
+      "topic": "Authentication incidents",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "authentication",
+        "cookies",
+        "cors",
+        "oauth"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I compare the production and local flows step by step: redirect URIs, cookie attributes, CORS, HTTPS, proxies, clock and environment variables. I inspect network requests and server logs for the exact failing step. Common causes are Secure and SameSite cookies, a wrong callback URL, missing trust-proxy settings, different secrets, and a CDN stripping headers. I fix configuration, then add an environment parity checklist.",
+      "revision": "Compare the flow step by step: redirect URIs, cookies, CORS, proxy and secrets; fix configuration and add a parity checklist.",
+      "detailed": "Environment differences, not code, explain most local-versus-production auth failures.\n\n## Clarify\n\nWhich step fails: login, callback, token exchange or later API calls? Which browsers and users? What is the exact error? What differs between environments: domain, HTTPS, proxy, identity provider settings?\n\n## Observe\n\nIn browser DevTools Network and Application tabs, inspect redirects, `Set-Cookie` attributes, CORS preflights and the Authorization header. Read server logs by correlation ID and identity provider logs for rejected requests.\n\n## Isolate\n\nWalk the flow: login redirect, provider callback, token exchange, cookie set, subsequent request. Find the first step that differs from local. Test with curl to separate browser rules from server behaviour.\n\n## Diagnose\n\nCheck cookie `Secure`, `SameSite`, `Domain` and `Path`, because cross-site setups need `SameSite=None; Secure`. Check that Express uses `app.set('trust proxy', ...)` behind a load balancer so secure cookies work. Verify redirect URIs registered with the provider, CORS `credentials` settings, JWT issuer, audience and secret, clock skew, and env var values.\n\n| Signal | Likely cause | Decision |\n| --- | --- | --- |\n| Cookie not stored | Secure or SameSite mismatch | Fix cookie attributes and HTTPS |\n| Callback error | Wrong redirect URI | Update provider and env config |\n| 401 on API with valid login | Issuer, audience or secret mismatch | Align token validation config |\n\nIllustrative snippet (adapt to your stack):\n\n```js\n// Illustrative: cookie and proxy settings\napp.set('trust proxy', 1);\nres.cookie('sid', token, {\n  httpOnly: true, secure: true, sameSite: 'lax', domain: '.example.test',\n});\n```\n\n## Mitigate\n\nCorrect the configuration in the provider and the app, redeploy, and consider a temporary fallback login method if available. Do not weaken security, such as disabling secure flags, as a shortcut.\n\n## Recover\n\nRetest in all supported browsers, verify session persistence, and monitor login success rate. Document the final settings.\n\n## Prevent\n\nAdd an environment parity checklist, a staging environment with production-like domains and HTTPS, automated login smoke tests, and alerts on login failure rate.\n\n## Common mistakes\n\n- Disabling Secure cookies to make it work.\n- Forgetting that proxies terminate TLS, so the app thinks the request is insecure.\n- Testing only on localhost over HTTP.\n",
+      "followUps": [
+        "How would you debug an OAuth redirect issue?",
+        "When is SameSite=None needed?",
+        "How do you test auth in staging?"
+      ],
+      "related": [
+        "refresh-token-flow-creates-auth-loops"
+      ]
+    },
+    {
+      "slug": "ssr-hydration-mismatches",
+      "title": "SSR hydration mismatches appear in production. How do you resolve them?",
+      "topic": "Frontend incidents",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "react",
+        "ssr",
+        "hydration",
+        "nextjs"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I capture the hydration warnings and find which components render differently on server and client. Typical causes are time, random values, locale, window or localStorage access during render, and invalid HTML nesting. I fix by making the first client render match the server, moving browser-only logic into effects, and passing the same data. I add tests and error monitoring to catch recurrences.",
+      "revision": "Find the component whose server and client output differ, make first render deterministic, move browser logic to effects, and monitor.",
+      "detailed": "Hydration needs identical markup on the first client render.\n\n## Clarify\n\nWhich pages, browsers and locales are affected? Are users seeing flicker, broken interactivity or only console warnings? What changed: a release, a data source, a locale or a library?\n\n## Observe\n\nLook at the production console warnings (build a non-minified preview if needed), error monitoring such as Sentry, and compare the server HTML from `curl` with the DOM after load. Check Web Vitals for CLS impact.\n\n## Isolate\n\nBisect the page by removing components until the warning disappears. Compare server-rendered text with client-rendered text for the offender. Reproduce with the same locale, timezone and user state.\n\n## Diagnose\n\nTypical causes: `Date.now()`, `Math.random()`, timezone or locale formatting, reading `window` or `localStorage` in render, user-agent branches, invalid nesting such as a div in a p, and data fetched differently on server and client. Check that serialised initial data is identical.\n\n| Signal | Likely cause | Decision |\n| --- | --- | --- |\n| Text differs by time or locale | Non-deterministic formatting | Fixed timezone and locale, pass server value |\n| Warning about window | Browser API in render | Move to effect |\n| Structure warning | Invalid HTML nesting | Fix markup |\n\nIllustrative snippet (adapt to your stack):\n\n```jsx\n// Illustrative: browser-only value after mount\nconst [width, setWidth] = useState(null);\nuseEffect(() => setWidth(window.innerWidth), []);\n```\n\n## Mitigate\n\nIf it breaks interactivity, roll back or render the problem component client-only using dynamic import with `ssr: false` as a temporary fix. Suppress warnings only for known harmless text with care.\n\n## Recover\n\nMake render pure and pass the same props, use a stable ID hook for identifiers, format dates with an explicit timezone, and use `useEffect` for browser-only values. Add an end-to-end test checking for hydration warnings.\n\n## Prevent\n\nAdd lint rules for browser APIs in render, test with multiple locales and timezones, and track hydration errors in monitoring.\n\n## Common mistakes\n\n- Suppressing all hydration warnings.\n- Using random IDs instead of a stable ID hook.\n- Testing only in one timezone.\n",
+      "followUps": [
+        "Why does invalid HTML nesting cause mismatches?",
+        "What is the cost of client-only rendering?",
+        "How would you test SSR output?"
+      ],
+      "related": [
+        "release-degrades-core-web-vitals"
+      ]
+    },
+    {
+      "slug": "checkout-produces-duplicate-orders",
+      "title": "Checkout produces duplicate orders. How do you investigate and prevent it?",
+      "topic": "Data integrity incidents",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "idempotency",
+        "payments",
+        "orders",
+        "retries"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I establish whether duplicates come from double submits, client retries, gateway timeouts, webhook redelivery, or a race in the service. I trace one duplicated order through logs and payment records, then add idempotency keys with a unique constraint, disable duplicate submission in the UI, and make webhook handling idempotent. I fix affected orders through reconciliation and refunds, and monitor duplicate rates.",
+      "revision": "Trace a duplicate, find the retry or race source, add idempotency keys with unique constraints, reconcile affected orders.",
+      "detailed": "Duplicate orders are a retry and idempotency problem until proven otherwise.\n\n{{diagram:dup}}\n\n## Clarify\n\nHow many orders, which payment methods and what time window? Were customers charged twice? Are the duplicates identical in content and timing? What changed recently?\n\n## Observe\n\nSearch orders by customer, cart and timestamp proximity. Check request logs by correlation ID, load balancer retries and timeouts, payment provider event logs and webhook delivery attempts. Compare order IDs against payment intent IDs.\n\n## Isolate\n\nGroup by time gap between duplicates: milliseconds suggests double click or race, seconds suggests a client retry after a timeout, minutes suggests webhook redelivery or queue redelivery. Check whether duplicates share the same payment intent.\n\n## Diagnose\n\nLook for a non-idempotent create endpoint, an API timeout that triggers client retry while the first request completes, a queue consumer processing a message twice, or a missing unique constraint. Review the code path for check-then-insert races.\n\n| Signal | Likely cause | Decision |\n| --- | --- | --- |\n| Milliseconds apart | Double submit or race | Idempotency key and unique index |\n| Seconds apart | Client retry after timeout | Same key reused on retry |\n| Minutes apart | Webhook or queue redelivery | Deduplicate by event ID |\n\nIllustrative snippet (adapt to your stack):\n\n```js\n// Illustrative: idempotent create\nawait db.orders.insertOne({ _id: idempotencyKey, ...order }); // unique _id\n// on duplicate key error, load and return the existing order\n```\n\n## Mitigate\n\nDisable the submit button after the first click, extend timeouts or add idempotency enforcement quickly, and pause the retry source if it is aggressive. Notify support and finance.\n\n## Recover\n\nReconcile: list duplicates, refund extra charges, cancel extra orders and inform customers. Add an idempotency key per checkout attempt, store it with a unique index, and return the original result on replay.\n\n## Prevent\n\nMake payment webhooks and consumers idempotent by event ID, add a unique constraint on the business key, alert on duplicate rate, and test with fault injection for timeouts and redelivery.\n\n## Common mistakes\n\n- Relying on UI disabling alone.\n- Check-then-insert without a unique constraint.\n- Treating webhooks as exactly-once.\n",
+      "diagrams": [
+        {
+          "id": "dup",
+          "title": "Idempotent checkout flow",
+          "alt": "The client sends a checkout request with an idempotency key. The order service checks a unique index for the key. If new it creates the order and payment, and if the key exists it returns the stored result. Payment webhooks are deduplicated by event ID.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Client with idempotency key"
+            },
+            {
+              "id": "n1",
+              "label": "Order service"
+            },
+            {
+              "id": "n2",
+              "label": "Unique key check"
+            },
+            {
+              "id": "n3",
+              "label": "Create order and payment"
+            },
+            {
+              "id": "n4",
+              "label": "Return stored result"
+            },
+            {
+              "id": "n5",
+              "label": "Payment webhook"
+            },
+            {
+              "id": "n6",
+              "label": "Deduplicate by event ID"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n2",
+              "to": "n4"
+            },
+            {
+              "from": "n5",
+              "to": "n6"
+            },
+            {
+              "from": "n6",
+              "to": "n1"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How does an idempotency key work end to end?",
+        "How do you reconcile past duplicates?",
+        "How do you make queue consumers idempotent?"
+      ],
+      "related": [
+        "order-processing-workflow-partially-succeeds",
+        "event-consumer-falls-behind"
+      ]
+    },
+    {
+      "slug": "accessibility-audit-blocks-release",
+      "title": "An accessibility audit blocks the release. How do you respond?",
+      "topic": "Accessibility incidents",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "accessibility",
+        "wcag",
+        "testing",
+        "release"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I get the audit findings, triage them by severity and user impact against WCAG criteria, and separate release blockers from backlog. I fix the highest-impact issues first, such as keyboard access, focus management, labels, contrast and semantics, and verify with automated tools plus manual keyboard and screen reader testing. Then I add accessibility checks to CI and design systems to prevent recurrence.",
+      "revision": "Triage findings by impact, fix blockers with semantics and keyboard support, verify manually, and add CI checks.",
+      "detailed": "Accessibility blockers are fixed by severity, then prevented in the component library.\n\n## Clarify\n\nWhich standard and level apply, such as WCAG 2.2 AA? Which flows and pages are in scope? What exactly blocks release: severity, legal or contract? Is there an agreed remediation plan?\n\n## Observe\n\nCollect the audit report and rerun automated scans with axe or Lighthouse. Walk the key flows with keyboard only and with a screen reader such as NVDA or VoiceOver. Group findings by criterion and component.\n\n## Isolate\n\nFind shared root causes: one design-system button or modal can account for many findings. Mark each as blocker, major or minor by user impact. Identify which are code, design or content issues.\n\n## Diagnose\n\nTypical issues: missing labels, non-semantic clickable divs, focus traps or lost focus in modals, poor contrast, missing alt text, errors not announced, and dynamic updates without ARIA live regions. Verify the cause with the accessibility tree in DevTools.\n\n| Signal | Likely cause | Decision |\n| --- | --- | --- |\n| Many findings on one pattern | Shared component defect | Fix once in design system |\n| Keyboard trap | Focus management | Manage focus, test with keyboard |\n| Dynamic errors unannounced | Missing live region | aria-live and proper association |\n\nIllustrative snippet (adapt to your stack):\n\n```jsx\n// Illustrative: label and error association\n<label htmlFor=\"email\">Email</label>\n<input id=\"email\" aria-describedby=\"email-err\" aria-invalid={!!err} />\n<p id=\"email-err\" role=\"alert\">{err}</p>\n```\n\n## Mitigate\n\nFix blockers first in shared components, and agree with stakeholders on a scoped release with documented known issues only if policy allows. Never hide issues by adding ARIA that misdescribes the UI.\n\n## Recover\n\nRetest with automated and manual checks, include users of assistive technology where possible, and produce updated evidence for the auditor.\n\n## Prevent\n\nAdd `eslint-plugin-jsx-a11y`, axe in unit and end-to-end tests, accessibility acceptance criteria, design tokens with contrast checks, and training. Track accessibility defects like other bugs.\n\n## Common mistakes\n\n- Relying on automated tools alone, which catch only part of issues.\n- Adding ARIA instead of using native elements.\n- Fixing pages one by one rather than components.\n",
+      "followUps": [
+        "Which issues are automatable?",
+        "How do you test with a screen reader?",
+        "How do you negotiate a scoped release?"
+      ],
+      "related": [
+        "translations-overflow-layout"
+      ]
+    },
+    {
+      "slug": "translations-overflow-layout",
+      "title": "Translations overflow the layout after localisation. How do you fix it?",
+      "topic": "Internationalisation incidents",
+      "difficulty": "beginner",
+      "type": "scenario",
+      "tags": [
+        "i18n",
+        "css",
+        "layout",
+        "localisation"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I collect screenshots of the broken locales and identify which components assume English text length. Languages like German expand text while others need different fonts or right-to-left layout. I fix with flexible CSS such as wrapping, min-width instead of fixed width, logical properties, and truncation only where acceptable. I test with pseudo-localisation and long-string snapshots to catch problems before translation arrives.",
+      "revision": "Find components assuming English length, use flexible CSS and logical properties, and test with pseudo-localisation.",
+      "detailed": "Layouts must be designed for text expansion, not fixed to English.\n\n## Clarify\n\nWhich locales and screens? Is it overflow, truncation, wrapping or direction? Is the cause translation length, font fallback or right-to-left? Is the translation itself acceptable?\n\n## Observe\n\nCapture screenshots per locale, test at several viewport widths, and check computed styles in DevTools. Inspect fonts loaded and fallback fonts, since glyph widths vary.\n\n## Isolate\n\nSwitch locale in a test environment and compare with English. Find fixed widths, `white-space: nowrap`, absolute positioning and icon-plus-label rows. Identify which strings are unusually long, including those in buttons and tabs.\n\n## Diagnose\n\nCommon causes: fixed width containers, nowrap, text embedded in images, concatenated strings that reorder in other languages, missing font support, and physical properties like `margin-left` instead of logical ones for RTL. Verify with long pseudo strings.\n\n| Signal | Likely cause | Decision |\n| --- | --- | --- |\n| Button text clipped | Fixed width and nowrap | Flexible width, allow wrapping |\n| Layout breaks in Arabic | Physical CSS properties | Use logical properties and dir |\n| Odd word order | String concatenation | ICU messages with placeholders |\n\nIllustrative snippet (adapt to your stack):\n\n```css\n/* Illustrative: flexible, direction-aware */\n.btn { min-inline-size: 6rem; padding-inline: 1rem; overflow-wrap: anywhere; }\n```\n\n## Mitigate\n\nHotfix the worst screens with wrapping and flexible widths, and ask translators to propose shorter text for tight UI only where necessary.\n\n## Recover\n\nRefactor components with flex or grid, `min-width`, `overflow-wrap`, logical properties and `dir` support. Use ICU message formatting rather than concatenation, and verify with screenshot tests.\n\n## Prevent\n\nAdd pseudo-localisation in development, visual regression tests for several locales, translation context in the key file, and design guidelines for text expansion.\n\n## Common mistakes\n\n- Truncating text that users must read.\n- Concatenating translated fragments.\n- Testing only English and one other language.\n",
+      "followUps": [
+        "What is pseudo-localisation?",
+        "How do you support right-to-left layouts?",
+        "How should translators get context?"
+      ],
+      "related": [
+        "accessibility-audit-blocks-release"
+      ]
+    },
+    {
+      "slug": "third-party-api-intermittent-failures",
+      "title": "A third-party API fails intermittently. How do you protect the system?",
+      "topic": "Dependency incidents",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "resilience",
+        "retries",
+        "circuit-breaker",
+        "integrations"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I measure the failure pattern first: error types, rate, latency and affected endpoints, and check the provider status page. Then I add protections: timeouts, retries with exponential backoff and jitter only for safe operations, a circuit breaker, bulkheads, and caching or a queue for non-urgent calls. I provide a degraded user experience, reconcile missed work later, and set alerts on the dependency's health.",
+      "revision": "Measure failure patterns, add timeouts, jittered retries, circuit breaker and queueing, degrade gracefully, and reconcile later.",
+      "detailed": "Treat a flaky dependency as normal and design for it.\n\n{{diagram:vendor}}\n\n## Clarify\n\nWhich endpoints, error codes and times? Is it throttling (429), timeouts or 5xx? What is the business impact and does the provider have an SLA or status page?\n\n## Observe\n\nChart outbound call success, status codes, latency percentiles and retry counts per dependency. Check the provider's status page and rate limit headers. Use traces to see how outbound latency affects our request time.\n\n## Isolate\n\nDetermine whether failures correlate with our traffic (throttling), time of day, a specific region, or payload type. Test the provider with a direct call from a separate network. Check our connection reuse, DNS and TLS behaviour.\n\n## Diagnose\n\nReview our client: missing timeouts, unbounded retries causing amplification, no connection pooling, and use of non-idempotent calls on retry. Compare with provider docs about rate limits and recommended backoff.\n\n| Signal | Likely cause | Decision |\n| --- | --- | --- |\n| 429 responses | Rate limiting | Backoff, throttle, request limits |\n| Timeouts | Provider latency or our network | Timeouts, breaker, queue |\n| 5xx bursts | Provider outage | Circuit breaker, fallback, status updates |\n\nIllustrative snippet (adapt to your stack):\n\n```js\n// Illustrative: retry with jitter\nconst delay = Math.min(cap, base * 2 ** attempt) * Math.random();\nawait sleep(delay);\n```\n\n## Mitigate\n\nSet short timeouts, retry only idempotent calls with exponential backoff and jitter, add a circuit breaker with fallback, and queue non-critical work. Show users an honest degraded message.\n\n## Recover\n\nAfter recovery, replay queued work, reconcile with the provider's records, and verify no duplicates using idempotency keys.\n\n## Prevent\n\nAdd dependency dashboards and alerts, contract tests, a simulated failure test (chaos or fault injection), rate limit budgets, and a documented fallback for each critical vendor.\n\n## Common mistakes\n\n- Retrying without limits, which amplifies the outage.\n- Retrying non-idempotent operations.\n- No timeout, so threads or sockets pile up.\n",
+      "diagrams": [
+        {
+          "id": "vendor",
+          "title": "Protecting a flaky dependency",
+          "alt": "The application calls a third-party API through a client with timeout, retry with backoff and a circuit breaker. When the breaker opens, work goes to a queue or cache fallback, and metrics feed alerts and later replay.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Application"
+            },
+            {
+              "id": "n1",
+              "label": "Client wrapper: timeout and retry"
+            },
+            {
+              "id": "n2",
+              "label": "Circuit breaker"
+            },
+            {
+              "id": "n3",
+              "label": "Third-party API"
+            },
+            {
+              "id": "n4",
+              "label": "Queue or cache fallback"
+            },
+            {
+              "id": "n5",
+              "label": "Metrics and alerts"
+            },
+            {
+              "id": "n6",
+              "label": "Replay later"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n2",
+              "to": "n4"
+            },
+            {
+              "from": "n1",
+              "to": "n5"
+            },
+            {
+              "from": "n4",
+              "to": "n6"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How does a circuit breaker work?",
+        "What should a fallback show the user?",
+        "How do you test dependency failure?"
+      ],
+      "related": [
+        "event-consumer-falls-behind"
+      ]
+    },
+    {
+      "slug": "event-consumer-falls-behind",
+      "title": "An event consumer falls behind and lag keeps growing. What do you do?",
+      "topic": "Messaging incidents",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "messaging",
+        "kafka",
+        "sqs",
+        "consumer-lag"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I check whether lag is growing because production rate rose, consumers slowed down, or consumers are failing and retrying. I look at consumer lag, processing time, error and redelivery rates, and downstream dependencies. I mitigate by scaling consumers within partition limits, fixing the slow step, and moving poison messages to a dead-letter queue. I then drain safely and add lag alerts and capacity planning.",
+      "revision": "Compare produce and consume rates, find slow steps or poison messages, scale within partition limits, drain, and alert on lag.",
+      "detailed": "Lag grows when consume rate stays below produce rate; find which side changed.\n\n{{diagram:lag}}\n\n## Clarify\n\nWhich queue or topic and how old is the oldest message? Is lag growing or stable? What is the business tolerance for delay? What changed in volume or code?\n\n## Observe\n\nChart produced versus consumed rate, consumer lag by partition (Kafka) or `ApproximateAgeOfOldestMessage` and queue depth (SQS), processing duration, error and retry counts and downstream latency.\n\n## Isolate\n\nCheck whether lag is uniform or concentrated on a few partitions (hot keys). Check whether consumers are alive, rebalancing frequently or crashing. Compare processing time per message with the baseline.\n\n## Diagnose\n\nPossible causes: a slow database or API call in the handler, a poison message retried forever, too few consumers or partitions, hot partition keys, long rebalances, and large batches. Review logs for repeated message IDs and visibility timeout expiries.\n\n| Signal | Likely cause | Decision |\n| --- | --- | --- |\n| Lag on all partitions | Capacity or slow handler | Scale and optimise handler |\n| Lag on one partition | Hot key or poison message | Re-key, dead-letter |\n| Frequent rebalances | Unstable consumers | Fix crashes, tune session timeouts |\n\nIllustrative snippet (adapt to your stack):\n\n```bash\n# Illustrative: Kafka consumer group lag\nkafka-consumer-groups.sh --bootstrap-server <host> --describe --group <group>\n```\n\n## Mitigate\n\nScale consumers up to the partition or concurrency limit, raise throughput by batching, route poison messages to a dead-letter queue, and temporarily pause low-priority producers. Protect downstream systems from the catch-up surge.\n\n## Recover\n\nFix the slow handler or poison cause, then drain the backlog at a controlled rate while monitoring downstream. Reprocess dead-lettered messages after the fix, using idempotent handling.\n\n## Prevent\n\nAlert on lag and message age, load test consumers, choose partition keys to avoid hot spots, use retry topics with limits, and document replay procedures.\n\n## Common mistakes\n\n- Adding consumers beyond the partition count.\n- Infinite retries on a poison message.\n- Draining so fast that the downstream database falls over.\n",
+      "diagrams": [
+        {
+          "id": "lag",
+          "title": "Consumer lag triage",
+          "alt": "Producers write events to a topic or queue. Consumers read and call a downstream service. Lag metrics are compared with produce rate. Failures go to a retry path and then a dead-letter queue, while operators scale consumers and drain the backlog.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Producers"
+            },
+            {
+              "id": "n1",
+              "label": "Topic or queue"
+            },
+            {
+              "id": "n2",
+              "label": "Consumers"
+            },
+            {
+              "id": "n3",
+              "label": "Downstream service"
+            },
+            {
+              "id": "n4",
+              "label": "Lag and age metrics"
+            },
+            {
+              "id": "n5",
+              "label": "Retry path"
+            },
+            {
+              "id": "n6",
+              "label": "Dead-letter queue"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n1",
+              "to": "n4"
+            },
+            {
+              "from": "n2",
+              "to": "n5"
+            },
+            {
+              "from": "n5",
+              "to": "n6"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you choose a partition key?",
+        "How do you replay safely?",
+        "What is a dead-letter queue for?"
+      ],
+      "related": [
+        "checkout-produces-duplicate-orders"
+      ]
+    },
+    {
+      "slug": "application-passes-tests-fails-under-load",
+      "title": "The application passes all tests but fails under load. What do you do?",
+      "topic": "Performance incidents",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "load-testing",
+        "scalability",
+        "k6",
+        "capacity"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Functional tests do not exercise concurrency, so I recreate production-like load with k6 or Artillery using realistic data and traffic mix. While running, I watch latency percentiles, errors, CPU, event loop lag, database and connection metrics to find the first saturated resource. I fix that bottleneck, repeat the test, and add load tests and capacity limits to the pipeline.",
+      "revision": "Reproduce realistic load, find the first saturated resource, fix, retest, and keep load tests in the pipeline.",
+      "detailed": "Passing tests prove correctness, not capacity.\n\n## Clarify\n\nWhat failed, at what load, and what was the expected load? Which scenarios matter: login, search, checkout? Is there production traffic data to model?\n\n## Observe\n\nRun a load test in a production-like environment with a ramp profile. Observe p95 and p99 latency, error rate, throughput, CPU, memory, event loop lag, DB connections, queue depth and external calls. Compare with production metrics.\n\n## Isolate\n\nFind the knee of the curve: the load at which latency rises sharply. Identify the first resource to saturate, and check whether the test environment resembles production in size and data volume.\n\n## Diagnose\n\nUse profiles, traces and `EXPLAIN ANALYZE` to find the bottleneck: a table scan with realistic data size, lock contention, a single-threaded hot loop, pool limits, rate limits, or shared state. Review whether tests used unrealistic small data or cached responses.\n\n| Signal | Likely cause | Decision |\n| --- | --- | --- |\n| CPU saturated first | Compute bound | Optimise or scale out |\n| DB saturated first | Queries or connections | Indexes, caching, pooling |\n| Errors at fixed concurrency | Limits or locks | Raise limits, remove contention |\n\nIllustrative snippet (adapt to your stack):\n\n```js\n// Illustrative k6 thresholds\nexport const options = {\n  stages: [{ duration: '5m', target: <target VUs> }],\n  thresholds: { http_req_duration: ['p(95)<<budget ms>'], http_req_failed: ['rate<0.01'] },\n};\n```\n\n## Mitigate\n\nFor a live failure, enable autoscaling, add rate limiting and load shedding, switch off heavy features through flags, and queue non-critical work.\n\n## Recover\n\nApply the targeted fix, run the same test, and confirm throughput and latency meet the target with headroom. Document the new capacity.\n\n## Prevent\n\nAdd load tests with thresholds in CI for critical journeys, run soak and spike tests, maintain capacity models, and define autoscaling and backpressure policies.\n\n## Common mistakes\n\n- Load testing with tiny datasets.\n- Testing a single endpoint in isolation.\n- Running the test from the same machine as the app.\n",
+      "followUps": [
+        "What is the difference between load, stress and soak tests?",
+        "How do you model realistic traffic?",
+        "How do you choose autoscaling metrics?"
+      ],
+      "related": [
+        "nodejs-api-latency-spike",
+        "critical-service-unavailable-peak-traffic"
+      ]
+    },
+    {
+      "slug": "critical-dependency-vulnerability-found",
+      "title": "A critical vulnerability is found in a dependency used in production. How do you respond?",
+      "topic": "Security incidents",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "security",
+        "dependencies",
+        "sbom",
+        "patching"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I assess exposure first: is the vulnerable package in production, is the vulnerable code path reachable, and is it exploitable in our setup. I check the advisory, severity and available fix. I mitigate quickly with a patch or version pin, or compensating controls such as a WAF rule or feature flag, deploy through the pipeline, verify, and then improve scanning, SBOM and update practices.",
+      "revision": "Assess exposure and reachability, patch or mitigate quickly, verify, and improve scanning and update practices.",
+      "detailed": "Respond by exposure and exploitability, not just by the severity label.\n\n## Clarify\n\nWhich package, version and advisory? Is it direct or transitive? Which services and environments use it? Is there known exploitation? What are the disclosure and compliance deadlines?\n\n## Observe\n\nRun `npm audit`, `npm ls <package>` and the SCA tool (Dependabot, Snyk or similar) across repositories. Use the SBOM to find all services. Check the advisory for affected versions, fix versions and workarounds. Review logs for exploit indicators.\n\n## Isolate\n\nDetermine reachability: is the vulnerable function used, is input attacker-controlled, is the service internet-facing? Prioritise exposed services first. Check whether a fix introduces breaking changes.\n\n## Diagnose\n\nRead the advisory and test cases to understand the exploit conditions. Test the fix in a branch and run the regression suite. For transitive dependencies use `overrides` (npm) or `resolutions` and confirm with `npm ls`.\n\n| Signal | Likely cause | Decision |\n| --- | --- | --- |\n| Reachable and exposed | High risk | Emergency patch and deploy |\n| Present but unreachable | Lower risk | Scheduled patch, document |\n| No fix available | Needs mitigation | WAF, disable feature, replace package |\n\nIllustrative snippet (adapt to your stack):\n\n```bash\n# Illustrative commands\nnpm audit --omit=dev\nnpm ls <package>\n```\n\n## Mitigate\n\nPatch or override to a fixed version and deploy promptly. If no fix exists, apply compensating controls: input validation, WAF rule, disabling the feature, or network restrictions. Rotate secrets if compromise is possible.\n\n## Recover\n\nVerify the deployed artifact contains the fixed version, rescan images, review logs for prior exploitation, and notify stakeholders per policy.\n\n## Prevent\n\nAutomate dependency updates and scans in CI, maintain an SBOM, pin and lock versions, set severity-based SLAs, minimise dependencies, and run regular dependency reviews.\n\n## Common mistakes\n\n- Ignoring transitive dependencies.\n- Updating without running tests.\n- Assuming severity alone decides priority.\n",
+      "followUps": [
+        "How do you handle a vulnerability with no fix?",
+        "What is an SBOM useful for?",
+        "How do you secure the supply chain?"
+      ],
+      "related": [
+        "deployment-causes-intermittent-5xx"
+      ]
+    },
+    {
+      "slug": "migration-locks-critical-table",
+      "title": "A database migration locks a critical table in production. What do you do?",
+      "topic": "Database incidents",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "migrations",
+        "locking",
+        "postgres",
+        "zero-downtime"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I identify the blocking session and the queued waiters immediately using pg_stat_activity and lock views, then decide whether to cancel the migration, which is usually safe if it has not committed. I restore service, then redesign the change as an expand-contract migration using concurrent index builds, lock timeouts, batched backfills and feature flags, and rehearse it on production-sized data.",
+      "revision": "Find the blocker and waiters, cancel the migration to restore service, then redo it with lock timeouts, concurrent builds and batching.",
+      "detailed": "Cancel quickly, then redesign the migration to avoid long locks.\n\n{{diagram:mig}}\n\n## Clarify\n\nWhich table and which operation? Is the migration still running? How many requests are waiting? Is it a DDL, a long backfill or an index build? Can it be rolled back safely?\n\n## Observe\n\nQuery `pg_stat_activity` and `pg_locks` for blocked and blocking pids, wait events and query age. Watch request latency, connection pool saturation and error rate. For MongoDB use `db.currentOp()`.\n\n## Isolate\n\nIdentify the root blocker: the migration, or a long transaction that the migration is waiting behind. An `ALTER TABLE` waiting for a lock queues all later queries behind it, which causes the outage.\n\n## Diagnose\n\nCheck which DDL needs an `ACCESS EXCLUSIVE` lock, whether a default value caused a table rewrite, whether an index was built without `CONCURRENTLY`, or whether a backfill held a huge transaction. Test on a production-sized copy with `EXPLAIN` and timing.\n\n| Signal | Likely cause | Decision |\n| --- | --- | --- |\n| Migration waiting for lock | Lock queue blocking traffic | Cancel and retry with lock_timeout |\n| Migration holding lock | Table rewrite or long backfill | Cancel, redesign in batches |\n| Index build blocking writes | Non-concurrent index | Use CREATE INDEX CONCURRENTLY |\n\nIllustrative snippet (adapt to your stack):\n\n```sql\n-- Illustrative: who blocks whom\nSELECT blocked.pid, blocking.pid AS blocking_pid, blocked.query\nFROM pg_stat_activity blocked\nJOIN pg_stat_activity blocking\n  ON blocking.pid = ANY(pg_blocking_pids(blocked.pid));\n```\n\n## Mitigate\n\nCancel the migration with `pg_cancel_backend`, or terminate the session if needed, after confirming that it will roll back. Terminate long blockers if safe. Pause deploys and shed load until queues clear.\n\n## Recover\n\nVerify the schema state is consistent, deploy code compatible with the old schema, and check for queued retries. Re-run the migration only in a planned window using the new approach.\n\n## Prevent\n\nUse expand-contract: add nullable columns, backfill in small batches, create indexes concurrently, validate constraints separately, set `lock_timeout` and `statement_timeout`, and review migrations for lock level. Rehearse with production-scale data.\n\n## Common mistakes\n\n- Running DDL without a lock timeout.\n- Combining schema change and large backfill in one transaction.\n- Skipping a rehearsal on production-sized data.\n",
+      "diagrams": [
+        {
+          "id": "mig",
+          "title": "Migration lock queue",
+          "alt": "A long running transaction holds a lock. The migration waits for an exclusive lock and later queries queue behind it, so the pool saturates and requests time out. Cancelling the migration releases the queue and traffic recovers.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Long transaction"
+            },
+            {
+              "id": "n1",
+              "label": "Migration waits for lock"
+            },
+            {
+              "id": "n2",
+              "label": "Queued queries"
+            },
+            {
+              "id": "n3",
+              "label": "Pool saturates"
+            },
+            {
+              "id": "n4",
+              "label": "Requests time out"
+            },
+            {
+              "id": "n5",
+              "label": "Cancel migration"
+            },
+            {
+              "id": "n6",
+              "label": "Queue clears"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            },
+            {
+              "from": "n4",
+              "to": "n5"
+            },
+            {
+              "from": "n5",
+              "to": "n6"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "What is expand-contract?",
+        "How do you backfill safely?",
+        "How does a lock queue cause an outage?"
+      ],
+      "related": [
+        "database-connection-pool-exhausted",
+        "deployment-causes-intermittent-5xx"
+      ]
+    },
+    {
+      "slug": "multi-tenant-data-leak",
+      "title": "Data leaks across tenants in a multi-tenant MERN application. How do you respond?",
+      "topic": "Security incidents",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "multi-tenancy",
+        "security",
+        "data-leak",
+        "incident-response"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I treat it as a security incident: contain first, by disabling the affected endpoint or feature, then preserve logs. I scope what was exposed, to whom, and for how long using access logs and query logs. I find the missing tenant filter, cache key or authorisation check, fix it, and notify according to legal and contractual obligations. I prevent recurrence with enforced tenant scoping, tests, and row-level security.",
+      "revision": "Contain, preserve evidence, scope exposure from logs, fix the missing tenant scope, notify as required, and enforce scoping centrally.",
+      "detailed": "Contain and scope first; a cross-tenant leak is a security and legal event.\n\n{{diagram:tenant}}\n\n## Clarify\n\nWhat data was seen, by whom, through which endpoint, and since when? Is it still happening? Who must be informed: security, legal, customers, regulators?\n\n## Observe\n\nCollect access logs, application logs, database query logs and CDN logs with tenant and user IDs. Preserve them. Identify requests where the token's tenant differs from the data's tenant.\n\n## Isolate\n\nIdentify the code path: a direct object reference with no tenant check, a query missing the tenant filter, a shared cache key, a background job without tenant context, or a GraphQL resolver that bypasses scoping. Check whether it is limited to reads.\n\n## Diagnose\n\nReproduce with two test tenants. Review the query builder and middleware for tenant scoping. Check cache keys for tenant inclusion and search indexes for tenant filters. Run a query-based audit to count cross-tenant accesses.\n\n| Signal | Likely cause | Decision |\n| --- | --- | --- |\n| Missing filter in a query | Authorisation gap | Central tenant scoping, RLS |\n| Shared cache key | Key lacks tenant | Prefix keys with tenant, purge |\n| Background job without context | Lost tenant context | Pass tenant explicitly, validate |\n\nIllustrative snippet (adapt to your stack):\n\n```sql\n-- Illustrative: Postgres row-level security\nALTER TABLE orders ENABLE ROW LEVEL SECURITY;\nCREATE POLICY tenant_isolation ON orders\n  USING (tenant_id = current_setting('app.tenant_id')::uuid);\n```\n\n## Mitigate\n\nDisable the endpoint or feature through a flag, purge shared caches, rotate affected tokens or keys if needed, and engage the incident response process. Do not delete evidence.\n\n## Recover\n\nDeploy the fix, verify with two-tenant tests, notify affected tenants and authorities as required, and offer remediation. Complete a documented post-incident review.\n\n## Prevent\n\nEnforce tenant scope centrally with a repository layer or Postgres row-level security, include tenant in cache keys, add automated cross-tenant tests, penetration testing and audit logging with anomaly alerts.\n\n## Common mistakes\n\n- Fixing the bug without scoping who saw what.\n- Relying on each developer to add the tenant filter.\n- Deleting logs that are needed as evidence.\n",
+      "diagrams": [
+        {
+          "id": "tenant",
+          "title": "Tenant isolation layers",
+          "alt": "A request carries a token with a tenant ID. Middleware sets tenant context for the repository layer, cache keys and background jobs. The database enforces row-level security. Audit logs record tenant and user for later scoping.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Request with tenant token"
+            },
+            {
+              "id": "n1",
+              "label": "Middleware sets tenant context"
+            },
+            {
+              "id": "n2",
+              "label": "Repository layer"
+            },
+            {
+              "id": "n3",
+              "label": "Tenant-scoped cache keys"
+            },
+            {
+              "id": "n4",
+              "label": "Database row-level security"
+            },
+            {
+              "id": "n5",
+              "label": "Audit logs"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n1",
+              "to": "n3"
+            },
+            {
+              "from": "n2",
+              "to": "n4"
+            },
+            {
+              "from": "n2",
+              "to": "n5"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you test tenant isolation?",
+        "What is row-level security?",
+        "How do you decide the notification obligations?"
+      ]
+    },
+    {
+      "slug": "frontend-bundle-becomes-much-larger",
+      "title": "The frontend bundle becomes much larger after a release. How do you find out why?",
+      "topic": "Frontend performance",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "bundle-size",
+        "webpack",
+        "performance",
+        "code-splitting"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I compare bundle analyses between the last good build and the current one using webpack-bundle-analyzer or source-map-explorer, and find which dependency or module grew. Typical causes are a heavy library import, loss of tree-shaking, duplicated packages, and missing code splitting. I fix by lazy loading, replacing or deep importing libraries, deduplicating, and then enforce a size budget in CI.",
+      "revision": "Diff bundle analyses, find the module that grew, fix with splitting and lighter imports, and enforce budgets in CI.",
+      "detailed": "Compare analyses between builds, then enforce a budget.\n\n## Clarify\n\nHow much larger, which bundle, and since which commit? What does it do to load time on real devices? Is it entry, vendor or route bundles?\n\n## Observe\n\nGenerate stats from both builds and open webpack-bundle-analyzer or `source-map-explorer`. Check gzip or brotli sizes, Lighthouse and CrUX loading metrics, and network waterfall in DevTools.\n\n## Isolate\n\nDiff package lists and sizes. Use `git bisect` between good and bad builds if needed. Check whether the growth is in first-load JS or an async chunk.\n\n## Diagnose\n\nCommon causes: importing a whole library (such as a full utility or icon set), a barrel file that defeats tree-shaking, CommonJS packages, duplicate versions, polyfills, moment locales, and a dev-only package bundled. Run `npm ls` for duplicates.\n\n| Signal | Likely cause | Decision |\n| --- | --- | --- |\n| Entry chunk grew | Eager import of heavy library | Lazy load or replace |\n| Duplicate packages | Version mismatch | Dedupe, align versions |\n| Tree-shaking ineffective | CommonJS or barrel files | ESM imports, sideEffects |\n\nIllustrative snippet (adapt to your stack):\n\n```js\n// Illustrative: lazy load a heavy component\nconst Chart = React.lazy(() => import('./Chart'));\n```\n\n## Mitigate\n\nRevert the offending import or hold the release if load metrics are hurt. Defer non-critical code with dynamic `import()` as a quick fix.\n\n## Recover\n\nUse direct imports, route-level splitting, lighter alternatives, deduplication, `sideEffects: false` where correct, and compression. Re-measure bundle size and load metrics.\n\n## Prevent\n\nAdd a size budget check in CI (such as `size-limit`), bundle analysis in pull requests, dependency review for new packages, and RUM monitoring of load metrics.\n\n## Common mistakes\n\n- Only checking raw size, not compressed and executed cost.\n- Accepting dependencies without checking their weight.\n- Lazy loading above-the-fold content.\n",
+      "followUps": [
+        "What is tree-shaking?",
+        "How do you set a performance budget?",
+        "How does bundle size affect INP and LCP?"
+      ],
+      "related": [
+        "release-degrades-core-web-vitals",
+        "react-components-rerender-excessively"
+      ]
+    },
+    {
+      "slug": "cdn-serves-stale-product-prices",
+      "title": "The CDN serves stale product prices. How do you fix and prevent it?",
+      "topic": "Caching incidents",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "cdn",
+        "caching",
+        "pricing",
+        "invalidation"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Wrong prices are a business-critical issue, so I first purge the affected paths and verify at the edge. Then I find why the content was cached: long TTLs, missing purge on price change, a cache key ignoring variants, or caching of an API response. I fix with short TTLs or event-driven surrogate-key purges, and I make price confirmation at checkout come from the source of truth, never the cache.",
+      "revision": "Purge affected paths, find the cache rule or missing invalidation, use event-driven purges, and re-validate price at checkout.",
+      "detailed": "Edge caching suits catalogue content; price correctness must be confirmed at checkout.\n\n{{diagram:price}}\n\n## Clarify\n\nWhich products, regions and how long were prices stale? Were any orders placed at the wrong price? What is the policy for such orders? What are the cache rules for those paths?\n\n## Observe\n\nCompare `curl -I` responses at the edge and at the origin for the affected URLs: `Cache-Control`, `Age`, CDN cache status and `Vary`. Review CDN logs for hit ratio, and the price update events and purge calls in the logs.\n\n## Isolate\n\nCheck each edge location, since purges can be partial. Compare origin versus edge to confirm the price is correct at the origin. Check whether an HTML page, an API response or an image caption holds the price.\n\n## Diagnose\n\nPossible causes: a long `s-maxage`, purge failing or not triggered on price change, cache key ignoring currency or locale, `stale-if-error` serving old content, or a price embedded in statically generated pages. Review purge API errors and rate limits.\n\n| Signal | Likely cause | Decision |\n| --- | --- | --- |\n| Edge differs from origin | Missing or failed purge | Purge and fix event-driven invalidation |\n| Right price for some regions | Partial purge or key variants | Purge all variants, fix key |\n| Static pages hold old price | Price baked into build | Fetch price client-side or revalidate |\n\nIllustrative snippet (adapt to your stack):\n\n```bash\n# Illustrative: edge versus origin\ncurl -sI https://example.test/p/123 | grep -i -E 'cache|age'\ncurl -s https://origin.example.test/api/p/123 | jq .price\n```\n\n## Mitigate\n\nPurge by URL or surrogate key, reduce TTL for price content, and temporarily bypass cache for price endpoints. Alert customer support and finance about affected orders.\n\n## Recover\n\nReconcile orders placed at wrong prices according to the business policy, and verify prices from multiple regions after the purge.\n\n## Prevent\n\nTrigger purges from the price-change event with retries and alerting, use surrogate keys, keep prices in a short-TTL API separate from long-cached pages, and verify price at cart and checkout from the source of truth. Add synthetic checks that compare edge and origin prices.\n\n## Common mistakes\n\n- Treating the cached page as the price authority at checkout.\n- Purging without alerting on purge failures.\n- Ignoring currency and locale in the cache key.\n",
+      "diagrams": [
+        {
+          "id": "price",
+          "title": "Price update and purge flow",
+          "alt": "A price change in the catalogue service emits an event that triggers a CDN purge by surrogate key, with retries and alerting. Customers see the edge page, while the cart and checkout read the price from the source of truth service.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Price change"
+            },
+            {
+              "id": "n1",
+              "label": "Price event"
+            },
+            {
+              "id": "n2",
+              "label": "Purge by surrogate key"
+            },
+            {
+              "id": "n3",
+              "label": "CDN edge"
+            },
+            {
+              "id": "n4",
+              "label": "Customer page view"
+            },
+            {
+              "id": "n5",
+              "label": "Checkout reads source of truth"
+            },
+            {
+              "id": "n6",
+              "label": "Purge failure alert"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            },
+            {
+              "from": "n4",
+              "to": "n5"
+            },
+            {
+              "from": "n2",
+              "to": "n6"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do surrogate keys help?",
+        "How do you handle orders at wrong prices?",
+        "What should be cached and what not?"
+      ],
+      "related": [
+        "users-see-stale-cached-data"
+      ]
+    },
+    {
+      "slug": "refresh-token-flow-creates-auth-loops",
+      "title": "The refresh-token flow creates authentication loops. How do you diagnose it?",
+      "topic": "Authentication incidents",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "authentication",
+        "jwt",
+        "refresh-token",
+        "oauth"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I trace one looping client in the network panel to see the sequence of 401, refresh, retry. Typical causes are concurrent requests each trying to refresh, rotation with reuse detection invalidating tokens, clock skew, a cookie not being sent, or the interceptor retrying the refresh call itself. I fix with a single-flight refresh, a retry limit, correct cookie scope and rotation grace, and forced logout when refresh fails.",
+      "revision": "Trace the 401 and refresh sequence, find concurrent refresh, rotation or cookie causes, use single-flight refresh with retry limits.",
+      "detailed": "A loop means the refresh itself fails or is retried; trace one client.\n\n{{diagram:refresh}}\n\n## Clarify\n\nWhich clients, browsers and apps loop? Is the loop on first load, after idle or after deployment? What token lifetimes and rotation rules apply? Any recent identity provider change?\n\n## Observe\n\nIn DevTools Network, follow request, 401, `POST /refresh`, retry. Review auth service logs for refresh outcomes: expired, reused, revoked or invalid. Check clocks, cookie settings and rate limits on the refresh endpoint.\n\n## Isolate\n\nReproduce with a test account and throttled network. Determine whether multiple tabs or parallel API calls trigger parallel refreshes. Check whether the refresh response sets a new cookie that the browser rejects.\n\n## Diagnose\n\nCheck rotation with reuse detection: two parallel refreshes with the same token make the second look like theft and revoke the family. Check interceptors that retry on 401 including the refresh call, access token expiry shorter than clock skew, `SameSite` or `Path` blocking the refresh cookie, and CORS credentials.\n\n| Signal | Likely cause | Decision |\n| --- | --- | --- |\n| Parallel refreshes revoke family | Reuse detection | Single-flight refresh, grace window |\n| Refresh cookie not sent | Cookie scope or SameSite | Fix Path, Domain, SameSite |\n| Retry of refresh call | Interceptor loop | Exclude refresh and cap retries |\n\nIllustrative snippet (adapt to your stack):\n\n```js\n// Illustrative: single-flight refresh\nlet inflight;\nasync function refresh() {\n  inflight ??= doRefresh().finally(() => { inflight = undefined; });\n  return inflight;\n}\n```\n\n## Mitigate\n\nAdd a retry limit and break the loop by logging the user out on refresh failure. Increase the rotation grace window for parallel requests. Rate limit refresh to protect the auth service. Consider a temporary longer access token only with security approval.\n\n## Recover\n\nImplement single-flight refresh so concurrent requests wait for one refresh promise, exclude the refresh endpoint from retry, and fix cookie attributes. Verify with multi-tab tests.\n\n## Prevent\n\nAdd automated tests for expiry and parallel requests, metrics on refresh failures and reuse detections, and clear documentation of token lifetimes and rotation.\n\n## Common mistakes\n\n- Letting the interceptor retry the refresh request.\n- No retry cap, so clients hammer the auth service.\n- Storing refresh tokens in script-accessible storage.\n",
+      "diagrams": [
+        {
+          "id": "refresh",
+          "title": "Refresh token sequence",
+          "alt": "The client calls an API with an access token and receives 401. A single-flight refresh sends the refresh token to the auth service. On success the new token is used to retry the original call once. On failure the client signs the user out instead of looping.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "API call"
+            },
+            {
+              "id": "n1",
+              "label": "401 response"
+            },
+            {
+              "id": "n2",
+              "label": "Single-flight refresh"
+            },
+            {
+              "id": "n3",
+              "label": "Auth service"
+            },
+            {
+              "id": "n4",
+              "label": "Retry original once"
+            },
+            {
+              "id": "n5",
+              "label": "Sign out on failure"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            },
+            {
+              "from": "n3",
+              "to": "n5"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How does refresh token rotation work?",
+        "Where should tokens be stored in a browser?",
+        "How do multiple tabs coordinate?"
+      ],
+      "related": [
+        "auth-works-locally-fails-in-production"
+      ]
+    },
+    {
+      "slug": "order-processing-workflow-partially-succeeds",
+      "title": "An order-processing workflow partially succeeds and leaves inconsistent state. What do you do?",
+      "topic": "Data integrity incidents",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "saga",
+        "consistency",
+        "workflow",
+        "reconciliation"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I find which steps completed, such as payment taken but inventory or fulfilment not created, by tracing the order's events. I stabilise by stopping the failing step, then repair affected orders using compensating actions or safe resume of the workflow. For the long term I model the flow as a saga or outbox-driven workflow with idempotent steps, explicit states, retries, and reconciliation jobs that detect stuck orders.",
+      "revision": "Trace which steps completed, stop the failure, resume or compensate affected orders, and redesign as an idempotent saga with outbox and reconciliation.",
+      "detailed": "Partial success is handled with explicit states, idempotent steps and compensation.\n\n{{diagram:saga}}\n\n## Clarify\n\nHow many orders are inconsistent, and in which state: paid but not fulfilled, fulfilled but not paid? What step is failing and why? What are the customer-facing impacts?\n\n## Observe\n\nQuery orders by state and age, trace events by order ID across services, inspect the dead-letter queue, error logs and the payment provider records. Compare ledger, inventory and order tables.\n\n## Isolate\n\nIdentify the failing step and its first error. Find whether failures come from a dependency, a timeout after the side effect, or a crash between database write and message publish.\n\n## Diagnose\n\nLook for the dual-write problem: updating the database and publishing an event as separate operations. Check for non-idempotent steps, missing retries, timeouts that hide success, and states that cannot be resumed.\n\n| Signal | Likely cause | Decision |\n| --- | --- | --- |\n| Paid, no fulfilment | Step failed after payment | Resume fulfilment idempotently |\n| Event never published | Dual write | Transactional outbox |\n| Order stuck in pending | No timeout or retry | Timeouts and reconciliation job |\n\nIllustrative snippet (adapt to your stack):\n\n```sql\n-- Illustrative: find stuck orders\nSELECT id, state, updated_at FROM orders\nWHERE state = 'PAID' AND updated_at < now() - interval '<threshold>';\n```\n\n## Mitigate\n\nPause the failing step or flag, queue incoming work if safe, and tell support which orders are affected with a list. Avoid manual database edits without a log.\n\n## Recover\n\nFor each affected order, resume idempotently or compensate (refund, release stock, cancel). Run reconciliation scripts with dry run first, and confirm the final consistent state with checks.\n\n## Prevent\n\nUse the transactional outbox pattern, a saga with explicit states and compensations, idempotent steps keyed by order ID, timeouts for stuck states, and a reconciliation job with alerts.\n\n## Common mistakes\n\n- Fixing data manually without an audit trail.\n- Assuming a timeout means the step failed.\n- Publishing events outside the database transaction.\n",
+      "diagrams": [
+        {
+          "id": "saga",
+          "title": "Order saga with outbox",
+          "alt": "The order service writes the order and an outbox event in one transaction. A relay publishes events to payment, inventory and fulfilment steps. Each step is idempotent. On failure compensating actions run, and a reconciliation job finds orders stuck in intermediate states.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Order service"
+            },
+            {
+              "id": "n1",
+              "label": "Outbox in same transaction"
+            },
+            {
+              "id": "n2",
+              "label": "Event relay"
+            },
+            {
+              "id": "n3",
+              "label": "Payment step"
+            },
+            {
+              "id": "n4",
+              "label": "Inventory step"
+            },
+            {
+              "id": "n5",
+              "label": "Fulfilment step"
+            },
+            {
+              "id": "n6",
+              "label": "Compensation"
+            },
+            {
+              "id": "n7",
+              "label": "Reconciliation job"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            },
+            {
+              "from": "n4",
+              "to": "n5"
+            },
+            {
+              "from": "n5",
+              "to": "n6"
+            },
+            {
+              "from": "n7",
+              "to": "n0"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Orchestration versus choreography?",
+        "How does the outbox pattern work?",
+        "How do you design compensation?"
+      ],
+      "related": [
+        "checkout-produces-duplicate-orders"
+      ]
+    },
+    {
+      "slug": "release-degrades-core-web-vitals",
+      "title": "A release degrades Core Web Vitals. How do you investigate and respond?",
+      "topic": "Frontend performance",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "core-web-vitals",
+        "lcp",
+        "cls",
+        "inp"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I confirm the regression in field data, from CrUX or real-user monitoring, and identify which metric moved: LCP, CLS or INP, on which pages and devices. I reproduce in Lighthouse and DevTools traces, then compare with the previous release to find causes such as a bigger hero image, late fonts, new third-party scripts, layout shifts, or heavy handlers. I roll back or fix, and add performance budgets and RUM alerts.",
+      "revision": "Confirm in field data which metric moved, reproduce with traces, compare releases, fix or roll back, and add budgets and RUM alerts.",
+      "detailed": "Use field data to confirm, lab tools to explain.\n\n{{diagram:cwv}}\n\n## Clarify\n\nWhich metric, pages, devices and regions? Since which release? How big is the change in the field, and does it affect search ranking or conversion? What is our target threshold?\n\n## Observe\n\nCheck CrUX or RUM (the `web-vitals` library) by page group and release. Run Lighthouse and record a DevTools Performance trace on a throttled profile. Compare network waterfalls between releases.\n\n## Isolate\n\nFor LCP: find the LCP element and its load chain. For CLS: use the Layout Shift regions in DevTools. For INP: find long tasks and event handlers. Compare third-party scripts and bundle size between releases.\n\n## Diagnose\n\nTypical causes: a larger or lazy-loaded hero image, render-blocking CSS or fonts, a client-side rendered above-the-fold section, images without dimensions, late banners, new tag manager scripts, and heavy hydration. Verify by reverting the suspect change in a preview.\n\n| Signal | Likely cause | Decision |\n| --- | --- | --- |\n| LCP worse | Hero image or server delay | Preload, optimise image, improve TTFB |\n| CLS worse | Missing dimensions or late content | Reserve space, size media |\n| INP worse | Long tasks or heavy handlers | Split work, defer, reduce JS |\n\nIllustrative snippet (adapt to your stack):\n\n```js\n// Illustrative: report vitals\nimport { onLCP, onCLS, onINP } from 'web-vitals';\n[onLCP, onCLS, onINP].forEach(f => f(m => navigator.sendBeacon('/vitals', JSON.stringify(m))));\n```\n\n## Mitigate\n\nRoll back or flag the change if impact is severe. Quick fixes include preloading the LCP image, setting dimensions, deferring third-party scripts, and removing a banner shift.\n\n## Recover\n\nShip the fix, monitor the field data, which lags by many days in CrUX, and use RUM for faster confirmation.\n\n## Prevent\n\nSet performance budgets in CI with Lighthouse CI, alert on RUM percentiles, require performance review for third-party scripts, and use image and font best practices.\n\n## Common mistakes\n\n- Relying only on lab scores for a field problem.\n- Optimising averages instead of the 75th percentile.\n- Adding a third-party tag without a performance review.\n",
+      "diagrams": [
+        {
+          "id": "cwv",
+          "title": "Core Web Vitals regression workflow",
+          "alt": "Field data from CrUX and real user monitoring confirms which metric regressed. Lab tools such as Lighthouse and DevTools traces reproduce it. A comparison with the previous release identifies the cause, which is fixed or rolled back, and budgets in CI prevent recurrence.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Field data regression"
+            },
+            {
+              "id": "n1",
+              "label": "Identify metric and pages"
+            },
+            {
+              "id": "n2",
+              "label": "Lab reproduction"
+            },
+            {
+              "id": "n3",
+              "label": "Compare releases"
+            },
+            {
+              "id": "n4",
+              "label": "Fix or roll back"
+            },
+            {
+              "id": "n5",
+              "label": "Budgets and RUM alerts"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            },
+            {
+              "from": "n4",
+              "to": "n5"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Why can CrUX lag behind a regression?",
+        "How do you find the LCP element?",
+        "How do you budget third-party scripts?"
+      ],
+      "related": [
+        "frontend-bundle-becomes-much-larger",
+        "ssr-hydration-mismatches"
+      ]
+    },
+    {
+      "slug": "critical-service-unavailable-peak-traffic",
+      "title": "A critical service becomes unavailable during peak traffic. How do you handle the incident?",
+      "topic": "Availability incidents",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "incident-response",
+        "availability",
+        "autoscaling",
+        "load-shedding"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I declare an incident, assign roles, and focus first on restoring service. I check the golden signals, recent changes, and the saturated resource, then mitigate with rollback, scaling, load shedding, feature flags or a static fallback page. I communicate status regularly. Afterwards I run a blameless review and fix capacity, autoscaling, backpressure, and dependency isolation so peaks degrade gracefully.",
+      "revision": "Declare incident, restore service via rollback, scaling or shedding, communicate, then review and build graceful degradation.",
+      "detailed": "During an outage, restore service and communicate before seeking the root cause.\n\n{{diagram:outage}}\n\n## Clarify\n\nWhat is the user impact and since when? Which services are affected? Who is the incident commander, and who communicates? What is the severity and the target recovery?\n\n## Observe\n\nRead the golden signals: latency, traffic, errors and saturation. Check load balancer health, autoscaling activity, CPU, memory, connection counts, queue depth and dependency health. Check change history and the status of cloud providers.\n\n## Isolate\n\nFind the saturated or failing component and the failure sequence: did one dependency fail and cascade through retries? Check whether autoscaling was too slow, limits were hit, or health checks were removing healthy nodes.\n\n## Diagnose\n\nLook for retry storms, a thundering herd after a cache expiry, exhausted connection pools, scale-up limits, a cold-start delay, or database saturation. Confirm with traces and metrics timelines.\n\n| Signal | Likely cause | Decision |\n| --- | --- | --- |\n| Dependency failure cascading | Retries and no isolation | Circuit breaker, bulkheads |\n| Autoscaling too slow | Reactive scaling lag | Pre-scale, scheduled scaling |\n| Database saturated | Capacity or heavy queries | Shed load, cache, scale reads |\n\nIllustrative snippet (adapt to your stack):\n\n```\n# Illustrative Logs Insights query: errors by minute\nfields @timestamp, status\n| filter status >= 500\n| stats count() by bin(1m)\n```\n\n## Mitigate\n\nRoll back suspect changes, scale out manually with raised limits, enable load shedding for non-critical traffic, turn off expensive features, serve cached or static content, add a waiting room if needed. Update status every <interval>.\n\n## Recover\n\nRestore capacity gradually, watch for secondary failures as traffic returns, and confirm normal service. Send a final customer update.\n\n## Prevent\n\nRun a blameless review with a timeline. Add load tests at expected peak plus margin, warm capacity before known events, circuit breakers, bulkheads, backpressure, graceful degradation and runbooks, and test failover regularly.\n\n## Common mistakes\n\n- Debugging for the root cause before restoring service.\n- Poor communication, so teams duplicate effort.\n- Autoscaling that reacts only after saturation.\n",
+      "diagrams": [
+        {
+          "id": "outage",
+          "title": "Peak traffic incident response",
+          "alt": "Peak traffic reaches a load balancer and service. When saturation is detected the incident commander declares an incident. Mitigations include rollback, scaling, load shedding and static fallback, while communication updates run in parallel and a review follows recovery.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Peak traffic"
+            },
+            {
+              "id": "n1",
+              "label": "Saturation or failure detected"
+            },
+            {
+              "id": "n2",
+              "label": "Declare incident and roles"
+            },
+            {
+              "id": "n3",
+              "label": "Rollback"
+            },
+            {
+              "id": "n4",
+              "label": "Scale out"
+            },
+            {
+              "id": "n5",
+              "label": "Shed load or fallback page"
+            },
+            {
+              "id": "n6",
+              "label": "Status updates"
+            },
+            {
+              "id": "n7",
+              "label": "Recovery"
+            },
+            {
+              "id": "n8",
+              "label": "Blameless review"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n2",
+              "to": "n4"
+            },
+            {
+              "from": "n2",
+              "to": "n5"
+            },
+            {
+              "from": "n2",
+              "to": "n6"
+            },
+            {
+              "from": "n3",
+              "to": "n7"
+            },
+            {
+              "from": "n4",
+              "to": "n7"
+            },
+            {
+              "from": "n5",
+              "to": "n7"
+            },
+            {
+              "from": "n7",
+              "to": "n8"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you run an incident call?",
+        "How do you plan for a known peak event?",
+        "What is graceful degradation?"
+      ],
+      "related": [
+        "application-passes-tests-fails-under-load",
+        "aws-costs-rise-unexpectedly"
+      ]
+    },
+    {
+      "slug": "production-issue-cannot-reproduce-locally",
+      "title": "A production issue cannot be reproduced locally. How do you approach it?",
+      "topic": "Debugging strategy",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "debugging",
+        "observability",
+        "feature-flags",
+        "production"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I stop trying to guess and extract more evidence from production: correlation IDs, structured logs, traces, and request samples, with sensitive data protected. I identify what differs in production: data, scale, concurrency, config, versions, network and timing. Then I recreate those conditions in staging or a production-like replica, add targeted logging behind a flag, and test hypotheses with canaries. I finish by improving observability.",
+      "revision": "Collect evidence via logs and traces, list production differences, recreate them safely, test hypotheses with flags and canaries.",
+      "detailed": "If you cannot reproduce it, find out what production has that your machine lacks.\n\n{{diagram:repro}}\n\n## Clarify\n\nWhat exactly is the symptom, how often, and for whom? Is it tied to specific users, data, regions, browsers or times? How severe is the impact, and is there a workaround?\n\n## Observe\n\nGather correlation IDs from affected requests, structured logs, traces, error reports and, for frontend issues, session replay with privacy controls. Compare affected and unaffected requests using a Logs Insights or equivalent query.\n\n## Isolate\n\nFind the common factor in failures: tenant, data shape, version, instance, region, device, or time window. Compare configuration and dependency versions between environments. Look for race conditions that need concurrency.\n\n## Diagnose\n\nTypical differences: data volume and unusual records, feature flags and config, environment variables, time zones, concurrency, caches, network latency, third-party behaviour and browser extensions. Rank hypotheses and design one cheap test for each.\n\n| Signal | Likely cause | Decision |\n| --- | --- | --- |\n| Fails for one tenant or record | Data-specific | Sanitised copy of the data |\n| Intermittent under concurrency | Race or contention | Load test, add locking or idempotency |\n| Only some devices or browsers | Client environment | Session replay, device matrix |\n\nIllustrative snippet (adapt to your stack):\n\n```\n# Illustrative: compare failing and passing requests\nfields @timestamp, requestId, tenantId, version, @message\n| filter @message like /<error pattern>/\n| stats count() by tenantId, version\n```\n\n## Mitigate\n\nIf users are harmed, use a flag to disable the feature or apply a workaround. Add temporary, scoped debug logging or sampling behind a flag, and avoid logging secrets or personal data.\n\n## Recover\n\nReproduce with a sanitised production data copy, replayed traffic or a load test with concurrency. Confirm the fix on a canary, and keep the added telemetry if useful.\n\n## Prevent\n\nImprove observability with correlation IDs, richer traces, error context, feature flag visibility and data-quality checks. Record the finding in a runbook.\n\n## Common mistakes\n\n- Guessing and changing code with no evidence.\n- Logging sensitive data while debugging.\n- Never keeping the extra telemetry or learning.\n",
+      "diagrams": [
+        {
+          "id": "repro",
+          "title": "Reproducing a production-only issue",
+          "alt": "Evidence from logs, traces and correlation IDs is collected and used to find the factor common to failing requests. Differences between production and local are listed as hypotheses, tested in a production-like environment or canary, and the learning feeds better observability.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Collect evidence"
+            },
+            {
+              "id": "n1",
+              "label": "Find common factor"
+            },
+            {
+              "id": "n2",
+              "label": "List environment differences"
+            },
+            {
+              "id": "n3",
+              "label": "Rank hypotheses"
+            },
+            {
+              "id": "n4",
+              "label": "Test in staging or canary"
+            },
+            {
+              "id": "n5",
+              "label": "Fix and verify"
+            },
+            {
+              "id": "n6",
+              "label": "Improve observability"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            },
+            {
+              "from": "n4",
+              "to": "n5"
+            },
+            {
+              "from": "n5",
+              "to": "n6"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you debug safely in production?",
+        "What do you add to make bugs reproducible?",
+        "How do you use feature flags for diagnosis?"
+      ],
+      "related": [
+        "nodejs-api-latency-spike"
+      ]
+    }
+  ]
+}

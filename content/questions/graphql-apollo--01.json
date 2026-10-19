@@ -1,0 +1,1672 @@
+{
+  "category": "graphql-apollo",
+  "questions": [
+    {
+      "slug": "graphql-vs-rest-decision-criteria",
+      "title": "GraphQL or REST for a new MERN platform: what decision criteria do you apply?",
+      "topic": "GraphQL fundamentals",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "graphql",
+        "rest",
+        "api-design",
+        "architecture"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I decide on consumers and data shape, not fashion. GraphQL fits many clients with different data needs, deeply related data, and fast-moving frontends, because each client asks for exactly the fields it needs from one typed endpoint. REST fits simple resource APIs, file transfer, public cacheable endpoints and teams that want plain HTTP semantics. GraphQL costs more in caching, authorisation, query cost control and tooling. I often run both: REST for stable integrations and a GraphQL layer for product UIs.",
+      "revision": "Choose GraphQL for varied clients and relational data; REST for simple, cacheable, public or file-oriented APIs. GraphQL adds cost control and caching work.",
+      "detailed": "This is a concept every architect should be able to argue in both directions. The honest answer is a decision matrix, not a preference.\n\n## What GraphQL actually changes\n\nA GraphQL server exposes **one endpoint and one typed schema**. The client sends a query naming the fields it wants and receives exactly that shape. This removes over-fetching (too many fields) and under-fetching (several round trips to assemble a screen).\n\n{{diagram:rest-vs-gql}}\n\n## Decision criteria\n\n| Criterion | Leans GraphQL | Leans REST |\n|---|---|---|\n| Number of client types | Web, mobile, partners with different needs | One or two clients with similar needs |\n| Data shape | Deep graph of related entities | Flat resources, simple CRUD |\n| Frontend change rate | Frequent screen changes | Stable screens |\n| HTTP caching | Acceptable to build your own (or use persisted queries) | Heavy reliance on CDN and ETags |\n| File upload and download | Awkward, needs extra spec or a side channel | Natural |\n| Public API for unknown consumers | Needs strict cost controls | Simpler to rate limit per URL |\n| Team experience | Schema discipline exists | Existing REST tooling and gateway policies |\n| Operational visibility | Needs operation-name based monitoring | Per-route metrics come free |\n\n## Costs people forget\n\n- **Caching moves into your hands.** Every request is typically a POST to one URL, so edge caching needs persisted queries with GET, or response caching in the server.\n- **Authorisation is per field and per object**, not per route.\n- **Query cost is client-controlled**, so you need depth limits, complexity limits and timeouts.\n- **Errors are different**: HTTP 200 can still carry an errors array.\n\n## A pragmatic architecture\n\nKeep REST (or events) for service-to-service and partner integrations, and put GraphQL at the edge as a gateway or BFF for product UIs. See the BFF question in this set.\n\n## Common mistakes\n\n- Choosing GraphQL because it is new, with a single client and flat CRUD.\n- Exposing the database one-to-one as the schema instead of designing for use cases.\n- Skipping query cost controls on a public endpoint.\n- Assuming GraphQL removes the need for versioning discipline; it changes it into deprecation discipline.",
+      "followUps": [
+        "Which of your criteria would change if the API were public and consumed by unknown third parties?",
+        "How do you cache GraphQL responses at a CDN?",
+        "Can GraphQL and REST coexist behind one gateway?"
+      ],
+      "related": [
+        "graphql-bff-over-rest-legacy",
+        "persisted-queries-apq-and-caching"
+      ],
+      "diagrams": [
+        {
+          "id": "rest-vs-gql",
+          "title": "Same screen, REST and GraphQL",
+          "alt": "On the left a client calls three REST endpoints to build one screen; on the right a client sends one GraphQL query to a single endpoint whose resolvers fetch the same data and return one shaped response.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "c1",
+              "label": "Client (REST)"
+            },
+            {
+              "id": "u",
+              "label": "/users/1"
+            },
+            {
+              "id": "o",
+              "label": "/users/1/orders"
+            },
+            {
+              "id": "p",
+              "label": "/products?ids="
+            },
+            {
+              "id": "c2",
+              "label": "Client (GraphQL)"
+            },
+            {
+              "id": "g",
+              "label": "Single /graphql endpoint"
+            },
+            {
+              "id": "r",
+              "label": "Resolvers and services"
+            },
+            {
+              "id": "s",
+              "label": "Shaped response"
+            }
+          ],
+          "edges": [
+            {
+              "from": "c1",
+              "to": "u",
+              "label": "call 1"
+            },
+            {
+              "from": "c1",
+              "to": "o",
+              "label": "call 2"
+            },
+            {
+              "from": "c1",
+              "to": "p",
+              "label": "call 3"
+            },
+            {
+              "from": "c2",
+              "to": "g",
+              "label": "one query"
+            },
+            {
+              "from": "g",
+              "to": "r"
+            },
+            {
+              "from": "r",
+              "to": "s"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "schema-first-vs-code-first-nestjs-graphql",
+      "title": "Schema-first or code-first in NestJS GraphQL: how do you choose?",
+      "topic": "Schema design workflow",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "graphql",
+        "nestjs",
+        "schema-first",
+        "code-first",
+        "typescript"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Both approaches produce the same runtime schema. Schema-first means I write SDL by hand and generate TypeScript types from it, which suits contract-led teams and non-TypeScript collaborators. Code-first means I decorate TypeScript classes and the framework generates the SDL, which keeps one source of truth and refactors safely in a TypeScript-only MERN team. I pick based on who owns the contract, and I always commit or publish the generated schema so changes are reviewable.",
+      "revision": "Same schema either way. Schema-first: SDL is the contract, types generated. Code-first: TypeScript classes with decorators generate the SDL. Always review schema diffs.",
+      "detailed": "Concept to know: the choice is about **where the source of truth lives**, not about capability. The Nest-specific detail (decorators, module options) should be checked against the current NestJS GraphQL documentation.\n\n## The two modes\n\n| Aspect | Schema-first | Code-first |\n|---|---|---|\n| Source of truth | .graphql SDL files | TypeScript classes and decorators |\n| TypeScript types | Generated from SDL (NestJS can generate a definitions file, or use a codegen tool) | The classes themselves |\n| Contract review | SDL diff is the review artefact | Generated SDL file must be emitted and diffed |\n| Refactoring | Rename in SDL and regenerate | IDE rename across classes |\n| Best fit | Contract-led teams, frontend writes schema first, polyglot teams | Full TypeScript team, rapid iteration |\n| Risk | SDL and resolver drift if generation is skipped | Decorator noise, accidental schema changes from a class edit |\n\n## Sketch in NestJS\n\nCode-first uses decorators such as @ObjectType, @Field, @Resolver, @Query and @Mutation, and the module is configured to auto-generate a schema file. Schema-first loads typePaths pointing to SDL files and resolvers use @Resolver, @Query and so on with names matching the SDL.\n\n{{diagram:schema-pipeline}}\n\n```ts\n// code-first (names per NestJS GraphQL docs; verify against your version)\n@ObjectType()\nexport class Product {\n  @Field(() => ID) id!: string;\n  @Field() name!: string;\n  @Field(() => Int) priceMinor!: number;\n  @Field({ nullable: true, deprecationReason: 'Use priceMinor' })\n  price?: number;\n}\n```\n\n## How I decide\n\n1. Does a non-TypeScript team or a design-first process own the contract? Choose schema-first.\n2. Is it one TypeScript monorepo moving fast? Choose code-first.\n3. Whatever the mode, emit the final schema to a file in CI and fail the build on breaking changes.\n\n## Common mistakes\n\n- Treating the generated SDL as an implementation detail and never reviewing diffs, so a casual field rename becomes a breaking change.\n- Mixing modes in one service without a clear rule.\n- Binding the schema directly to database entities, which leaks storage structure into the API.",
+      "followUps": [
+        "How would you detect a breaking schema change in CI?",
+        "Why not expose ORM entities directly as GraphQL types?",
+        "What changes in federation when each subgraph owns its schema?"
+      ],
+      "related": [
+        "schema-evolution-deprecation-and-nullability"
+      ],
+      "diagrams": [
+        {
+          "id": "schema-pipeline",
+          "title": "Schema as a reviewed artefact",
+          "alt": "Whether SDL is written by hand or generated from TypeScript decorators, the resulting schema file is committed, checked for breaking changes in CI, and then served by the GraphQL server and consumed by client code generation.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "sdl",
+              "label": "SDL files (schema-first)"
+            },
+            {
+              "id": "cls",
+              "label": "Decorated classes (code-first)"
+            },
+            {
+              "id": "gen",
+              "label": "Emitted schema file"
+            },
+            {
+              "id": "ci",
+              "label": "Breaking-change check"
+            },
+            {
+              "id": "srv",
+              "label": "GraphQL server"
+            },
+            {
+              "id": "cg",
+              "label": "Client codegen types"
+            }
+          ],
+          "edges": [
+            {
+              "from": "sdl",
+              "to": "gen"
+            },
+            {
+              "from": "cls",
+              "to": "gen",
+              "label": "generate"
+            },
+            {
+              "from": "gen",
+              "to": "ci"
+            },
+            {
+              "from": "ci",
+              "to": "srv",
+              "label": "if safe"
+            },
+            {
+              "from": "gen",
+              "to": "cg"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "graphql-type-system-object-scalar-enum-interface-union",
+      "title": "Explain the GraphQL type system: object, scalar, enum, interface and union types",
+      "topic": "GraphQL fundamentals",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "graphql",
+        "schema",
+        "types",
+        "interfaces",
+        "unions"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "The schema is a typed contract. Object types have fields, scalars are leaf values like String, Int and custom ones such as DateTime, and enums restrict values to a fixed set. An interface declares shared fields that several object types implement, for example a Node with an id. A union says a field returns one of several unrelated types, and clients use inline fragments to select fields per type. I use interfaces for shared behaviour and unions for result variants, such as success or error.",
+      "revision": "Object = fields; scalar = leaf value; enum = fixed set; interface = shared fields implemented by types; union = one of several types, queried with fragments.",
+      "detailed": "A concept every architect should know; the SDL syntax is standard across servers.\n\n## The building blocks\n\n| Kind | Purpose | Example |\n|---|---|---|\n| Object | Named set of fields | type Product { id: ID! name: String! } |\n| Scalar | Leaf value | Int, Float, String, Boolean, ID, plus custom scalars |\n| Enum | Closed set of values | enum OrderStatus { PENDING PAID SHIPPED } |\n| Interface | Shared fields, implemented by objects | interface Node { id: ID! } |\n| Union | One of several object types, no shared fields required | union SearchResult = Product / Article |\n| Input | Structured arguments for mutations and fields | input CreateProductInput { name: String! } |\n\nObjects cannot be used as inputs, and inputs cannot be used as outputs. Unions can contain only object types.\n\n## Interface versus union\n\nUse an **interface** when the types genuinely share fields the client can select without knowing the concrete type. Use a **union** when the variants differ, such as search results or mutation outcomes. Clients resolve the concrete type with __typename and inline fragments.\n\n```graphql\ninterface Node { id: ID! }\ntype Product implements Node { id: ID! name: String! priceMinor: Int! }\ntype Article implements Node { id: ID! title: String! }\nunion SearchResult = Product | Article\nenum Sort { NEWEST PRICE_ASC }\nscalar DateTime\n\ntype Query {\n  search(term: String!): [SearchResult!]!\n  node(id: ID!): Node\n}\n```\n\n```graphql\nquery {\n  search(term: \"lamp\") {\n    __typename\n    ... on Product { name priceMinor }\n    ... on Article { title }\n  }\n}\n```\n\n## Design notes\n\n- Custom scalars need serialisation and validation rules; document them.\n- Interfaces and unions need a type resolution function on the server (resolveType, or an equivalent in your framework).\n- Enums are part of the contract: adding a value can break clients with exhaustive switches, so treat it as a careful change.\n\n## Common mistakes\n\n- Using String for everything that should be an enum.\n- Using a union where an interface with a shared field would let clients stay simple.\n- Forgetting that clients must request __typename (Apollo Client adds it automatically) to discriminate union members.\n- Money as Float; prefer integer minor units or a decimal scalar.",
+      "followUps": [
+        "When would you add a custom scalar rather than use String?",
+        "What is the risk of adding a value to an enum?",
+        "How does a server decide the concrete type of an interface field?"
+      ],
+      "related": [
+        "typed-error-unions-partial-data-and-errors"
+      ]
+    },
+    {
+      "slug": "graphql-query-mutation-subscription-semantics",
+      "title": "What are queries, mutations and subscriptions, and how do their execution semantics differ?",
+      "topic": "GraphQL fundamentals",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "graphql",
+        "queries",
+        "mutations",
+        "subscriptions",
+        "execution"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "A query reads data and its fields may resolve in parallel. A mutation changes data and its top-level fields run serially, in order, so side effects are predictable. A subscription opens a long-lived stream, usually over WebSocket or SSE, where the server pushes an event each time something relevant happens. I design mutations around business actions, return the changed object so clients can update their cache, and keep subscriptions for genuinely live data.",
+      "revision": "Query: read, parallel fields. Mutation: write, top-level fields serial. Subscription: long-lived push stream. Return changed objects from mutations.",
+      "detailed": "Concept every architect should know. Transport details for subscriptions vary by server and library, so verify them.\n\n## The three operation types\n\n| Operation | Intent | Execution | Transport |\n|---|---|---|---|\n| Query | Read | Sibling fields may resolve in parallel | HTTP POST, or GET for persisted queries |\n| Mutation | Write | Top-level fields run one after another | HTTP POST |\n| Subscription | Receive events | Server maps an event stream to results | WebSocket or SSE |\n\n## Mutation design\n\n- Name them after the **business action** (placeOrder, cancelOrder), not generic update calls.\n- Take a single **input object** and return a **payload type** carrying the changed entity and any user-facing errors.\n- Return enough fields for the client to refresh its cache without another query.\n\n```graphql\ntype Mutation {\n  addToCart(input: AddToCartInput!): AddToCartPayload!\n}\ninput AddToCartInput { productId: ID! quantity: Int! }\ntype AddToCartPayload { cart: Cart! }\n```\n\n## Subscriptions\n\nA subscription resolver returns an async iterator of events. Behind it you need a publish and subscribe mechanism, because with several server instances an event produced on one must reach clients connected to another. Typical choices are Redis or a message broker; the single-instance in-memory pub/sub shipped in examples is not enough for production.\n\n## Why serial mutations matter\n\nIf a client sends two mutation fields in one document, the second sees the effects of the first. Queries give no such guarantee, so never put side effects in query resolvers.\n\n## Common mistakes\n\n- Doing writes inside query resolvers because it is convenient.\n- Generic mutations that accept a loose bag of fields.\n- Using subscriptions for data that could be polled every minute.\n- Running subscriptions with in-memory pub/sub across several instances.\n- Not authenticating at WebSocket connection time as well as per event.",
+      "followUps": [
+        "Why do top-level mutation fields execute serially?",
+        "How do subscriptions work with several server instances?",
+        "What should a mutation payload contain?"
+      ],
+      "related": [
+        "subscriptions-vs-websockets-vs-sse"
+      ]
+    },
+    {
+      "slug": "thin-resolvers-service-layer-and-input-types",
+      "title": "How do you structure resolvers so they stay thin, and where do services and input types fit?",
+      "topic": "Resolver design",
+      "difficulty": "intermediate",
+      "type": "coding",
+      "tags": [
+        "graphql",
+        "resolvers",
+        "service-layer",
+        "input-types",
+        "typescript"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "A resolver should translate between GraphQL and the application, nothing more. It reads arguments and context, calls a service method, and returns the result. Business rules, transactions and database access live in services below, so the same logic can serve REST, queues or tests. Inputs are typed input objects validated at the edge. This keeps resolvers easy to test, keeps the schema from leaking storage details, and stops field resolvers from quietly becoming a second business layer.",
+      "revision": "Resolvers map arguments and context to service calls. Business logic, transactions and data access live in services. Validate input objects at the edge.",
+      "detailed": "This is an architecture concept; the example uses plain TypeScript with Apollo Server style resolver signatures, so verify package names against current docs.\n\n## Responsibilities\n\n| Layer | Owns |\n|---|---|\n| Schema | Contract, types, nullability |\n| Resolver | Argument mapping, context access, calling services, field-level shaping |\n| Service | Business rules, transactions, authorisation decisions on domain objects |\n| Repository or data source | Queries to MongoDB, REST, cache |\n| Loader | Batching and per-request caching for relation fields |\n\n{{diagram:layers}}\n\n## Example\n\n```graphql\ntype Query { product(id: ID!): Product }\ntype Mutation { createProduct(input: CreateProductInput!): Product! }\ninput CreateProductInput { name: String! priceMinor: Int! categoryId: ID! }\ntype Product { id: ID! name: String! priceMinor: Int! category: Category! }\n```\n\n```ts\ninterface Ctx { user?: { id: string; roles: string[] }; services: { products: ProductService }; loaders: { category: DataLoader<string, Category> } }\n\nexport const resolvers = {\n  Query: {\n    product: (_: unknown, { id }: { id: string }, ctx: Ctx) =>\n      ctx.services.products.getById(id),\n  },\n  Mutation: {\n    createProduct: (_: unknown, { input }: { input: CreateProductInput }, ctx: Ctx) =>\n      ctx.services.products.create(input, ctx.user),\n  },\n  Product: {\n    category: (p: Product, _: unknown, ctx: Ctx) =>\n      ctx.loaders.category.load(p.categoryId),\n  },\n};\n```\n\nThe service validates business rules (price positive, category exists, user allowed) and throws a typed domain error that a shared error formatter maps to GraphQL.\n\n## Input types\n\nUse **input objects** for mutation arguments so adding an optional field is non-breaking. Validate shape with the GraphQL type system, then rules with a validation library or class validators in the service.\n\n## Common mistakes\n\n- Putting Mongoose or SQL calls inside resolvers.\n- Field resolvers that each hit the database (see the N+1 scenario).\n- Passing the raw args bag to the database.\n- Reusing one input type for create and update when required fields differ.",
+      "followUps": [
+        "How would you unit test this resolver and service?",
+        "Why prefer an input object to many arguments?",
+        "Where would authorisation checks live?"
+      ],
+      "related": [
+        "n-plus-one-dataloader-diagnose-and-fix",
+        "graphql-authn-authz-in-resolvers"
+      ],
+      "diagrams": [
+        {
+          "id": "layers",
+          "title": "Layers behind a resolver",
+          "alt": "A client request reaches the GraphQL layer and resolvers, which call services for business rules, which use repositories and loaders to reach MongoDB, caches and downstream REST APIs.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "c",
+              "label": "Client"
+            },
+            {
+              "id": "gql",
+              "label": "GraphQL schema and resolvers"
+            },
+            {
+              "id": "svc",
+              "label": "Services (business rules)"
+            },
+            {
+              "id": "ldr",
+              "label": "Loaders"
+            },
+            {
+              "id": "repo",
+              "label": "Repositories"
+            },
+            {
+              "id": "db",
+              "label": "MongoDB, cache, REST"
+            }
+          ],
+          "edges": [
+            {
+              "from": "c",
+              "to": "gql"
+            },
+            {
+              "from": "gql",
+              "to": "svc"
+            },
+            {
+              "from": "gql",
+              "to": "ldr",
+              "label": "relations"
+            },
+            {
+              "from": "svc",
+              "to": "repo"
+            },
+            {
+              "from": "ldr",
+              "to": "repo"
+            },
+            {
+              "from": "repo",
+              "to": "db"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "schema-evolution-deprecation-and-nullability",
+      "title": "How do you evolve a GraphQL schema without versions, and how do you design nullability?",
+      "topic": "Schema evolution",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "graphql",
+        "deprecation",
+        "nullability",
+        "schema-evolution",
+        "api-design"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "GraphQL APIs usually evolve additively instead of versioning. I add fields and types freely, mark old ones with @deprecated and a reason, watch field usage in operation analytics, and remove only when usage is zero. Nullability needs care: non-null is a promise, and if a non-null field fails, the null propagates to the nearest nullable parent. So I make fields nullable when their source can fail independently, and non-null only when I can guarantee them.",
+      "revision": "Evolve additively, deprecate with a reason, remove when usage is zero. Non-null is a promise: a failed non-null field nulls its nearest nullable parent.",
+      "detailed": "Concept every architect should know. Tooling for field usage and schema checks differs by vendor, so verify the specifics in your platform.\n\n## Additive evolution\n\n| Change | Safe? |\n|---|---|\n| Add a field, type or optional argument | Safe |\n| Add an enum value | Careful: clients with exhaustive switches may break |\n| Remove or rename a field | Breaking |\n| Make an argument required | Breaking |\n| Make a nullable field non-null in output | Mostly safe for clients, risky for server |\n| Make a non-null output field nullable | Breaking for typed clients |\n| Change a field type | Breaking |\n\n**Deprecation workflow**\n\n1. Add the replacement field.\n2. Mark the old one with a deprecation reason, for example oldPrice: Int @deprecated(reason: \"Use priceMinor\").\n3. Measure which clients still request it (operation and field usage from your gateway, tracing or schema registry).\n4. Contact owners, then remove once usage is zero or the agreed date passes.\n5. Run a schema diff check in CI to block accidental breaking changes.\n\n## Nullability design\n\nIf a resolver for a **non-null** field throws or returns null, GraphQL sets the **nearest nullable ancestor** to null, and may blank a whole list or object. That is a larger blast radius than one missing field.\n\n{{diagram:null-prop}}\n\nGuidelines:\n\n- Make a field **non-null only if you can always provide it**, including when a downstream service fails.\n- Fields backed by a separate service or slower source are good candidates for **nullable**, so a failure degrades one part of the screen.\n- List items: [Product!]! is a common default, meaning the list is always present and no item is null.\n- Mutation inputs: required fields should be truly required.\n\n## Common mistakes\n\n- Making everything non-null for neat client types, then losing whole screens when one dependency fails.\n- Removing a field because \"nobody uses it\" without usage data.\n- Reusing a field name with a different meaning.\n- Using versioned schemas (v1, v2) for what additive change would solve.",
+      "followUps": [
+        "How do you find out which clients still use a deprecated field?",
+        "What happens when a non-null field inside a list item fails?",
+        "When is a real breaking change unavoidable and how do you handle it?"
+      ],
+      "related": [
+        "graphql-vs-rest-decision-criteria",
+        "typed-error-unions-partial-data-and-errors"
+      ],
+      "diagrams": [
+        {
+          "id": "null-prop",
+          "title": "Null propagation",
+          "alt": "A non-null field fails in its resolver, so the null bubbles up to its parent. If the parent is also non-null it continues upward until a nullable ancestor becomes null, which can blank a large part of the response.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "f",
+              "label": "Non-null field fails"
+            },
+            {
+              "id": "p",
+              "label": "Parent object non-null"
+            },
+            {
+              "id": "g",
+              "label": "Grandparent nullable"
+            },
+            {
+              "id": "r",
+              "label": "Response with grandparent null and an error entry"
+            }
+          ],
+          "edges": [
+            {
+              "from": "f",
+              "to": "p",
+              "label": "null bubbles"
+            },
+            {
+              "from": "p",
+              "to": "g",
+              "label": "null bubbles"
+            },
+            {
+              "from": "g",
+              "to": "r",
+              "label": "set to null"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "graphql-pagination-offset-vs-cursor-relay-connections",
+      "title": "How do you design GraphQL pagination: offset versus cursor, and Relay connections?",
+      "topic": "Pagination",
+      "difficulty": "intermediate",
+      "type": "coding",
+      "tags": [
+        "graphql",
+        "pagination",
+        "relay",
+        "cursor",
+        "typescript"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Offset pagination with limit and offset is simple but gets slow on deep pages and skips or duplicates items when data changes. Cursor pagination uses an opaque cursor that points to a position, so it is stable and fast with an index. The Relay connection convention wraps this in edges, nodes, pageInfo, first and after, which gives clients a standard shape and tooling support. I use offset for small admin tables and connections for feeds and product lists.",
+      "revision": "Offset: simple, drifts and slows deep. Cursor: stable, index-friendly. Relay connections standardise it: edges, node, cursor, pageInfo, first and after.",
+      "detailed": "A concept every architect should know; the code is a sketch and the exact query depends on your store.\n\n## Comparison\n\n| Aspect | Offset and limit | Cursor (Relay connection) |\n|---|---|---|\n| Jump to page N | Easy | Hard |\n| Stability when data changes | Items skip or repeat | Stable |\n| Deep-page cost | Database scans skipped rows | Index seek |\n| Client tooling | Basic | Standard shape, supported by clients |\n| Best for | Small admin grids | Feeds, catalogues, infinite scroll |\n\n## Relay connection schema\n\n```graphql\ntype Query {\n  products(first: Int = 20, after: String, category: ID): ProductConnection!\n}\ntype ProductConnection {\n  edges: [ProductEdge!]!\n  pageInfo: PageInfo!\n  totalCount: Int\n}\ntype ProductEdge { cursor: String! node: Product! }\ntype PageInfo {\n  hasNextPage: Boolean!\n  endCursor: String\n}\n```\n\n(The full Relay spec also defines last, before, hasPreviousPage and startCursor for backward paging.)\n\n## Resolver sketch\n\nThe cursor encodes the sort key plus a unique tiebreaker. Fetch one extra row to compute hasNextPage.\n\n```ts\nconst encode = (o: object) => Buffer.from(JSON.stringify(o)).toString('base64url');\nconst decode = (c: string) => JSON.parse(Buffer.from(c, 'base64url').toString());\n\nasync function products(_: unknown, args: { first?: number; after?: string; category?: string }, ctx: Ctx) {\n  const limit = Math.min(args.first ?? 20, 100);           // cap page size\n  const filter: Record<string, unknown> = args.category ? { categoryId: args.category } : {};\n  if (args.after) {\n    const { createdAt, id } = decode(args.after);\n    filter.$or = [{ createdAt: { $lt: new Date(createdAt) } },\n                  { createdAt: new Date(createdAt), _id: { $lt: id } }];\n  }\n  const rows = await ctx.services.products.find(filter, { sort: { createdAt: -1, _id: -1 }, limit: limit + 1 });\n  const page = rows.slice(0, limit);\n  return {\n    edges: page.map(p => ({ node: p, cursor: encode({ createdAt: p.createdAt, id: p._id }) })),\n    pageInfo: { hasNextPage: rows.length > limit, endCursor: page.length ? encode({ createdAt: page.at(-1)!.createdAt, id: page.at(-1)!._id }) : null },\n  };\n}\n```\n\nBack the sort with a compound index such as category, createdAt and _id.\n\n## Design rules\n\n- Treat cursors as **opaque**; clients must not parse them.\n- **Cap page size** server-side.\n- totalCount is expensive on large collections; make it optional or approximate.\n- Include a unique tiebreaker in the sort.\n\n## Common mistakes\n\n- Cursor based only on a non-unique field such as createdAt.\n- Unbounded first argument.\n- Offering arbitrary sort without matching indexes.\n- Computing totalCount on every request.",
+      "followUps": [
+        "Why does cursor pagination remain stable when rows are inserted?",
+        "How would you support jump to page for an admin grid?",
+        "How does Apollo Client merge pages from a connection?"
+      ],
+      "related": [
+        "apollo-client-pagination-fetchmore-and-relay-style"
+      ]
+    },
+    {
+      "slug": "typed-error-unions-partial-data-and-errors",
+      "title": "How does GraphQL error handling work: the errors array, partial data and typed error unions?",
+      "topic": "Error handling",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "graphql",
+        "errors",
+        "partial-data",
+        "union",
+        "error-handling"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "A GraphQL response can contain both data and an errors array, so a request can partly succeed, often with HTTP 200. Unexpected failures such as timeouts or bugs go in errors with a code in extensions, and failed nullable fields become null. Expected business outcomes, such as validation failed or out of stock, I model as typed results, usually a union of success and error types, so clients handle them explicitly and the schema documents them. I never leak stack traces.",
+      "revision": "Responses can hold data plus errors. Use errors with extension codes for unexpected failures; model expected business failures as typed unions.",
+      "detailed": "Concept every architect should know; formatting hooks differ per server, so check your server docs.\n\n## The response shape\n\n```json\n{\n  \"data\": { \"product\": null, \"me\": { \"name\": \"Asha\" } },\n  \"errors\": [{ \"message\": \"Inventory service unavailable\", \"path\": [\"product\"], \"extensions\": { \"code\": \"UPSTREAM_UNAVAILABLE\" } }]\n}\n```\n\n- **Partial data** is normal: sibling fields still resolve.\n- Transport-level problems (malformed request, failed validation of the document) return no data and usually a 4xx.\n- Many servers return HTTP 200 even with resolver errors, so monitoring must read the errors array, not just status codes.\n\n## Two kinds of failure\n\n| Kind | Examples | Representation |\n|---|---|---|\n| Unexpected | Timeout, bug, auth failure, rate limit | errors array with stable extensions.code |\n| Expected business outcome | Validation error, out of stock, duplicate email | Typed result in the schema |\n\n## Typed error unions\n\n```graphql\nunion AddToCartResult = AddToCartSuccess | OutOfStock | InvalidQuantity\ntype AddToCartSuccess { cart: Cart! }\ntype OutOfStock { productId: ID! available: Int! }\ntype InvalidQuantity { message: String! }\n\nmutation { addToCart(input: { productId: \"1\", quantity: 5 }) {\n  __typename\n  ... on AddToCartSuccess { cart { id } }\n  ... on OutOfStock { available }\n  ... on InvalidQuantity { message }\n} }\n```\n\nClients must handle every variant, and adding a new variant is a schema change that the client sees at codegen time.\n\n{{diagram:err-flow}}\n\n## Server practice\n\n- Map domain exceptions to extension codes in one error formatter.\n- Mask internal messages and stack traces in production.\n- Attach a request or trace id so support can correlate.\n- Log errors with operation name and path.\n\n## Common mistakes\n\n- Returning HTTP 500 for everything or 200 for everything with no codes.\n- Using the errors array for validation that users should see inline.\n- Forgetting that a failed non-null field nulls its parent.\n- Alerting only on HTTP status, missing resolver errors.",
+      "followUps": [
+        "When would you prefer a payload with a userErrors list over a union?",
+        "How does Apollo Client expose partial data and errors?",
+        "How do you monitor error rate when HTTP status is always 200?"
+      ],
+      "related": [
+        "schema-evolution-deprecation-and-nullability",
+        "apollo-link-auth-expiry-error-and-retry"
+      ],
+      "diagrams": [
+        {
+          "id": "err-flow",
+          "title": "Where each failure goes",
+          "alt": "A request is checked for syntax and validation, producing a transport error if invalid. Valid requests execute resolvers. Expected business outcomes become typed union members in data, while unexpected failures become entries in the errors array alongside partial data.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "req",
+              "label": "Request"
+            },
+            {
+              "id": "val",
+              "label": "Parse and validate"
+            },
+            {
+              "id": "te",
+              "label": "Transport error, no data"
+            },
+            {
+              "id": "ex",
+              "label": "Execute resolvers"
+            },
+            {
+              "id": "biz",
+              "label": "Typed union result in data"
+            },
+            {
+              "id": "unx",
+              "label": "errors array plus partial data"
+            }
+          ],
+          "edges": [
+            {
+              "from": "req",
+              "to": "val"
+            },
+            {
+              "from": "val",
+              "to": "te",
+              "label": "invalid"
+            },
+            {
+              "from": "val",
+              "to": "ex",
+              "label": "valid"
+            },
+            {
+              "from": "ex",
+              "to": "biz",
+              "label": "expected"
+            },
+            {
+              "from": "ex",
+              "to": "unx",
+              "label": "unexpected"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "graphql-authn-authz-in-resolvers",
+      "title": "Where do authentication and authorisation belong in a GraphQL API?",
+      "topic": "Security",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "graphql",
+        "authentication",
+        "authorization",
+        "context",
+        "security"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I authenticate once per request, before execution, in the HTTP layer or context function: verify the token and put the user in context. Authorisation then happens at several levels: coarse guards or directives for roles on operations, and object and field-level checks in services where the real rules live. Hiding a query in the UI is not security. I also protect against data exposure through relations, since a user may reach a restricted object by another path in the graph.",
+      "revision": "Authenticate once into context; authorise per operation with guards or directives and per object or field in services. Check every path to data.",
+      "detailed": "Concept every architect should know. Directive and guard syntax is framework-specific; verify against your server and NestJS docs.\n\n## Authentication versus authorisation\n\n- **Authentication** answers who is calling. Do it once per request, verify the token, and place the identity in the **context**.\n- **Authorisation** answers what they may see or change. It must be enforced for each resource, not only at the entry point.\n\n{{diagram:auth-flow}}\n\n## Layers of authorisation\n\n| Level | Mechanism | Example |\n|---|---|---|\n| Operation | Guard, middleware or schema directive | Only ADMIN can call deleteProduct |\n| Object | Service checks ownership or tenant | Order belongs to this user |\n| Field | Field resolver or directive | email visible only to self or admin |\n| Data query | Filters applied in the repository | Always add tenant id to queries |\n\n## Example in NestJS style\n\n```ts\n// guard sets or reads user from GraphQL context (names per NestJS docs)\n@UseGuards(JwtAuthGuard, RolesGuard)\n@Roles('admin')\n@Mutation(() => Product)\ncreateProduct(@Args('input') input: CreateProductInput, @CurrentUser() user: User) {\n  return this.products.create(input, user);\n}\n\n// object-level rule in the service\nasync getOrder(id: string, user: User) {\n  const order = await this.repo.findById(id);\n  if (!order || (order.userId !== user.id && !user.roles.includes('admin'))) throw new ForbiddenError();\n  return order;\n}\n```\n\n## Graph-specific risks\n\n- A restricted type may be reachable through a relation from a public type; **authorise at the type, not just the entry query**.\n- With DataLoader, **never share a loader across users**, because cached results would bypass checks.\n- Subscriptions need authentication at connection time **and** per-event authorisation.\n- Introspection is not authorisation; hidden fields can still be queried if not enforced.\n\n## Common mistakes\n\n- Trusting the client to omit sensitive fields.\n- Putting authorisation only in the gateway while subgraphs or services are directly reachable.\n- Returning \"not found\" versus \"forbidden\" inconsistently, leaking existence.\n- Long-lived tokens in WebSocket connections never revalidated.",
+      "followUps": [
+        "How do you enforce tenant isolation across all resolvers?",
+        "Why must DataLoader instances be per request?",
+        "How do you authorise subscription events?"
+      ],
+      "related": [
+        "n-plus-one-dataloader-diagnose-and-fix",
+        "thin-resolvers-service-layer-and-input-types"
+      ],
+      "diagrams": [
+        {
+          "id": "auth-flow",
+          "title": "Authentication then layered authorisation",
+          "alt": "The HTTP layer verifies the token and builds a context with the user. The operation guard checks roles, the service checks object ownership, and field resolvers hide restricted fields before data is returned.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "req",
+              "label": "Request with token"
+            },
+            {
+              "id": "ctx",
+              "label": "Verify token, build context"
+            },
+            {
+              "id": "guard",
+              "label": "Operation guard (roles)"
+            },
+            {
+              "id": "svc",
+              "label": "Service (ownership, tenant)"
+            },
+            {
+              "id": "fld",
+              "label": "Field-level rules"
+            },
+            {
+              "id": "res",
+              "label": "Response"
+            }
+          ],
+          "edges": [
+            {
+              "from": "req",
+              "to": "ctx"
+            },
+            {
+              "from": "ctx",
+              "to": "guard"
+            },
+            {
+              "from": "guard",
+              "to": "svc"
+            },
+            {
+              "from": "svc",
+              "to": "fld"
+            },
+            {
+              "from": "fld",
+              "to": "res"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "n-plus-one-dataloader-diagnose-and-fix",
+      "title": "Scenario: a product list query is slow and the database shows hundreds of queries. Diagnose and fix the GraphQL N+1 with DataLoader",
+      "topic": "Performance",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "graphql",
+        "dataloader",
+        "n-plus-one",
+        "performance",
+        "mongodb",
+        "typescript"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would confirm it from traces or database logs: one query for the list, then one query per item for each relation field, like category or reviews. The cause is field resolvers fetching independently. The fix is DataLoader: each resolver calls load with a key, the loader collects keys in one tick, issues a single batched query, and maps results back in key order. Loaders are created per request, so caching and authorisation stay request-scoped. Then I verify the query count dropped.",
+      "revision": "N+1: list query then one query per item per relation. Fix with per-request DataLoader that batches keys into one query and returns results in key order.",
+      "detailed": "A scenario every GraphQL architect should be able to walk through. DataLoader batching works by collecting calls in one event loop tick; check the dataloader package docs for options.\n\n## Symptom and diagnosis\n\nA query asks for 50 products with their category and the slow trace shows 1 query for products plus 50 for categories. Evidence: resolver-level tracing spans, database query logs or a query counter in test.\n\n{{diagram:dl}}\n\n## Broken code\n\n```ts\nProduct: {\n  category: (p, _, ctx) => ctx.db.collection('categories').findOne({ _id: p.categoryId }), // runs per product\n}\n```\n\n## Fix with DataLoader\n\n```ts\nimport DataLoader from 'dataloader';\n\nexport function createLoaders(db: Db) {\n  return {\n    category: new DataLoader<string, Category | null>(async (ids) => {\n      const rows = await db.collection<Category>('categories').find({ _id: { $in: ids as string[] } }).toArray();\n      const byId = new Map(rows.map(r => [String(r._id), r]));\n      return ids.map(id => byId.get(id) ?? null);   // same length and order as ids\n    }),\n  };\n}\n\n// context factory runs per request\nconst context = async ({ req }) => ({ user: await auth(req), loaders: createLoaders(db) });\n\nProduct: { category: (p, _, ctx) => ctx.loaders.category.load(p.categoryId) },\n```\n\n## Rules that matter\n\n- The batch function must return an array **the same length and order** as the keys, with an error or null for missing items.\n- **Create loaders per request.** A global loader would serve cached data across users and bypass authorisation, and would hold stale data.\n- The default cache key is the key itself; for object keys supply cacheKeyFn.\n- One-to-many relations (reviews per product) need a loader keyed by parent id that returns arrays.\n- Batching works within one tick, so awaiting between loads defeats it.\n- Also consider a join or lookup in the parent query for hot paths, and cap list sizes.\n\n## Verify\n\nAdd a test that executes the query and asserts the database call count, and keep an alert on resolver span counts.\n\n## Common mistakes\n\n- Returning results in database order rather than key order.\n- Sharing a loader across requests.\n- Forgetting to batch relation fields in nested lists, so the problem reappears one level down.\n- Using the loader cache as an application cache.",
+      "followUps": [
+        "Why does DataLoader batch calls made in one tick?",
+        "How do you batch a one-to-many relation?",
+        "When would a database join be better than a loader?"
+      ],
+      "related": [
+        "thin-resolvers-service-layer-and-input-types",
+        "graphql-observability-and-resolver-tracing"
+      ],
+      "diagrams": [
+        {
+          "id": "dl",
+          "title": "DataLoader batching",
+          "alt": "Many product resolvers call the category loader with a key. The loader collects keys during one tick, runs a single batched database query with an in-list filter, and distributes results back to each resolver in key order.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "r1",
+              "label": "Resolver for product 1"
+            },
+            {
+              "id": "r2",
+              "label": "Resolver for product 2"
+            },
+            {
+              "id": "r3",
+              "label": "Resolver for product 3"
+            },
+            {
+              "id": "l",
+              "label": "Per-request loader (collect keys)"
+            },
+            {
+              "id": "q",
+              "label": "One batched query"
+            },
+            {
+              "id": "res",
+              "label": "Results mapped by key"
+            }
+          ],
+          "edges": [
+            {
+              "from": "r1",
+              "to": "l",
+              "label": "load k1"
+            },
+            {
+              "from": "r2",
+              "to": "l",
+              "label": "load k2"
+            },
+            {
+              "from": "r3",
+              "to": "l",
+              "label": "load k3"
+            },
+            {
+              "from": "l",
+              "to": "q",
+              "label": "next tick"
+            },
+            {
+              "from": "q",
+              "to": "res"
+            },
+            {
+              "from": "res",
+              "to": "r1"
+            },
+            {
+              "from": "res",
+              "to": "r2"
+            },
+            {
+              "from": "res",
+              "to": "r3"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "query-depth-complexity-limits-timeouts-and-rate-limiting",
+      "title": "How do you stop expensive or abusive GraphQL queries: depth, complexity, timeouts, rate limiting and introspection?",
+      "topic": "Security and performance",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "graphql",
+        "security",
+        "rate-limiting",
+        "query-complexity",
+        "introspection"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Because clients choose the query, I limit what they can ask. Layers: maximum query size, depth limit, a complexity or cost score with list-size multipliers, pagination caps, a timeout per operation and downstream calls, and rate limiting by cost rather than only by request count. For public APIs I add persisted-query allow lists, which stop arbitrary queries entirely. Introspection and verbose errors are usually disabled for public production endpoints, but that is hardening, not a security boundary.",
+      "revision": "Layer limits: body size, depth, cost score, page caps, timeouts, cost-based rate limits. Allow-list persisted queries for public APIs. Disable introspection publicly.",
+      "detailed": "Concept every architect should know. Libraries for depth and cost limits change; verify current packages and Apollo Server options rather than relying on names here.\n\n## The threat\n\nOne small query can nest relations or request huge lists, for example products to reviews to author to reviews, multiplying work. Rate limiting by request count does not protect against one costly request.\n\n{{diagram:guards}}\n\n## Defence layers\n\n| Layer | What it does |\n|---|---|\n| Request size and parse limits | Reject giant documents early |\n| Depth limit | Reject queries nested beyond a set depth |\n| Complexity or cost | Score fields, multiply by list size (first or limit), reject above budget |\n| Pagination caps | Maximum page size on every list |\n| Timeouts | Whole-operation deadline plus timeouts on database and downstream calls |\n| Rate limiting | Per user, token or IP, ideally by cost points per window |\n| Persisted query allow list | Only pre-registered operations run |\n| Alias and batching limits | Stop one request repeating a costly field hundreds of times |\n\n## Rate limit by cost\n\nAssign each operation a cost, subtract it from a token bucket kept in Redis, and return a clear error code with retry information when the bucket is empty.\n\n## Introspection\n\nIntrospection helps tools and attackers alike. For internal APIs it is often left on; for public production APIs many teams disable it and publish a schema file for authorised developers. Remember that **disabling introspection hides the map, not the doors**: authorisation and cost limits still apply, and field suggestions in error messages can leak names, so consider disabling them too.\n\n## Example idea\n\n```ts\n// pseudo-configuration: use your chosen depth and cost libraries as validation rules\nconst server = new ApolloServer({\n  schema,\n  introspection: process.env.NODE_ENV !== 'production',\n  validationRules: [depthLimit(8), costLimit({ max: 1000 })],\n});\n```\n\n## Common mistakes\n\n- Only limiting depth, while a shallow query requests a list of 100000 items.\n- No timeout on downstream calls, so slow queries pile up.\n- Treating introspection off as the security model.\n- Counting requests, not cost, in rate limits.",
+      "followUps": [
+        "How would you compute a cost score for a paginated field?",
+        "Why do persisted query allow lists help public APIs?",
+        "What do you return to a client who exceeds the rate limit?"
+      ],
+      "related": [
+        "persisted-queries-apq-and-caching",
+        "graphql-authn-authz-in-resolvers"
+      ],
+      "diagrams": [
+        {
+          "id": "guards",
+          "title": "Layers before and during execution",
+          "alt": "A request passes size limits, parsing, depth and complexity validation, then rate limiting, then executes under a timeout. Rejections at any layer return an error before expensive work occurs.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "req",
+              "label": "Request"
+            },
+            {
+              "id": "size",
+              "label": "Size limit"
+            },
+            {
+              "id": "val",
+              "label": "Depth and cost validation"
+            },
+            {
+              "id": "rl",
+              "label": "Cost-based rate limit"
+            },
+            {
+              "id": "ex",
+              "label": "Execute with timeout"
+            },
+            {
+              "id": "rej",
+              "label": "Rejected with error code"
+            },
+            {
+              "id": "res",
+              "label": "Response"
+            }
+          ],
+          "edges": [
+            {
+              "from": "req",
+              "to": "size"
+            },
+            {
+              "from": "size",
+              "to": "val"
+            },
+            {
+              "from": "val",
+              "to": "rl"
+            },
+            {
+              "from": "rl",
+              "to": "ex"
+            },
+            {
+              "from": "ex",
+              "to": "res"
+            },
+            {
+              "from": "val",
+              "to": "rej",
+              "label": "too costly"
+            },
+            {
+              "from": "rl",
+              "to": "rej",
+              "label": "over budget"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "persisted-queries-apq-and-caching",
+      "title": "What are persisted queries and automatic persisted queries, and how do they help caching and security?",
+      "topic": "Caching",
+      "difficulty": "advanced",
+      "type": "conceptual",
+      "tags": [
+        "graphql",
+        "persisted-queries",
+        "apq",
+        "caching",
+        "cdn"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "A persisted query replaces the full query text with a stable identifier, usually a hash, so the client sends a small request. Registered persisted queries, built at deploy time, let the server run only allow-listed operations. Automatic persisted queries are a runtime protocol: the client sends the hash, and if the server does not know it, the client retries with the text so the server stores it. Sending hashes over GET lets a CDN cache responses. Private data still needs careful cache controls.",
+      "revision": "Persisted queries send an id or hash instead of text. Registered ones allow-list operations; APQ registers at runtime. GET plus hash enables CDN caching.",
+      "detailed": "Concept every architect should know. The exact protocol fields, GET behaviour and cache hint APIs are Apollo-specific details to verify against current Apollo Server, Router and Client docs, and they may differ between Apollo Client 3 and 4.\n\n## Two flavours\n\n| Aspect | Registered persisted queries | Automatic persisted queries (APQ) |\n|---|---|---|\n| How registered | Extracted at build time, uploaded to a registry or the server | Client sends hash, server asks for text on a miss, then stores it |\n| Unknown queries | Can be rejected (allow list) | Accepted, so no security allow list |\n| Main benefit | Security and smaller payloads | Smaller payloads and GET cacheability |\n| Operational cost | Build and deploy pipeline step | Cache warm-up, storage for hashes |\n\n{{diagram:pq}}\n\n## APQ flow\n\n1. Client sends a hash only.\n2. If the server has it, it executes and returns data.\n3. If not, it returns a \"not found\" style error; the client retries with hash plus text.\n4. Server stores the mapping, and later requests are hash-only.\n\n## Server and CDN caching\n\n- **GET with hash** makes the URL cacheable by a CDN, because the URL identifies the operation and variables.\n- Use cache-control hints on fields or types so the server computes the most restrictive max-age for a response; use private scope for user-specific data and never cache it at shared layers.\n- A server-side **response cache** keyed by operation, variables and (where needed) user or session can avoid recomputation.\n- Separate **entity-level caching** (loaders, Redis per object) from response caching, as it survives different queries.\n- Mutations are never cached; invalidate by TTL or by purging keys on events.\n\n## Security\n\nRegistered persisted queries with unknown-query rejection mean attackers cannot craft expensive queries, which reduces the need for complex cost analysis on first-party-only APIs.\n\n## Common mistakes\n\n- Caching responses containing personal data at a shared CDN.\n- Treating APQ as an allow list; it is not.\n- Forgetting to vary on authorisation headers.\n- Hash collisions are unlikely, but registry drift between client and server versions is real; keep old operations until old clients retire.",
+      "followUps": [
+        "Why is APQ not a security control but registered persisted queries are?",
+        "How do you stop a CDN caching a user-specific response?",
+        "How do you manage persisted query manifests across client releases?"
+      ],
+      "related": [
+        "query-depth-complexity-limits-timeouts-and-rate-limiting",
+        "graphql-vs-rest-decision-criteria"
+      ],
+      "diagrams": [
+        {
+          "id": "pq",
+          "title": "Persisted query path with CDN",
+          "alt": "A client sends a GET request with an operation hash. The CDN returns a cached response on a hit. On a miss it forwards to the server, which looks the hash up in a registry, executes the stored operation and returns a response that the CDN may cache subject to cache-control.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "cl",
+              "label": "Client sends GET with hash"
+            },
+            {
+              "id": "cdn",
+              "label": "CDN cache"
+            },
+            {
+              "id": "srv",
+              "label": "GraphQL server"
+            },
+            {
+              "id": "reg",
+              "label": "Persisted query registry"
+            },
+            {
+              "id": "ex",
+              "label": "Execute operation"
+            },
+            {
+              "id": "resp",
+              "label": "Response with cache-control"
+            }
+          ],
+          "edges": [
+            {
+              "from": "cl",
+              "to": "cdn"
+            },
+            {
+              "from": "cdn",
+              "to": "srv",
+              "label": "miss"
+            },
+            {
+              "from": "srv",
+              "to": "reg",
+              "label": "lookup hash"
+            },
+            {
+              "from": "reg",
+              "to": "ex"
+            },
+            {
+              "from": "ex",
+              "to": "resp"
+            },
+            {
+              "from": "cdn",
+              "to": "cl",
+              "label": "hit"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "graphql-federation-vs-schema-stitching",
+      "title": "GraphQL federation versus schema stitching: what is the difference and when do you use each?",
+      "topic": "Distributed GraphQL",
+      "difficulty": "advanced",
+      "type": "comparison",
+      "tags": [
+        "graphql",
+        "federation",
+        "schema-stitching",
+        "microservices",
+        "apollo"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Both compose several GraphQL services into one graph. In stitching, a gateway merges schemas and you write the glue that links types across them. In federation, each subgraph declares which entities it owns or extends, using directives such as key, and a router or gateway builds a supergraph and plans queries across subgraphs automatically. Federation suits several teams owning domains; it adds platform complexity. For one team, a modular monolith schema is simpler. Federation version details should be verified.",
+      "revision": "Stitching: gateway merges schemas, you write links. Federation: subgraphs declare entity ownership with keys; router plans across them. Needs several teams to justify.",
+      "detailed": "Concept every architect should know. Federation specification versions and directive support (Federation 1 versus 2, router versus legacy gateway) differ between releases and vendors, so verify against current Apollo Federation docs before quoting details.\n\n## Core idea\n\nOne client-facing graph backed by many services. Clients see one schema; the platform splits each query across the services that own the fields.\n\n## Comparison\n\n| Aspect | Schema stitching | Federation |\n|---|---|---|\n| Who defines cross-service links | Gateway owner, in gateway config | Each subgraph, via entity keys and extensions |\n| Ownership model | Central | Distributed, domain teams |\n| Query planning | Gateway delegates sub-queries | Router builds a plan from a supergraph schema |\n| Composition checks | Mostly manual | Composition validates subgraphs and reports conflicts |\n| Tooling | Library-based | Registry, managed composition, router (vendor ecosystem) |\n| Complexity | Lower to start | Higher platform investment |\n\n## Federation concepts\n\n- An **entity** is a type with a key (for example Product keyed by id) that can be extended by other subgraphs.\n- The reviews subgraph can add reviews to Product without the products subgraph knowing.\n- The router fetches entities by key through a special entities query exposed by each subgraph.\n- Each subgraph resolves references using a reference resolver (for example __resolveReference in Apollo's JavaScript implementation; verify naming).\n\n```graphql\n# products subgraph\ntype Product @key(fields: \"id\") { id: ID! name: String! }\n\n# reviews subgraph\ntype Product @key(fields: \"id\") { id: ID! reviews: [Review!]! }\n```\n\n{{diagram:fed}}\n\n## When to choose what\n\n- **One team, one service**: a single schema, modular by domain.\n- **Several teams, independent deploys**: federation.\n- **Wrap a few third-party GraphQL APIs**: stitching or a gateway may be enough.\n\n## Operational concerns\n\nCross-subgraph calls add latency and failure modes; use batching of entity lookups (loaders in each subgraph), timeouts, and observability that spans the router and subgraphs. Authorisation must still be enforced in the subgraphs.\n\n## Common mistakes\n\n- Adopting federation to look scalable, with one team and one database.\n- Chatty entity resolution causing N+1 across subgraphs.\n- Letting subgraphs trust the router entirely with no authorisation.\n- Ignoring composition checks in CI.",
+      "followUps": [
+        "How does the router avoid N+1 when resolving entities across subgraphs?",
+        "What do you check in CI for subgraph changes?",
+        "When is a modular monolith schema better?"
+      ],
+      "related": [
+        "graphql-bff-over-rest-legacy",
+        "n-plus-one-dataloader-diagnose-and-fix"
+      ],
+      "diagrams": [
+        {
+          "id": "fed",
+          "title": "Federated graph",
+          "alt": "Clients call a router, which uses a composed supergraph schema to plan a query. It fetches product fields from the products subgraph and reviews from the reviews subgraph using the product key, then merges results into one response.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "c",
+              "label": "Client"
+            },
+            {
+              "id": "rt",
+              "label": "Router with supergraph"
+            },
+            {
+              "id": "p",
+              "label": "Products subgraph"
+            },
+            {
+              "id": "rv",
+              "label": "Reviews subgraph"
+            },
+            {
+              "id": "pdb",
+              "label": "Products data"
+            },
+            {
+              "id": "rdb",
+              "label": "Reviews data"
+            }
+          ],
+          "edges": [
+            {
+              "from": "c",
+              "to": "rt"
+            },
+            {
+              "from": "rt",
+              "to": "p",
+              "label": "fetch products"
+            },
+            {
+              "from": "rt",
+              "to": "rv",
+              "label": "fetch by key"
+            },
+            {
+              "from": "p",
+              "to": "pdb"
+            },
+            {
+              "from": "rv",
+              "to": "rdb"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "graphql-bff-over-rest-legacy",
+      "title": "How would you put a GraphQL layer over existing REST and legacy services?",
+      "topic": "Integration architecture",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "graphql",
+        "bff",
+        "rest",
+        "legacy",
+        "integration"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would add GraphQL as a backend-for-frontend or gateway layer, not rewrite the services. The schema is designed around UI use cases, not mirrored from REST endpoints. Resolvers call REST clients through services, with DataLoader batching, timeouts, retries and circuit breakers per downstream. I normalise legacy naming and errors, add caching where upstream allows it, and keep authorisation consistent. Over time domains can move to native GraphQL subgraphs or stay behind this layer. The main risk is a chatty, slow gateway.",
+      "revision": "GraphQL BFF designed for UI use cases; resolvers call REST via clients with batching, timeouts, retries and breakers; translate errors; do not mirror endpoints.",
+      "detailed": "Architecture concept every architect should know; it is not Apollo-specific.\n\n## Why this pattern\n\nA MERN product often has existing REST services, a legacy system and third-party APIs. Rewriting is expensive. A GraphQL layer gives the frontend one typed graph while the backends stay as they are.\n\n{{diagram:bff}}\n\n## Design principles\n\n- **Schema by use case**, not by endpoint: a Product page type may combine data from catalogue, pricing and stock services.\n- **Anti-corruption layer**: map legacy names, enums, date formats and error codes to clean types.\n- **Dedicated REST clients** per downstream with timeouts, retries for idempotent calls only, and circuit breakers.\n- **Batching**: use DataLoader and bulk endpoints (an ids query) to prevent N+1 against REST.\n- **Caching**: respect upstream cache headers where useful; cache reference data in Redis.\n- **Nullability**: make fields from flaky downstream services nullable so a failure degrades part of a page.\n- **Auth**: pass user identity or a service token downstream; enforce authorisation in the layer too.\n\n```ts\nclass CatalogueClient {\n  async getProducts(ids: string[]): Promise<Product[]> {\n    const res = await http.get('/products', { params: { ids: ids.join(',') }, timeout: 800 });\n    return res.data.items.map(toProduct);   // translate legacy shape\n  }\n}\nconst productLoader = (c: CatalogueClient) =>\n  new DataLoader<string, Product | null>(async ids => {\n    const found = new Map((await c.getProducts([...ids])).map(p => [p.id, p]));\n    return ids.map(id => found.get(id) ?? null);\n  });\n```\n\n## Risks and mitigations\n\n| Risk | Mitigation |\n|---|---|\n| Chatty fan-out to many services | Batch, parallelise, bulk endpoints |\n| Gateway becomes a bottleneck | Scale horizontally, timeouts, limits |\n| One slow dependency slows everything | Timeouts and nullable fields |\n| Logic duplicated from services | Keep orchestration here, rules in services |\n| Schema becomes a REST mirror | Review against UI use cases |\n\n## Common mistakes\n\n- Generating a schema automatically from OpenAPI and shipping it unchanged.\n- Business rules in resolvers.\n- No per-downstream timeouts.\n- Hiding legacy failures as generic errors, with no tracing to the source.",
+      "followUps": [
+        "How do you avoid a REST-mirroring schema?",
+        "How do you handle a downstream service that is down?",
+        "When would you migrate a domain to a native subgraph?"
+      ],
+      "related": [
+        "graphql-federation-vs-schema-stitching",
+        "thin-resolvers-service-layer-and-input-types"
+      ],
+      "diagrams": [
+        {
+          "id": "bff",
+          "title": "GraphQL layer over REST and legacy",
+          "alt": "Web and mobile clients query a GraphQL BFF. Resolvers use services and loaders that call a catalogue REST service, a pricing REST service and a legacy SOAP or database system through an anti-corruption layer.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "web",
+              "label": "Web client"
+            },
+            {
+              "id": "mob",
+              "label": "Mobile client"
+            },
+            {
+              "id": "gql",
+              "label": "GraphQL BFF"
+            },
+            {
+              "id": "acl",
+              "label": "Clients and anti-corruption layer"
+            },
+            {
+              "id": "cat",
+              "label": "Catalogue REST"
+            },
+            {
+              "id": "pr",
+              "label": "Pricing REST"
+            },
+            {
+              "id": "leg",
+              "label": "Legacy system"
+            }
+          ],
+          "edges": [
+            {
+              "from": "web",
+              "to": "gql"
+            },
+            {
+              "from": "mob",
+              "to": "gql"
+            },
+            {
+              "from": "gql",
+              "to": "acl"
+            },
+            {
+              "from": "acl",
+              "to": "cat"
+            },
+            {
+              "from": "acl",
+              "to": "pr"
+            },
+            {
+              "from": "acl",
+              "to": "leg"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "subscriptions-vs-websockets-vs-sse",
+      "title": "GraphQL subscriptions versus raw WebSockets versus server-sent events: how do you choose?",
+      "topic": "Realtime",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "graphql",
+        "subscriptions",
+        "websockets",
+        "sse",
+        "realtime"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "GraphQL subscriptions are a typed layer over a transport, commonly WebSocket or SSE, with a schema, selection sets and the same authorisation model. Raw WebSockets give me full duplex control for chat, games or custom protocols. SSE is simple one-way push over HTTP with automatic reconnect, ideal for notifications and live updates. I pick the simplest that fits, and for multiple server instances I need a pub/sub backbone such as Redis or a broker behind any of them.",
+      "revision": "Subscriptions: typed push in the graph. WebSocket: full duplex custom. SSE: simple one-way over HTTP. All need pub/sub across instances.",
+      "detailed": "Concept every architect should know. Transport protocols for GraphQL subscriptions (for example the graphql-ws protocol, SSE support) vary by server and client library and version, so verify current support.\n\n## Comparison\n\n| Aspect | GraphQL subscriptions | Raw WebSocket | Server-sent events |\n|---|---|---|---|\n| Direction | Server to client (per subscription) | Two-way | Server to client |\n| Contract | Schema and selection set | Custom messages | Custom event format |\n| Transport | WebSocket or SSE depending on server | WebSocket | HTTP streaming |\n| Reconnect | Library dependent | You build it | Built into browsers |\n| Proxy friendliness | Varies | Needs upgrade support | Works through standard HTTP |\n| Best for | Live updates in an existing graph | Chat, collaboration, games | Notifications, dashboards, feeds |\n\n## Architecture behind it\n\n{{diagram:rt}}\n\nPublishers (a mutation, a queue consumer, another service) publish events to a broker. Each GraphQL server instance subscribes and pushes matching events to its connected clients, filtering by subscription arguments and authorisation.\n\n```graphql\ntype Subscription { orderStatusChanged(orderId: ID!): Order! }\n```\n\n## Design guidance\n\n- **Authenticate at connection**, authorise each subscription and filter events per user.\n- Keep payloads small; clients can refetch details if needed.\n- Plan for **reconnection and missed events**: send a current snapshot on subscribe or let clients refetch.\n- Prefer polling or refetch-after-mutation when freshness of seconds is acceptable.\n- Limit connections per user and total.\n- Load balancers must support long-lived connections and sticky behaviour where required.\n\n## Common mistakes\n\n- In-memory pub/sub with multiple instances.\n- Subscribing to broad topics and filtering after delivery for every client.\n- No heartbeat or idle timeout handling.\n- Using subscriptions for data that rarely changes.",
+      "followUps": [
+        "How would you handle missed events after a reconnect?",
+        "Why does a multi-instance deployment need a message broker?",
+        "When is polling the better choice?"
+      ],
+      "related": [
+        "graphql-query-mutation-subscription-semantics"
+      ],
+      "diagrams": [
+        {
+          "id": "rt",
+          "title": "Subscription event path",
+          "alt": "A mutation or queue consumer publishes an event to a broker. Every GraphQL server instance subscribes to the broker, filters events by subscription arguments and permissions, and pushes them to its connected clients over WebSocket or SSE.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "pub",
+              "label": "Mutation or consumer publishes"
+            },
+            {
+              "id": "br",
+              "label": "Broker (Redis or queue)"
+            },
+            {
+              "id": "s1",
+              "label": "GraphQL instance A"
+            },
+            {
+              "id": "s2",
+              "label": "GraphQL instance B"
+            },
+            {
+              "id": "c1",
+              "label": "Client 1"
+            },
+            {
+              "id": "c2",
+              "label": "Client 2"
+            }
+          ],
+          "edges": [
+            {
+              "from": "pub",
+              "to": "br"
+            },
+            {
+              "from": "br",
+              "to": "s1"
+            },
+            {
+              "from": "br",
+              "to": "s2"
+            },
+            {
+              "from": "s1",
+              "to": "c1",
+              "label": "push"
+            },
+            {
+              "from": "s2",
+              "to": "c2",
+              "label": "push"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "graphql-observability-and-resolver-tracing",
+      "title": "How do you monitor and trace a GraphQL API, given that every request hits one URL?",
+      "topic": "Observability",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "graphql",
+        "observability",
+        "tracing",
+        "opentelemetry",
+        "monitoring"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Per-URL metrics tell you almost nothing, so I observe at operation and field level. Every client sends a named operation, and I record latency, error rate and call count per operation name and client version. I trace each request with spans for parsing, validation, execution and slow resolvers, plus the downstream calls under them, using OpenTelemetry. I log errors with trace ids and track field usage to support deprecation. I avoid tracing every field in production without sampling.",
+      "revision": "Observe per operation name and client version; trace parse, validate, execute and slow resolvers with OpenTelemetry; sample; track field usage; correlate with trace ids.",
+      "detailed": "Concept every architect should know. Specific plugins, exporters and schema-registry reporting features differ by vendor and version; verify them in current docs.\n\n## Why GraphQL needs different monitoring\n\nAll operations share one route and often return HTTP 200. Standard route dashboards hide the operation that is slow or failing.\n\n## What to measure\n\n| Signal | Dimensions |\n|---|---|\n| Request rate and latency | Operation name, operation type, client name and version |\n| Error rate | Operation name, extensions.code, path |\n| Resolver duration | Type and field name, only for slow or sampled fields |\n| Downstream calls | Service, status, latency, under the resolver span |\n| Cost and complexity | Per operation, to tune limits |\n| Field usage | Which clients use which fields, for deprecation |\n| Cache | Response cache hit rate, loader batch sizes |\n\n{{diagram:trace}}\n\n## Tracing\n\nUse OpenTelemetry: one root span per operation, child spans for parse, validate and execute, and spans for slow resolvers and outgoing calls. Propagate the traceparent header downstream so REST services join the same trace. Put the trace id into error extensions or logs.\n\n```ts\n// pseudo: plugin that records per-operation metrics\nconst metricsPlugin = {\n  async requestDidStart() {\n    const start = Date.now();\n    return {\n      async willSendResponse(ctx) {\n        recordHistogram('gql.duration_ms', Date.now() - start, {\n          operation: ctx.operationName ?? 'anonymous',\n          hasErrors: String(Boolean(ctx.errors?.length)),\n        });\n      },\n    };\n  },\n};\n```\n\n(Plugin hook names follow Apollo Server's plugin API; verify against your version.)\n\n## Practices\n\n- **Require operation names** and reject or flag anonymous ones.\n- **Sample** field-level traces; per-field spans on every request are costly.\n- Alert on error codes and latency percentiles by operation.\n- Keep cardinality in check: do not label metrics by raw query text or variables.\n- Never log variables containing secrets or personal data.\n\n## Common mistakes\n\n- Only monitoring HTTP status codes.\n- High-cardinality labels.\n- No link between gateway traces and downstream services.\n- Tracing everything in production with no sampling.",
+      "followUps": [
+        "Why require operation names from clients?",
+        "How do you find slow resolvers without tracing every field?",
+        "How does field usage data support deprecation?"
+      ],
+      "related": [
+        "n-plus-one-dataloader-diagnose-and-fix",
+        "schema-evolution-deprecation-and-nullability"
+      ],
+      "diagrams": [
+        {
+          "id": "trace",
+          "title": "Trace across a GraphQL request",
+          "alt": "A gateway root span contains parse, validate and execute spans. The execute span contains resolver spans, which contain outgoing REST and database call spans. Metrics and logs share the trace id.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "root",
+              "label": "Operation span"
+            },
+            {
+              "id": "parse",
+              "label": "Parse and validate"
+            },
+            {
+              "id": "exec",
+              "label": "Execute"
+            },
+            {
+              "id": "res",
+              "label": "Slow resolver spans"
+            },
+            {
+              "id": "ds",
+              "label": "Database and REST call spans"
+            },
+            {
+              "id": "tel",
+              "label": "Metrics, logs with trace id"
+            }
+          ],
+          "edges": [
+            {
+              "from": "root",
+              "to": "parse"
+            },
+            {
+              "from": "root",
+              "to": "exec"
+            },
+            {
+              "from": "exec",
+              "to": "res"
+            },
+            {
+              "from": "res",
+              "to": "ds"
+            },
+            {
+              "from": "root",
+              "to": "tel"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "apollo-client-inmemorycache-normalisation-typepolicies",
+      "title": "How does Apollo Client InMemoryCache normalise data, and what are typePolicies and keyFields for?",
+      "topic": "Apollo Client",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "apollo-client",
+        "cache",
+        "normalisation",
+        "typepolicies",
+        "keyfields"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "InMemoryCache stores results as a flat map of objects, not as whole responses. Each object with a __typename and id is stored under a cache key such as Product:42, and queries hold references to it. So when any query or mutation returns that object, every screen showing it updates. typePolicies customise this: keyFields change the identity when there is no id or a different one, merge functions control how incoming lists combine, and field policies define read and merge behaviour such as pagination.",
+      "revision": "Cache normalises objects by __typename plus id into a flat store; queries hold references. typePolicies customise keyFields, merge and field read behaviour.",
+      "detailed": "Normalisation is a concept every architect should understand; the typePolicies configuration is Apollo-specific. Apollo-specific details here follow Apollo Client 3 naming; Apollo Client 4 moved or renamed some imports and APIs, so verify against the current Apollo Client documentation and migration guide.\n\n## How normalisation works\n\n1. A response arrives; Apollo Client adds __typename to selection sets.\n2. For each object with a __typename and an id (or _id), it computes a **cache ID** like Product:42.\n3. Each object is stored once in the flat store. Parent objects hold **references** to it.\n4. Any query reading that reference sees updates, so one mutation response can refresh many screens.\n\n{{diagram:norm}}\n\n## What typePolicies control\n\n| Option | Purpose |\n|---|---|\n| keyFields | Which fields form the identity, for example ['sku'] or ['tenantId', 'id'], or false for no normalisation |\n| merge on a field | How to combine existing and incoming values, for lists and nested objects |\n| read on a field | Compute or redirect a value, for example from another cached field |\n| keyArgs | Which arguments partition a field's stored values, important for pagination |\n\n```ts\nimport { InMemoryCache } from '@apollo/client';\n\nexport const cache = new InMemoryCache({\n  typePolicies: {\n    Product: { keyFields: ['sku'] },\n    Settings: { keyFields: false },            // singleton embedded in parent\n    Query: {\n      fields: {\n        products: { keyArgs: ['category'] },   // separate lists per category (merge defined elsewhere)\n      },\n    },\n  },\n});\n```\n\n## Pitfalls\n\n- Objects without ids are **embedded** in their parent, so updates to them do not propagate.\n- If two types legitimately share ids across tenants, add the tenant to keyFields.\n- Unmerged objects of the same identity with different fields can trigger warnings about data loss; define merge behaviour.\n- Cache keys depend on __typename; interfaces and unions need possibleTypes for fragment matching.\n\n## Common mistakes\n\n- Assuming the cache is a response cache keyed by query.\n- Ids that are not globally unique within a type.\n- Replacing lists on every fetch without a merge policy.\n- Storing large unrelated data in the cache and never evicting.",
+      "followUps": [
+        "What happens to objects returned without an id?",
+        "Why would you set keyFields to false for a type?",
+        "How do possibleTypes help with fragments on interfaces?"
+      ],
+      "related": [
+        "apollo-client-fetch-policies",
+        "apollo-cache-update-after-mutation-and-optimistic-ui"
+      ],
+      "diagrams": [
+        {
+          "id": "norm",
+          "title": "Normalised cache",
+          "alt": "Two queries return the same product. Apollo stores the product once under a cache ID and both query results point to it, so a mutation that updates the product refreshes both views.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "q1",
+              "label": "Product list query"
+            },
+            {
+              "id": "q2",
+              "label": "Product detail query"
+            },
+            {
+              "id": "ref1",
+              "label": "Reference Product:42"
+            },
+            {
+              "id": "store",
+              "label": "Flat store entry Product:42"
+            },
+            {
+              "id": "mut",
+              "label": "Mutation returns Product:42"
+            }
+          ],
+          "edges": [
+            {
+              "from": "q1",
+              "to": "ref1"
+            },
+            {
+              "from": "q2",
+              "to": "ref1"
+            },
+            {
+              "from": "ref1",
+              "to": "store"
+            },
+            {
+              "from": "mut",
+              "to": "store",
+              "label": "updates"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "apollo-client-fetch-policies",
+      "title": "What are Apollo Client fetch policies, and which would you use for different screens?",
+      "topic": "Apollo Client",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "apollo-client",
+        "fetch-policy",
+        "cache",
+        "performance"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "A fetch policy decides whether a query reads from the cache, the network or both. cache-first, the default, returns cached data if complete and only hits the network otherwise. cache-and-network shows cached data immediately and refreshes in the background, which suits dashboards. network-only always fetches but still writes to the cache. no-cache skips the cache entirely, and cache-only never goes to the network. I choose per screen based on freshness needs, and tune nextFetchPolicy to avoid repeated refetching.",
+      "revision": "cache-first default; cache-and-network shows cached then refreshes; network-only always fetches; no-cache bypasses cache; cache-only reads only cache.",
+      "detailed": "Cache freshness strategy is a general concept; the policy names are Apollo-specific. Apollo-specific details here follow Apollo Client 3 naming; Apollo Client 4 moved or renamed some imports and APIs, so verify against the current Apollo Client documentation and migration guide.\n\n## The policies\n\n| Policy | Behaviour | Typical use |\n|---|---|---|\n| cache-first | Use cache if all fields are present, else network | Reference data, product details |\n| cache-and-network | Return cache immediately, then update from network | Lists and dashboards where stale-then-fresh is fine |\n| network-only | Always fetch, write result to cache | Data that must be current, after navigation |\n| no-cache | Always fetch, do not write to cache | Sensitive or one-off data |\n| cache-only | Never use network | Reading local state or prefilled data |\n| standby | Like cache-first but not updated by cache changes until activated | Rare, advanced |\n\n## Choosing per screen\n\n- **Product listing**: cache-and-network, so it feels instant but refreshes.\n- **Checkout totals**: network-only, because prices must be exact.\n- **Static lookups** such as countries: cache-first.\n- **Sensitive reports**: no-cache.\n\n## nextFetchPolicy\n\nA common pattern is an initial policy of cache-and-network and then a nextFetchPolicy of cache-first, so later cache updates do not trigger a network request each time.\n\n```ts\nconst { data, loading, error } = useQuery(PRODUCTS, {\n  variables: { first: 20 },\n  fetchPolicy: 'cache-and-network',\n  nextFetchPolicy: 'cache-first',\n});\n```\n\n## Related controls\n\n- pollInterval for periodic refresh and refetch for manual refresh.\n- Missing fields in the cache cause a network request under cache-first; partial data can be returned with returnPartialData.\n- Clear the cache on logout so one user's data never appears for the next.\n\n## Common mistakes\n\n- Using network-only everywhere, losing the benefit of the cache.\n- Not handling the loading state when data is already cached.\n- Forgetting that cache-first will not re-fetch unless data is missing or invalidated.\n- Keeping user data in cache across login sessions.",
+      "followUps": [
+        "How would you choose a policy for a dashboard?",
+        "What does nextFetchPolicy do?",
+        "Why clear the cache on logout?"
+      ],
+      "related": [
+        "apollo-client-inmemorycache-normalisation-typepolicies",
+        "apollo-cache-invalidation-evict-gc-and-local-state"
+      ]
+    },
+    {
+      "slug": "apollo-client-query-and-mutation-typescript",
+      "title": "Show a typed Apollo Client setup with a query and a mutation in a React and TypeScript app",
+      "topic": "Apollo Client",
+      "difficulty": "intermediate",
+      "type": "coding",
+      "tags": [
+        "apollo-client",
+        "react",
+        "typescript",
+        "useQuery",
+        "useMutation"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I create one ApolloClient with a link chain and an InMemoryCache, and wrap the app in ApolloProvider. Operations live in typed documents, ideally generated by GraphQL Code Generator from the schema, so variables and results are type-checked. A component calls useQuery for reads and handles loading, error and data, and useMutation for writes, returning the changed object so the cache updates. I handle errors explicitly and avoid scattering raw gql strings.",
+      "revision": "One ApolloClient with link chain and cache; typed documents via codegen; useQuery handles loading, error, data; useMutation returns changed fields.",
+      "detailed": "The pattern is general; hook and import names below follow Apollo Client 3. Apollo-specific details here follow Apollo Client 3 naming; Apollo Client 4 moved or renamed some imports and APIs, so verify against the current Apollo Client documentation and migration guide. In version 4, React hooks are expected to be imported from a React-specific entry point, so check imports.\n\n## Client setup\n\n```ts\nimport { ApolloClient, InMemoryCache, HttpLink, ApolloProvider, gql } from '@apollo/client';\n\nexport const client = new ApolloClient({\n  link: new HttpLink({ uri: '/graphql', credentials: 'include' }),\n  cache: new InMemoryCache(),\n});\n\n// main.tsx\n// <ApolloProvider client={client}><App /></ApolloProvider>\n```\n\n## Typed query and mutation\n\n```tsx\nimport { gql, useQuery, useMutation } from '@apollo/client';\n\ninterface Product { id: string; name: string; priceMinor: number; inCart: boolean }\ninterface ProductsData { products: Product[] }\ninterface ProductsVars { category: string }\n\nconst PRODUCTS = gql`\n  query Products($category: ID!) {\n    products(category: $category) { id name priceMinor inCart }\n  }\n`;\n\nconst ADD_TO_CART = gql`\n  mutation AddToCart($productId: ID!) {\n    addToCart(productId: $productId) { id inCart }\n  }\n`;\n\nexport function ProductList({ category }: { category: string }) {\n  const { data, loading, error } = useQuery<ProductsData, ProductsVars>(PRODUCTS, { variables: { category } });\n  const [addToCart, { loading: adding }] = useMutation(ADD_TO_CART);\n\n  if (loading && !data) return <p>Loading</p>;\n  if (error) return <p role=\"alert\">Could not load products</p>;\n  return (\n    <ul>\n      {data?.products.map(p => (\n        <li key={p.id}>\n          {p.name}\n          <button disabled={adding} onClick={() => addToCart({ variables: { productId: p.id } })}>Add</button>\n        </li>\n      ))}\n    </ul>\n  );\n}\n```\n\nBecause the mutation returns id and inCart, normalisation updates the Product in the cache and the list re-renders without a refetch.\n\n## Good practices\n\n- Generate types from schema and operations with GraphQL Code Generator rather than writing interfaces by hand.\n- Name every operation.\n- Co-locate fragments with components that need the fields.\n- Handle error and loading states, and show stale data when refetching.\n- Keep one client instance; create it outside components.\n\n## Common mistakes\n\n- Creating a new ApolloClient on every render.\n- Mutations that return nothing, forcing a refetch.\n- Ignoring errors from useMutation.\n- Hand-written types that drift from the schema.",
+      "followUps": [
+        "Why co-locate fragments with components?",
+        "How do you generate types for operations?",
+        "Why should the mutation return id and changed fields?"
+      ],
+      "related": [
+        "apollo-cache-update-after-mutation-and-optimistic-ui",
+        "apollo-client-inmemorycache-normalisation-typepolicies"
+      ]
+    },
+    {
+      "slug": "apollo-cache-update-after-mutation-and-optimistic-ui",
+      "title": "How do you update the Apollo cache after a mutation: update, refetchQueries, cache.modify and optimistic responses?",
+      "topic": "Apollo Client",
+      "difficulty": "advanced",
+      "type": "coding",
+      "tags": [
+        "apollo-client",
+        "cache",
+        "mutation",
+        "optimistic-ui",
+        "refetchqueries"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "If a mutation returns an object with id and the changed fields, normalisation updates it automatically. For creates and deletes, where lists change, I choose between refetchQueries, which is simple but costs a request, and an update function using cache.modify or writeQuery to change the list locally. For snappy UX I add optimisticResponse, which writes a temporary result immediately and rolls back if the mutation fails. I always handle the failure path.",
+      "revision": "Returned entities auto-update. For lists use refetchQueries (simple) or update with cache.modify (fast). optimisticResponse shows instant UI and rolls back on error.",
+      "detailed": "Concept: choose between server truth and local prediction. API names are Apollo Client 3 style. Apollo-specific details here follow Apollo Client 3 naming; Apollo Client 4 moved or renamed some imports and APIs, so verify against the current Apollo Client documentation and migration guide.\n\n## Options compared\n\n| Approach | When | Trade-off |\n|---|---|---|\n| Return changed entity | Updating fields of existing objects | Automatic, nothing to write |\n| refetchQueries | Lists, or complex server-side effects | Extra network request, always correct |\n| update with cache.modify or writeQuery | Add or remove items in a list | Fast, but you must mirror server logic |\n| optimisticResponse | Instant feedback | Must predict the result, rolls back on failure |\n| evict plus gc | Delete an entity | See cache invalidation question |\n\n## Example: add item with optimistic UI\n\n```ts\nconst CREATE_TODO = gql`\n  mutation CreateTodo($text: String!) {\n    createTodo(text: $text) { id text done __typename }\n  }\n`;\n\nconst [createTodo] = useMutation(CREATE_TODO, {\n  optimisticResponse: (vars) => ({\n    createTodo: { __typename: 'Todo', id: 'temp-' + crypto.randomUUID(), text: vars.text, done: false },\n  }),\n  update(cache, { data }) {\n    const created = data?.createTodo;\n    if (!created) return;\n    cache.modify({\n      fields: {\n        todos(existing = []) {\n          const ref = cache.writeFragment({\n            data: created,\n            fragment: gql`fragment NewTodo on Todo { id text done }`,\n          });\n          return [...existing, ref];\n        },\n      },\n    });\n  },\n});\n```\n\n## Notes\n\n- The update function runs twice with an optimistic response: once with the optimistic data and again with the real result; the optimistic layer is removed when the real response arrives.\n- For delete, use cache.evict with the entity's cache id, then cache.gc to clear dangling references.\n- refetchQueries accepts query names or documents; named queries refer to active queries only.\n- cache.modify works on fields of cached objects without needing the query that produced them, which suits lists with variables if you target the right field.\n\n## Failure handling\n\nIf the mutation errors, the optimistic layer is discarded and the UI reverts. Show a toast so the user understands.\n\n## Common mistakes\n\n- Optimistic ids that collide or are not replaced by the server id.\n- Forgetting __typename in an optimistic response.\n- Updating only one list when the item appears in several variable-specific lists.\n- Using refetchQueries for everything, then wondering about extra traffic.",
+      "followUps": [
+        "Why does the update function run twice with optimistic UI?",
+        "How do you remove an item from the cache after a delete mutation?",
+        "When is refetchQueries the better choice?"
+      ],
+      "related": [
+        "apollo-cache-invalidation-evict-gc-and-local-state",
+        "apollo-client-query-and-mutation-typescript"
+      ]
+    },
+    {
+      "slug": "apollo-client-pagination-fetchmore-and-relay-style",
+      "title": "How do you implement pagination in Apollo Client with fetchMore, field policies and relayStylePagination?",
+      "topic": "Apollo Client",
+      "difficulty": "advanced",
+      "type": "coding",
+      "tags": [
+        "apollo-client",
+        "pagination",
+        "fetchmore",
+        "relay",
+        "typepolicies"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "With cursor pagination I call fetchMore with the next cursor, and the cache merges the new page into the existing list through a field policy. For a Relay-style connection, Apollo provides relayStylePagination, a ready field policy that merges edges and pageInfo and uses keyArgs for filters. For custom shapes I write keyArgs and merge myself. The key is deciding which arguments define a separate list, such as category or sort, and which only select a page.",
+      "revision": "fetchMore requests the next page; a field policy merges it. relayStylePagination handles Relay connections; keyArgs defines which args create separate lists.",
+      "detailed": "Pagination design is a general concept (see the pagination question); the helpers are Apollo-specific. Apollo-specific details here follow Apollo Client 3 naming; Apollo Client 4 moved or renamed some imports and APIs, so verify against the current Apollo Client documentation and migration guide.\n\n## Cache policy for a connection\n\n```ts\nimport { InMemoryCache } from '@apollo/client';\nimport { relayStylePagination } from '@apollo/client/utilities';\n\nconst cache = new InMemoryCache({\n  typePolicies: {\n    Query: {\n      fields: {\n        products: relayStylePagination(['category']), // category creates a separate stored list\n      },\n    },\n  },\n});\n```\n\nThe argument list passed to the helper is the keyArgs: arguments such as first and after are excluded because they select a page, not a different list.\n\n## Component\n\n```tsx\nconst PRODUCTS = gql`\n  query Products($first: Int!, $after: String, $category: ID) {\n    products(first: $first, after: $after, category: $category) {\n      edges { cursor node { id name priceMinor } }\n      pageInfo { hasNextPage endCursor }\n    }\n  }\n`;\n\nfunction Products({ category }: { category: string }) {\n  const { data, fetchMore, loading } = useQuery(PRODUCTS, { variables: { first: 20, category } });\n  const page = data?.products.pageInfo;\n  return (\n    <>\n      {data?.products.edges.map((e: any) => <Item key={e.node.id} product={e.node} />)}\n      {page?.hasNextPage && (\n        <button disabled={loading} onClick={() => fetchMore({ variables: { after: page.endCursor } })}>Load more</button>\n      )}\n    </>\n  );\n}\n```\n\n## Offset pagination\n\nAn offsetLimitPagination helper also exists for offset and limit lists, and a custom merge using the offset argument is possible when needed.\n\n## Design points\n\n- Changing a filter (keyArgs) switches to another stored list; changing the cursor merges into the current one.\n- Mutations that add items should update the first page or refetch.\n- Reset the list on pull-to-refresh by refetching or evicting the field.\n- Duplicate edges can appear if the server data shifts; the Relay helper de-duplicates by node reference where possible, but verify behaviour for your version.\n\n## Common mistakes\n\n- Missing keyArgs, so categories overwrite each other.\n- Using fetchMore with updateQuery everywhere instead of a field policy.\n- Not marking hasNextPage, causing endless fetches.\n- Cursors that clients try to build themselves.",
+      "followUps": [
+        "What does keyArgs decide?",
+        "How do you refresh a paginated list after a mutation?",
+        "When would you write a custom merge function?"
+      ],
+      "related": [
+        "graphql-pagination-offset-vs-cursor-relay-connections",
+        "apollo-client-inmemorycache-normalisation-typepolicies"
+      ]
+    },
+    {
+      "slug": "apollo-link-auth-expiry-error-and-retry",
+      "title": "How do you build the Apollo Client link chain for auth, token expiry, errors, retries, HTTP and file uploads?",
+      "topic": "Apollo Client",
+      "difficulty": "advanced",
+      "type": "coding",
+      "tags": [
+        "apollo-client",
+        "apollolink",
+        "authentication",
+        "retry",
+        "upload",
+        "typescript"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Apollo links form a chain. An auth link adds the token to headers. An error link inspects GraphQL and network errors; on an authentication error it refreshes the token once, then retries the original operation, while queueing other requests so only one refresh runs. A retry link handles transient network failures with backoff. An HTTP link sends the request, or an upload link for multipart files. Refresh failure signs the user out. Order matters, and the API differs between Apollo Client 3 and 4.",
+      "revision": "Chain: auth link adds token, error link refreshes on auth error and retries once, retry link backs off for network errors, then HTTP or upload link. Serialise refresh.",
+      "detailed": "The pattern (auth header, single-flight refresh, retry once) is general. The code uses Apollo Client 3 style APIs. Apollo-specific details here follow Apollo Client 3 naming; Apollo Client 4 moved or renamed some imports and APIs, so verify against the current Apollo Client documentation and migration guide. In version 4 the error link and context link classes changed, so check the current docs before copying.\n\n## Link chain\n\n{{diagram:links}}\n\nOrder: auth link, error link, retry link, then the terminating HTTP link. The error link must sit before the terminating link so it sees responses.\n\n## Auth expiry handling sketch\n\n```ts\nimport { ApolloClient, InMemoryCache, HttpLink, Observable, from } from '@apollo/client';\nimport { setContext } from '@apollo/client/link/context';\nimport { onError } from '@apollo/client/link/error';\nimport { RetryLink } from '@apollo/client/link/retry';\n\nlet refreshing: Promise<string> | null = null;\nconst refreshToken = () => (refreshing ??= doRefresh().finally(() => { refreshing = null; }));\n\nconst authLink = setContext((_, { headers }) => ({\n  headers: { ...headers, authorization: 'Bearer ' + tokenStore.access },\n}));\n\nconst errorLink = onError(({ graphQLErrors, networkError, operation, forward }) => {\n  const expired = graphQLErrors?.some(e => e.extensions?.code === 'UNAUTHENTICATED');\n  if (expired && !operation.getContext().retried) {\n    return new Observable(observer => {\n      refreshToken()\n        .then(token => {\n          operation.setContext(({ headers = {} }) => ({ headers: { ...headers, authorization: 'Bearer ' + token }, retried: true }));\n          forward(operation).subscribe(observer);\n        })\n        .catch(err => { signOut(); observer.error(err); });\n    });\n  }\n});\n\nconst retryLink = new RetryLink({ attempts: { max: 3, retryIf: (err) => !!err && !('statusCode' in err && err.statusCode < 500) } });\n\nexport const client = new ApolloClient({\n  link: from([authLink, errorLink, retryLink, new HttpLink({ uri: '/graphql' })]),\n  cache: new InMemoryCache(),\n});\n```\n\n## Key points\n\n- **Single-flight refresh**: many requests fail at once; share one refresh promise.\n- **Retry once** with a flag, to avoid loops.\n- If refresh fails, clear tokens and cache and redirect to sign-in.\n- Retry only **idempotent or safe** operations on network errors; do not blindly retry mutations.\n- Token storage: prefer httpOnly cookies with credentials: 'include' over tokens in local storage where the architecture allows.\n\n## HTTP and upload links\n\nHttpLink sends operations as JSON, optionally using GET for persisted queries. File uploads use the GraphQL multipart request spec via a community upload link (the apollo-upload-client package in Apollo Client 3 era) paired with server support; the upload link replaces the HTTP link. Check how your version and server handle it, and enforce size limits and virus scanning, or consider direct-to-storage signed URLs instead.\n\n## Common mistakes\n\n- Several refresh calls racing.\n- Retrying forever on authentication errors.\n- Retrying non-idempotent mutations on timeout.\n- Putting the error link after the HTTP link in the chain.",
+      "followUps": [
+        "Why share one refresh promise across failed requests?",
+        "Which operations are safe to retry automatically?",
+        "Why might you avoid GraphQL multipart uploads?"
+      ],
+      "related": [
+        "typed-error-unions-partial-data-and-errors",
+        "graphql-authn-authz-in-resolvers"
+      ],
+      "diagrams": [
+        {
+          "id": "links",
+          "title": "Apollo link chain",
+          "alt": "An operation passes through the auth link that adds a token, the error link that handles auth failures and refreshes tokens, the retry link for network errors, and finally the HTTP or upload link that sends it to the server.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "op",
+              "label": "Operation"
+            },
+            {
+              "id": "auth",
+              "label": "Auth link (add token)"
+            },
+            {
+              "id": "err",
+              "label": "Error link (refresh once, retry)"
+            },
+            {
+              "id": "retry",
+              "label": "Retry link (backoff)"
+            },
+            {
+              "id": "http",
+              "label": "HTTP or upload link"
+            },
+            {
+              "id": "srv",
+              "label": "GraphQL server"
+            }
+          ],
+          "edges": [
+            {
+              "from": "op",
+              "to": "auth"
+            },
+            {
+              "from": "auth",
+              "to": "err"
+            },
+            {
+              "from": "err",
+              "to": "retry"
+            },
+            {
+              "from": "retry",
+              "to": "http"
+            },
+            {
+              "from": "http",
+              "to": "srv"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "apollo-cache-invalidation-evict-gc-and-local-state",
+      "title": "How do you invalidate the Apollo cache, and what are the options for local state and reactive variables?",
+      "topic": "Apollo Client",
+      "difficulty": "advanced",
+      "type": "conceptual",
+      "tags": [
+        "apollo-client",
+        "cache",
+        "evict",
+        "gc",
+        "reactive-variables",
+        "local-state"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Cache invalidation options: cache.evict removes an entity or a field, cache.gc removes unreachable objects left behind, refetchQueries or refetch re-pulls from the server, and client.resetStore or clearStore wipes everything, which I use on logout. For client-only state, reactive variables created with makeVar and read with useReactiveVar are lightweight, and field policies can expose them inside queries. For complex global UI state I would still consider a dedicated state library.",
+      "revision": "Invalidate with evict plus gc, refetch, or reset on logout. Local state: makeVar and useReactiveVar, or read functions in field policies.",
+      "detailed": "Invalidation strategy is a general problem; the methods are Apollo-specific. Apollo-specific details here follow Apollo Client 3 naming; Apollo Client 4 moved or renamed some imports and APIs, so verify against the current Apollo Client documentation and migration guide. Local-only fields with @client have changed across releases, so confirm the current guidance.\n\n## Invalidation options\n\n| Method | Effect | Use |\n|---|---|---|\n| cache.evict({ id, fieldName }) | Remove an entity or a field | After delete, or to force a field refetch |\n| cache.gc() | Remove objects no longer reachable | After evict |\n| refetchQueries or refetch | Re-run queries | Simple correctness |\n| cache.modify | Change fields in place | List edits |\n| client.clearStore or resetStore | Clear all data; reset also refetches active queries | Logout, tenant switch |\n| TTL via fetch policy and polling | Time-based freshness | Dashboards |\n\n```ts\n// delete a product everywhere\ncache.evict({ id: cache.identify({ __typename: 'Product', id }) });\ncache.gc();\n\n// force the products list to refetch next time\ncache.evict({ id: 'ROOT_QUERY', fieldName: 'products' });\n```\n\n## Local state with reactive variables\n\n```ts\nimport { makeVar, useReactiveVar } from '@apollo/client';\n\nexport const selectedIds = makeVar<string[]>([]);\n\nfunction Toolbar() {\n  const ids = useReactiveVar(selectedIds);\n  return <button onClick={() => selectedIds([])}>Clear {ids.length}</button>;\n}\n```\n\nA reactive variable lives outside the cache and triggers re-render of components that read it. A field policy with a read function can expose it so queries can include it alongside server data.\n\n## When to use what\n\n- Server data: the Apollo cache.\n- Small shared UI state (selection, filters, theme): reactive variables or React context.\n- Large complex client state with devtools and middleware: a dedicated store such as Redux Toolkit, sitting beside Apollo.\n\n## Common mistakes\n\n- Evicting without gc and keeping dangling references.\n- Forgetting to clear the cache on logout, leaking data to the next user.\n- Putting every piece of UI state in Apollo because it is already there.\n- Mutating objects held in reactive variables instead of replacing them.",
+      "followUps": [
+        "Why call gc after evict?",
+        "How do you prevent one user's data appearing after another signs in?",
+        "When is Redux Toolkit better than reactive variables?"
+      ],
+      "related": [
+        "apollo-client-fetch-policies",
+        "apollo-client-vs-rtk-query"
+      ]
+    },
+    {
+      "slug": "apollo-client-vs-rtk-query",
+      "title": "Apollo Client versus RTK Query for a React app talking to GraphQL or REST: how do you choose?",
+      "topic": "Frontend data layer",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "apollo-client",
+        "rtk-query",
+        "redux-toolkit",
+        "graphql",
+        "caching"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Apollo Client is built for GraphQL: a normalised cache, fragments, links, subscriptions and strong tooling. RTK Query is a data fetching layer inside Redux Toolkit, with tag-based invalidation over a document cache, works with REST naturally and can call GraphQL via a base query. If the backend is GraphQL and screens share entities, Apollo's normalisation pays off. If the app is REST-first or already on Redux, RTK Query is simpler. Mixing both rarely helps.",
+      "revision": "Apollo: normalised cache and GraphQL tooling. RTK Query: tag-invalidated endpoint cache, REST-friendly, Redux-native. Pick one data layer.",
+      "detailed": "Concept comparison; verify current features of both libraries, and note Apollo Client 3 versus 4 differences.\n\n## Comparison\n\n| Aspect | Apollo Client | RTK Query |\n|---|---|---|\n| Primary fit | GraphQL | REST, and GraphQL via a base query |\n| Cache model | Normalised by type and id | Per endpoint and argument, invalidated by tags |\n| Cross-screen consistency | Automatic for shared entities | Via tags and refetch, or manual cache updates |\n| Fragments and codegen | First-class | Generated hooks from OpenAPI or GraphQL codegen plugins exist |\n| Subscriptions and links | Built in link system | Streaming updates through onCacheEntryAdded |\n| Optimistic updates | optimisticResponse | Manual patching with updateQueryData |\n| State management | Local state is limited | Part of Redux store, with devtools |\n| Bundle and learning curve | Larger, GraphQL-specific concepts | Smaller if Redux is already present |\n\n## Decision guide\n\n- **GraphQL backend with relational screens**: Apollo Client.\n- **REST backend, or mixed**: RTK Query.\n- **Team already invested in Redux with middleware and devtools**: RTK Query reduces tooling.\n- **Heavy realtime and offline**: evaluate each; neither is complete alone.\n\n## Normalisation trade-off\n\nNormalisation gives automatic consistency but needs good ids, merge policies and invalidation understanding. Tag-based invalidation is simpler to reason about but refetches more.\n\n## Architecture advice\n\nPick **one server-state library**. Keep client UI state separate (context, reactive variables or a small store). Isolate the library behind custom hooks so a future migration touches fewer components.\n\n## Common mistakes\n\n- Using Apollo for REST through hand-built resolvers on the client.\n- Using both libraries for the same data, leading to two caches.\n- Treating server state as global client state in Redux with manual loading flags.\n- Choosing by popularity rather than backend shape.",
+      "followUps": [
+        "How would you migrate from hand-written fetch hooks to one of these?",
+        "How does tag invalidation compare with normalised updates?",
+        "Where would UI-only state live in each setup?"
+      ],
+      "related": [
+        "apollo-client-inmemorycache-normalisation-typepolicies",
+        "apollo-cache-invalidation-evict-gc-and-local-state"
+      ]
+    },
+    {
+      "slug": "testing-apollo-components-with-mockedprovider",
+      "title": "How do you test components that use Apollo Client, for example with MockedProvider?",
+      "topic": "Testing",
+      "difficulty": "intermediate",
+      "type": "coding",
+      "tags": [
+        "apollo-client",
+        "testing",
+        "mockedprovider",
+        "react-testing-library",
+        "jest"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I test components against a mocked GraphQL layer, not the real network. MockedProvider takes a list of mocks, each matching an operation and variables to a result or error, so I can render the component, assert loading, success and error states, and trigger mutations. I include __typename in results because the cache needs it, and I test the cache effects of mutations. For broader tests I prefer a mock server layer, and I keep a few end-to-end checks against a real schema.",
+      "revision": "MockedProvider with request and result mocks lets tests cover loading, success, error and mutation states. Include __typename. Verify imports per Apollo version.",
+      "detailed": "The strategy (mock at the network boundary, test states) is general; MockedProvider details are Apollo-specific. Apollo-specific details here follow Apollo Client 3 naming; Apollo Client 4 moved or renamed some imports and APIs, so verify against the current Apollo Client documentation and migration guide. Import locations for testing utilities differ between versions.\n\n## Approach\n\n| Level | Tool | Purpose |\n|---|---|---|\n| Component | MockedProvider with mocks | Loading, data, error and mutation behaviour |\n| Integration | Mock service layer (a mock server that intercepts HTTP) | Realistic links and cache behaviour |\n| Contract | Schema validation of operations in CI | Operations still valid against the schema |\n| End to end | Real or staging API | A few critical journeys |\n\n## Example\n\n```tsx\nimport { MockedProvider } from '@apollo/client/testing';\nimport { render, screen } from '@testing-library/react';\n\nconst mocks = [{\n  request: { query: PRODUCTS, variables: { category: 'lamps' } },\n  result: { data: { products: [{ __typename: 'Product', id: '1', name: 'Desk lamp', priceMinor: 2500, inCart: false }] } },\n}];\n\ntest('renders products', async () => {\n  render(<MockedProvider mocks={mocks}><ProductList category=\"lamps\" /></MockedProvider>);\n  expect(screen.getByText(/loading/i)).toBeInTheDocument();\n  expect(await screen.findByText('Desk lamp')).toBeInTheDocument();\n});\n\ntest('shows an error state', async () => {\n  const errorMocks = [{ request: { query: PRODUCTS, variables: { category: 'lamps' } }, error: new Error('boom') }];\n  render(<MockedProvider mocks={errorMocks}><ProductList category=\"lamps\" /></MockedProvider>);\n  expect(await screen.findByRole('alert')).toBeInTheDocument();\n});\n```\n\n## Tips\n\n- A mock matches **query and exact variables**; a mismatch produces an error that is easy to misread as a component bug.\n- Each mock is **consumed once** by default; add more or use a mock option that allows repeats, per your version.\n- Include __typename and ids, or the cache will not normalise or may warn.\n- Disable automatic __typename addition only if your mocks omit it intentionally.\n- Test cache updates by asserting the UI after a mutation, which covers the update function.\n- Use generated types for mocks so they follow schema changes.\n\n## Common mistakes\n\n- Mocks without __typename.\n- Variables that differ slightly, so the mock is never matched.\n- Testing implementation details like cache contents instead of visible behaviour.\n- No test for the error and empty states.",
+      "followUps": [
+        "Why must mock variables match exactly?",
+        "How would you test an optimistic update?",
+        "When would you use a mock server instead of MockedProvider?"
+      ],
+      "related": [
+        "apollo-client-query-and-mutation-typescript",
+        "apollo-cache-update-after-mutation-and-optimistic-ui"
+      ]
+    }
+  ]
+}

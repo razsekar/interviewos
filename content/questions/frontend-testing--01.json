@@ -1,0 +1,1695 @@
+{
+  "category": "frontend-testing",
+  "questions": [
+    {
+      "slug": "testing-pyramid-vs-testing-trophy",
+      "title": "Testing pyramid versus testing trophy: which shape suits frontend applications?",
+      "topic": "Strategy",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "testing-pyramid",
+        "testing-trophy",
+        "strategy"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "The pyramid puts many fast unit tests at the base, fewer integration tests and very few end-to-end tests at the top. The trophy, popularised in the React community, adds static analysis at the base and emphasises integration tests as the biggest layer, because they give the most confidence per unit of effort for UI. I treat both as heuristics: choose the cheapest test that would catch the realistic failure, and keep a thin end-to-end layer for critical journeys.",
+      "revision": "Pyramid: many units, few e2e. Trophy: static checks base, most tests at integration level. Use them as heuristics driven by confidence per cost.",
+      "detailed": "Both models answer: **where should we spend testing effort?**\n\n## The shapes\n\n| Layer | Pyramid | Trophy |\n|---|---|---|\n| Static (TypeScript, ESLint) | Not shown | Foundation; catches typos and type errors for free |\n| Unit | Largest | Smaller; pure logic and utilities |\n| Integration | Middle | **Largest**; components with real children, state and mocked network |\n| End-to-end | Smallest | Small; critical journeys |\n\n{{diagram:trophy}}\n\n## Why the trophy resonates for UI\n\n- Component behaviour depends on composition: form, validation, state and API. A unit test of each in isolation can pass while the screen is broken.\n- Integration tests with React Testing Library and a mocked network run in milliseconds to seconds, yet exercise real wiring.\n- Heavily mocked unit tests couple to implementation, so refactors break them without finding bugs.\n\n## Where the pyramid still applies\n\nPure functions (price calculation, reducers, validators, formatters) are ideal unit tests: fast, deterministic, precise failure messages.\n\n## Choosing per risk\n\n| Risk | Cheapest effective test |\n|---|---|\n| Wrong type passed | TypeScript |\n| Tax rounding bug | Unit |\n| Form shows error after bad submit | Integration (RTL) |\n| Auth cookie and redirect across pages | End-to-end |\n| API shape changes break the UI | Contract test |\n\n## Common mistakes\n\n- Following a shape dogmatically instead of by risk.\n- Hundreds of end-to-end tests, giving slow and flaky pipelines.\n- Calling a test \"unit\" while it mocks half the app.\n- Ignoring static analysis, the cheapest layer.",
+      "followUps": [
+        "Where would a visual regression test sit in the trophy?",
+        "How would you rebalance a suite that is mostly snapshots?",
+        "What is the cost of a test beyond writing it?"
+      ],
+      "related": [
+        "unit-vs-integration-vs-e2e-tests",
+        "sustainable-testing-strategy-large-team"
+      ],
+      "diagrams": [
+        {
+          "id": "trophy",
+          "title": "Testing trophy layers",
+          "alt": "From base to top the layers are static analysis, unit tests, integration tests which are the largest, and a small number of end-to-end tests that cover critical user journeys.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Static analysis: TypeScript and ESLint"
+            },
+            {
+              "id": "n1",
+              "label": "Unit tests: pure logic"
+            },
+            {
+              "id": "n2",
+              "label": "Integration tests: components and mocked network (largest)"
+            },
+            {
+              "id": "n3",
+              "label": "End-to-end tests: critical journeys"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "unit-vs-integration-vs-e2e-tests",
+      "title": "What is the difference between unit, integration and end-to-end tests in a frontend?",
+      "topic": "Strategy",
+      "difficulty": "beginner",
+      "type": "comparison",
+      "tags": [
+        "unit-testing",
+        "integration-testing",
+        "e2e"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "A unit test checks one small piece, like a function or a hook, in isolation. An integration test combines several parts, for example a form, its state and a mocked network, and asserts user-visible behaviour. An end-to-end test drives a real browser against a running system including the backend. Moving up trades speed and determinism for realism, so I write many cheap tests for logic, integration for features, and few end-to-end for critical paths.",
+      "revision": "Unit: one piece in isolation. Integration: several parts with mocked boundaries. E2E: real browser and system. Higher means slower but more realistic.",
+      "detailed": "The categories differ by **scope and what is real**.\n\n| Aspect | Unit | Integration | End-to-end |\n|---|---|---|---|\n| Scope | Function, hook, small component | Feature: component tree plus state and mocked network | Whole system through a browser |\n| Network | None or stubbed | Mocked at network boundary (MSW) | Real or staged backend |\n| Speed | Milliseconds | Tens to hundreds of ms | Seconds to minutes |\n| Flakiness | Very low | Low | Highest |\n| Failure locality | Precise | Good | Broad |\n| Typical tools | Jest or Vitest | RTL with Jest or Vitest | Playwright, Cypress |\n\n{{diagram:scope}}\n\n## Examples\n\n```ts\n// Unit: pure logic\nimport { calcTotal } from './pricing';\ntest('applies 10% discount to subtotal', () => {\n  expect(calcTotal([{ price: 1000, qty: 2 }], 0.1)).toBe(1800);\n});\n```\n\n```tsx\n// Integration: feature through the UI\ntest('shows validation error for empty email', async () => {\n  const user = userEvent.setup();\n  render(<SignupForm />);\n  await user.click(screen.getByRole('button', { name: /sign up/i }));\n  expect(await screen.findByText(/email is required/i)).toBeInTheDocument();\n});\n```\n\n```ts\n// E2E: real browser (Playwright)\ntest('user can check out', async ({ page }) => {\n  await page.goto('/products');\n  await page.getByRole('button', { name: 'Add to basket' }).first().click();\n  await page.getByRole('link', { name: 'Checkout' }).click();\n  await expect(page.getByRole('heading', { name: 'Payment' })).toBeVisible();\n});\n```\n\n## Common mistakes\n\n- Using definitions loosely, so nobody agrees what \"unit\" means; agree on boundaries and mocking rules.\n- Testing integration concerns only in e2e, making failures slow to diagnose.\n- Mocking your own modules so heavily that the test proves nothing.",
+      "followUps": [
+        "Is a component test with RTL unit or integration?",
+        "What would you not mock in an integration test?",
+        "How do you decide what goes to e2e?"
+      ],
+      "related": [
+        "testing-pyramid-vs-testing-trophy",
+        "rtl-philosophy-test-user-behaviour"
+      ],
+      "diagrams": [
+        {
+          "id": "scope",
+          "title": "Test scope growth",
+          "alt": "Unit tests cover a single piece. Integration tests add components and state with a mocked network. End-to-end tests add the real browser and backend. Realism and cost increase at each step.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Unit: one piece"
+            },
+            {
+              "id": "n1",
+              "label": "Integration: components, state, mocked network"
+            },
+            {
+              "id": "n2",
+              "label": "End-to-end: browser and backend"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "rtl-philosophy-test-user-behaviour",
+      "title": "What is the React Testing Library philosophy, and how do you test a login form?",
+      "topic": "RTL fundamentals",
+      "difficulty": "intermediate",
+      "type": "coding",
+      "tags": [
+        "react-testing-library",
+        "login",
+        "user-event",
+        "philosophy"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "RTL's guiding principle is that tests should resemble how users use the software. I render the component, find elements the way a user or assistive technology would, interact with userEvent and assert on what is visible, instead of checking state, props or internal methods. That makes tests survive refactors. For a login form I type credentials, submit, and assert that the submit handler receives them, or that errors appear, without peeking inside the component.",
+      "revision": "Test what users see and do: render, query by role or label, interact with userEvent, assert visible output; avoid asserting on state or internals.",
+      "detailed": "The RTL maxim: **the more your tests resemble the way your software is used, the more confidence they can give you.**\n\n## Implementation details versus behaviour\n\n| Implementation detail (avoid) | Behaviour (prefer) |\n|---|---|\n| `wrapper.state('email')` | Typed text is visible in the textbox |\n| Calling `handleSubmit()` directly | Click the \"Sign in\" button |\n| Checking a CSS class | Check role, name, text, `aria-invalid` |\n| Shallow rendering children | Render the real tree |\n\n## Worked example: login form\n\n```tsx\n// LoginForm.tsx\nimport { useState } from 'react';\n\ntype Props = { onSubmit: (v: { email: string; password: string }) => Promise<void> };\n\nexport function LoginForm({ onSubmit }: Props) {\n  const [error, setError] = useState<string | null>(null);\n\n  async function handle(e: React.FormEvent<HTMLFormElement>) {\n    e.preventDefault();\n    const data = new FormData(e.currentTarget);\n    const email = String(data.get('email') ?? '');\n    const password = String(data.get('password') ?? '');\n    if (!email || !password) return setError('Enter your email and password');\n    try { await onSubmit({ email, password }); } catch { setError('Invalid credentials'); }\n  }\n\n  return (\n    <form onSubmit={handle} noValidate>\n      <label htmlFor=\"email\">Email</label>\n      <input id=\"email\" name=\"email\" type=\"email\" />\n      <label htmlFor=\"password\">Password</label>\n      <input id=\"password\" name=\"password\" type=\"password\" />\n      {error && <p role=\"alert\">{error}</p>}\n      <button type=\"submit\">Sign in</button>\n    </form>\n  );\n}\n```\n\n```tsx\n// LoginForm.test.tsx\nimport { render, screen } from '@testing-library/react';\nimport userEvent from '@testing-library/user-event';\nimport { LoginForm } from './LoginForm';\n\ntest('submits entered credentials', async () => {\n  const user = userEvent.setup();\n  const onSubmit = jest.fn().mockResolvedValue(undefined);\n  render(<LoginForm onSubmit={onSubmit} />);\n\n  await user.type(screen.getByLabelText(/email/i), 'ada@example.com');\n  await user.type(screen.getByLabelText(/password/i), 's3cret');\n  await user.click(screen.getByRole('button', { name: /sign in/i }));\n\n  expect(onSubmit).toHaveBeenCalledWith({ email: 'ada@example.com', password: 's3cret' });\n});\n\ntest('shows an alert when the server rejects the login', async () => {\n  const user = userEvent.setup();\n  render(<LoginForm onSubmit={jest.fn().mockRejectedValue(new Error('401'))} />);\n  await user.type(screen.getByLabelText(/email/i), 'ada@example.com');\n  await user.type(screen.getByLabelText(/password/i), 'wrong');\n  await user.click(screen.getByRole('button', { name: /sign in/i }));\n  expect(await screen.findByRole('alert')).toHaveTextContent('Invalid credentials');\n});\n```\n\n{{diagram:rtl}}\n\nReplace `jest.fn` with `vi.fn` if you use Vitest.\n\n## Common mistakes\n\n- Querying by test id first, bypassing accessibility signals.\n- Asserting internals, so refactors break tests.\n- Forgetting `await` on userEvent calls.",
+      "followUps": [
+        "Why is getByLabelText a good signal for accessibility?",
+        "When is a test id acceptable?",
+        "How would the test change if login used a network call?"
+      ],
+      "related": [
+        "rtl-queries-getby-findby-queryby",
+        "userevent-vs-fireevent"
+      ],
+      "diagrams": [
+        {
+          "id": "rtl",
+          "title": "RTL test loop",
+          "alt": "The test renders the component, finds elements by accessible role or label, simulates user interaction, and asserts on visible output, without touching component internals.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Render component"
+            },
+            {
+              "id": "n1",
+              "label": "Find by role or label"
+            },
+            {
+              "id": "n2",
+              "label": "Interact with userEvent"
+            },
+            {
+              "id": "n3",
+              "label": "Assert on visible output"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "rtl-queries-getby-findby-queryby",
+      "title": "How do getByRole, getByLabelText, findBy and queryBy differ in React Testing Library?",
+      "topic": "RTL queries",
+      "difficulty": "beginner",
+      "type": "comparison",
+      "tags": [
+        "rtl",
+        "queries",
+        "getbyrole",
+        "accessibility"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "The prefix decides behaviour: getBy throws if nothing matches and is synchronous, queryBy returns null so I can assert absence, and findBy returns a promise that retries until the element appears, for async UI. The suffix decides how I locate: ByRole with an accessible name is first choice, then ByLabelText for form fields, ByText, and ByTestId only as a last resort. The All variants return arrays.",
+      "revision": "getBy: sync, throws. queryBy: null for absence. findBy: async retry. Prefer ByRole, then ByLabelText, ByText, and test ids last.",
+      "detailed": "## Prefix: when does it resolve?\n\n| Prefix | No match | Multiple matches | Use for |\n|---|---|---|---|\n| `getBy` | Throws | Throws | Element must be present now |\n| `queryBy` | `null` | Throws | Asserting absence |\n| `findBy` | Rejects after timeout | Rejects | Appears asynchronously |\n| `getAllBy`, `queryAllBy`, `findAllBy` | Varies | Array | Lists |\n\n## Suffix: how do you locate?\n\nThe recommended priority (see the Testing Library docs for the current order):\n\n1. **ByRole** with `name`: `getByRole('button', { name: /pay now/i })`. Mirrors assistive technology.\n2. **ByLabelText**: form fields.\n3. **ByPlaceholderText**, **ByText**, **ByDisplayValue**.\n4. **ByAltText**, **ByTitle**.\n5. **ByTestId**: when no accessible hook exists.\n\n```tsx\nrender(<Checkout />);\n\n// present now\nexpect(screen.getByRole('heading', { name: /payment/i })).toBeInTheDocument();\n\n// absent\nexpect(screen.queryByRole('alert')).not.toBeInTheDocument();\n\n// appears after fetch\nexpect(await screen.findByText(/order confirmed/i)).toBeVisible();\n\n// scoping\nconst row = screen.getByRole('row', { name: /widget/i });\nwithin(row).getByRole('button', { name: /remove/i });\n```\n\n{{diagram:pick}}\n\n## Tips\n\n- `screen.logTestingPlaygroundURL()` and `screen.debug()` help discover roles.\n- `getByRole` also verifies the element has the semantics you expect, so using `<div onClick>` fails the query, which is useful feedback.\n- Use `within()` to scope queries.\n- Use regex with `i` for text so copy changes do not break tests, but not so loose as to match wrongly.\n\n## Common mistakes\n\n- `getBy` to assert something is missing; use `queryBy`.\n- `waitFor(() => getBy...)` when `findBy` does the same more simply.\n- Defaulting to test ids.\n- Using `container.querySelector`, which bypasses user-facing semantics.",
+      "followUps": [
+        "Why does getByRole sometimes fail on a visually obvious button?",
+        "When would you use waitFor instead of findBy?",
+        "How do hidden elements affect ByRole?"
+      ],
+      "related": [
+        "rtl-philosophy-test-user-behaviour",
+        "async-testing-and-act-warnings"
+      ],
+      "diagrams": [
+        {
+          "id": "pick",
+          "title": "Choosing a query",
+          "alt": "Decide whether the element should be present now, absent or appear later to pick getBy, queryBy or findBy. Then choose a locator by role first, then label, then text, and test id last.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Need an element"
+            },
+            {
+              "id": "n1",
+              "label": "Choose prefix: get, query or find"
+            },
+            {
+              "id": "n2",
+              "label": "Locate by role"
+            },
+            {
+              "id": "n3",
+              "label": "Else label or text"
+            },
+            {
+              "id": "n4",
+              "label": "Else test id"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "userevent-vs-fireevent",
+      "title": "userEvent versus fireEvent: which should you use and why?",
+      "topic": "RTL interaction",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "user-event",
+        "fireevent",
+        "interaction"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "fireEvent dispatches a single DOM event, such as click. userEvent simulates what a real user does: clicking triggers pointer events, focus changes, and typing fires keydown, keypress, input and keyup per character, respecting disabled and readonly states. So userEvent catches bugs that fireEvent misses and is the default recommendation. I call userEvent.setup() first and await interactions in current versions. fireEvent remains for events with no userEvent equivalent.",
+      "revision": "fireEvent fires one raw DOM event; userEvent simulates the full user interaction sequence. Prefer userEvent.setup() and await calls; fireEvent for exotic events.",
+      "detailed": "## Difference\n\n| | `fireEvent` | `userEvent` |\n|---|---|---|\n| Model | One synthetic DOM event | Sequence of realistic events |\n| Click | `click` only | pointer down, up, focus, click, respects `disabled` and `pointer-events` |\n| Typing | Set value in one go | Per-key events, caret handling, `maxLength` |\n| Async | Sync | Returns promises (v14+) |\n| Realism | Low | High |\n\n```tsx\nimport { render, screen, fireEvent } from '@testing-library/react';\nimport userEvent from '@testing-library/user-event';\n\ntest('typing filters the list (userEvent)', async () => {\n  const user = userEvent.setup();\n  render(<FilterableList items={['apple', 'banana']} />);\n  await user.type(screen.getByRole('searchbox'), 'ban');\n  expect(screen.getAllByRole('listitem')).toHaveLength(1);\n});\n\ntest('disabled button is not clickable', async () => {\n  const user = userEvent.setup();\n  const onClick = jest.fn();\n  render(<button disabled onClick={onClick}>Pay</button>);\n  await user.click(screen.getByRole('button', { name: 'Pay' }));\n  expect(onClick).not.toHaveBeenCalled();\n});\n\ntest('rare event', () => {\n  render(<Dropzone />);\n  fireEvent.dragEnter(screen.getByTestId('zone'));\n});\n```\n\n{{diagram:ue}}\n\n## Details\n\n- Call `userEvent.setup()` per test, before render, and use the returned `user`.\n- Keyboard shortcuts: `await user.keyboard('{Control>}a{/Control}')`; tab order: `await user.tab()`.\n- With fake timers pass `advanceTimers` (for Jest: `userEvent.setup({ advanceTimers: jest.advanceTimersByTime })`); verify current docs.\n- Version 13 and earlier were synchronous; check which version your project uses.\n\n## Common mistakes\n\n- Forgetting `await`, so assertions run before the interaction finishes.\n- Using `fireEvent.change` for typing, missing input handling bugs.\n- Sharing one `user` instance across tests.",
+      "followUps": [
+        "Why does userEvent.click respect pointer-events none?",
+        "How do you test keyboard navigation with userEvent?",
+        "When would fireEvent still be right?"
+      ],
+      "related": [
+        "rtl-philosophy-test-user-behaviour",
+        "async-testing-and-act-warnings"
+      ],
+      "diagrams": [
+        {
+          "id": "ue",
+          "title": "userEvent click sequence",
+          "alt": "A userEvent click moves the pointer, presses the button, moves focus, releases and finally dispatches the click event, respecting disabled state, whereas fireEvent dispatches only the click event.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "pointer move"
+            },
+            {
+              "id": "n1",
+              "label": "pointer down"
+            },
+            {
+              "id": "n2",
+              "label": "focus"
+            },
+            {
+              "id": "n3",
+              "label": "pointer up"
+            },
+            {
+              "id": "n4",
+              "label": "click"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "async-testing-and-act-warnings",
+      "title": "How do you test asynchronous UI and fix \"not wrapped in act(...)\" warnings?",
+      "topic": "Async testing",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "async",
+        "act",
+        "waitfor",
+        "findby"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Async UI is tested by waiting for the user-visible result: findBy queries, or waitFor around an assertion, instead of fixed sleeps. act warnings mean a state update happened outside React's batching in the test, usually because an async update finished after the test moved on. RTL wraps its own helpers in act, so the fix is typically to await the visible outcome, await userEvent, or ensure the mocked request finishes, not to wrap everything in act manually.",
+      "revision": "Wait for visible results with findBy or waitFor, await userEvent, and let async work finish; act warnings signal updates after the test ended.",
+      "detailed": "## What act does\n\n`act()` makes React flush effects and state updates before you assert. RTL's `render`, `userEvent` (via configuration) and async utilities already wrap calls in act. A warning appears when a state update occurs **outside** that window.\n\n## Typical causes and fixes\n\n| Cause | Fix |\n|---|---|\n| Fetch resolves after the test ends | `await screen.findBy...` for the final state |\n| Not awaiting `userEvent` | `await user.click(...)` |\n| Timer-driven update | Fake timers and wrap `jest.advanceTimersByTime` in `act` |\n| Unmounted component updates state | Cancel in effect cleanup |\n| Asserting loading state only, then ending | Also await the settled state |\n\n```tsx\ntest('loads and shows the user name', async () => {\n  server.use(http.get('/api/me', () => HttpResponse.json({ name: 'Ada' })));\n  render(<Profile />);\n\n  expect(screen.getByText(/loading/i)).toBeInTheDocument();\n  expect(await screen.findByRole('heading', { name: 'Ada' })).toBeInTheDocument();\n});\n\ntest('disappearance', async () => {\n  render(<Toast message=\"Saved\" />);\n  await waitForElementToBeRemoved(() => screen.queryByText('Saved'), { timeout: 4000 });\n});\n```\n\n{{diagram:flow}}\n\n## waitFor rules\n\n- Put **one assertion** in the callback and no side effects, because it retries.\n- Prefer `findBy` for appearance.\n- Never use arbitrary `setTimeout` sleeps.\n- Adjust timeouts only with reason.\n\n## Fake timers\n\n```tsx\njest.useFakeTimers();\nconst user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });\n```\n\nRemember `jest.useRealTimers()` in cleanup. API names differ in Vitest (`vi.useFakeTimers`).\n\n## Common mistakes\n\n- Wrapping everything in `act` to silence warnings, hiding real timing bugs.\n- Using `waitFor` with a `getBy` containing side effects such as clicks.\n- Leaving pending requests after the test, which leak into the next.",
+      "followUps": [
+        "Why is a side effect inside waitFor dangerous?",
+        "How do you test a debounced search?",
+        "What causes act warnings with React Query or Apollo?"
+      ],
+      "related": [
+        "rtl-queries-getby-findby-queryby",
+        "msw-mock-service-worker-rest-and-product-search"
+      ],
+      "diagrams": [
+        {
+          "id": "flow",
+          "title": "Async test flow",
+          "alt": "The test renders and triggers a request. The component shows a loading state. The mocked network responds, React updates state, and findBy or waitFor retries until the final element appears and the assertion passes.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Render and interact"
+            },
+            {
+              "id": "n1",
+              "label": "Loading state shown"
+            },
+            {
+              "id": "n2",
+              "label": "Mock network responds"
+            },
+            {
+              "id": "n3",
+              "label": "State updates in act"
+            },
+            {
+              "id": "n4",
+              "label": "findBy resolves, assert"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "msw-mock-service-worker-rest-and-product-search",
+      "title": "How do you use Mock Service Worker to test an async product search?",
+      "topic": "Mocking network",
+      "difficulty": "intermediate",
+      "type": "coding",
+      "tags": [
+        "msw",
+        "mocking",
+        "search",
+        "async"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "MSW intercepts requests at the network layer, so the component runs its real fetch code against handlers I define. I start a server in test setup, reset handlers after each test, and override per test for errors or empty results. That keeps tests close to production behaviour and reusable across Jest, Vitest, Storybook and the browser. For a product search I type a query and assert on results, empty state or error message, without mocking fetch itself.",
+      "revision": "MSW intercepts at the network layer: shared handlers, per-test overrides, reset after each test. Assert on the UI, not on fetch calls.",
+      "detailed": "Mocking `fetch` or axios directly couples tests to the client. **MSW** (API shown for v2; verify current docs) lets the real client run.\n\n## Setup\n\n```ts\n// src/test/server.ts\nimport { setupServer } from 'msw/node';\nimport { http, HttpResponse } from 'msw';\n\nexport const handlers = [\n  http.get('/api/products', ({ request }) => {\n    const q = new URL(request.url).searchParams.get('q') ?? '';\n    const all = [{ id: 1, name: 'Blue kettle' }, { id: 2, name: 'Red mug' }];\n    return HttpResponse.json(all.filter(p => p.name.toLowerCase().includes(q.toLowerCase())));\n  }),\n];\nexport const server = setupServer(...handlers);\n```\n\n```ts\n// jest.setup.ts (or vitest setup)\nimport { server } from './server';\nbeforeAll(() => server.listen({ onUnhandledRequest: 'error' }));\nafterEach(() => server.resetHandlers());\nafterAll(() => server.close());\n```\n\n## Test: async product search\n\n```tsx\ntest('searches products and shows results', async () => {\n  const user = userEvent.setup();\n  render(<ProductSearch />);\n\n  await user.type(screen.getByRole('searchbox', { name: /search products/i }), 'kettle');\n\n  expect(await screen.findByRole('link', { name: 'Blue kettle' })).toBeInTheDocument();\n  expect(screen.queryByText('Red mug')).not.toBeInTheDocument();\n});\n\ntest('shows an empty state', async () => {\n  const user = userEvent.setup();\n  render(<ProductSearch />);\n  await user.type(screen.getByRole('searchbox'), 'zzz');\n  expect(await screen.findByText(/no products found/i)).toBeInTheDocument();\n});\n\ntest('shows an error and allows retry', async () => {\n  server.use(http.get('/api/products', () => new HttpResponse(null, { status: 500 })));\n  render(<ProductSearch />);\n  await userEvent.setup().type(screen.getByRole('searchbox'), 'x');\n  expect(await screen.findByRole('alert')).toHaveTextContent(/something went wrong/i);\n  expect(screen.getByRole('button', { name: /try again/i })).toBeEnabled();\n});\n```\n\n{{diagram:msw}}\n\n## Guidance\n\n- `onUnhandledRequest: 'error'` exposes unmocked calls.\n- Keep default handlers realistic and typed from your API types.\n- Relative URLs in jsdom may need a base URL polyfill or absolute URLs; check your environment.\n- For debounced search, use fake timers or wait for results with `findBy`.\n\n## Common mistakes\n\n- Asserting that `fetch` was called with exact arguments instead of UI outcomes.\n- Handlers leaking between tests (forgetting `resetHandlers`).\n- Different mocks in tests versus Storybook, so they drift.",
+      "followUps": [
+        "How do you simulate network delay or offline?",
+        "How would you assert the request payload of a POST?",
+        "MSW or mocking the API client module?"
+      ],
+      "related": [
+        "loading-error-empty-states-testing",
+        "graphql-mocking-with-msw"
+      ],
+      "diagrams": [
+        {
+          "id": "msw",
+          "title": "MSW interception",
+          "alt": "The component calls the real fetch client. The request is intercepted by MSW in the test process, which matches a handler and returns a mocked response. The component renders the result and the test asserts on the UI.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Component fetch call"
+            },
+            {
+              "id": "n1",
+              "label": "MSW intercepts request"
+            },
+            {
+              "id": "n2",
+              "label": "Matched handler responds"
+            },
+            {
+              "id": "n3",
+              "label": "Component renders result"
+            },
+            {
+              "id": "n4",
+              "label": "Test asserts UI"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "loading-error-empty-states-testing",
+      "title": "How do you test loading, error and empty states of a data-driven component?",
+      "topic": "UI states",
+      "difficulty": "intermediate",
+      "type": "coding",
+      "tags": [
+        "states",
+        "loading",
+        "error",
+        "empty"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Every data component has at least four states: loading, success, empty and error. I make each reachable in tests by controlling the network: a delayed response for loading, a 500 for error, an empty array for empty, and normal data for success. I assert on user-visible semantics such as role status, role alert, and text, and verify recovery paths like retry. This also guards accessibility, because each state needs an announcement.",
+      "revision": "Drive each state through the network layer and assert via roles: status for loading, alert for errors, clear text for empty, plus retry paths.",
+      "detailed": "Treat state coverage as a **checklist**: loading, error, empty, partial, success.\n\n## Component under test\n\n```tsx\nexport function OrderList() {\n  const { data, isLoading, error, refetch } = useOrders();\n  if (isLoading) return <p role=\"status\">Loading orders…</p>;\n  if (error) return (\n    <div role=\"alert\">\n      <p>We could not load your orders.</p>\n      <button onClick={() => refetch()}>Try again</button>\n    </div>\n  );\n  if (!data?.length) return <p>You have no orders yet.</p>;\n  return <ul>{data.map(o => <li key={o.id}>{o.title}</li>)}</ul>;\n}\n```\n\n## Tests\n\n```tsx\nimport { delay, http, HttpResponse } from 'msw';\n\ntest('loading', async () => {\n  server.use(http.get('/api/orders', async () => { await delay('infinite'); return HttpResponse.json([]); }));\n  render(<OrderList />);\n  expect(await screen.findByRole('status')).toHaveTextContent(/loading/i);\n});\n\ntest('empty', async () => {\n  server.use(http.get('/api/orders', () => HttpResponse.json([])));\n  render(<OrderList />);\n  expect(await screen.findByText(/no orders yet/i)).toBeInTheDocument();\n});\n\ntest('error then retry succeeds', async () => {\n  const user = userEvent.setup();\n  let calls = 0;\n  server.use(http.get('/api/orders', () =>\n    ++calls === 1 ? new HttpResponse(null, { status: 500 }) : HttpResponse.json([{ id: 1, title: 'Kettle' }])));\n  render(<OrderList />);\n  expect(await screen.findByRole('alert')).toBeInTheDocument();\n  await user.click(screen.getByRole('button', { name: /try again/i }));\n  expect(await screen.findByText('Kettle')).toBeInTheDocument();\n});\n```\n\n{{diagram:states}}\n\n## Tips\n\n| State | Assertion focus |\n|---|---|\n| Loading | `role=\"status\"`; no flash of empty content |\n| Empty | Helpful message and next action |\n| Error | `role=\"alert\"`, retry control, no stack traces |\n| Partial or stale | Existing data still visible while refreshing |\n\n`delay('infinite')` is an MSW v2 helper; verify in your version.\n\n## Common mistakes\n\n- Testing only success.\n- Showing the empty message while loading.\n- Asserting on spinner implementation instead of its accessible role.\n- Not testing recovery.",
+      "followUps": [
+        "How do you test optimistic updates?",
+        "How would you test a skeleton loader accessibly?",
+        "How do you handle pagination edge cases?"
+      ],
+      "related": [
+        "msw-mock-service-worker-rest-and-product-search",
+        "accessibility-testing-jest-axe-checkout-form"
+      ],
+      "diagrams": [
+        {
+          "id": "states",
+          "title": "Data component states",
+          "alt": "A component begins in loading, then moves to success with data, empty with no data, or error. From error a retry returns it to loading.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Loading"
+            },
+            {
+              "id": "n1",
+              "label": "Success, empty or error"
+            },
+            {
+              "id": "n2",
+              "label": "Retry action"
+            },
+            {
+              "id": "n3",
+              "label": "Loading again"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2",
+              "label": "on failure"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "graphql-mocking-with-msw",
+      "title": "How do you mock GraphQL requests in frontend tests?",
+      "topic": "GraphQL testing",
+      "difficulty": "intermediate",
+      "type": "coding",
+      "tags": [
+        "graphql",
+        "msw",
+        "mocking",
+        "testing"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "The most realistic way is MSW's graphql handlers, which match by operation name and return data or errors in GraphQL's response shape, so any client such as Apollo, urql or fetch works unchanged. Alternatives are client-specific mocks like Apollo's MockedProvider. I mock errors too, both network failures and GraphQL errors in the errors array with partial data, because those are separate paths. Operation names must be explicit in queries.",
+      "revision": "Use MSW graphql handlers keyed by operation name, return data or errors in GraphQL shape, and cover both network and GraphQL errors.",
+      "detailed": "GraphQL usually posts to **one endpoint**, so URL-based mocks do not distinguish operations. Match on **operation name** instead.\n\n## Component and query\n\n```tsx\nimport { gql, useQuery } from '@apollo/client';\n\nexport const PRODUCT_QUERY = gql`\n  query ProductDetails($id: ID!) {\n    product(id: $id) { id name price }\n  }\n`;\n\nexport function ProductDetails({ id }: { id: string }) {\n  const { data, loading, error } = useQuery(PRODUCT_QUERY, { variables: { id } });\n  if (loading) return <p role=\"status\">Loading…</p>;\n  if (error) return <p role=\"alert\">Could not load product</p>;\n  return <h1>{data.product.name} – £{data.product.price}</h1>;\n}\n```\n\n## MSW handlers (v2 API; verify current docs)\n\n```ts\nimport { graphql, HttpResponse } from 'msw';\n\nexport const handlers = [\n  graphql.query('ProductDetails', ({ variables }) =>\n    HttpResponse.json({ data: { product: { id: variables.id, name: 'Kettle', price: 29 } } })),\n];\n\n// per-test override: GraphQL error\nserver.use(\n  graphql.query('ProductDetails', () =>\n    HttpResponse.json({ errors: [{ message: 'Not found' }] })),\n);\n```\n\n```tsx\ntest('shows the product name', async () => {\n  renderWithApollo(<ProductDetails id=\"7\" />);\n  expect(await screen.findByRole('heading', { name: /kettle/i })).toBeInTheDocument();\n});\n```\n\n{{diagram:gql}}\n\n## Points to cover\n\n| Case | How |\n|---|---|\n| Variables | Assert on `variables` in the handler or via UI outcome |\n| GraphQL errors | `errors` array, possibly with partial `data` |\n| Network error | `HttpResponse.error()` |\n| Mutations | `graphql.mutation('AddToBasket', ...)` |\n| Typed mocks | Use generated types (GraphQL Code Generator) to keep mocks honest |\n\n## Common mistakes\n\n- Anonymous operations, which cannot be matched by name.\n- Mocking data that no longer matches the schema.\n- Forgetting a fresh Apollo cache per test, causing cross-test leakage.",
+      "followUps": [
+        "How do you keep mocks in sync with the schema?",
+        "How would you test partial data with errors?",
+        "How do you mock subscriptions?"
+      ],
+      "related": [
+        "apollo-client-mockedprovider-vs-msw",
+        "msw-mock-service-worker-rest-and-product-search"
+      ],
+      "diagrams": [
+        {
+          "id": "gql",
+          "title": "GraphQL mock flow",
+          "alt": "The component runs a named GraphQL operation through its client. MSW intercepts the POST request, matches the operation name, and returns a GraphQL-shaped data or errors response that the client parses and the component renders.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "useQuery named operation"
+            },
+            {
+              "id": "n1",
+              "label": "POST /graphql"
+            },
+            {
+              "id": "n2",
+              "label": "MSW matches operation name"
+            },
+            {
+              "id": "n3",
+              "label": "data or errors response"
+            },
+            {
+              "id": "n4",
+              "label": "Component renders"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "apollo-client-mockedprovider-vs-msw",
+      "title": "Testing Apollo Client components: MockedProvider or MSW?",
+      "topic": "Apollo testing",
+      "difficulty": "advanced",
+      "type": "comparison",
+      "tags": [
+        "apollo",
+        "mockedprovider",
+        "msw",
+        "graphql"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "MockedProvider replaces the network link with an in-memory list of expected operations and variables, which is quick and needs no server setup, but requires exact matching of query documents and variables, and mocks are single-use by default. MSW exercises the real link, cache and parsing, and is reusable beyond tests. I use MockedProvider for narrow component tests and MSW when I want realism and shared handlers. Either way I create a fresh cache per test.",
+      "revision": "MockedProvider: quick, in-memory, exact matching, no real link. MSW: realistic, shared across tools. Always use a fresh cache per test.",
+      "detailed": "Both are valid; the trade-off is **simplicity versus realism**.\n\n| | MockedProvider | MSW |\n|---|---|---|\n| Layer mocked | Apollo link | Network |\n| Setup | Per test, inline | Server once, handlers |\n| Matching | Exact query and variables | Operation name, flexible logic |\n| Real link, cache, errors | Partly bypassed | Exercised |\n| Reuse (Storybook, dev) | Limited | Yes |\n| Typical failure | \"No more mocked responses\" | Unhandled request |\n\n## MockedProvider example\n\n```tsx\nimport { MockedProvider, MockedResponse } from '@apollo/client/testing';\n// Apollo Client 4 reorganised testing entry points; verify the import path for your version.\n\nconst mocks: MockedResponse[] = [\n  {\n    request: { query: PRODUCT_QUERY, variables: { id: '7' } },\n    result: { data: { product: { __typename: 'Product', id: '7', name: 'Kettle', price: 29 } } },\n  },\n];\n\ntest('renders product', async () => {\n  render(\n    <MockedProvider mocks={mocks}>\n      <ProductDetails id=\"7\" />\n    </MockedProvider>,\n  );\n  expect(await screen.findByRole('heading', { name: /kettle/i })).toBeInTheDocument();\n});\n\ntest('renders error', async () => {\n  const errorMock = { request: { query: PRODUCT_QUERY, variables: { id: '7' } }, error: new Error('boom') };\n  render(<MockedProvider mocks={[errorMock]}><ProductDetails id=\"7\" /></MockedProvider>);\n  expect(await screen.findByRole('alert')).toBeInTheDocument();\n});\n```\n\n{{diagram:choose}}\n\n## Gotchas\n\n- Include `__typename` and all selected fields, or the cache may warn or return partial data.\n- Each mock is consumed once unless configured otherwise (check the `maxUsageCount` option or equivalent in your version).\n- Disable or configure `addTypename` consistently between mocks and cache.\n- Mutations that refetch need a mock for the refetch too.\n\n## Recommendation\n\nUse MockedProvider for isolated component tests and error branches. Prefer MSW for feature-level tests, flows with several operations, and shared handlers across Jest, Storybook and Playwright.\n\n## Common mistakes\n\n- Reusing one client or cache between tests.\n- Forgetting variables so the mock does not match.\n- Testing the Apollo cache implementation rather than UI outcomes.",
+      "followUps": [
+        "Why does 'No more mocked responses' appear?",
+        "How do you test optimistic responses?",
+        "How do you test local state and reactive variables?"
+      ],
+      "related": [
+        "graphql-mocking-with-msw",
+        "testing-redux-components-and-rtk-query"
+      ],
+      "diagrams": [
+        {
+          "id": "choose",
+          "title": "MockedProvider or MSW",
+          "alt": "If the test is narrow and isolated, MockedProvider is enough. If it involves several operations, realism or shared handlers, MSW is better. Both need a fresh Apollo cache per test.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Component test needs GraphQL data"
+            },
+            {
+              "id": "n1",
+              "label": "Narrow and isolated?"
+            },
+            {
+              "id": "n2",
+              "label": "MockedProvider mocks"
+            },
+            {
+              "id": "n3",
+              "label": "Multi-operation or shared?"
+            },
+            {
+              "id": "n4",
+              "label": "MSW handlers"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "testing-redux-components-and-rtk-query",
+      "title": "How do you test Redux-connected components and RTK Query?",
+      "topic": "Redux testing",
+      "difficulty": "intermediate",
+      "type": "coding",
+      "tags": [
+        "redux",
+        "rtk-query",
+        "testing",
+        "store"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I render the component with a real store created by the same factory the app uses, optionally with a preloaded state, and assert on UI. I avoid mocking useSelector or useDispatch. For RTK Query I include the API reducer and middleware in the test store and mock the network with MSW, so caching, loading and error states are real. Reducers and selectors can be unit tested separately as pure functions.",
+      "revision": "Use a real store via a factory with preloadedState, a render helper with the Provider, MSW for RTK Query, and assert visible behaviour.",
+      "detailed": "Redux's own guidance favours testing with a **real store** and treating Redux as an implementation detail.\n\n## Store factory and render helper\n\n```tsx\n// store.ts\nimport { configureStore } from '@reduxjs/toolkit';\nimport { cartSlice } from './cartSlice';\nimport { api } from './api';\n\nexport const makeStore = (preloadedState?: Partial<RootState>) =>\n  configureStore({\n    reducer: { cart: cartSlice.reducer, [api.reducerPath]: api.reducer },\n    middleware: (gdm) => gdm().concat(api.middleware),\n    preloadedState,\n  });\nexport type RootState = ReturnType<ReturnType<typeof makeStore>['getState']>;\n```\n\n```tsx\n// test-utils.tsx\nimport { render } from '@testing-library/react';\nimport { Provider } from 'react-redux';\n\nexport function renderWithStore(ui: React.ReactElement, preloadedState?: Partial<RootState>) {\n  const store = makeStore(preloadedState);\n  return { store, ...render(<Provider store={store}>{ui}</Provider>) };\n}\n```\n\n## Component test\n\n```tsx\ntest('adds an item and updates the badge', async () => {\n  const user = userEvent.setup();\n  renderWithStore(<><ProductCard id=\"1\" name=\"Kettle\" /><CartBadge /></>);\n\n  await user.click(screen.getByRole('button', { name: /add kettle/i }));\n\n  expect(screen.getByRole('status', { name: /basket/i })).toHaveTextContent('1');\n});\n\ntest('shows persisted basket', () => {\n  renderWithStore(<CartBadge />, { cart: { items: [{ id: '1', qty: 3 }] } });\n  expect(screen.getByRole('status', { name: /basket/i })).toHaveTextContent('3');\n});\n```\n\n## RTK Query\n\n```tsx\ntest('lists products from the API', async () => {\n  server.use(http.get('/api/products', () => HttpResponse.json([{ id: 1, name: 'Kettle' }])));\n  renderWithStore(<ProductList />);\n  expect(await screen.findByText('Kettle')).toBeInTheDocument();\n});\n```\n\nCreate a fresh store per test (the API cache lives in it); consider `api.util.resetApiState()` if you share one.\n\n{{diagram:redux}}\n\n## Unit-test the pure parts\n\n```ts\nexpect(cartSlice.reducer(undefined, addItem({ id: '1' })).items).toHaveLength(1);\n```\n\n## Common mistakes\n\n- Mocking `react-redux` hooks, which tests nothing real.\n- A shared store between tests, causing leakage.\n- Asserting on `store.getState()` instead of the UI, except as a secondary check.\n- Omitting the API middleware, so queries never fire.",
+      "followUps": [
+        "When would you assert on store state?",
+        "How do you test thunks and listener middleware?",
+        "How do you test RTK Query cache invalidation?"
+      ],
+      "related": [
+        "testing-custom-react-hooks",
+        "loading-error-empty-states-testing"
+      ],
+      "diagrams": [
+        {
+          "id": "redux",
+          "title": "Redux test setup",
+          "alt": "A store factory creates a fresh store with optional preloaded state and the API middleware. A render helper wraps the component in a Provider. The test interacts through the UI and asserts on visible output.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "makeStore with preloadedState"
+            },
+            {
+              "id": "n1",
+              "label": "Provider render helper"
+            },
+            {
+              "id": "n2",
+              "label": "User interaction"
+            },
+            {
+              "id": "n3",
+              "label": "Dispatch and reducers run"
+            },
+            {
+              "id": "n4",
+              "label": "Assert visible UI"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "testing-custom-react-hooks",
+      "title": "How do you test custom React hooks?",
+      "topic": "Hook testing",
+      "difficulty": "intermediate",
+      "type": "coding",
+      "tags": [
+        "hooks",
+        "renderhook",
+        "testing"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I test a hook through renderHook from React Testing Library, which renders it in a tiny host component and exposes result.current. Updates go inside act, and async hooks use waitFor. When a hook needs context, I pass a wrapper. But if a hook is only used by one component, I often test it via that component's behaviour instead, since the user-visible outcome matters more than the hook's return shape.",
+      "revision": "Use renderHook with a wrapper for providers, act for updates, waitFor for async; or test via the consuming component when the hook is private.",
+      "detailed": "Hooks cannot be called outside components, so a host is needed. `renderHook` is exported from `@testing-library/react` in current versions (older code uses `@testing-library/react-hooks`, now deprecated).\n\n## Example hook\n\n```ts\nimport { useCallback, useState } from 'react';\n\nexport function useCounter(initial = 0, { min = 0, max = 10 } = {}) {\n  const [count, setCount] = useState(initial);\n  const increment = useCallback(() => setCount(c => Math.min(max, c + 1)), [max]);\n  const decrement = useCallback(() => setCount(c => Math.max(min, c - 1)), [min]);\n  return { count, increment, decrement };\n}\n```\n\n```ts\nimport { renderHook, act } from '@testing-library/react';\n\ntest('increments within bounds', () => {\n  const { result } = renderHook(() => useCounter(9, { max: 10 }));\n  act(() => result.current.increment());\n  act(() => result.current.increment());\n  expect(result.current.count).toBe(10);\n});\n\ntest('responds to prop changes', () => {\n  const { result, rerender } = renderHook(({ initial }) => useCounter(initial), { initialProps: { initial: 1 } });\n  expect(result.current.count).toBe(1);\n  rerender({ initial: 5 });\n  expect(result.current.count).toBe(1); // initial only applies on mount\n});\n```\n\n## Hooks with context and async work\n\n```tsx\nconst wrapper = ({ children }: { children: React.ReactNode }) => (\n  <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>\n    {children}\n  </QueryClientProvider>\n);\n\ntest('fetches user', async () => {\n  server.use(http.get('/api/me', () => HttpResponse.json({ name: 'Ada' })));\n  const { result } = renderHook(() => useCurrentUser(), { wrapper });\n  await waitFor(() => expect(result.current.data?.name).toBe('Ada'));\n});\n```\n\n{{diagram:hook}}\n\n## When to test through a component\n\nIf a hook exists only to serve one component, the component test already covers it with more realism. Test hooks directly when they are **shared, library-like or have tricky logic** (debounce, pagination, subscriptions).\n\n## Common mistakes\n\n- Destructuring `result.current` once, which goes stale; read it fresh.\n- Forgetting `act` for state updates.\n- Not creating a new QueryClient per test.\n- Testing implementation (calls to `useState`) rather than returned behaviour.",
+      "followUps": [
+        "How do you test a hook that uses timers?",
+        "How do you test cleanup on unmount?",
+        "Hook test or component test for a private hook?"
+      ],
+      "related": [
+        "testing-redux-components-and-rtk-query",
+        "async-testing-and-act-warnings"
+      ],
+      "diagrams": [
+        {
+          "id": "hook",
+          "title": "renderHook flow",
+          "alt": "renderHook mounts a host component that calls the hook, with an optional provider wrapper. The test reads result.current, triggers updates inside act, and awaits async changes with waitFor.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "renderHook with wrapper"
+            },
+            {
+              "id": "n1",
+              "label": "Read result.current"
+            },
+            {
+              "id": "n2",
+              "label": "act for updates"
+            },
+            {
+              "id": "n3",
+              "label": "waitFor for async"
+            },
+            {
+              "id": "n4",
+              "label": "Assert returned values"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "accessibility-testing-jest-axe-checkout-form",
+      "title": "How do you test accessibility with jest-axe, using an accessible checkout form as an example?",
+      "topic": "Accessibility testing",
+      "difficulty": "advanced",
+      "type": "coding",
+      "tags": [
+        "accessibility",
+        "jest-axe",
+        "forms",
+        "checkout"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I run axe on the rendered DOM with jest-axe to catch machine-detectable issues such as missing labels, invalid ARIA and poor contrast attributes, and I assert behaviour that axe cannot see: labels associate to inputs, errors are announced with role alert and linked via aria-describedby, focus moves to the first invalid field, and keyboard use works. Automated checks find only part of the problems, so they complement manual and screen-reader testing.",
+      "revision": "Run jest-axe for automatable rules, then assert labels, aria-invalid, announced errors, focus management and keyboard flow in RTL. Automation is partial.",
+      "detailed": "## What axe can and cannot do\n\naxe-core detects a **subset** of WCAG issues, commonly cited as a minority to around half depending on the measure. It cannot judge whether alt text is meaningful or whether focus order makes sense. Treat it as a regression net.\n\n## Accessible checkout form\n\n```tsx\nexport function CheckoutForm({ onSubmit }: { onSubmit: (v: Record<string, string>) => void }) {\n  const [errors, setErrors] = useState<Record<string, string>>({});\n  const postcodeRef = useRef<HTMLInputElement>(null);\n\n  function handle(e: React.FormEvent<HTMLFormElement>) {\n    e.preventDefault();\n    const data = Object.fromEntries(new FormData(e.currentTarget)) as Record<string, string>;\n    const next: Record<string, string> = {};\n    if (!/^[A-Z0-9 ]{3,8}$/i.test(data.postcode ?? '')) next.postcode = 'Enter a valid postcode';\n    setErrors(next);\n    if (next.postcode) postcodeRef.current?.focus(); else onSubmit(data);\n  }\n\n  return (\n    <form onSubmit={handle} noValidate aria-labelledby=\"checkout-title\">\n      <h2 id=\"checkout-title\">Delivery details</h2>\n      <label htmlFor=\"name\">Full name</label>\n      <input id=\"name\" name=\"name\" autoComplete=\"name\" required />\n      <label htmlFor=\"postcode\">Postcode</label>\n      <input\n        id=\"postcode\" name=\"postcode\" ref={postcodeRef} autoComplete=\"postal-code\"\n        aria-invalid={Boolean(errors.postcode)}\n        aria-describedby={errors.postcode ? 'postcode-error' : undefined}\n      />\n      {errors.postcode && <p id=\"postcode-error\" role=\"alert\">{errors.postcode}</p>}\n      <button type=\"submit\">Continue to payment</button>\n    </form>\n  );\n}\n```\n\n## Tests\n\n```tsx\nimport { axe, toHaveNoViolations } from 'jest-axe';\nexpect.extend(toHaveNoViolations);\n\ntest('has no detectable axe violations', async () => {\n  const { container } = render(<CheckoutForm onSubmit={jest.fn()} />);\n  expect(await axe(container)).toHaveNoViolations();\n});\n\ntest('announces error, links it to the field and moves focus', async () => {\n  const user = userEvent.setup();\n  const { container } = render(<CheckoutForm onSubmit={jest.fn()} />);\n  await user.type(screen.getByLabelText(/full name/i), 'Ada');\n  await user.click(screen.getByRole('button', { name: /continue to payment/i }));\n\n  const field = screen.getByLabelText(/postcode/i);\n  expect(screen.getByRole('alert')).toHaveTextContent(/valid postcode/i);\n  expect(field).toBeInvalid();\n  expect(field).toHaveAccessibleDescription(/valid postcode/i);\n  expect(field).toHaveFocus();\n  expect(await axe(container)).toHaveNoViolations(); // error state too\n});\n```\n\n{{diagram:a11y}}\n\n## Notes\n\n- jsdom does not compute layout or real colours, so colour-contrast rules do not work there; test contrast in a real browser (Playwright with axe, or Lighthouse).\n- `toHaveAccessibleDescription` comes from jest-dom; verify it exists in your version.\n- Run axe on **each state** (error, loading, dialog open).\n\n## Common mistakes\n\n- Treating a green axe run as compliance.\n- Testing only the initial state.\n- Using placeholder instead of label.\n- Silencing rules without a documented reason.",
+      "followUps": [
+        "What can axe not detect?",
+        "How would you run axe in Playwright?",
+        "How do you test focus return after closing a modal?"
+      ],
+      "related": [
+        "loading-error-empty-states-testing",
+        "rtl-queries-getby-findby-queryby"
+      ],
+      "diagrams": [
+        {
+          "id": "a11y",
+          "title": "Layered accessibility testing",
+          "alt": "Linting and jest-axe catch automatable issues, RTL assertions verify labels, errors and focus behaviour, browser tests check contrast and layout, and manual screen reader testing covers what automation cannot.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Lint rules in editor"
+            },
+            {
+              "id": "n1",
+              "label": "jest-axe on rendered states"
+            },
+            {
+              "id": "n2",
+              "label": "RTL behaviour assertions"
+            },
+            {
+              "id": "n3",
+              "label": "Browser axe for contrast"
+            },
+            {
+              "id": "n4",
+              "label": "Manual screen reader checks"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "snapshot-testing-trade-offs",
+      "title": "What are the trade-offs of snapshot testing in frontend projects?",
+      "topic": "Snapshots",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "snapshot",
+        "testing",
+        "maintenance",
+        "visual-regression"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Snapshots record output and fail when it changes. They are cheap to write and good for small, stable, serialisable output such as error messages, generated config, or a tiny presentational component. But large DOM snapshots are noisy, reviewers click update without reading, and they assert nothing about intent. I prefer explicit assertions for behaviour, inline snapshots for small values, and visual regression for appearance.",
+      "revision": "Snapshots are cheap but low-intent: use small, stable, inline ones; avoid large DOM snapshots and prefer explicit assertions or visual regression.",
+      "detailed": "A snapshot test says \"the output is the same as last time\", not \"the output is correct\".\n\n## Where they help and hurt\n\n| Good fit | Poor fit |\n|---|---|\n| Serialised data (API transforms, config) | Large component trees |\n| Error message formatting | Components with changing class names or ids |\n| Small design-system primitives | Whole pages |\n| Codemod and build output | Anything needing review of intent |\n\n```tsx\n// Fragile and noisy\nexpect(container).toMatchSnapshot();\n\n// Better: explicit and intentional\nexpect(screen.getByRole('alert')).toHaveTextContent('Payment declined');\n\n// Acceptable: small inline snapshot of a value\nexpect(formatAddress(addr)).toMatchInlineSnapshot(`\"221B Baker Street, London NW1 6XE\"`);\n```\n\n{{diagram:snap}}\n\n## Making snapshots work\n\n- Keep them **small and focused**; snapshot one element or value.\n- Prefer **inline** snapshots so they are visible in review.\n- Treat updates as code changes: read the diff.\n- Use visual regression tools (Playwright screenshots, Chromatic or similar) for appearance, which measure what users see.\n- Avoid snapshotting values that vary, such as dates or random ids; mock them.\n- Delete obsolete snapshots in CI (`--ci` prevents silent writing).\n\n## Why teams drift into trouble\n\nHundreds of snapshot files grow, nobody reviews them, and `jest -u` becomes a reflex. The suite then passes while hiding real regressions.\n\n## Common mistakes\n\n- Snapshotting to reach a coverage number.\n- Snapshotting third-party component internals.\n- Committing snapshot updates without review.\n- Using snapshots instead of testing behaviour.",
+      "followUps": [
+        "When is a snapshot appropriate for a design system?",
+        "How do you review snapshot diffs effectively?",
+        "Snapshot or visual regression for a component library?"
+      ],
+      "related": [
+        "code-coverage-limitations",
+        "sustainable-testing-strategy-large-team"
+      ],
+      "diagrams": [
+        {
+          "id": "snap",
+          "title": "Snapshot lifecycle",
+          "alt": "A test renders output and compares it to the stored snapshot. If it differs, the developer must decide whether the change is intended and update the snapshot, or fix a regression.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Render output"
+            },
+            {
+              "id": "n1",
+              "label": "Compare with stored snapshot"
+            },
+            {
+              "id": "n2",
+              "label": "Diff found"
+            },
+            {
+              "id": "n3",
+              "label": "Developer reviews"
+            },
+            {
+              "id": "n4",
+              "label": "Update or fix code"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "contract-testing-pact-consumer-driven",
+      "title": "What is contract testing, and how does consumer-driven testing with Pact work?",
+      "topic": "Contract testing",
+      "difficulty": "advanced",
+      "type": "conceptual",
+      "tags": [
+        "contract-testing",
+        "pact",
+        "api",
+        "microservices"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Contract testing checks that a consumer's expectations of an API and the provider's real behaviour agree, without running both in a shared environment. In consumer-driven contracts, the frontend writes tests describing the requests it makes and the responses it needs; Pact records them as a contract file. The provider replays that contract against its real implementation in its own pipeline. A broker shares contracts and a can-i-deploy check blocks incompatible releases.",
+      "revision": "Consumer tests generate a contract; the provider verifies it in its own CI; a broker and can-i-deploy gate releases. It catches API drift without full e2e.",
+      "detailed": "End-to-end tests find API drift late and flakily. **Contract tests** catch it early, per service pair.\n\n## Consumer-driven flow\n\n{{diagram:pact}}\n\n1. **Consumer test**: frontend code runs against a Pact mock server and records the interactions it relies on.\n2. **Contract**: a JSON pact file generated by the test run.\n3. **Publish** to a Pact Broker (or a hosted equivalent).\n4. **Provider verification**: provider CI replays each interaction against its real API with prepared state.\n5. **can-i-deploy**: deployment gate that checks verified compatibility.\n\n## Consumer example (Pact JS; API evolves, verify docs)\n\n```ts\nimport { PactV3, MatchersV3 } from '@pact-foundation/pact';\nconst { like, eachLike } = MatchersV3;\n\nconst provider = new PactV3({ consumer: 'web-shop', provider: 'catalogue-api' });\n\ntest('fetches products', async () => {\n  provider\n    .given('products exist')\n    .uponReceiving('a request for products')\n    .withRequest({ method: 'GET', path: '/products' })\n    .willRespondWith({\n      status: 200,\n      headers: { 'Content-Type': 'application/json' },\n      body: eachLike({ id: like(1), name: like('Kettle'), price: like(29.5) }),\n    });\n\n  await provider.executeTest(async (mock) => {\n    const products = await fetchProducts(mock.url);\n    expect(products[0]).toHaveProperty('name');\n  });\n});\n```\n\n## Where it fits\n\n| Question | Tool |\n|---|---|\n| Does my UI work with this response shape? | Integration test with MSW |\n| Does the real API still honour that shape? | Contract test |\n| Does the whole journey work? | E2E |\n\nAlternatives: OpenAPI-based validation, schema checks in CI, or bi-directional contracts; GraphQL teams use schema diffing and operation checks.\n\n## Common mistakes\n\n- Contracting every field instead of what the consumer uses.\n- Exact values where matchers (types, regex) suffice, making tests brittle.\n- Skipping provider states.\n- Treating Pact as functional testing of the provider.",
+      "followUps": [
+        "Why use matchers rather than exact values?",
+        "How does a bi-directional contract differ?",
+        "How would contract tests work with GraphQL?"
+      ],
+      "related": [
+        "api-integration-tests-supertest",
+        "playwright-vs-cypress"
+      ],
+      "diagrams": [
+        {
+          "id": "pact",
+          "title": "Pact consumer-driven flow",
+          "alt": "The consumer test writes a contract file, which is published to a broker. The provider pipeline verifies the contract against its real API and reports back. A can-i-deploy check uses the results to allow or block releases.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Consumer test"
+            },
+            {
+              "id": "n1",
+              "label": "Contract file"
+            },
+            {
+              "id": "n2",
+              "label": "Pact broker"
+            },
+            {
+              "id": "n3",
+              "label": "Provider verification"
+            },
+            {
+              "id": "n4",
+              "label": "can-i-deploy gate"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "api-integration-tests-supertest",
+      "title": "How do you write API integration tests with supertest?",
+      "topic": "API testing",
+      "difficulty": "intermediate",
+      "type": "coding",
+      "tags": [
+        "supertest",
+        "api",
+        "node",
+        "integration"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Supertest drives an HTTP app in process without binding a fixed port, so I can send real requests through routing, middleware, validation and serialisation and assert status, headers and body. I export the app separately from the server listener, use a disposable test database or containers, reset data between tests, and stub only external third parties. It covers the backend layer that a frontend relies on, including auth and error shapes.",
+      "revision": "Export the app without listen, send requests with supertest, use a disposable database with reset per test, stub external services, assert status, headers and body.",
+      "detailed": "Supertest suits Express, Fastify (via its server instance) and similar Node HTTP apps.\n\n## Structure\n\n```ts\n// app.ts\nexport function buildApp(deps: { orders: OrderRepo }) {\n  const app = express();\n  app.use(express.json());\n  app.post('/orders', requireAuth, async (req, res) => {\n    const parsed = OrderSchema.safeParse(req.body);\n    if (!parsed.success) return res.status(422).json({ errors: parsed.error.flatten() });\n    const order = await deps.orders.create(parsed.data, req.user.id);\n    res.status(201).location(`/orders/${order.id}`).json(order);\n  });\n  return app;\n}\n// server.ts: buildApp(...).listen(3000)\n```\n\n```ts\nimport request from 'supertest';\n\ndescribe('POST /orders', () => {\n  const app = buildApp({ orders: new InMemoryOrderRepo() });\n  const token = signTestToken({ sub: 'user-1' });\n\n  it('creates an order', async () => {\n    const res = await request(app)\n      .post('/orders')\n      .set('Authorization', `Bearer ${token}`)\n      .send({ items: [{ sku: 'K1', qty: 2 }] })\n      .expect(201)\n      .expect('Content-Type', /json/);\n\n    expect(res.body).toMatchObject({ status: 'pending' });\n    expect(res.headers.location).toMatch(/^\\/orders\\//);\n  });\n\n  it('rejects invalid payload', async () => {\n    const res = await request(app).post('/orders').set('Authorization', `Bearer ${token}`).send({ items: [] });\n    expect(res.status).toBe(422);\n  });\n\n  it('requires authentication', async () => {\n    await request(app).post('/orders').send({}).expect(401);\n  });\n});\n```\n\n{{diagram:api}}\n\n## Data and environment\n\n| Concern | Approach |\n|---|---|\n| Database | Containers (Testcontainers) or a per-run schema; run migrations first |\n| Isolation | Transaction rollback or truncate per test |\n| External APIs | Stub with nock or MSW in Node |\n| Time and randomness | Inject clock and id generator |\n| Parallelism | One database or schema per worker |\n\n## Common mistakes\n\n- Calling `app.listen` in the module under test, causing port conflicts.\n- Sharing mutable state across tests.\n- Asserting only status codes, not error body shape that clients depend on.\n- Mocking the database so heavily that queries are never exercised.",
+      "followUps": [
+        "In-memory fake or real database for these tests?",
+        "How do you test file uploads?",
+        "How would you test rate limiting?"
+      ],
+      "related": [
+        "contract-testing-pact-consumer-driven",
+        "test-data-and-environment-management"
+      ],
+      "diagrams": [
+        {
+          "id": "api",
+          "title": "Supertest request path",
+          "alt": "A supertest request goes in process through routing, authentication middleware, validation and the handler to a repository backed by a disposable database, and the response status and body are asserted.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "supertest request"
+            },
+            {
+              "id": "n1",
+              "label": "Routing and auth"
+            },
+            {
+              "id": "n2",
+              "label": "Validation"
+            },
+            {
+              "id": "n3",
+              "label": "Handler and repository"
+            },
+            {
+              "id": "n4",
+              "label": "Disposable database"
+            },
+            {
+              "id": "n5",
+              "label": "Assert response"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            },
+            {
+              "from": "n4",
+              "to": "n5"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "playwright-vs-cypress",
+      "title": "Playwright versus Cypress for end-to-end testing: how do you choose?",
+      "topic": "E2E tooling",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "playwright",
+        "cypress",
+        "e2e",
+        "tooling"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Both are mature. Playwright runs outside the browser, supports Chromium, Firefox and WebKit, multiple tabs and contexts, parallelism and sharding out of the box, and several languages. Cypress runs inside the browser with an excellent interactive runner and time-travel debugging, but historically has had tighter limits on multi-tab and cross-origin flows. I decide by browser coverage needs, parallelism, team skills and debugging experience, and verify current capabilities, since both evolve fast.",
+      "revision": "Playwright: multi-browser, multi-tab, built-in parallelism, auto-wait. Cypress: great interactive runner and DX. Choose by browser needs, scale and team.",
+      "detailed": "Both offer auto-waiting, network interception, screenshots and CI support. Details change between releases, so **verify current documentation**.\n\n| Aspect | Playwright | Cypress |\n|---|---|---|\n| Architecture | Controls browser through protocol, out of process | Runs in the browser with a Node helper |\n| Browsers | Chromium, Firefox, WebKit | Chromium family, Firefox; WebKit experimental (check current status) |\n| Multi-tab, multi-origin | Native, via contexts and pages | Improved over time, with constraints |\n| Parallelism | Built in, with sharding | Parallelisation commonly via paid dashboard or CI splitting |\n| Languages | TypeScript, JavaScript, Python, Java, .NET | JavaScript, TypeScript |\n| Debugging | Trace viewer, inspector, codegen | Interactive runner, time travel |\n| Component testing | Available (experimental in some versions) | Mature component testing |\n\n{{diagram:e2e}}\n\n## Same test in both\n\n```ts\n// Playwright\ntest('search shows results', async ({ page }) => {\n  await page.goto('/');\n  await page.getByRole('searchbox', { name: 'Search' }).fill('kettle');\n  await page.keyboard.press('Enter');\n  await expect(page.getByRole('link', { name: /kettle/i }).first()).toBeVisible();\n});\n```\n\n```ts\n// Cypress\nit('search shows results', () => {\n  cy.visit('/');\n  cy.findByRole('searchbox', { name: 'Search' }).type('kettle{enter}'); // @testing-library/cypress\n  cy.contains('a', /kettle/i).should('be.visible');\n});\n```\n\n## Choosing\n\n- Need Safari or WebKit coverage, multi-user flows, or heavy parallelism: **Playwright**.\n- Team values an interactive runner and has strong Cypress experience: **Cypress**.\n- Existing suite: migrating has a cost; measure flakiness and run time before deciding.\n\n## Practices regardless of tool\n\nUse role-based locators, isolate test data, avoid arbitrary waits, stub third parties, keep tests independent, and limit e2e to critical journeys.\n\n## Common mistakes\n\n- Choosing by popularity alone.\n- Porting selectors based on CSS classes.\n- Running the full suite serially in CI.\n- Sharing login state without refreshing it.",
+      "followUps": [
+        "How do you share authenticated state across tests?",
+        "How would you migrate a Cypress suite?",
+        "What goes into the trace you collect on failure?"
+      ],
+      "related": [
+        "flaky-tests-diagnosis",
+        "ci-quality-gates-for-frontend"
+      ],
+      "diagrams": [
+        {
+          "id": "e2e",
+          "title": "E2E tool decision",
+          "alt": "The team lists browser coverage, multi-tab needs, parallelism and debugging preferences, evaluates both tools on a trial journey, and chooses based on measured run time and flakiness.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Requirements"
+            },
+            {
+              "id": "n1",
+              "label": "Trial critical journey"
+            },
+            {
+              "id": "n2",
+              "label": "Compare time, flakiness, DX"
+            },
+            {
+              "id": "n3",
+              "label": "Choose and standardise"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "code-coverage-limitations",
+      "title": "What are the limitations of code coverage as a quality metric?",
+      "topic": "Coverage",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "coverage",
+        "metrics",
+        "quality",
+        "mutation-testing"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Coverage shows which lines ran, not whether behaviour was verified. A test with no assertions can reach 100 percent, and untested logic such as race conditions, accessibility, integration wiring or missing branches can sit inside covered lines. Chasing a target encourages shallow tests and snapshots. I use coverage to find untested areas, set a modest floor or enforce coverage on changed code, and complement it with mutation testing, risk-based review and escaped-defect tracking.",
+      "revision": "Coverage measures execution, not verification. Use it to find gaps, gate changed code modestly, and add mutation testing and defect data.",
+      "detailed": "Coverage answers \"what code did tests execute?\", which is a **necessary but not sufficient** quality signal.\n\n## Metrics\n\n| Metric | Meaning | Weakness |\n|---|---|---|\n| Line or statement | Lines run | Ignores conditions |\n| Branch | Each if or ternary side taken | Does not check outputs |\n| Function | Functions called | Ignores arguments |\n| Mutation score | Share of injected bugs the tests catch | Slow to compute |\n\n## Example of misleading coverage\n\n```ts\nexport function applyDiscount(total: number, code: string) {\n  if (code === 'SAVE10') return total * 0.9;\n  return total;\n}\n\ntest('runs', () => {\n  applyDiscount(100, 'SAVE10');\n  applyDiscount(100, 'NOPE');\n  // no assertions: 100% line and branch coverage, zero verification\n});\n```\n\n{{diagram:cov}}\n\n## Better uses\n\n- **Find gaps**: look at uncovered critical modules, not the percentage.\n- **Diff coverage**: require coverage on new or changed lines (tools such as Codecov or custom scripts) rather than a global target.\n- **Mutation testing** (for example Stryker) to evaluate test strength; run on critical modules because of cost.\n- **Track escaped defects** and add tests for each.\n- Exclude generated code and trivial files deliberately, with review.\n\n## Frontend-specific blind spots\n\nCSS and layout, accessibility, browser differences, async timing, and integration with the real backend are not shown by line coverage.\n\n## Goodhart's law\n\nWhen a measure becomes a target, it ceases to be a good measure: teams add assertion-free tests or snapshots to hit a number.\n\n## Common mistakes\n\n- Setting a 90 percent global gate and mandating it.\n- Counting e2e and unit coverage together without understanding.\n- Ignoring branch coverage.\n- Treating 100 percent as safety.",
+      "followUps": [
+        "How would you introduce mutation testing without slowing CI?",
+        "What threshold would you pick and why?",
+        "How do you measure test effectiveness besides coverage?"
+      ],
+      "related": [
+        "snapshot-testing-trade-offs",
+        "ci-quality-gates-for-frontend"
+      ],
+      "diagrams": [
+        {
+          "id": "cov",
+          "title": "Coverage versus confidence",
+          "alt": "Coverage reports show executed code. Reviewing untested critical paths, enforcing diff coverage and running mutation tests then indicate whether tests actually verify behaviour, which leads to confidence.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Coverage report"
+            },
+            {
+              "id": "n1",
+              "label": "Review untested critical code"
+            },
+            {
+              "id": "n2",
+              "label": "Diff coverage on changes"
+            },
+            {
+              "id": "n3",
+              "label": "Mutation testing"
+            },
+            {
+              "id": "n4",
+              "label": "Confidence in tests"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "flaky-tests-diagnosis",
+      "title": "How do you diagnose and fix flaky tests?",
+      "topic": "Test reliability",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "flaky-tests",
+        "reliability",
+        "ci",
+        "debugging"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "A flaky test passes and fails with no code change. I first quantify it by rerunning and tracking failure rate, quarantine it so it does not block the team, and then find the cause: timing and race conditions, shared state, test order, uncontrolled time or randomness, network or third parties, animation, resource limits on CI. I fix the root cause with deterministic waits on conditions, isolation, mocks and clock control. Blind retries only hide the problem.",
+      "revision": "Measure and quarantine, then find the root cause: timing, shared state, order, time, network or CI resources. Fix deterministically; retries only mask.",
+      "detailed": "Flakiness destroys trust: people rerun, ignore red builds and real bugs slip through.\n\n## Process\n\n{{diagram:flaky}}\n\n1. **Detect and measure**: track pass rate per test in CI history; rerun suspects many times locally (`--repeat-each` in Playwright, `--runInBand` or loops in Jest).\n2. **Quarantine**: move to a non-blocking job with an owner and deadline.\n3. **Reproduce**: match CI conditions (CPU limits, parallelism, seed, order, headless).\n4. **Find cause** with traces, videos, logs and `--randomize` order.\n5. **Fix and verify** with many repeated passes.\n\n## Common causes and fixes\n\n| Cause | Symptom | Fix |\n|---|---|---|\n| Fixed sleeps | Fails when CI slow | Wait for conditions (`findBy`, auto-waiting locators) |\n| Race with network | Different order of responses | Control mocks, await specific responses |\n| Shared state | Passes alone, fails together | Reset stores, DB, local storage per test |\n| Order dependence | Fails when order changes | Independent setup |\n| Time and randomness | Midnight or DST failures | Fake timers, injected clock, seeded random |\n| Animations | Clicks miss | Disable animations in test mode |\n| Third-party services | Intermittent errors | Stub or contract-test them |\n| Resource starvation | Timeouts only on CI | Fewer workers, larger runners |\n| Unstable selectors | Dynamic ids or lists | Role locators, stable attributes |\n\n```ts\n// Flaky\nawait page.click('#pay');\nawait page.waitForTimeout(2000);\nexpect(await page.textContent('.status')).toBe('Paid');\n\n// Deterministic\nawait page.getByRole('button', { name: 'Pay' }).click();\nawait expect(page.getByRole('status')).toHaveText('Paid');\n```\n\n## Policy\n\n- Allow limited retries in CI for e2e, but **report** tests that needed retries.\n- Treat flaky-test rate as a team metric.\n- Do not delete tests silently; fix or consciously remove.\n\n## Common mistakes\n\n- Increasing timeouts as the first fix.\n- Rerunning until green.\n- Leaving flaky tests in the blocking path indefinitely.\n- Ignoring that some flakiness is a real race bug in the product.",
+      "followUps": [
+        "How do you decide between fixing and deleting a flaky test?",
+        "How would you reproduce a CI-only failure?",
+        "Should e2e retries be enabled?"
+      ],
+      "related": [
+        "playwright-vs-cypress",
+        "ci-quality-gates-for-frontend"
+      ],
+      "diagrams": [
+        {
+          "id": "flaky",
+          "title": "Flaky test process",
+          "alt": "The team measures failure rate, quarantines the test, reproduces it under CI conditions, finds the root cause using traces and logs, fixes it deterministically, and verifies with repeated runs before restoring it to the blocking suite.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Measure failure rate"
+            },
+            {
+              "id": "n1",
+              "label": "Quarantine"
+            },
+            {
+              "id": "n2",
+              "label": "Reproduce under CI conditions"
+            },
+            {
+              "id": "n3",
+              "label": "Find root cause"
+            },
+            {
+              "id": "n4",
+              "label": "Fix and repeat-run"
+            },
+            {
+              "id": "n5",
+              "label": "Restore to blocking suite"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            },
+            {
+              "from": "n4",
+              "to": "n5"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "ci-quality-gates-for-frontend",
+      "title": "What quality gates would you put in a frontend CI pipeline?",
+      "topic": "CI",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "ci",
+        "quality-gates",
+        "pipeline",
+        "automation"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I layer gates by speed: on every commit run format, lint, type check and unit and integration tests; on pull requests add build, bundle size budget, accessibility checks and diff coverage; before release run a thin end-to-end smoke suite, visual regression where valuable, and dependency and security scans. Gates must be fast, reliable and owned. Flaky or slow gates get fixed or demoted, otherwise people learn to bypass them.",
+      "revision": "Fast checks first (lint, types, tests), then build, bundle budget, a11y, diff coverage, e2e smoke and security scans. Keep gates fast, stable and owned.",
+      "detailed": "A gate is a check that **blocks merge or release**. Choose gates by risk and cost.\n\n{{diagram:ci}}\n\n## Layered pipeline\n\n| Stage | Checks | Target time |\n|---|---|---|\n| Pre-commit (optional) | Format, lint staged files | Seconds |\n| Pull request: fast | Install with cache, type check, lint, unit and integration tests | A few minutes |\n| Pull request: build | Production build, bundle size budget, dependency audit | A few minutes |\n| Pull request: quality | Diff coverage, jest-axe, Storybook tests, visual regression | Minutes |\n| Pre-release | E2E smoke on deployed preview, performance budget (Lighthouse CI) | Minutes |\n| Post-release | Synthetic monitoring, error rate, rollback criteria | Continuous |\n\n## Example workflow fragment\n\n```yaml\njobs:\n  verify:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions/setup-node@v4\n        with: { node-version: 22, cache: npm }\n      - run: npm ci\n      - run: npm run typecheck\n      - run: npm run lint\n      - run: npm test -- --ci --coverage\n      - run: npm run build\n  e2e:\n    needs: verify\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - run: npm ci && npx playwright install --with-deps\n      - run: npx playwright test --shard=1/2\n```\n\nAction versions change; verify current ones.\n\n## Principles\n\n- **Fast feedback**: slow pipelines get bypassed. Parallelise and cache.\n- **Deterministic**: a gate that fails randomly is worse than none.\n- **Meaningful thresholds**: diff coverage and budgets, not arbitrary global numbers.\n- **Preview environments** per pull request for e2e and review.\n- **Branch protection**: required checks, reviews, no direct pushes.\n- **Visibility**: dashboards for duration, flakiness and failure causes.\n\n## Common mistakes\n\n- Running every test type on every commit.\n- Allowing admin overrides habitually.\n- No ownership for failing gates.\n- Gates that check style but not behaviour.",
+      "followUps": [
+        "How do you keep pipeline time under ten minutes?",
+        "What would block a release but not a merge?",
+        "How do you handle a gate that the team resents?"
+      ],
+      "related": [
+        "flaky-tests-diagnosis",
+        "test-data-and-environment-management"
+      ],
+      "diagrams": [
+        {
+          "id": "ci",
+          "title": "CI quality gate stages",
+          "alt": "A commit triggers lint, type check and unit tests. A pull request adds build, bundle budget, accessibility checks and diff coverage. A preview environment runs end-to-end smoke tests before release, followed by monitoring.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Commit: lint, types, unit"
+            },
+            {
+              "id": "n1",
+              "label": "PR: build and budgets"
+            },
+            {
+              "id": "n2",
+              "label": "PR: a11y and diff coverage"
+            },
+            {
+              "id": "n3",
+              "label": "Preview: e2e smoke"
+            },
+            {
+              "id": "n4",
+              "label": "Release and monitor"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "test-data-and-environment-management",
+      "title": "How do you manage test data and test environments for frontend and API tests?",
+      "topic": "Test data",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "test-data",
+        "environments",
+        "fixtures",
+        "factories"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I want each test to own its data and run independently. Unit and integration tests use factories and builders with sensible defaults and explicit overrides, plus mocked network. For e2e, I seed data through APIs or database scripts per test or worker, use unique identifiers, and clean up or use disposable environments. Preview environments per pull request, containers, and synthetic accounts for production-like smoke tests keep suites reliable, with no real personal data.",
+      "revision": "Own data per test via factories, seed through APIs, isolate per worker, use disposable preview environments, avoid shared mutable data and real personal data.",
+      "detailed": "Unreliable data is a leading cause of flaky and slow suites.\n\n## Principles\n\n| Principle | Practice |\n|---|---|\n| Test owns its data | Create what it needs; do not depend on leftovers |\n| Isolation | Unique ids, per-worker schemas or accounts |\n| Realistic but safe | Synthetic data; never copy unmasked production data |\n| Cheap setup | Seed through API or database, not UI clicks |\n| Repeatable | Reset or disposable environments |\n\n## Factories\n\n```ts\nimport { faker } from '@faker-js/faker';\n\nexport const buildUser = (over: Partial<User> = {}): User => ({\n  id: faker.string.uuid(),\n  name: faker.person.fullName(),\n  email: faker.internet.email(),\n  role: 'customer',\n  ...over,\n});\n\nconst admin = buildUser({ role: 'admin' });\n```\n\nSeed random generators (`faker.seed(42)`) for reproducibility where needed.\n\n## E2E data strategy\n\n```ts\n// Playwright fixture: create user via API, not UI\nexport const test = base.extend<{ user: User }>({\n  user: async ({ request }, use) => {\n    const res = await request.post('/api/test/users', { data: buildUser() });\n    const user = await res.json();\n    await use(user);\n    await request.delete(`/api/test/users/${user.id}`);\n  },\n});\n```\n\nExpose test-only endpoints only in non-production environments and protect them.\n\n{{diagram:env}}\n\n## Environments\n\n| Environment | Use |\n|---|---|\n| Local with mocks | Developer loop |\n| CI containers (database, services) | Integration and API tests |\n| Preview per pull request | E2E, review, accessibility |\n| Staging | Release smoke, integration with third-party sandboxes |\n| Production | Synthetic monitoring with dedicated test accounts |\n\n## Third parties\n\nUse provider sandboxes or stubs; record outbound webhooks; contract-test boundaries.\n\n## Common mistakes\n\n- One shared test account used by every parallel worker.\n- UI-driven setup for every test, making suites slow.\n- Tests depending on production-like data that drifts.\n- Real customer data in test databases.",
+      "followUps": [
+        "How do you handle data that cannot be deleted, such as payments?",
+        "How do you parallelise e2e tests safely?",
+        "How would you anonymise production data for testing?"
+      ],
+      "related": [
+        "api-integration-tests-supertest",
+        "ci-quality-gates-for-frontend"
+      ],
+      "diagrams": [
+        {
+          "id": "env",
+          "title": "Test environment ladder",
+          "alt": "Developers use local mocks, CI uses containers for integration tests, pull requests get disposable preview environments for end-to-end tests, staging runs release smoke tests, and production uses synthetic monitoring accounts.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Local with mocks"
+            },
+            {
+              "id": "n1",
+              "label": "CI containers"
+            },
+            {
+              "id": "n2",
+              "label": "Preview per PR"
+            },
+            {
+              "id": "n3",
+              "label": "Staging"
+            },
+            {
+              "id": "n4",
+              "label": "Production synthetic checks"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "sustainable-testing-strategy-large-team",
+      "title": "How do you build a sustainable testing strategy across a large frontend team?",
+      "topic": "Strategy",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "strategy",
+        "team",
+        "governance",
+        "testing"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I define a shared strategy, not a number: which risks each layer covers, conventions for naming, queries and mocks, and test utilities everyone reuses. Developers own tests for their code, with a platform group providing tooling, fast CI and flaky-test triage. I track reliability, duration and escaped defects, not only coverage. Critical journeys get e2e and contract tests, and reviews check test quality. The suite is maintained like production code, including deleting low-value tests.",
+      "revision": "Shared risk-based strategy, common utilities and conventions, developer-owned tests, platform support, metrics on reliability and escaped defects, regular pruning.",
+      "detailed": "Scaling testing is mostly **people and process**.\n\n## Pillars\n\n{{diagram:strategy}}\n\n| Pillar | Practices |\n|---|---|\n| Strategy | Written test guide: layers, risk matrix, what not to test |\n| Tooling | Shared render helpers, MSW handlers, factories, lint rules (`eslint-plugin-testing-library`) |\n| Ownership | Feature teams own tests; platform team owns pipeline and tooling |\n| Quality | Review checklist, mutation testing on critical code, pairing |\n| Feedback | Fast CI, flaky quarantine, dashboards |\n| Evolution | Pruning, migrating off deprecated patterns, regular retros |\n\n## Risk-based allocation\n\n| Area | Emphasis |\n|---|---|\n| Pricing, checkout, auth | Unit, integration, e2e, contract |\n| Design system components | Integration, accessibility, visual regression |\n| Internal admin pages | Light integration |\n| Pure utilities | Unit |\n\n## Metrics that matter\n\n- **Escaped defects** and their root-cause layer.\n- **Flaky rate** and **pipeline duration**.\n- **Time to feedback** for developers.\n- **Diff coverage** rather than global coverage.\n- **Mean time to repair** broken tests.\n\n## Review checklist for tests\n\n1. Does it fail for the right reason? (Try breaking the code.)\n2. Does it assert behaviour, not implementation?\n3. Is data owned by the test?\n4. Is it at the cheapest effective layer?\n5. Is it readable as documentation?\n\n## Culture\n\nMake writing tests easy: templates, generators, a \"how to test X\" cookbook. Celebrate deleting redundant tests. Treat a red build as a team priority.\n\n## Common mistakes\n\n- Mandating a coverage percentage as the strategy.\n- A central QA team writing all tests after the fact.\n- Every team inventing its own mocks and conventions.\n- Never removing obsolete tests, so the suite slows and rots.",
+      "followUps": [
+        "How would you migrate from Enzyme to RTL across many teams?",
+        "How do you measure whether testing is paying off?",
+        "How do you handle teams with different maturity?"
+      ],
+      "related": [
+        "testing-pyramid-vs-testing-trophy",
+        "flaky-tests-diagnosis",
+        "ci-quality-gates-for-frontend"
+      ],
+      "diagrams": [
+        {
+          "id": "strategy",
+          "title": "Sustainable testing strategy",
+          "alt": "A written strategy and shared tooling guide feature teams, who own their tests. A platform group maintains the pipeline. Metrics on flakiness and escaped defects feed regular pruning and improvement.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "n0",
+              "label": "Written risk-based strategy"
+            },
+            {
+              "id": "n1",
+              "label": "Shared tooling and conventions"
+            },
+            {
+              "id": "n2",
+              "label": "Team-owned tests"
+            },
+            {
+              "id": "n3",
+              "label": "Fast, reliable CI"
+            },
+            {
+              "id": "n4",
+              "label": "Metrics and review"
+            },
+            {
+              "id": "n5",
+              "label": "Prune and improve"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n0",
+              "to": "n1"
+            },
+            {
+              "from": "n1",
+              "to": "n2"
+            },
+            {
+              "from": "n2",
+              "to": "n3"
+            },
+            {
+              "from": "n3",
+              "to": "n4"
+            },
+            {
+              "from": "n4",
+              "to": "n5"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

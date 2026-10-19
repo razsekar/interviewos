@@ -1,0 +1,1022 @@
+{
+  "category": "react",
+  "questions": [
+    {
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "slug": "controlled-vs-uncontrolled-components",
+      "title": "Controlled vs uncontrolled components: how do they differ and when do you use each?",
+      "topic": "Forms and inputs",
+      "difficulty": "beginner",
+      "type": "comparison",
+      "tags": [
+        "react",
+        "forms",
+        "controlled-components",
+        "refs"
+      ],
+      "quick": "A controlled input gets its value from React state and reports every change through onChange, so React is the single source of truth. An uncontrolled input keeps its value in the DOM, and I read it through a ref or FormData when I need it. I use controlled inputs when I need live validation, formatting or dependent fields, and uncontrolled ones for simple submit-only forms, file inputs, or very large forms where a render per keystroke is wasteful.",
+      "revision": "Controlled: value in React state, updated via onChange. Uncontrolled: value lives in the DOM, read through a ref or FormData on demand.",
+      "detailed": "A **controlled** component renders its form value from props or state and updates it through an event handler. An **uncontrolled** component lets the browser own the value; React only sets an optional initial value with defaultValue.\n\n## Comparison\n\n| Aspect | Controlled | Uncontrolled |\n|---|---|---|\n| Source of truth | React state | The DOM node |\n| Value prop | value + onChange | defaultValue (optional) |\n| Render per keystroke | Yes, for the owning component | No |\n| Live validation or masking | Easy | Awkward |\n| File inputs | Not possible (read-only value) | The normal approach |\n| Reset or programmatic set | Set state | Use a ref or form.reset() |\n\n## Controlled example\n\n```tsx\nfunction NameField() {\n  const [name, setName] = useState('');\n  const invalid = name.trim().length === 0;\n  return (\n    <label>\n      Name\n      <input value={name} onChange={(e) => setName(e.target.value)} aria-invalid={invalid} />\n    </label>\n  );\n}\n```\n\n## Uncontrolled example\n\n```tsx\nfunction SearchForm({ onSearch }: { onSearch: (q: string) => void }) {\n  return (\n    <form\n      onSubmit={(e) => {\n        e.preventDefault();\n        const q = new FormData(e.currentTarget).get('q');\n        onSearch(String(q ?? ''));\n      }}\n    >\n      <input name=\"q\" defaultValue=\"\" />\n      <button type=\"submit\">Search</button>\n    </form>\n  );\n}\n```\n\n## How to choose\n\n- Choose controlled when the UI must react to each change: character counters, dependent dropdowns, input masks, disabling a button until valid.\n- Choose uncontrolled for submit-only forms, file uploads, and integrating with non-React widgets.\n- Large forms often use libraries (for example react-hook-form) that register inputs as uncontrolled to avoid re-rendering the whole form on each key press. Verify the current library docs for details.\n\n## Common mistakes\n\n- Setting value without onChange, which makes the input read-only and triggers a React warning.\n- Switching from undefined to a defined value, which flips an input from uncontrolled to controlled. Initialise state with an empty string.\n- Mixing both styles on the same field.\n- Storing every field in one state object in a huge form and re-rendering everything per keystroke.",
+      "followUps": [
+        "How would you build a form with 100 fields without a render per keystroke?",
+        "Why can a file input never be controlled?",
+        "How does react-hook-form register fields?"
+      ],
+      "related": [
+        "large-form-architecture-react-hook-form",
+        "lifting-state-up-and-composition"
+      ]
+    },
+    {
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "slug": "lifting-state-up-and-composition",
+      "title": "When do you lift state up, and when is composition a better fix than prop drilling?",
+      "topic": "Component design",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "react",
+        "state",
+        "composition",
+        "prop-drilling"
+      ],
+      "quick": "I lift state to the nearest common parent when two siblings need the same value. If the value then has to pass through many components that do not use it, I first try composition: pass the already-built element or a children slot so the intermediate layers never see the props. Only when many distant consumers need the data do I reach for context or a store. I keep state as close as possible to where it is used.",
+      "revision": "Lift state to the nearest common parent; if props pass through uninterested layers, use children or element props before context or a store.",
+      "detailed": "Lifting state up means moving state to the **closest common ancestor** of the components that read or change it. It keeps one source of truth and avoids syncing two copies.\n\n## The drilling problem and the options\n\n| Situation | Preferred option |\n|---|---|\n| Two siblings share a value | Lift state to their parent |\n| Value passes through 2 to 3 layers that do not use it | Composition (children or element props) |\n| Many distant consumers, changes rarely | Context |\n| Many consumers, frequent updates, derived data | A store or server-state cache |\n\n{{diagram:lift}}\n\n## Composition instead of drilling\n\nInstead of passing user down to an Avatar three layers deep, build the Avatar in the parent and pass it as a slot.\n\n```tsx\ntype LayoutProps = { header: React.ReactNode; children: React.ReactNode };\n\nfunction Layout({ header, children }: LayoutProps) {\n  return (\n    <div>\n      <header>{header}</header>\n      <main>{children}</main>\n    </div>\n  );\n}\n\nfunction Page({ user }: { user: User }) {\n  // user is used here, so Layout never needs to know about it\n  return (\n    <Layout header={<Avatar user={user} />}>\n      <Feed userId={user.id} />\n    </Layout>\n  );\n}\n```\n\n## Practical rules\n\n- Start local. Lift only when a second component needs the value.\n- Lifting too high causes wide re-renders, so lift to the nearest common parent, not the app root.\n- Composition also helps performance: elements created in a parent keep their identity when the intermediate component re-renders for unrelated reasons.\n\n## Common mistakes\n\n- Putting everything in a global store on day one.\n- Reaching for context to avoid two levels of props.\n- Lifting state but leaving a duplicate copy in the child, which then drifts.\n- Passing a setter several layers down instead of exposing a small callback such as onSelect.",
+      "diagrams": [
+        {
+          "id": "lift",
+          "title": "Lifting state to a common parent",
+          "alt": "State lives in a parent component. It passes a value and an update callback down to two sibling components, so both always read the same single source of truth.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "p",
+              "label": "Parent owns state"
+            },
+            {
+              "id": "a",
+              "label": "Sibling A reads value"
+            },
+            {
+              "id": "b",
+              "label": "Sibling B updates value"
+            }
+          ],
+          "edges": [
+            {
+              "from": "p",
+              "to": "a",
+              "label": "value"
+            },
+            {
+              "from": "p",
+              "to": "b",
+              "label": "value and callback"
+            },
+            {
+              "from": "b",
+              "to": "p",
+              "label": "onChange"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "What is the downside of lifting state too high?",
+        "Why does passing elements as props avoid re-renders?",
+        "When would you choose context over composition?"
+      ],
+      "related": [
+        "smart-vs-presentational-components",
+        "context-provider-re-render-pitfalls"
+      ]
+    },
+    {
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "slug": "context-provider-re-render-pitfalls",
+      "title": "What are the common Context API pitfalls around re-renders, and how do you avoid them?",
+      "topic": "State management",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "react",
+        "context",
+        "performance",
+        "re-renders"
+      ],
+      "quick": "Every component that reads a context re-renders whenever the provider value changes by reference, even if it only uses one field. The classic bug is passing a new object literal as the value on every render. I memoise the value, split contexts by update frequency, separate state from dispatch, and keep fast-changing data out of context. If many consumers need selective subscriptions, I use a store with selectors instead.",
+      "revision": "Consumers re-render when the context value reference changes. Memoise the value, split contexts, separate state from dispatch, or use a selector-based store.",
+      "detailed": "Context lets any descendant read a value without prop drilling. It does **not** offer selective subscription: React compares the provider value with **Object.is**, and if it differs, every consumer of that context re-renders.\n\n## Pitfalls and fixes\n\n| Pitfall | Why it hurts | Fix |\n|---|---|---|\n| New object in value each render | All consumers re-render whenever the provider does | useMemo the value |\n| One big context (user, theme, cart, UI flags) | A cart change re-renders theme readers | Split by domain and change rate |\n| State and setters in one value | Components that only dispatch re-render on state change | Separate state and dispatch contexts |\n| High-frequency data (mouse, timers) | Constant tree-wide updates | Keep it local, or use a store with selectors |\n| Provider placed too high with unstable parent | Parent re-renders cascade | Colocate the provider, pass children through |\n\n{{diagram:ctx}}\n\n## Example\n\n```tsx\nconst CountState = createContext<number>(0);\nconst CountDispatch = createContext<React.Dispatch<Action>>(() => {});\n\nfunction CountProvider({ children }: { children: React.ReactNode }) {\n  const [count, dispatch] = useReducer(reducer, 0);\n  return (\n    <CountState.Provider value={count}>\n      <CountDispatch.Provider value={dispatch}>{children}</CountDispatch.Provider>\n    </CountState.Provider>\n  );\n}\n```\n\nDispatch from useReducer is stable, so components that only dispatch never re-render because of count changes. Because the provider receives children as a prop, the children elements keep their identity when the provider's own state changes.\n\n## React version notes\n\nReact 19 changes some context syntax (for example rendering the context directly as a provider) and the React Compiler can reduce some manual memoisation. Verify the current documentation before relying on either.\n\n## Common mistakes\n\n- Assuming React.memo blocks context updates. It does not for consumers of the changed context.\n- Using context as a general store for frequently updated data.\n- Forgetting a sensible default value, which hides a missing provider bug. Throw an error in a custom hook instead.",
+      "diagrams": [
+        {
+          "id": "ctx",
+          "title": "Splitting state and dispatch contexts",
+          "alt": "A provider holds reducer state and exposes two contexts. Components that read state re-render on change, while components that only read dispatch do not re-render because dispatch is stable.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "prov",
+              "label": "Provider with useReducer"
+            },
+            {
+              "id": "sc",
+              "label": "State context"
+            },
+            {
+              "id": "dc",
+              "label": "Dispatch context"
+            },
+            {
+              "id": "rd",
+              "label": "Readers re-render on change"
+            },
+            {
+              "id": "wr",
+              "label": "Writers stay stable"
+            }
+          ],
+          "edges": [
+            {
+              "from": "prov",
+              "to": "sc"
+            },
+            {
+              "from": "prov",
+              "to": "dc"
+            },
+            {
+              "from": "sc",
+              "to": "rd"
+            },
+            {
+              "from": "dc",
+              "to": "wr"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would a selector-based store avoid these re-renders?",
+        "Why is dispatch from useReducer stable?",
+        "How do you detect which consumers re-render?"
+      ],
+      "related": [
+        "usereducer-vs-usestate-decision",
+        "lifting-state-up-and-composition"
+      ]
+    },
+    {
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "slug": "designing-custom-hooks-well",
+      "title": "How do you design a good custom hook, and what makes one a bad abstraction?",
+      "topic": "Hooks",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "react",
+        "hooks",
+        "custom-hooks",
+        "api-design"
+      ],
+      "quick": "A good custom hook has one clear job, a small and stable API, and hides the wiring such as effects, subscriptions or fetching. I name it useSomething, return a typed tuple or object, accept options rather than many positional arguments, clean up after itself, and keep it free of UI. A bad hook just groups unrelated state to shorten a component, or hides business rules behind a surprising side effect.",
+      "revision": "One job, small typed API, cleanup included, no UI. Bad hooks bundle unrelated state or hide surprising side effects.",
+      "detailed": "A custom hook is a function whose name starts with **use** and that calls other hooks. It shares **logic**, not state: each call gets its own state.\n\n## Design checklist\n\n| Concern | Good practice |\n|---|---|\n| Responsibility | One job, such as useDebouncedValue or useOnlineStatus |\n| API | Options object, typed return, stable function identities |\n| Side effects | Cleanup, cancellation, and safe under Strict Mode |\n| Testability | Test with renderHook from Testing Library |\n| Independence | No JSX, no hidden global dependencies |\n| Naming | Describes the behaviour, not the component |\n\n## Example\n\n```tsx\nfunction useDebouncedValue<T>(value: T, delayMs = 300): T {\n  const [debounced, setDebounced] = useState(value);\n  useEffect(() => {\n    const id = setTimeout(() => setDebounced(value), delayMs);\n    return () => clearTimeout(id);\n  }, [value, delayMs]);\n  return debounced;\n}\n\nfunction ProductSearch() {\n  const [text, setText] = useState('');\n  const query = useDebouncedValue(text, 250);\n  // fetch using query, not text\n  return <input value={text} onChange={(e) => setText(e.target.value)} />;\n}\n```\n\n## When to extract\n\n- The same effect plus state combination appears in two or more components.\n- A component mixes rendering with a subscription lifecycle.\n- You want to test logic without rendering UI.\n\n## When not to\n\n- Only to make a long component look shorter, if the grouped state is unrelated.\n- When a plain function with no hooks would do. That should not be a hook.\n- When it hides a network call that callers would expect to control.\n\n## Common mistakes\n\n- Returning a new object or function every render, which breaks memoised consumers. Memoise where identity matters, and check whether the React Compiler (if adopted) already handles it.\n- Calling hooks conditionally inside the hook.\n- Creating a hook that wraps a single useState with no added meaning.\n- Forgetting that two components using the same hook do not share state. For shared state use context or a store.",
+      "followUps": [
+        "How do you test a custom hook?",
+        "How do custom hooks share state between components?",
+        "How would you design useFetch and what would you leave out?"
+      ],
+      "related": [
+        "hoc-vs-render-props-vs-hooks",
+        "data-fetching-race-conditions-and-abortcontroller"
+      ]
+    },
+    {
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "slug": "hoc-vs-render-props-vs-hooks",
+      "title": "Higher-order components vs render props vs hooks: how do they compare?",
+      "topic": "Reuse patterns",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "react",
+        "hoc",
+        "render-props",
+        "hooks",
+        "patterns"
+      ],
+      "quick": "All three share logic. A higher-order component wraps a component and returns an enhanced one. A render prop passes a function that the component calls to render with shared data. A hook shares the logic directly inside the component with no extra tree nesting. Today I default to hooks because they compose cleanly and read linearly. I still use HOCs for cross-cutting wrappers such as route guards, and render props for flexible rendering slots.",
+      "revision": "HOC wraps a component, render props pass a render function, hooks share logic with no nesting. Prefer hooks; keep HOCs for wrappers.",
+      "detailed": "Before hooks, class components reused behaviour through HOCs and render props. Hooks (React 16.8) made most of those patterns unnecessary, but you still meet all three in real codebases.\n\n## Comparison\n\n| Aspect | HOC | Render prop | Hook |\n|---|---|---|---|\n| Shape | withX(Component) | Component calls children(data) | useX() inside component |\n| Extra tree nodes | Yes, a wrapper | Yes, a component | None |\n| Composition | Wrapper hell with many | Nested callbacks | Plain sequential calls |\n| Typing | Hard (injected props) | Moderate | Simple |\n| Prop name clashes | Possible | Avoided | Avoided |\n| Debugging | Wrapper names in DevTools | Nested function tree | Hooks visible in DevTools |\n\n## Same behaviour three ways\n\n```tsx\n// HOC\nfunction withAuth<P extends object>(Wrapped: React.ComponentType<P>) {\n  return function Guarded(props: P) {\n    const { user } = useAuth();\n    return user ? <Wrapped {...props} /> : <Navigate to=\"/login\" />;\n  };\n}\n\n// Render prop\nfunction Hover({ children }: { children: (hovered: boolean) => React.ReactNode }) {\n  const [hovered, setHovered] = useState(false);\n  return (\n    <div onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}>\n      {children(hovered)}\n    </div>\n  );\n}\n\n// Hook\nfunction useHover() {\n  const [hovered, setHovered] = useState(false);\n  const bind = { onMouseEnter: () => setHovered(true), onMouseLeave: () => setHovered(false) };\n  return [hovered, bind] as const;\n}\n```\n\n## Where each still fits\n\n- **HOC**: wrapping behaviour around a whole component (authorisation, error boundary wrapper, analytics), and libraries that expose them.\n- **Render props**: components that own a lifecycle or layout but let the caller control rendering, such as virtualised lists or headless UI components.\n- **Hooks**: sharing stateful logic. This is the default.\n\n## Common mistakes\n\n- Creating an HOC inside render, which remounts the component every time.\n- Forgetting to hoist statics or forward refs in HOCs.\n- Using a render prop where a simple hook is clearer.\n- Using a hook for something that needs to wrap the render tree, such as an error boundary.",
+      "followUps": [
+        "Why is creating an HOC inside render a bug?",
+        "Why are error boundaries still class-based?",
+        "What is a headless component?"
+      ],
+      "related": [
+        "designing-custom-hooks-well",
+        "smart-vs-presentational-components"
+      ]
+    },
+    {
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "slug": "error-boundaries-in-react",
+      "title": "What are error boundaries in React, what do they catch, and where do you place them?",
+      "topic": "Resilience",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "react",
+        "error-boundaries",
+        "resilience",
+        "error-handling"
+      ],
+      "quick": "An error boundary is a component that catches errors thrown while rendering its children, in lifecycle methods and in constructors, and shows a fallback instead of unmounting the whole app. It does not catch event handler errors, async code, server rendering or errors in the boundary itself. I place boundaries at route level and around independent widgets, log to a monitoring service, and give users a way to retry.",
+      "revision": "Boundaries catch render-time errors in the subtree and show a fallback. They miss event handlers and async errors. Place at route and widget level.",
+      "detailed": "Without a boundary, an error thrown during rendering unmounts the **entire React tree**, leaving a blank page. An error boundary limits the blast radius.\n\n## What they catch\n\n| Caught | Not caught |\n|---|---|\n| Errors during rendering of descendants | Event handler errors (use try/catch) |\n| Errors in lifecycle methods and constructors | Asynchronous code such as setTimeout or promises |\n| Errors in child component trees | Server-side rendering errors |\n| | Errors thrown in the boundary itself |\n\n{{diagram:eb}}\n\n## Implementation\n\nBoundaries are still written as **class components** using getDerivedStateFromError and componentDidCatch. Many teams use the react-error-boundary library for a function-friendly API. Verify the current React documentation for any newer options.\n\n```tsx\nclass Boundary extends React.Component<\n  { fallback: React.ReactNode; children: React.ReactNode },\n  { failed: boolean }\n> {\n  state = { failed: false };\n  static getDerivedStateFromError() {\n    return { failed: true };\n  }\n  componentDidCatch(error: Error, info: React.ErrorInfo) {\n    reportError(error, info.componentStack); // send to monitoring\n  }\n  render() {\n    return this.state.failed ? this.props.fallback : this.props.children;\n  }\n}\n\n<Boundary fallback={<p>This panel failed to load.</p>}>\n  <RecommendationsPanel />\n</Boundary>\n```\n\n## Placement strategy\n\n- **Top level** as the last resort with a friendly page.\n- **Route level** so a broken page does not break navigation.\n- **Widget level** around independent, non-critical panels, so the rest stays usable.\n- Pair with Suspense so loading and failure states are handled together.\n\n## Common mistakes\n\n- A single boundary at the root only.\n- Swallowing errors without logging.\n- No reset path, so the fallback is permanent. Offer a retry that resets the boundary key or state.\n- Expecting a boundary to catch a rejected fetch promise unless the error is rethrown during render.",
+      "diagrams": [
+        {
+          "id": "eb",
+          "title": "Error boundary containment",
+          "alt": "A render error in a widget bubbles up to the nearest error boundary. The boundary shows a fallback and reports the error, while the header, navigation and sibling panels keep working.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "app",
+              "label": "App shell and navigation"
+            },
+            {
+              "id": "b1",
+              "label": "Route boundary"
+            },
+            {
+              "id": "b2",
+              "label": "Widget boundary"
+            },
+            {
+              "id": "w",
+              "label": "Widget throws while rendering"
+            },
+            {
+              "id": "fb",
+              "label": "Fallback UI and error report"
+            }
+          ],
+          "edges": [
+            {
+              "from": "app",
+              "to": "b1"
+            },
+            {
+              "from": "b1",
+              "to": "b2"
+            },
+            {
+              "from": "b2",
+              "to": "w"
+            },
+            {
+              "from": "w",
+              "to": "fb",
+              "label": "caught by nearest"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you catch an error thrown in an event handler?",
+        "How do you reset an error boundary after a retry?",
+        "How do error boundaries interact with Suspense?"
+      ],
+      "related": [
+        "suspense-and-lazy-loading-boundaries"
+      ]
+    },
+    {
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "slug": "suspense-and-lazy-loading-boundaries",
+      "title": "How do Suspense and React.lazy work together, and where do you place Suspense boundaries?",
+      "topic": "Loading and code splitting",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "react",
+        "suspense",
+        "lazy",
+        "code-splitting"
+      ],
+      "quick": "React.lazy wraps a dynamic import so a component's code loads on first render. While it loads, the component suspends, and the nearest Suspense boundary above it shows a fallback. I place boundaries at meaningful loading units such as routes and heavy panels rather than one at the root, so the rest of the page stays visible. Suspense also works with supporting data libraries and frameworks, which I would verify in current docs.",
+      "revision": "React.lazy suspends while its chunk loads; the nearest Suspense shows a fallback. Place boundaries at route and panel level.",
+      "detailed": "**React.lazy** takes a function returning a dynamic import and gives back a component whose code is fetched the first time it renders. While the chunk is pending, the component **suspends**, and React shows the fallback of the nearest **Suspense** boundary.\n\n```tsx\nconst Reports = lazy(() => import('./Reports'));\n\nfunction App() {\n  return (\n    <ErrorBoundary fallback={<p>Could not load reports.</p>}>\n      <Suspense fallback={<Spinner />}>\n        <Reports />\n      </Suspense>\n    </ErrorBoundary>\n  );\n}\n```\n\n{{diagram:susp}}\n\n## Placement guidance\n\n| Boundary location | Effect |\n|---|---|\n| Root only | Whole screen flips to a spinner on any suspension |\n| Per route | Navigation shell stays; only the page area shows a fallback |\n| Per heavy panel | Independent panels load progressively |\n| Nested boundaries | Inner fallbacks show first, giving finer-grained loading |\n\n## Good practice\n\n- Use **skeletons** that match the final layout to limit layout shift.\n- Wrap lazy components in an **error boundary**, because a failed chunk load throws.\n- Use a transition (startTransition or useTransition) so already visible content stays on screen instead of reverting to a fallback during navigation.\n- Prefetch likely next chunks on hover or idle, and avoid lazy-loading above-the-fold content that is needed for LCP.\n- Named exports need an adapter: import('./X').then(m => ({ default: m.X })).\n\n## Version notes\n\nSuspense for data fetching, the use() API in React 19, and server component streaming depend on React version and framework. Treat these as framework-dependent and verify current docs.\n\n## Common mistakes\n\n- Lazy-loading every component, creating waterfalls of tiny chunks.\n- No error boundary, so a network blip causes a blank page.\n- Calling lazy() inside a component body, which recreates the component every render.\n- Fallbacks with no reserved height, causing layout shifts.",
+      "diagrams": [
+        {
+          "id": "susp",
+          "title": "Lazy component and Suspense flow",
+          "alt": "On first render a lazy component starts a dynamic import and suspends. The nearest Suspense boundary shows its fallback. When the chunk arrives React renders the real component, and a failed load goes to the error boundary.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "r",
+              "label": "Render lazy component"
+            },
+            {
+              "id": "i",
+              "label": "Dynamic import starts"
+            },
+            {
+              "id": "f",
+              "label": "Suspense fallback shown"
+            },
+            {
+              "id": "ok",
+              "label": "Chunk loaded: real UI"
+            },
+            {
+              "id": "err",
+              "label": "Load fails: error boundary"
+            }
+          ],
+          "edges": [
+            {
+              "from": "r",
+              "to": "i"
+            },
+            {
+              "from": "i",
+              "to": "f",
+              "label": "pending"
+            },
+            {
+              "from": "f",
+              "to": "ok",
+              "label": "resolved"
+            },
+            {
+              "from": "f",
+              "to": "err",
+              "label": "rejected"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do transitions avoid showing a fallback on navigation?",
+        "How would you prefetch a lazy route?",
+        "What happens if a chunk fails to load after a new deployment?"
+      ],
+      "related": [
+        "error-boundaries-in-react"
+      ]
+    },
+    {
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "slug": "usereducer-vs-usestate-decision",
+      "title": "useReducer vs useState: how do you decide?",
+      "topic": "State management",
+      "difficulty": "beginner",
+      "type": "comparison",
+      "tags": [
+        "react",
+        "usereducer",
+        "usestate",
+        "state"
+      ],
+      "quick": "I use useState for independent, simple values such as a toggle or an input. I switch to useReducer when several pieces of state change together, when the next state depends on the previous one in non-trivial ways, or when I want named actions that are easy to test and log. The reducer is a pure function, and dispatch is stable, which also helps when passing it through context.",
+      "revision": "useState for simple independent values; useReducer for related state, transitions and named actions in a pure, testable function.",
+      "detailed": "Both hooks store state and trigger re-renders. **useReducer** moves the update logic out of event handlers into a pure **reducer** function.\n\n## Comparison\n\n| Aspect | useState | useReducer |\n|---|---|---|\n| Best for | Independent primitives | Related fields, state machines |\n| Updates | setX(value or fn) | dispatch({ type, ... }) |\n| Logic location | Scattered in handlers | Centralised in reducer |\n| Testing | Through the component | Test the reducer directly |\n| Stable updater | setState is stable | dispatch is stable |\n| Boilerplate | Minimal | Moderate |\n\n## Example: a request state machine\n\n```tsx\ntype State =\n  | { status: 'idle' }\n  | { status: 'loading' }\n  | { status: 'success'; data: Item[] }\n  | { status: 'error'; message: string };\n\ntype Action =\n  | { type: 'fetch' }\n  | { type: 'resolve'; data: Item[] }\n  | { type: 'reject'; message: string };\n\nfunction reducer(state: State, action: Action): State {\n  switch (action.type) {\n    case 'fetch':   return { status: 'loading' };\n    case 'resolve': return { status: 'success', data: action.data };\n    case 'reject':  return { status: 'error', message: action.message };\n    default:        return state;\n  }\n}\n\nconst [state, dispatch] = useReducer(reducer, { status: 'idle' });\n```\n\nA discriminated union makes impossible states, such as loading with an error message, unrepresentable.\n\n## Rules for reducers\n\n- Keep them **pure**: no fetching, no randomness, no mutation. Strict Mode calls reducers twice in development to expose impurity.\n- Return new objects instead of mutating.\n- Put side effects in handlers or effects, then dispatch the result.\n\n## When to stay with useState\n\n- A handful of unrelated values.\n- A simple toggle or text field.\n- No transitions that depend on the current state.\n\n## Common mistakes\n\n- Using useReducer for a single boolean, adding boilerplate.\n- Doing async work inside the reducer.\n- Stuffing server data into a reducer when a server-state tool would handle caching and refetching.\n- Many boolean flags (isLoading, isError, isSuccess) in useState that can contradict each other.",
+      "followUps": [
+        "Why does Strict Mode call reducers twice?",
+        "How would you pass dispatch through context safely?",
+        "When would you move from useReducer to a store library?"
+      ],
+      "related": [
+        "context-provider-re-render-pitfalls"
+      ]
+    },
+    {
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "slug": "useref-vs-uselayouteffect-dom-measurement",
+      "title": "When do you use useRef and useLayoutEffect, and how do they differ from useState and useEffect?",
+      "topic": "Hooks",
+      "difficulty": "advanced",
+      "type": "comparison",
+      "tags": [
+        "react",
+        "useref",
+        "uselayouteffect",
+        "dom",
+        "hooks"
+      ],
+      "quick": "useRef holds a mutable value that survives renders without triggering one, so I use it for DOM nodes, timers and previous values. useLayoutEffect runs synchronously after DOM changes but before the browser paints, so I use it to measure layout and adjust before the user sees anything, such as positioning a tooltip. useEffect runs after paint and is the default. Because layout effects block painting, I keep them tiny.",
+      "revision": "useRef stores mutable values without re-rendering. useLayoutEffect runs before paint for measuring; useEffect runs after paint and is the default.",
+      "detailed": "## Timing\n\n{{diagram:timing}}\n\n1. React renders and commits DOM changes.\n2. **useLayoutEffect** callbacks run synchronously, before the browser paints.\n3. The browser paints.\n4. **useEffect** callbacks run, usually after paint.\n\n## Comparison\n\n| Hook | Triggers re-render | Runs | Typical use |\n|---|---|---|---|\n| useState | Yes, when set | n/a | Data shown in the UI |\n| useRef | No | n/a | DOM nodes, timers, latest values, previous values |\n| useEffect | No | After paint | Subscriptions, fetching, logging |\n| useLayoutEffect | No | Before paint | Measuring and positioning, avoiding flicker |\n\n## Measuring before paint\n\n```tsx\nfunction Tooltip({ anchor, children }: { anchor: React.RefObject<HTMLElement>; children: React.ReactNode }) {\n  const tipRef = useRef<HTMLDivElement>(null);\n  const [top, setTop] = useState(0);\n\n  useLayoutEffect(() => {\n    const a = anchor.current?.getBoundingClientRect();\n    const t = tipRef.current?.getBoundingClientRect();\n    if (a && t) setTop(a.top - t.height - 8);\n  }, [anchor]);\n\n  return <div ref={tipRef} style={{ position: 'fixed', top }}>{children}</div>;\n}\n```\n\nWith useEffect here, the user could see the tooltip at the wrong position for one frame. The state update inside a layout effect triggers a synchronous re-render before paint.\n\n## Refs for values that should not render\n\n```tsx\nconst latest = useRef(onChange);\nuseLayoutEffect(() => { latest.current = onChange; });\n// Long-lived listeners can call latest.current without re-subscribing.\n```\n\n## Notes\n\n- Do not read or write ref.current during rendering, except for lazy initialisation. React documents this as an impurity.\n- useLayoutEffect does not run on the server, and server rendering may log a warning. Frameworks offer patterns for this, so verify current guidance.\n- Expensive layout effects delay first paint and can hurt INP.\n\n## Common mistakes\n\n- Using useLayoutEffect by default.\n- Putting a value in a ref and expecting the UI to update.\n- Forgetting cleanup of observers such as ResizeObserver.\n- Reading layout properties in a loop, causing layout thrashing.",
+      "diagrams": [
+        {
+          "id": "timing",
+          "title": "Commit, layout effect, paint, effect order",
+          "alt": "After React commits DOM changes, layout effects run synchronously and can cause a synchronous re-render. Only then does the browser paint, and passive effects from useEffect run after the paint.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "c",
+              "label": "Commit DOM changes"
+            },
+            {
+              "id": "l",
+              "label": "useLayoutEffect runs"
+            },
+            {
+              "id": "p",
+              "label": "Browser paints"
+            },
+            {
+              "id": "e",
+              "label": "useEffect runs"
+            }
+          ],
+          "edges": [
+            {
+              "from": "c",
+              "to": "l"
+            },
+            {
+              "from": "l",
+              "to": "p"
+            },
+            {
+              "from": "p",
+              "to": "e"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Why can useEffect cause a visible flicker for measurements?",
+        "How do you avoid layout thrashing in effects?",
+        "Why should you not write ref.current during render?"
+      ],
+      "related": [
+        "stale-closures-and-dependency-arrays"
+      ]
+    },
+    {
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "slug": "stale-closures-and-dependency-arrays",
+      "title": "What is a stale closure in React hooks, and how do dependency arrays prevent or cause it?",
+      "topic": "Hooks",
+      "difficulty": "advanced",
+      "type": "conceptual",
+      "tags": [
+        "react",
+        "hooks",
+        "closures",
+        "useeffect",
+        "dependencies"
+      ],
+      "quick": "Every render creates new functions that capture that render's props and state. A stale closure happens when an effect, timer or callback keeps running an older function and sees old values. The dependency array tells React when to recreate the effect, so omitting a dependency is the usual cause. I fix it by listing the dependency, using the functional form setCount(c => c + 1), or keeping the latest value in a ref when I need a stable listener.",
+      "revision": "Each render captures its own values. Stale closures come from missing dependencies; fix with correct deps, functional updates or a ref.",
+      "detailed": "Function components re-run on every render, and each run creates **new closures** over that render's props and state. A closure is stale when it outlives the render that created it and still reads the old values.\n\n## The classic bug\n\n```tsx\nfunction Counter() {\n  const [count, setCount] = useState(0);\n\n  useEffect(() => {\n    const id = setInterval(() => {\n      setCount(count + 1); // captures count = 0 forever\n    }, 1000);\n    return () => clearInterval(id);\n  }, []); // missing dependency\n\n  return <p>{count}</p>;\n}\n```\n\nThe count stays at 1 because the interval callback always sees the first render's count.\n\n## Fixes\n\n| Fix | When to use |\n|---|---|\n| Add the dependency | The effect should re-run when the value changes |\n| Functional update setCount(c => c + 1) | You only need the previous state |\n| Ref holding the latest value | A long-lived listener must read fresh values without re-subscribing |\n| Move the logic out of the effect | The effect does not really need the value |\n| useReducer | Many dependencies feed one update |\n\n```tsx\nuseEffect(() => {\n  const id = setInterval(() => setCount((c) => c + 1), 1000);\n  return () => clearInterval(id);\n}, []); // correct: no outside values are read\n```\n\n{{diagram:closure}}\n\n## Dependency array rules\n\n- List **every reactive value** the effect reads. The eslint-plugin-react-hooks exhaustive-deps rule helps, so treat its warnings seriously.\n- Objects and functions created inside the component change identity every render, so they trigger effects unless memoised or moved inside the effect.\n- The React docs describe an Effect Event concept for reading the latest values without re-running effects. It has been experimental, so verify its current status before using it.\n- The React Compiler can memoise values automatically in some setups, but it does not remove the need for correct dependencies.\n\n## Common mistakes\n\n- Silencing the lint rule with a comment instead of restructuring.\n- Putting an object literal in the array, causing the effect to run on every render.\n- Assuming state updates are immediate inside the same closure.\n- Using an empty array to mean run once while reading changing values.",
+      "diagrams": [
+        {
+          "id": "closure",
+          "title": "How a stale closure forms",
+          "alt": "Render one creates an effect whose callback captures the first value of state. Later renders create new callbacks with new values, but because the dependency array is empty the old callback stays registered and keeps reading the first value.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "r1",
+              "label": "Render 1: count is 0"
+            },
+            {
+              "id": "cb",
+              "label": "Effect callback captures 0"
+            },
+            {
+              "id": "r2",
+              "label": "Render 2: count is 1"
+            },
+            {
+              "id": "old",
+              "label": "Old callback still running"
+            }
+          ],
+          "edges": [
+            {
+              "from": "r1",
+              "to": "cb"
+            },
+            {
+              "from": "cb",
+              "to": "old",
+              "label": "empty deps keep it"
+            },
+            {
+              "from": "r2",
+              "to": "old",
+              "label": "never replaced"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How does the functional form of setState avoid the problem?",
+        "Why does an inline object dependency re-run the effect every render?",
+        "How would you build a stable event listener that reads the latest props?"
+      ],
+      "related": [
+        "data-fetching-race-conditions-and-abortcontroller",
+        "useref-vs-uselayouteffect-dom-measurement"
+      ]
+    },
+    {
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "slug": "data-fetching-race-conditions-and-abortcontroller",
+      "title": "How do you prevent race conditions and stale responses when fetching data in an effect?",
+      "topic": "Data fetching",
+      "difficulty": "advanced",
+      "type": "coding",
+      "tags": [
+        "react",
+        "useeffect",
+        "abortcontroller",
+        "race-conditions",
+        "fetch"
+      ],
+      "quick": "If a query changes quickly, an older request can finish after a newer one and overwrite the screen with stale data. In an effect I create an AbortController, pass its signal to fetch, and abort in the cleanup function, ignoring AbortError. A boolean ignore flag also works for APIs that cannot be cancelled. In larger apps I prefer a server-state library that handles cancellation, caching and deduplication for me.",
+      "revision": "Cleanup aborts the previous request via AbortController, or sets an ignore flag, so a slow older response cannot overwrite newer state.",
+      "detailed": "Typing quickly in a search box can fire requests A then B. If A returns **after** B, a naive effect sets state with A's results, showing data that does not match the input.\n\n{{diagram:race}}\n\n## Fix with AbortController\n\n```tsx\nfunction Results({ query }: { query: string }) {\n  const [items, setItems] = useState<Item[]>([]);\n  const [error, setError] = useState<string | null>(null);\n\n  useEffect(() => {\n    if (!query) { setItems([]); return; }\n    const controller = new AbortController();\n\n    fetch('/api/search?q=' + encodeURIComponent(query), { signal: controller.signal })\n      .then((r) => {\n        if (!r.ok) throw new Error('Request failed: ' + r.status);\n        return r.json();\n      })\n      .then((data: Item[]) => { setItems(data); setError(null); })\n      .catch((e) => {\n        if (e.name === 'AbortError') return; // expected on cleanup\n        setError(e.message);\n      });\n\n    return () => controller.abort();\n  }, [query]);\n\n  return error ? <p role=\"alert\">{error}</p> : <List items={items} />;\n}\n```\n\nWhen query changes or the component unmounts, cleanup aborts the previous request.\n\n## Options compared\n\n| Technique | Cancels network work | Prevents stale set | Notes |\n|---|---|---|---|\n| AbortController | Yes | Yes | Preferred when the API supports signals |\n| Ignore flag (let ignore = false; cleanup sets true) | No | Yes | Works with any promise |\n| Request id comparison | No | Yes | Useful outside React |\n| Server-state library | Yes | Yes | Also caching, retries, deduplication |\n\n## Related concerns\n\n- **Debounce** the input to send fewer requests, in addition to cancelling.\n- **Strict Mode** in development mounts, unmounts and remounts effects, so a correct cleanup makes the double request harmless.\n- Show loading and error states, and keep previous results visible while loading if that suits the UX.\n- Frameworks and newer React features (Suspense data fetching, use()) change how this is done. Verify the current documentation for your setup.\n\n## Common mistakes\n\n- Treating AbortError as a real failure and showing an error message.\n- Forgetting that an aborted request may still have been processed by the server, so mutations need idempotency.\n- Setting state after unmount without any guard.\n- Ignoring non-2xx responses, because fetch does not reject on them.",
+      "diagrams": [
+        {
+          "id": "race",
+          "title": "Out-of-order responses",
+          "alt": "Request A for the old query is sent first and request B for the new query second. Response B arrives first, then slow response A arrives and overwrites state with stale data unless the cleanup function aborts request A.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "a",
+              "label": "Request A: old query"
+            },
+            {
+              "id": "b",
+              "label": "Request B: new query"
+            },
+            {
+              "id": "rb",
+              "label": "Response B arrives first"
+            },
+            {
+              "id": "ra",
+              "label": "Response A arrives late"
+            },
+            {
+              "id": "ab",
+              "label": "Cleanup aborts A"
+            }
+          ],
+          "edges": [
+            {
+              "from": "a",
+              "to": "ra",
+              "label": "slow"
+            },
+            {
+              "from": "b",
+              "to": "rb",
+              "label": "fast"
+            },
+            {
+              "from": "ab",
+              "to": "a",
+              "label": "prevents overwrite"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Why is the double fetch in Strict Mode harmless with correct cleanup?",
+        "When is an ignore flag better than AbortController?",
+        "How would TanStack Query handle this for you?"
+      ],
+      "related": [
+        "stale-closures-and-dependency-arrays",
+        "server-state-caching-with-tanstack-query-concepts"
+      ]
+    },
+    {
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "slug": "function-component-lifecycle-mapping",
+      "title": "How does the lifecycle of a function component map to rendering, commit and effects?",
+      "topic": "Rendering",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "react",
+        "lifecycle",
+        "hooks",
+        "rendering"
+      ],
+      "quick": "A function component has three phases. Render calls my function to compute JSX and must be pure. Commit applies changes to the DOM, runs ref updates and layout effects. Then passive effects from useEffect run. On update the previous effect's cleanup runs before the next effect, and on unmount cleanups run. I do not map hooks one-to-one onto class lifecycles, because effects are about synchronisation with dependencies.",
+      "revision": "Render (pure), commit (DOM, refs, layout effects), then passive effects. Cleanup runs before the next effect and on unmount.",
+      "detailed": "Class lifecycles (componentDidMount, componentDidUpdate, componentWillUnmount) are tied to **time**. Hooks are tied to **synchronisation**: an effect describes how to sync with something external for a given set of values.\n\n{{diagram:life}}\n\n## Phases\n\n| Phase | What happens | Rules |\n|---|---|---|\n| Render | Component function runs, JSX returned | Must be pure; may run more than once (Strict Mode, concurrent rendering) |\n| Commit | DOM updated, refs attached, layout effects run | Synchronous |\n| Passive effects | useEffect callbacks run | After paint in most cases |\n| Update | Cleanup of previous effect, then new effect | Only if dependencies changed |\n| Unmount | Cleanups run, DOM removed | Release subscriptions |\n\n## Rough class equivalents\n\n| Class | Function component |\n|---|---|\n| componentDidMount | useEffect(fn, []) (but think \"sync once\", and Strict Mode will run it twice in development) |\n| componentDidUpdate | useEffect(fn, [deps]) |\n| componentWillUnmount | cleanup returned from an effect |\n| getSnapshotBeforeUpdate | useLayoutEffect (partial) |\n| shouldComponentUpdate | React.memo |\n\nThese are rough analogies. The mental model of \"effect per dependency set\" avoids bugs that the mount/update/unmount model invites.\n\n## Example\n\n```tsx\nfunction ChatRoom({ roomId }: { roomId: string }) {\n  useEffect(() => {\n    const conn = connect(roomId); // set up\n    conn.join();\n    return () => conn.leave();    // tear down before next setup\n  }, [roomId]);\n\n  return <h2>Room {roomId}</h2>;\n}\n```\n\nWhen roomId changes, React leaves the old room, then joins the new one.\n\n## Common mistakes\n\n- Doing side effects in the render body, such as writing to variables or calling APIs.\n- Believing a component renders only once per change. Renders can be repeated or discarded.\n- Using effects for derived values, which belong in render.\n- Skipping cleanup, which leaks listeners and timers.",
+      "diagrams": [
+        {
+          "id": "life",
+          "title": "Function component lifecycle",
+          "alt": "A trigger such as new props or state starts a render phase that calls the function. React then commits to the DOM and runs layout effects, the browser paints, and finally passive effects run with earlier cleanups executed first.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "t",
+              "label": "Trigger: props or state change"
+            },
+            {
+              "id": "r",
+              "label": "Render: call function"
+            },
+            {
+              "id": "c",
+              "label": "Commit: DOM and layout effects"
+            },
+            {
+              "id": "pa",
+              "label": "Paint"
+            },
+            {
+              "id": "ef",
+              "label": "Cleanup then passive effects"
+            }
+          ],
+          "edges": [
+            {
+              "from": "t",
+              "to": "r"
+            },
+            {
+              "from": "r",
+              "to": "c"
+            },
+            {
+              "from": "c",
+              "to": "pa"
+            },
+            {
+              "from": "pa",
+              "to": "ef"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Why can render run twice without a commit?",
+        "Why is componentDidMount not the same as an empty dependency array?",
+        "Where should derived data be computed?"
+      ],
+      "related": [
+        "useref-vs-uselayouteffect-dom-measurement"
+      ]
+    },
+    {
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "slug": "smart-vs-presentational-components",
+      "title": "Container (smart) vs presentational components: is the pattern still useful with hooks?",
+      "topic": "Component design",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "react",
+        "patterns",
+        "container-components",
+        "architecture"
+      ],
+      "quick": "Presentational components receive props and render UI, with little or no state of their own. Container components fetch data, hold state and pass it down. With hooks the split is less about separate files and more about separating concerns: put logic in custom hooks and keep the view dumb. I still keep rendering components free from data fetching, which makes them reusable, easy to test and easy to show in Storybook.",
+      "revision": "Presentational components render props; containers own data and logic. With hooks, extract logic into hooks and keep views pure.",
+      "detailed": "The container and presentational pattern separates **how things work** from **how things look**.\n\n## Roles\n\n| Aspect | Presentational | Container |\n|---|---|---|\n| Concern | Markup, styling, layout | Data, state, side effects |\n| Data source | Props only | APIs, stores, context |\n| State | UI state only (open, hover) | Business and server state |\n| Reuse | High | Low, tied to a feature |\n| Testing | Render with props | Mock data layer |\n| Storybook | Easy | Needs mocks |\n\n## Example with a hook as the container\n\n```tsx\n// logic\nfunction useOrders(customerId: string) {\n  const [orders, setOrders] = useState<Order[]>([]);\n  const [loading, setLoading] = useState(true);\n  useEffect(() => {\n    const c = new AbortController();\n    fetch('/api/customers/' + customerId + '/orders', { signal: c.signal })\n      .then((r) => r.json())\n      .then((d) => { setOrders(d); setLoading(false); })\n      .catch(() => {});\n    return () => c.abort();\n  }, [customerId]);\n  return { orders, loading };\n}\n\n// view\nfunction OrderList({ orders, loading }: { orders: Order[]; loading: boolean }) {\n  if (loading) return <Skeleton rows={5} />;\n  return <ul>{orders.map((o) => <li key={o.id}>{o.reference}</li>)}</ul>;\n}\n\n// wiring\nfunction OrdersPage({ customerId }: { customerId: string }) {\n  const { orders, loading } = useOrders(customerId);\n  return <OrderList orders={orders} loading={loading} />;\n}\n```\n\n## Benefits\n\n- Views can be reused with different data sources.\n- Logic can be tested without rendering.\n- Designers and developers can iterate on views using fixtures.\n\n## Caveats\n\n- Do not create a container for every tiny component. That is ceremony.\n- The strict split matters less once logic lives in hooks. Dan Abramov, who coined the terms, later said he no longer pushes the split as a rule.\n- In frameworks with server components, the data-owning part may be a server component. Verify current framework guidance.\n\n## Common mistakes\n\n- Presentational components that secretly call APIs.\n- Containers that also contain large amounts of markup.\n- Passing dozens of props instead of grouping them into a meaningful object or composing children.",
+      "followUps": [
+        "How do server components change this pattern?",
+        "How do you test a presentational component?",
+        "When is a container component overkill?"
+      ],
+      "related": [
+        "designing-custom-hooks-well",
+        "lifting-state-up-and-composition"
+      ]
+    },
+    {
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "slug": "large-form-architecture-react-hook-form",
+      "title": "How would you architect a large, multi-step form in React with validation?",
+      "topic": "Forms",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "react",
+        "forms",
+        "react-hook-form",
+        "validation",
+        "zod"
+      ],
+      "quick": "I would use a form library such as react-hook-form, which registers inputs mostly as uncontrolled to avoid a render per keystroke, with a schema validator such as Zod shared with the server types. Each step is its own component and schema, values are kept in one form instance, and fields subscribe only to what they need. I validate on blur or submit, show accessible errors, persist drafts, and always re-validate on the server.",
+      "revision": "Use a form library with schema validation, one form state across step components, field-level subscriptions, accessible errors, drafts and server revalidation.",
+      "detailed": "Large forms fail through **performance** (re-rendering everything per keystroke), **complexity** (cross-field rules, steps) and **trust** (client validation alone).\n\n## Architecture\n\n{{diagram:form}}\n\n| Concern | Approach |\n|---|---|\n| State | One form instance (for example react-hook-form) shared by steps via FormProvider |\n| Validation | Schema per step (for example Zod with a resolver); share types with the API |\n| Performance | Uncontrolled registration; useWatch or Controller only for fields that must react |\n| Steps | Each step validates its own fields via trigger() before moving on |\n| Persistence | Save drafts (local or server) so refresh does not lose progress |\n| Accessibility | Labels, aria-invalid, error text linked with aria-describedby, focus the first error |\n| Server | Revalidate everything; map server errors back to fields with setError |\n\n## Example\n\n```tsx\nconst schema = z.object({\n  email: z.string().email('Enter a valid email'),\n  age: z.coerce.number().int().min(18, 'Must be 18 or over'),\n});\ntype FormValues = z.infer<typeof schema>;\n\nfunction AccountStep() {\n  const { register, handleSubmit, formState: { errors } } =\n    useForm<FormValues>({ resolver: zodResolver(schema), mode: 'onBlur' });\n\n  return (\n    <form onSubmit={handleSubmit((v) => save(v))} noValidate>\n      <label>Email <input {...register('email')} aria-invalid={!!errors.email} /></label>\n      {errors.email && <p role=\"alert\">{errors.email.message}</p>}\n      <label>Age <input type=\"number\" {...register('age')} /></label>\n      {errors.age && <p role=\"alert\">{errors.age.message}</p>}\n      <button type=\"submit\">Continue</button>\n    </form>\n  );\n}\n```\n\nAPI details differ between library versions, so verify against the current docs.\n\n## Design choices\n\n- **Dynamic fields**: use the library's field array support with stable ids as keys.\n- **Dependent fields**: watch only the controlling field.\n- **Long forms**: split into steps or sections, and lazy-load heavy step components.\n- **Double submit**: disable the button while submitting and use idempotency keys server-side.\n\n## Common mistakes\n\n- Controlled inputs with one giant state object.\n- Client-only validation.\n- Error messages not announced to assistive technology.\n- Losing data when navigating between steps.",
+      "diagrams": [
+        {
+          "id": "form",
+          "title": "Multi-step form architecture",
+          "alt": "A form provider holds values for all steps. Each step component registers its own fields and validates against its schema before advancing. On final submit the payload goes to the server, which revalidates and returns field errors that are mapped back to the form.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "fp",
+              "label": "Form provider and values"
+            },
+            {
+              "id": "s1",
+              "label": "Step 1 and schema"
+            },
+            {
+              "id": "s2",
+              "label": "Step 2 and schema"
+            },
+            {
+              "id": "sub",
+              "label": "Submit"
+            },
+            {
+              "id": "srv",
+              "label": "Server revalidates"
+            },
+            {
+              "id": "err",
+              "label": "Map errors to fields"
+            }
+          ],
+          "edges": [
+            {
+              "from": "fp",
+              "to": "s1"
+            },
+            {
+              "from": "s1",
+              "to": "s2",
+              "label": "trigger() passes"
+            },
+            {
+              "from": "s2",
+              "to": "sub"
+            },
+            {
+              "from": "sub",
+              "to": "srv"
+            },
+            {
+              "from": "srv",
+              "to": "err",
+              "label": "invalid"
+            },
+            {
+              "from": "err",
+              "to": "fp"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you validate across steps without losing data?",
+        "How would you handle dynamic field arrays?",
+        "How do you announce errors to screen reader users?"
+      ],
+      "related": [
+        "controlled-vs-uncontrolled-components",
+        "server-state-caching-with-tanstack-query-concepts"
+      ]
+    },
+    {
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "slug": "server-state-caching-with-tanstack-query-concepts",
+      "title": "What problems does a server-state library such as TanStack Query solve compared with fetching in effects?",
+      "topic": "Data fetching",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "react",
+        "tanstack-query",
+        "server-state",
+        "caching"
+      ],
+      "quick": "Server state is remote data that can go stale, be shared and be changed by others. Fetching it in effects means I rebuild caching, deduplication, retries, loading flags, cancellation and invalidation by hand. A library such as TanStack Query keys each request, caches results, marks them stale after a configurable time, refetches in the background, deduplicates parallel calls, and supports mutations with invalidation or optimistic updates.",
+      "revision": "Server-state libraries give keyed caching, staleness, deduplication, retries, background refetch and mutation invalidation that effects do not.",
+      "detailed": "Remote data is not like UI state. It is **owned elsewhere**, can change without you knowing, and is usually needed by several components. A server-state library treats it as a cache that must be kept fresh.\n\n## Concepts\n\n| Concept | Meaning |\n|---|---|\n| Query key | Array identifying the data, such as ['orders', customerId] |\n| Query function | Async function that fetches it |\n| staleTime | How long data is considered fresh before a background refetch is allowed |\n| gcTime (cacheTime in older versions) | How long unused data stays in cache |\n| Invalidation | Mark keys stale after a mutation so they refetch |\n| Deduplication | Parallel components asking the same key share one request |\n| Mutation | Write operation with hooks for optimistic updates and rollback |\n\n```tsx\nfunction Orders({ customerId }: { customerId: string }) {\n  const { data, isPending, error } = useQuery({\n    queryKey: ['orders', customerId],\n    queryFn: ({ signal }) =>\n      fetch('/api/customers/' + customerId + '/orders', { signal }).then((r) => r.json() as Promise<Order[]>),\n    staleTime: 30_000,\n  });\n\n  if (isPending) return <Skeleton />;\n  if (error) return <p role=\"alert\">Could not load orders.</p>;\n  return <OrderList orders={data} />;\n}\n\nfunction useCancelOrder() {\n  const qc = useQueryClient();\n  return useMutation({\n    mutationFn: (id: string) => fetch('/api/orders/' + id, { method: 'DELETE' }),\n    onSuccess: () => qc.invalidateQueries({ queryKey: ['orders'] }),\n  });\n}\n```\n\nOption names and defaults change between major versions, so verify the current documentation.\n\n{{diagram:sq}}\n\n## What it replaces\n\n- Manual loading and error booleans in useState.\n- Hand-written race-condition handling and retries.\n- Copying fetched data into a global store, where it goes stale.\n\n## When it is not needed\n\n- A single fetch in a small app with no sharing.\n- Data supplied by a framework loader or server component that already caches. Check what your framework provides.\n\n## Common mistakes\n\n- Copying query data into local state, creating two sources of truth.\n- Query keys that omit variables used in the query function.\n- A staleTime of zero everywhere, causing excess refetching.\n- Using it for client-only UI state.",
+      "diagrams": [
+        {
+          "id": "sq",
+          "title": "Server-state cache lifecycle",
+          "alt": "A component requests data by query key. If fresh data is cached it is returned immediately. If stale it is returned while a background refetch runs. A mutation invalidates matching keys so they refetch and update every subscribed component.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "c",
+              "label": "Component asks by query key"
+            },
+            {
+              "id": "ca",
+              "label": "Cache lookup"
+            },
+            {
+              "id": "fr",
+              "label": "Fresh: return cached"
+            },
+            {
+              "id": "st",
+              "label": "Stale: return and refetch"
+            },
+            {
+              "id": "mu",
+              "label": "Mutation invalidates key"
+            }
+          ],
+          "edges": [
+            {
+              "from": "c",
+              "to": "ca"
+            },
+            {
+              "from": "ca",
+              "to": "fr"
+            },
+            {
+              "from": "ca",
+              "to": "st"
+            },
+            {
+              "from": "mu",
+              "to": "ca",
+              "label": "mark stale"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "What is the difference between staleTime and gcTime?",
+        "How would you implement an optimistic update with rollback?",
+        "How do you prefetch data for a route?"
+      ],
+      "related": [
+        "data-fetching-race-conditions-and-abortcontroller",
+        "large-form-architecture-react-hook-form"
+      ]
+    },
+    {
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "slug": "shared-component-library-and-design-system-in-react",
+      "title": "How would you build and govern a shared React component library or design system for several teams?",
+      "topic": "Design systems",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "react",
+        "design-system",
+        "component-library",
+        "governance",
+        "storybook"
+      ],
+      "quick": "I start from design tokens, then build accessible, themeable primitives and a small set of composed components, published as a versioned package with TypeScript types. Storybook documents each variant, tests cover behaviour and accessibility, and visual regression catches style drift. Governance matters as much as code: clear ownership, a contribution process, semantic versioning, deprecation policy and tree-shakeable builds so consumers do not pay for unused components.",
+      "revision": "Tokens, accessible primitives, versioned typed package, Storybook and visual tests, tree-shakeable builds, plus ownership and deprecation governance.",
+      "detailed": "A design system is **components plus the process that keeps them consistent**. Without governance it becomes either a bottleneck or an abandoned folder.\n\n{{diagram:ds}}\n\n## Layers\n\n| Layer | Content | Notes |\n|---|---|---|\n| Tokens | Colour, spacing, type, radius, motion | CSS variables or a token pipeline |\n| Primitives | Button, Input, Dialog, Stack | Accessible by default, keyboard support |\n| Composed components | DataTable, DatePicker, FormField | Built from primitives |\n| Patterns and guidance | Forms, empty states, error handling | Documentation, not code only |\n\n## API design\n\n```tsx\ntype ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {\n  variant?: 'primary' | 'secondary' | 'danger';\n  size?: 'sm' | 'md';\n  loading?: boolean;\n};\n\nexport const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(\n  ({ variant = 'primary', size = 'md', loading, children, ...rest }, ref) => (\n    <button ref={ref} data-variant={variant} data-size={size} aria-busy={loading} disabled={loading || rest.disabled} {...rest}>\n      {children}\n    </button>\n  )\n);\n```\n\nForwarding refs and spreading native props keep components flexible. Newer React versions may treat ref as a normal prop, so verify the current guidance.\n\n## Principles\n\n- **Composition over configuration**: prefer children and slots over dozens of boolean props.\n- **Accessibility built in**: focus management, ARIA only where needed, tested with automated and manual checks.\n- **Theming**: tokens and CSS variables rather than forking components.\n- **Packaging**: ESM output, sideEffects metadata for tree shaking, peer dependency on React.\n- **Quality gates**: unit tests, axe checks, visual regression, bundle size checks.\n- **Versioning**: semantic versioning, changelogs, codemods and a deprecation window.\n\n## Governance\n\nDefine a core team, a contribution path for product teams, a design review step, and adoption metrics. In micro-frontend setups, share the library as a singleton carefully to avoid style and version conflicts.\n\n## Common mistakes\n\n- Building components before tokens.\n- Over-flexible components that become unmaintainable.\n- Breaking changes without migration paths.\n- Treating the library as done instead of a product.",
+      "diagrams": [
+        {
+          "id": "ds",
+          "title": "Design system delivery flow",
+          "alt": "Design tokens feed accessible primitives, which are composed into higher-level components. These are documented in Storybook, verified by tests and visual regression, published as a versioned package, and consumed by product teams who feed requests back.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "tk",
+              "label": "Design tokens"
+            },
+            {
+              "id": "pr",
+              "label": "Accessible primitives"
+            },
+            {
+              "id": "co",
+              "label": "Composed components"
+            },
+            {
+              "id": "sb",
+              "label": "Storybook and tests"
+            },
+            {
+              "id": "pk",
+              "label": "Versioned package"
+            },
+            {
+              "id": "te",
+              "label": "Product teams"
+            }
+          ],
+          "edges": [
+            {
+              "from": "tk",
+              "to": "pr"
+            },
+            {
+              "from": "pr",
+              "to": "co"
+            },
+            {
+              "from": "co",
+              "to": "sb"
+            },
+            {
+              "from": "sb",
+              "to": "pk"
+            },
+            {
+              "from": "pk",
+              "to": "te"
+            },
+            {
+              "from": "te",
+              "to": "co",
+              "label": "feedback"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you version and deprecate components safely?",
+        "How do you keep the library tree-shakeable?",
+        "How do you measure design system adoption?"
+      ],
+      "related": [
+        "smart-vs-presentational-components",
+        "hoc-vs-render-props-vs-hooks"
+      ]
+    }
+  ]
+}

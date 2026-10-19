@@ -1,0 +1,2392 @@
+{
+  "category": "nextjs-architecture",
+  "questions": [
+    {
+      "slug": "nextjs-vs-react-spa-decision",
+      "title": "When would you choose Next.js over a plain React SPA?",
+      "topic": "Next.js fundamentals",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "nextjs",
+        "react",
+        "spa",
+        "architecture"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I choose Next.js when the product needs good first-load performance, search visibility, per-route rendering choices, or a thin server layer close to the UI. Public catalogues, content sites and marketing pages benefit most. I stay with a plain React SPA for authenticated internal tools behind a login, where SEO is irrelevant, the backend is already separate and a static bundle on a CDN is enough. The decision is about operational cost versus user and business benefit, not fashion.",
+      "revision": "Choose Next.js for SEO, fast first paint, mixed rendering and a server layer; choose an SPA for logged-in internal tools where a static bundle suffices.",
+      "detailed": "Both options use React. The real question is **whether you need a server-aware rendering layer** and are willing to run it.\n\n## Decision criteria\n\n| Criterion | Favours Next.js | Favours React SPA |\n|---|---|---|\n| SEO and social previews | Public, indexable pages | Everything behind login |\n| First-load performance | Content visible before JS runs | Users on fast devices, repeat visitors |\n| Rendering mix | Static, dynamic and personalised pages together | One uniform client-rendered experience |\n| Backend shape | Want a BFF or server-side data fetching near the UI | Existing API is complete and stable |\n| Team skills | Comfortable with server runtimes and caching | Frontend-only team, simple hosting |\n| Hosting | Can run Node or a platform adapter | Static files on S3 and a CDN |\n| Time to deliver | Framework conventions save routing and splitting work | Fewer concepts to learn |\n\n{{diagram:decision}}\n\n## What you gain and what you pay\n\nYou gain file-based routing, server rendering, streaming, metadata handling, image optimisation and a place for server-only code. You pay with a **server runtime to operate**, caching rules to understand, a stricter client/server boundary and faster framework churn, so verify the current Next.js docs before committing to a version.\n\n## A sensible default\n\n- Public, SEO-sensitive, content or commerce: Next.js (or another SSR framework).\n- Internal dashboard behind SSO with an existing API: Vite plus React is usually simpler.\n- Mixed: Next.js for the public shell, an SPA-style client area for the logged-in part is still fine within Next.js.\n\n## Common mistakes\n\n- Picking Next.js for an internal CRUD tool and then running a server nobody needed.\n- Assuming SSR automatically means fast; slow upstream APIs make slow server renders.\n- Treating Next.js as a backend replacement and skipping proper service boundaries.\n- Ignoring that CSR can be indexed by search engines in many cases, so SEO alone must be justified with the actual page types.",
+      "followUps": [
+        "What would make you move an existing SPA to Next.js?",
+        "How do you explain this trade-off to a client who has heard Next.js is always better?",
+        "Can you get SEO from an SPA without Next.js?"
+      ],
+      "related": [
+        "when-nextjs-adds-unnecessary-complexity",
+        "rendering-strategies-per-page-type"
+      ],
+      "diagrams": [
+        {
+          "id": "decision",
+          "title": "Next.js or SPA decision",
+          "alt": "A decision flow: if pages are public and need search visibility or fast first load choose Next.js; if the app sits behind login with a stable API and a static host, choose a plain React SPA; mixed products can use Next.js for the public shell.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "s",
+              "label": "New React product"
+            },
+            {
+              "id": "p",
+              "label": "Public pages needing SEO or fast first load?"
+            },
+            {
+              "id": "n",
+              "label": "Next.js"
+            },
+            {
+              "id": "l",
+              "label": "Behind login with a stable API?"
+            },
+            {
+              "id": "spa",
+              "label": "React SPA on CDN"
+            },
+            {
+              "id": "m",
+              "label": "Mixed product: Next.js shell"
+            }
+          ],
+          "edges": [
+            {
+              "from": "s",
+              "to": "p"
+            },
+            {
+              "from": "p",
+              "to": "n",
+              "label": "yes"
+            },
+            {
+              "from": "p",
+              "to": "l",
+              "label": "no"
+            },
+            {
+              "from": "l",
+              "to": "spa",
+              "label": "yes"
+            },
+            {
+              "from": "l",
+              "to": "m",
+              "label": "no"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "app-router-vs-pages-router-migration",
+      "title": "App Router vs Pages Router, and how would you migrate?",
+      "topic": "Next.js routing",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "nextjs",
+        "app-router",
+        "pages-router",
+        "migration"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "The Pages Router uses getServerSideProps and getStaticProps with every component hydrated on the client. The App Router is built on React Server Components, nested layouts, streaming and server-side data fetching in components, so less JavaScript ships by default. For migration I do it incrementally: both routers can coexist, so I move route by route, starting with low-risk pages, and keep shared logic framework-agnostic. I verify current docs for coexistence rules before planning.",
+      "revision": "Pages Router is page-level data functions with full hydration; App Router uses Server Components and nested layouts. Migrate route by route since both can coexist.",
+      "detailed": "The App Router is the newer model built on **React Server Components**. The Pages Router is still supported, so migration is a business decision, not an emergency. Verify the current Next.js docs for support status and migration guidance.\n\n## Conceptual differences\n\n| Aspect | Pages Router | App Router |\n|---|---|---|\n| Routing folder | `pages/` | `app/` with `page`, `layout` files |\n| Data fetching | `getServerSideProps`, `getStaticProps` | Async server components, fetch, server functions |\n| Component model | Everything hydrates on the client | Server by default, client by opt-in |\n| Layouts | Custom `_app`, `_document`, manual nesting | Nested layouts that persist across navigation |\n| Loading and errors | Hand-built | Convention files such as `loading` and `error` |\n| API endpoints | `pages/api` | Route handlers |\n\n## Migration approach\n\n1. Upgrade Next.js and React first, with tests green.\n2. Extract business logic and data access out of page files into plain modules.\n3. Move routes one at a time into `app/`; both routers can run side by side, but the same URL must not exist in both.\n4. Mark interactive pieces as client components; keep data fetching on the server.\n5. Replace `getServerSideProps` and `getStaticProps` with server-side fetching and the appropriate caching or revalidation.\n6. Re-test caching, auth and analytics, because behaviour changes.\n\n{{diagram:migration}}\n\n## Risks\n\nThird-party libraries that assume the client (context providers, CSS-in-JS) may need wrappers. Caching defaults differ, so measure before and after.\n\n## Common mistakes\n\n- Big-bang rewrite with no incremental release path.\n- Marking everything as a client component, losing the benefits.\n- Migrating pages that are stable and low-value just for tidiness.\n- Forgetting authentication checks when moving data access into server components.",
+      "followUps": [
+        "Which pages would you migrate first and why?",
+        "What breaks when a library needs React context at the root?",
+        "How do you convince a client that migration is worth the cost?"
+      ],
+      "related": [
+        "server-vs-client-components-boundary",
+        "nextjs-caching-layers-revalidation"
+      ],
+      "diagrams": [
+        {
+          "id": "migration",
+          "title": "Incremental router migration",
+          "alt": "The team upgrades dependencies, extracts shared logic, then moves routes one at a time from the pages directory to the app directory while both routers run together, measuring each move before the next and retiring the pages directory at the end.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "u",
+              "label": "Upgrade and test"
+            },
+            {
+              "id": "e",
+              "label": "Extract shared logic"
+            },
+            {
+              "id": "r",
+              "label": "Move one route"
+            },
+            {
+              "id": "m",
+              "label": "Measure and verify"
+            },
+            {
+              "id": "n",
+              "label": "Next route"
+            },
+            {
+              "id": "d",
+              "label": "Retire pages dir"
+            }
+          ],
+          "edges": [
+            {
+              "from": "u",
+              "to": "e"
+            },
+            {
+              "from": "e",
+              "to": "r"
+            },
+            {
+              "from": "r",
+              "to": "m"
+            },
+            {
+              "from": "m",
+              "to": "n"
+            },
+            {
+              "from": "n",
+              "to": "r",
+              "label": "repeat"
+            },
+            {
+              "from": "m",
+              "to": "d",
+              "label": "all done"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "server-vs-client-components-boundary",
+      "title": "Server Components vs Client Components: where is the boundary and what can cross it?",
+      "topic": "React Server Components",
+      "difficulty": "advanced",
+      "type": "conceptual",
+      "tags": [
+        "nextjs",
+        "rsc",
+        "client-components",
+        "serialisation"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Server Components render on the server, can access databases and secrets and add no component JavaScript to the bundle. Client Components, marked with a use client directive, hydrate in the browser and can use state, effects and event handlers. A server component can render a client component and pass it serialisable props, including other server-rendered elements as children. Functions, class instances and secrets cannot be passed. I push the boundary down to small interactive leaves.",
+      "revision": "Server components fetch data and ship no component JS; client components handle interactivity. Only serialisable props cross; push use client to small leaves.",
+      "detailed": "The boundary decides **what code runs where** and how much JavaScript the browser downloads.\n\n## Roles\n\n| | Server Component | Client Component |\n|---|---|---|\n| Directive | Default in the App Router | `\"use client\"` at top of file |\n| Runs | Server (build or request) | Server for first render, then browser |\n| Can use | Database, secrets, async/await | State, effects, events, browser APIs |\n| In the bundle | No | Yes |\n\n## What can cross the boundary\n\nProps passed from server to client are **serialised**. Safe values are primitives, plain objects and arrays, dates and similar supported types, and React elements (such as `children`). **Not allowed**: ordinary functions, class instances with methods, database connections, and anything containing secrets. Server functions marked for the framework (server actions) are a special, supported case.\n\n```tsx\n// ProductPage.tsx (server component) - illustrative\nimport { AddToCart } from \"./AddToCart\"; // client component\n\nexport default async function ProductPage({ id }: { id: string }) {\n  const product = await getProduct(id); // server-only data access\n  return (\n    <main>\n      <h1>{product.name}</h1>\n      <AddToCart sku={product.sku} /> {/* serialisable prop */}\n    </main>\n  );\n}\n```\n\n```tsx\n// AddToCart.tsx\n\"use client\";\nimport { useState } from \"react\";\nexport function AddToCart({ sku }: { sku: string }) {\n  const [busy, setBusy] = useState(false);\n  return <button disabled={busy} onClick={() => setBusy(true)}>Add</button>;\n}\n```\n\n{{diagram:boundary}}\n\n## Guidelines\n\n- Keep `use client` on the smallest interactive leaf, not on the page.\n- A client component cannot import a server component, but can receive one as `children`.\n- Use a server-only guard for modules that must never reach the browser; verify the current docs for the recommended mechanism.\n\n## Common mistakes\n\n- Marking the root layout as client, making the whole tree client-side.\n- Passing a whole database record containing private fields to a client component; it becomes visible in the page payload.\n- Putting secrets in a module imported by a client component.\n- Reaching for global client state when a server fetch would do.",
+      "followUps": [
+        "Why is passing a full user record to a client component risky?",
+        "How do you share a context provider with a server-rendered tree?",
+        "How do you keep a secret-bearing module out of the client bundle?"
+      ],
+      "related": [
+        "nextjs-environment-variables-and-secrets",
+        "hydration-mismatch-causes-fixes"
+      ],
+      "diagrams": [
+        {
+          "id": "boundary",
+          "title": "Server and client component boundary",
+          "alt": "A server component fetches data from the database and renders HTML plus a payload. It passes serialisable props to a client component, which hydrates in the browser and handles state and events. Functions and secrets cannot cross the boundary.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "db",
+              "label": "Database and secrets"
+            },
+            {
+              "id": "sc",
+              "label": "Server component"
+            },
+            {
+              "id": "ser",
+              "label": "Serialisable props only"
+            },
+            {
+              "id": "cc",
+              "label": "Client component"
+            },
+            {
+              "id": "br",
+              "label": "Browser state and events"
+            }
+          ],
+          "edges": [
+            {
+              "from": "db",
+              "to": "sc",
+              "label": "server only"
+            },
+            {
+              "from": "sc",
+              "to": "ser"
+            },
+            {
+              "from": "ser",
+              "to": "cc"
+            },
+            {
+              "from": "cc",
+              "to": "br"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "rendering-strategies-per-page-type",
+      "title": "How do you choose between SSR, SSG, ISR and CSR for different page types?",
+      "topic": "Rendering strategy",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "nextjs",
+        "ssr",
+        "ssg",
+        "isr",
+        "csr"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I choose per page by how often content changes and whether it is personalised. Stable marketing pages suit static generation. Catalogue and article pages that change occasionally suit incremental regeneration or time and tag-based revalidation. Truly per-request or per-user data suits server rendering or client fetching behind a login. CSR fits highly interactive, non-indexed widgets. Mixing strategies in one app is the point of Next.js.",
+      "revision": "Static for stable pages, ISR or revalidation for slow-changing shared content, SSR for per-request data, CSR for private interactive areas.",
+      "detailed": "Rendering is a **per-route** decision. Terminology and defaults shift between versions, so verify current Next.js docs for how each is expressed in the App Router.\n\n## Comparison\n\n| Strategy | HTML produced | Freshness | Best for | Watch out for |\n|---|---|---|---|---|\n| SSG | Build time | Stale until rebuild | Marketing, docs, legal | Long builds with many pages |\n| ISR / revalidation | Build then refreshed in background | Bounded staleness | Catalogue, articles, listings | Cache invalidation correctness |\n| SSR | Every request | Fresh | Per-request or personalised data | Server cost, upstream latency |\n| CSR | Browser after JS | Fresh | Logged-in widgets, dashboards | Slow first content, not for SEO |\n\n## Page-type mapping (illustrative)\n\n| Page | Typical choice |\n|---|---|\n| Home, campaign landing | Static or revalidated |\n| Product detail | Revalidated, with live price or stock fetched separately |\n| Search results | Server-rendered or hybrid with client refinement |\n| Account dashboard | Server-rendered shell plus client-fetched widgets |\n| Checkout | Dynamic, uncached, secure |\n\n{{diagram:matrix}}\n\n## Questions I ask\n\n1. Is it public and indexable?\n2. How stale may it be, and who tolerates that?\n3. Does it depend on cookies, headers or the user?\n4. What is the upstream latency and who pays for it per request?\n\n## Common mistakes\n\n- Static-generating a page that reads cookies, then wondering why it is stale or becomes dynamic.\n- Using SSR everywhere when ISR would give the same freshness cheaper.\n- Using CSR for public content and losing SEO and fast first paint.\n- Revalidation intervals chosen by guess rather than business tolerance.",
+      "followUps": [
+        "How does one personalised element change the rendering choice of a page?",
+        "How would you pre-render a catalogue of a million products?",
+        "What is the cost of SSR for a slow upstream?"
+      ],
+      "related": [
+        "nextjs-caching-layers-revalidation",
+        "scenario-ecommerce-product-detail-pages"
+      ],
+      "diagrams": [
+        {
+          "id": "matrix",
+          "title": "Rendering choice by freshness and personalisation",
+          "alt": "If content is identical for all users and rarely changes use static; if shared but changes use revalidation; if it depends on the request or user use server rendering; if private and interactive use client fetching.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "q",
+              "label": "Is content per-user or per-request?"
+            },
+            {
+              "id": "a",
+              "label": "Shared across users"
+            },
+            {
+              "id": "b",
+              "label": "SSR or client fetch"
+            },
+            {
+              "id": "c",
+              "label": "Changes often?"
+            },
+            {
+              "id": "d",
+              "label": "Static generation"
+            },
+            {
+              "id": "e",
+              "label": "Revalidated static"
+            }
+          ],
+          "edges": [
+            {
+              "from": "q",
+              "to": "a",
+              "label": "no"
+            },
+            {
+              "from": "q",
+              "to": "b",
+              "label": "yes"
+            },
+            {
+              "from": "a",
+              "to": "c"
+            },
+            {
+              "from": "c",
+              "to": "d",
+              "label": "rarely"
+            },
+            {
+              "from": "c",
+              "to": "e",
+              "label": "sometimes"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "streaming-and-suspense-nextjs",
+      "title": "How do streaming and Suspense work in Next.js and when do they help?",
+      "topic": "Streaming",
+      "difficulty": "advanced",
+      "type": "conceptual",
+      "tags": [
+        "nextjs",
+        "streaming",
+        "suspense",
+        "performance"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Streaming lets the server send the page shell immediately and fill in slower sections later as they resolve. I wrap slow data-dependent components in Suspense with a fallback, so the user sees layout and fast content while recommendations or reviews load. It improves perceived performance and time to first byte of useful content, but it does not make a slow query faster, and the status code and headers are already sent once streaming starts.",
+      "revision": "Send the shell first and stream slow sections inside Suspense boundaries; it helps perceived speed, not the slow query itself.",
+      "detailed": "Without streaming, a server render waits for **all** data before sending HTML, so the slowest query sets the pace. With streaming, the framework sends HTML in chunks.\n\n## How it works\n\n- The route renders to a shell with **Suspense fallbacks** where data is pending.\n- The server flushes the shell, then sends each section when its promise resolves, and the browser swaps it in.\n- A `loading` route file gives a route-level fallback; verify current docs for exact conventions.\n\n```tsx\n// illustrative\nimport { Suspense } from \"react\";\n\nexport default async function Page({ id }: { id: string }) {\n  const product = await getProduct(id); // critical, awaited\n  return (\n    <>\n      <ProductSummary product={product} />\n      <Suspense fallback={<ReviewsSkeleton />}>\n        <Reviews id={id} /> {/* slow, streams later */}\n      </Suspense>\n    </>\n  );\n}\n```\n\n{{diagram:stream}}\n\n## Where it helps\n\n| Situation | Benefit |\n|---|---|\n| One slow widget on a fast page | Rest of page is usable immediately |\n| Personalised region on a cached page | Shell is quick, personal part streams |\n| Large dashboards | Progressive loading |\n\n## Trade-offs\n\n- Once the first bytes are sent, the **status code is already decided**, so a late failure cannot become a 404 or redirect easily; decide critical outcomes before the boundary.\n- Layout shift if fallbacks do not match final sizes.\n- Some crawlers and tools handle streamed content differently; verify for your SEO needs.\n- Proxies and CDNs must not buffer the stream; test the real path.\n\n## Common mistakes\n\n- Wrapping everything in one Suspense so nothing is progressive.\n- Putting SEO-critical content behind a late boundary.\n- Sequential awaits that create waterfalls; start independent fetches together.\n- Skeletons of a different size from the content.",
+      "followUps": [
+        "Why can a streamed page not return a late 404?",
+        "How do you avoid fetch waterfalls in server components?",
+        "Can a CDN break streaming?"
+      ],
+      "related": [
+        "hydration-mismatch-causes-fixes",
+        "scenario-ecommerce-product-detail-pages"
+      ],
+      "diagrams": [
+        {
+          "id": "stream",
+          "title": "Streaming a page with Suspense",
+          "alt": "The server renders the shell and fast content, flushes it to the browser immediately with fallbacks in place, then streams the slow reviews and recommendations sections as their data resolves and the browser replaces each fallback.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "req",
+              "label": "Request"
+            },
+            {
+              "id": "shell",
+              "label": "Shell and fast content"
+            },
+            {
+              "id": "flush",
+              "label": "Flush early"
+            },
+            {
+              "id": "slow",
+              "label": "Slow sections resolve"
+            },
+            {
+              "id": "swap",
+              "label": "Browser swaps fallbacks"
+            }
+          ],
+          "edges": [
+            {
+              "from": "req",
+              "to": "shell"
+            },
+            {
+              "from": "shell",
+              "to": "flush"
+            },
+            {
+              "from": "flush",
+              "to": "swap",
+              "label": "fallbacks shown"
+            },
+            {
+              "from": "shell",
+              "to": "slow"
+            },
+            {
+              "from": "slow",
+              "to": "swap",
+              "label": "chunks arrive"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "hydration-mismatch-causes-fixes",
+      "title": "Scenario: users report a hydration mismatch warning. Causes and fixes?",
+      "topic": "Hydration",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "nextjs",
+        "hydration",
+        "react",
+        "debugging"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "A hydration mismatch means the HTML the server produced differs from what the client renders on first pass. Typical causes are dates, random values, locale or timezone formatting, reading window or localStorage during render, browser extensions altering the DOM, and invalid HTML nesting. I reproduce it, read the diff in the development warning, then make first render deterministic and move browser-only values into an effect or a client-only component.",
+      "revision": "Mismatch means server HTML differs from the client's first render. Make first render deterministic; move browser-only values into effects.",
+      "detailed": "Hydration attaches React to server-rendered HTML. If the first client render produces different output, React warns and may discard and re-render parts, hurting performance and sometimes correctness.\n\n## Typical causes\n\n| Cause | Example |\n|---|---|\n| Time and randomness | `new Date()`, `Math.random()`, generated IDs in render |\n| Locale and timezone | Server in UTC, user in another zone, formatted differently |\n| Browser-only reads | `window`, `localStorage`, `matchMedia` during render |\n| Invalid HTML | `div` inside `p`, nested anchors, table structure errors |\n| Extensions | Translation or ad-block tools modifying the DOM |\n| Conditional personalisation | Cookie read differs between server and client |\n| Third-party scripts | Injecting markup before hydration |\n\n## Diagnosis steps\n\n1. Reproduce in development; the console message shows a text or attribute diff in recent versions.\n2. Check \"view source\" against the rendered DOM.\n3. Disable extensions to rule them out.\n4. Bisect by removing components until the warning disappears.\n\n## Fixes\n\n```tsx\n// illustrative: avoid reading browser state in first render\n\"use client\";\nimport { useEffect, useState } from \"react\";\n\nexport function LocalTime({ iso }: { iso: string }) {\n  const [text, setText] = useState(iso); // same on server and client\n  useEffect(() => {\n    setText(new Date(iso).toLocaleString());\n  }, [iso]);\n  return <time dateTime={iso}>{text}</time>;\n}\n```\n\n- Render the same thing first, then update after mount.\n- Use framework-provided or React-provided stable ID helpers instead of random IDs.\n- Format dates with an explicit locale and timezone.\n- Fix invalid markup.\n- For genuinely unavoidable single-element differences, React offers a suppression attribute; use it sparingly and verify docs.\n\n{{diagram:hydrate}}\n\n## Common mistakes\n\n- Silencing the warning rather than finding the cause.\n- Wrapping whole pages in client-only loading, giving up server rendering.\n- Using effects to fix data that should have been identical from the server.",
+      "followUps": [
+        "Why is a mismatch worse than a visual glitch?",
+        "How do you handle a user-specific greeting on a statically generated page?",
+        "How would you catch these in CI?"
+      ],
+      "related": [
+        "server-vs-client-components-boundary",
+        "streaming-and-suspense-nextjs"
+      ],
+      "diagrams": [
+        {
+          "id": "hydrate",
+          "title": "Hydration mismatch cause and fix",
+          "alt": "The server renders HTML from its own values. The browser's first render uses different values such as time, locale or window data, so React finds a mismatch. The fix is to make the first render identical and apply browser-only values after mount in an effect.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "srv",
+              "label": "Server HTML"
+            },
+            {
+              "id": "cli",
+              "label": "Client first render"
+            },
+            {
+              "id": "cmp",
+              "label": "Compare"
+            },
+            {
+              "id": "ok",
+              "label": "Hydrates cleanly"
+            },
+            {
+              "id": "bad",
+              "label": "Mismatch warning"
+            },
+            {
+              "id": "fix",
+              "label": "Deterministic first render plus effect"
+            }
+          ],
+          "edges": [
+            {
+              "from": "srv",
+              "to": "cmp"
+            },
+            {
+              "from": "cli",
+              "to": "cmp"
+            },
+            {
+              "from": "cmp",
+              "to": "ok",
+              "label": "same"
+            },
+            {
+              "from": "cmp",
+              "to": "bad",
+              "label": "different"
+            },
+            {
+              "from": "bad",
+              "to": "fix"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "server-actions-security",
+      "title": "What are the security implications of Server Actions?",
+      "topic": "Server Actions",
+      "difficulty": "advanced",
+      "type": "conceptual",
+      "tags": [
+        "nextjs",
+        "server-actions",
+        "security",
+        "csrf"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "A server action is effectively a public HTTP endpoint, even though it looks like a function call. So I treat every action like an API route: authenticate, authorise against the specific resource, validate input on the server, and never trust values from the client such as user ids or prices. The framework adds protections such as origin checks, but I verify the current docs and still design for CSRF, replay and abuse with rate limiting and idempotency.",
+      "revision": "Treat every server action as a public endpoint: authenticate, authorise per resource, validate input, rate-limit, and never trust client-sent identity or prices.",
+      "detailed": "Server Actions let a component call a server function, commonly from a form. The convenience hides the fact that the framework exposes an **endpoint** that anyone can call with crafted requests. Details evolve, so verify current Next.js docs for built-in protections.\n\n## Threats and controls\n\n| Threat | Control |\n|---|---|\n| Unauthenticated calls | Check the session inside **every** action, not only in the page |\n| Broken object-level authorisation | Verify the user may act on this record id |\n| Tampered input | Validate and coerce with a schema on the server |\n| CSRF | Framework origin checks and same-site cookies; confirm current behaviour and proxy host headers |\n| Mass assignment | Pick allowed fields explicitly |\n| Abuse and replay | Rate limits, idempotency keys for payments or orders |\n| Leaking data in errors | Return safe messages, log details server-side |\n\n```ts\n// illustrative\n\"use server\";\nimport { z } from \"zod\";\n\nconst Input = z.object({ orderId: z.string().uuid(), note: z.string().max(500) });\n\nexport async function addOrderNote(raw: unknown) {\n  const session = await requireSession();           // authenticate\n  const { orderId, note } = Input.parse(raw);       // validate\n  const order = await getOrder(orderId);\n  if (order.customerId !== session.userId) {        // authorise the resource\n    throw new Error(\"Forbidden\");\n  }\n  await saveNote(orderId, note);\n}\n```\n\n{{diagram:action}}\n\n## Design notes\n\n- Hidden form fields and bound arguments are **user-controlled**; re-derive identity and prices on the server.\n- Behind a proxy or CDN, make sure host and origin headers are forwarded correctly or legitimate calls may fail the origin check.\n- Prefer a shared service layer so actions and route handlers use the same authorisation code.\n\n## Common mistakes\n\n- Assuming a page-level login check protects the action.\n- Trusting a `userId` argument.\n- Skipping validation because TypeScript types exist; types vanish at runtime.\n- Returning raw exceptions or database errors to the client.",
+      "followUps": [
+        "Why is a TypeScript type not validation?",
+        "How do you make a payment action idempotent?",
+        "What breaks origin checks behind a reverse proxy?"
+      ],
+      "related": [
+        "authentication-in-server-rendered-nextjs",
+        "route-handlers-and-api-boundaries"
+      ],
+      "diagrams": [
+        {
+          "id": "action",
+          "title": "Server action request path",
+          "alt": "A request to a server action is authenticated by session, input is validated against a schema, the user is authorised for the specific resource, and only then does the action perform the change and return a safe result.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "r",
+              "label": "Incoming action request"
+            },
+            {
+              "id": "s",
+              "label": "Check session"
+            },
+            {
+              "id": "v",
+              "label": "Validate input"
+            },
+            {
+              "id": "a",
+              "label": "Authorise resource"
+            },
+            {
+              "id": "w",
+              "label": "Perform change"
+            },
+            {
+              "id": "o",
+              "label": "Safe result"
+            }
+          ],
+          "edges": [
+            {
+              "from": "r",
+              "to": "s"
+            },
+            {
+              "from": "s",
+              "to": "v"
+            },
+            {
+              "from": "v",
+              "to": "a"
+            },
+            {
+              "from": "a",
+              "to": "w"
+            },
+            {
+              "from": "w",
+              "to": "o"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "route-handlers-and-api-boundaries",
+      "title": "When do you use Route Handlers, and how do you draw API boundaries in Next.js?",
+      "topic": "Route Handlers",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "nextjs",
+        "route-handlers",
+        "api",
+        "boundaries"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Route handlers are request and response endpoints inside the app, suited to webhooks, integrations, file downloads, and endpoints consumed by non-React clients. For data used only by my own pages I prefer fetching on the server directly rather than calling my own API. I keep business logic in a service layer that handlers, actions and components all call, so Next.js stays a thin delivery layer and the boundary is clear.",
+      "revision": "Use route handlers for webhooks, external clients and downloads; fetch directly on the server for your own pages; keep logic in a shared service layer.",
+      "detailed": "Route handlers (files such as `route.ts` in the App Router) define HTTP endpoints using web-standard Request and Response objects. Verify current docs for caching defaults of GET handlers, which changed between versions.\n\n## When to use\n\n| Use case | Route handler? |\n|---|---|\n| Payment or CMS webhook | Yes |\n| Mobile app or third party consuming JSON | Yes, or a dedicated API service |\n| File export or signed download | Yes |\n| Data for your own server component | No, call the service function directly |\n| Mutations from your own forms | Server action or handler, per team standard |\n\n```ts\n// app/api/webhooks/payments/route.ts - illustrative\nexport async function POST(req: Request) {\n  const body = await req.text();\n  const signature = req.headers.get(\"x-signature\");\n  if (!verifySignature(body, signature)) {\n    return new Response(\"Invalid\", { status: 401 });\n  }\n  await handlePaymentEvent(JSON.parse(body)); // idempotent\n  return new Response(\"ok\");\n}\n```\n\n## Boundary design\n\n{{diagram:layers}}\n\n- **Presentation** (components) never touches the database directly except through the service layer.\n- **Service layer** holds rules, authorisation and orchestration; framework-agnostic and testable.\n- **Handlers and actions** are adapters: parse, call service, format.\n- If many consumers or teams need the API, a **separate service** is cleaner than growing handlers inside the UI app.\n\n## Common mistakes\n\n- A server component fetching its own route handler over HTTP, adding latency and a failure point.\n- Business rules written inside handlers, duplicated in actions.\n- No signature verification and no idempotency on webhooks.\n- Unplanned caching of GET handlers returning user-specific data; verify current behaviour.",
+      "followUps": [
+        "Why not call your own API route from a server component?",
+        "How would you secure a webhook endpoint?",
+        "When does a handler layer become a case for a separate service?"
+      ],
+      "related": [
+        "server-actions-security",
+        "nextjs-monolith-vs-separate-backend"
+      ],
+      "diagrams": [
+        {
+          "id": "layers",
+          "title": "Layers around route handlers",
+          "alt": "Components, server actions and route handlers are thin adapters that all call one shared service layer containing business rules and authorisation, which in turn uses a data access layer to reach databases and external APIs.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "c",
+              "label": "Components"
+            },
+            {
+              "id": "a",
+              "label": "Server actions"
+            },
+            {
+              "id": "h",
+              "label": "Route handlers"
+            },
+            {
+              "id": "s",
+              "label": "Service layer"
+            },
+            {
+              "id": "d",
+              "label": "Data access"
+            },
+            {
+              "id": "x",
+              "label": "Databases and APIs"
+            }
+          ],
+          "edges": [
+            {
+              "from": "c",
+              "to": "s"
+            },
+            {
+              "from": "a",
+              "to": "s"
+            },
+            {
+              "from": "h",
+              "to": "s"
+            },
+            {
+              "from": "s",
+              "to": "d"
+            },
+            {
+              "from": "d",
+              "to": "x"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "middleware-limits-and-edge-runtime",
+      "title": "What is Next.js middleware good for, and what are its limits?",
+      "topic": "Middleware",
+      "difficulty": "advanced",
+      "type": "conceptual",
+      "tags": [
+        "nextjs",
+        "middleware",
+        "edge",
+        "routing"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Middleware runs before a request is completed, so it suits cheap, fast decisions such as redirects, rewrites, locale detection, A/B bucketing and header manipulation. It typically runs in a constrained edge-style runtime, so heavy libraries, long database calls and some Node APIs are unavailable or discouraged. I never make it my only authorisation layer; real checks belong next to the data. Naming and runtime options have changed across versions, so I verify current docs.",
+      "revision": "Middleware suits fast redirects, rewrites, locale and header work. It has runtime limits and must not be the only auth check.",
+      "detailed": "Middleware intercepts matched requests before the route handles them. Naming, file conventions and runtime options have changed across versions, so **verify current Next.js docs**.\n\n## Good uses\n\n| Use | Why it fits |\n|---|---|\n| Redirects and rewrites | Cheap and early |\n| Locale or region routing | Reads headers or cookies |\n| A/B bucketing | Sets a cookie, rewrites path |\n| Adding security or tracing headers | Consistent across routes |\n| Coarse \"is there a session cookie\" gating | Fast UX redirect |\n\n```ts\n// illustrative\nimport { NextResponse } from \"next/server\";\nimport type { NextRequest } from \"next/server\";\n\nexport function middleware(req: NextRequest) {\n  const hasSession = req.cookies.has(\"session\");\n  if (!hasSession && req.nextUrl.pathname.startsWith(\"/account\")) {\n    return NextResponse.redirect(new URL(\"/login\", req.url));\n  }\n  return NextResponse.next();\n}\nexport const config = { matcher: [\"/account/:path*\"] };\n```\n\n## Limits\n\n- Constrained runtime: not all Node APIs or libraries work; keep bundles small.\n- Runs on many requests, so latency adds up; scope it with a matcher.\n- Not a place for slow database or heavy session verification.\n- It sees the request, not the final data, so it cannot authorise a specific record.\n- Historic vulnerabilities in middleware-only authorisation show why defence in depth matters.\n\n{{diagram:mw}}\n\n## Common mistakes\n\n- Treating middleware as the sole authentication and authorisation layer.\n- Matching every path including static assets.\n- Calling slow upstream services on each request.\n- Putting business logic that needs Node-only libraries there.",
+      "followUps": [
+        "Why is a cookie-exists check not authentication?",
+        "How would you scope a matcher to avoid static assets?",
+        "What would you do if middleware needs a heavy library?"
+      ],
+      "related": [
+        "authentication-in-server-rendered-nextjs",
+        "edge-vs-node-runtime"
+      ],
+      "diagrams": [
+        {
+          "id": "mw",
+          "title": "Request path with middleware",
+          "alt": "A request first passes through middleware that can redirect, rewrite or add headers cheaply. Allowed requests continue to the page or handler, where the real authentication and authorisation checks run next to the data.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "req",
+              "label": "Request"
+            },
+            {
+              "id": "mw",
+              "label": "Middleware: redirect, rewrite, headers"
+            },
+            {
+              "id": "redir",
+              "label": "Redirect"
+            },
+            {
+              "id": "page",
+              "label": "Page or handler"
+            },
+            {
+              "id": "auth",
+              "label": "Real auth check near data"
+            }
+          ],
+          "edges": [
+            {
+              "from": "req",
+              "to": "mw"
+            },
+            {
+              "from": "mw",
+              "to": "redir",
+              "label": "blocked"
+            },
+            {
+              "from": "mw",
+              "to": "page",
+              "label": "allowed"
+            },
+            {
+              "from": "page",
+              "to": "auth"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "nextjs-caching-layers-revalidation",
+      "title": "Explain the caching layers in Next.js and how revalidation works.",
+      "topic": "Caching",
+      "difficulty": "advanced",
+      "type": "conceptual",
+      "tags": [
+        "nextjs",
+        "caching",
+        "revalidation",
+        "isr"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Conceptually there are several layers: request memoisation that dedupes identical fetches during one render, a data cache for fetched results, a full-route cache for rendered output, and a client-side router cache. Revalidation can be time-based or on demand by path or tag. Defaults have changed across versions, so I verify current docs rather than trust memory, and I design explicit freshness rules per data type.",
+      "revision": "Layers: per-render memoisation, data cache, full-route cache and client router cache. Revalidate by time, path or tag. Defaults changed across versions; verify docs.",
+      "detailed": "Caching in Next.js is powerful and the most common source of surprises. **Defaults and APIs changed across major versions**, so always check the current docs for your version and set behaviour explicitly rather than rely on defaults.\n\n## Layers (conceptual)\n\n| Layer | Where | Purpose | Lifetime |\n|---|---|---|---|\n| Request memoisation | Server, per render | Dedupe identical calls in one request | One render |\n| Data cache | Server, persistent | Reuse fetched data across requests | Until revalidated |\n| Full-route cache | Server | Reuse rendered HTML and payload for static routes | Until revalidated or redeployed |\n| Router cache | Browser | Instant back/forward and prefetched navigation | Session, short-lived |\n| CDN cache | Edge | Serve cached responses near users | Per headers |\n\n{{diagram:cache}}\n\n## Revalidation\n\n- **Time-based**: data or page considered stale after N seconds, refreshed in the background.\n- **On demand by path**: `revalidatePath` after a content change.\n- **On demand by tag**: tag fetches, then `revalidateTag` when an entity changes, for example from a CMS webhook.\n\n```ts\n// illustrative\nconst res = await fetch(url, { next: { tags: [\"product-123\"], revalidate: 300 } });\n\n// later, in a webhook handler or action\nimport { revalidateTag } from \"next/cache\";\nrevalidateTag(\"product-123\");\n```\n\n## Design approach\n\n1. List data types and their acceptable staleness.\n2. Use tags for entity-level invalidation from the source of truth.\n3. Keep per-user data out of shared caches.\n4. Make cache headers explicit at the CDN layer.\n5. Test in a production build; development behaves differently.\n\n## Common mistakes\n\n- Assuming a fetch is cached (or not) without checking the current default.\n- Reading cookies or headers in a route and being surprised it becomes dynamic.\n- Caching personalised data in a shared cache.\n- Forgetting the router cache, so a user sees stale content after a mutation.",
+      "followUps": [
+        "How would a CMS publish trigger a cache refresh?",
+        "Why can the same code behave differently in dev and production?",
+        "How do you stop personalised data entering a shared cache?"
+      ],
+      "related": [
+        "rendering-strategies-per-page-type",
+        "scenario-ecommerce-product-detail-pages"
+      ],
+      "diagrams": [
+        {
+          "id": "cache",
+          "title": "Next.js caching layers",
+          "alt": "A browser request may hit the client router cache, then a CDN, then the full-route cache on the server, then the data cache, with request memoisation deduping calls within a single render before reaching the origin API or database.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "b",
+              "label": "Browser router cache"
+            },
+            {
+              "id": "cdn",
+              "label": "CDN cache"
+            },
+            {
+              "id": "frc",
+              "label": "Full-route cache"
+            },
+            {
+              "id": "dc",
+              "label": "Data cache"
+            },
+            {
+              "id": "rm",
+              "label": "Request memoisation"
+            },
+            {
+              "id": "o",
+              "label": "Origin API or database"
+            }
+          ],
+          "edges": [
+            {
+              "from": "b",
+              "to": "cdn"
+            },
+            {
+              "from": "cdn",
+              "to": "frc"
+            },
+            {
+              "from": "frc",
+              "to": "dc"
+            },
+            {
+              "from": "dc",
+              "to": "rm"
+            },
+            {
+              "from": "rm",
+              "to": "o"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "authentication-in-server-rendered-nextjs",
+      "title": "How do you handle authentication in a server-rendered Next.js app?",
+      "topic": "Authentication",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "nextjs",
+        "authentication",
+        "sessions",
+        "jwt",
+        "security"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I use secure, httpOnly, same-site cookies carrying either an opaque session id looked up server-side or a short-lived signed token. Every server component that reads private data, every route handler and every server action verifies the session itself and authorises the resource. Middleware can do a fast redirect for user experience but is never the only check. I prefer an established auth library or identity provider over hand-rolled crypto.",
+      "revision": "Secure httpOnly cookies, session or short JWT, verify in every component, handler and action; middleware only for early redirects, never the sole check.",
+      "detailed": "Server rendering changes authentication: the server must know the user **before** rendering, so credentials travel in cookies, not in headers set by client JavaScript.\n\n## Session vs JWT in cookies\n\n| | Server-side session | Signed token (JWT) |\n|---|---|---|\n| Cookie contains | Opaque id | Claims, signed |\n| Revocation | Immediate (delete session) | Hard until expiry; needs deny-list |\n| Lookup cost | Store read per request | None (verify signature) |\n| Size and exposure | Small | Larger, claims visible to the client unless encrypted |\n| Typical fit | Most web apps | Stateless, short-lived, service-to-service |\n\nFor browser apps I usually favour **server-side sessions or very short tokens with refresh**, with cookie flags `HttpOnly`, `Secure`, `SameSite` set appropriately.\n\n## Where to enforce\n\n{{diagram:auth}}\n\n- **Server components and data access**: call a `getSession()` helper and check permission before returning data.\n- **Server actions and route handlers**: authenticate and authorise on every call.\n- **Middleware**: optional early redirect on missing cookie; not trusted for authorisation.\n- **Layouts do not re-run on every navigation in the same way pages do**, so do not rely on a layout alone to guard children; verify current docs.\n\n```ts\n// illustrative helper used everywhere\nexport async function requireUser(permission: string) {\n  const session = await getSession();       // reads cookie, verifies\n  if (!session) redirect(\"/login\");\n  if (!can(session.user, permission)) throw new Error(\"Forbidden\");\n  return session.user;\n}\n```\n\n## Operational points\n\nUse an identity provider (OIDC) where possible, rotate secrets, protect against session fixation and CSRF, and log authentication events.\n\n## Common mistakes\n\n- Guarding only in middleware or only in a layout.\n- Storing tokens in localStorage in a server-rendered app, exposing them to script injection.\n- Leaking claims or private fields to client components.\n- Rolling custom cryptography.",
+      "followUps": [
+        "Why is a layout-only guard risky?",
+        "How would you revoke a stolen JWT?",
+        "How does an OIDC login flow fit a server-rendered app?"
+      ],
+      "related": [
+        "middleware-limits-and-edge-runtime",
+        "server-actions-security"
+      ],
+      "diagrams": [
+        {
+          "id": "auth",
+          "title": "Where authentication is enforced",
+          "alt": "The browser sends a secure cookie. Middleware may redirect early, but the server component, route handler and server action each call a shared session check and authorise the resource before touching data.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "br",
+              "label": "Browser with secure cookie"
+            },
+            {
+              "id": "mw",
+              "label": "Middleware early redirect"
+            },
+            {
+              "id": "sc",
+              "label": "Server component"
+            },
+            {
+              "id": "rh",
+              "label": "Route handler"
+            },
+            {
+              "id": "sa",
+              "label": "Server action"
+            },
+            {
+              "id": "chk",
+              "label": "Shared session and permission check"
+            },
+            {
+              "id": "data",
+              "label": "Data"
+            }
+          ],
+          "edges": [
+            {
+              "from": "br",
+              "to": "mw"
+            },
+            {
+              "from": "mw",
+              "to": "sc"
+            },
+            {
+              "from": "mw",
+              "to": "rh"
+            },
+            {
+              "from": "mw",
+              "to": "sa"
+            },
+            {
+              "from": "sc",
+              "to": "chk"
+            },
+            {
+              "from": "rh",
+              "to": "chk"
+            },
+            {
+              "from": "sa",
+              "to": "chk"
+            },
+            {
+              "from": "chk",
+              "to": "data"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "nextjs-seo-and-metadata",
+      "title": "How do you handle SEO and metadata in Next.js?",
+      "topic": "SEO",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "nextjs",
+        "seo",
+        "metadata",
+        "structured-data"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I use the framework's metadata support to set titles, descriptions, canonical URLs and social tags per route, generated dynamically from data where needed. Content is server-rendered so crawlers see it without running JavaScript. I add a sitemap and robots rules, structured data as JSON-LD, correct status codes for missing pages, and hreflang for multi-language sites. I verify current docs for exact metadata APIs.",
+      "revision": "Server-render content, set per-route metadata and canonicals, add sitemap, robots, JSON-LD, correct status codes and hreflang.",
+      "detailed": "SEO with Next.js is mostly about **serving complete, fast, correctly-described HTML**. The framework gives conventions; the discipline is yours. Verify current docs for the metadata API in your version.\n\n## Checklist\n\n| Area | Practice |\n|---|---|\n| Content | Rendered on the server or statically, not only after client JS |\n| Title and description | Unique per page, generated from data |\n| Canonical URL | Avoid duplicate-content from filters and parameters |\n| Social tags | Open Graph and card images |\n| Status codes | Real 404 for missing items (not a soft 200), 301 for moves |\n| Sitemap and robots | Generated, kept in sync with catalogue |\n| Structured data | JSON-LD for products, articles, breadcrumbs |\n| i18n | `hreflang` alternates per locale |\n| Performance | Core Web Vitals are a ranking input |\n\n```tsx\n// illustrative dynamic metadata\nimport type { Metadata } from \"next\";\n\nexport async function generateMetadata({ params }: { params: { slug: string } }): Promise<Metadata> {\n  const p = await getProduct(params.slug);\n  return {\n    title: `${p.name} | Shop`,\n    description: p.summary,\n    alternates: { canonical: `/products/${p.slug}` },\n  };\n}\n```\n\n(`params` may be asynchronous in newer versions; check the docs.)\n\n{{diagram:seo}}\n\n## Pitfalls\n\n- Streaming a 404 after a 200 has been sent; resolve existence before the Suspense boundary.\n- Faceted navigation creating millions of crawlable URLs; use canonicals, robots rules or noindex deliberately.\n- JSON-LD that does not match visible content.\n\n## Common mistakes\n\n- Client-only rendering of primary content.\n- Same title on every page.\n- Blocking crawlers in a staging config that reaches production.\n- Forgetting sitemap updates when content is unpublished.",
+      "followUps": [
+        "How do you handle a 404 for a deleted product?",
+        "How would you control crawl of faceted filter URLs?",
+        "How do you verify what a crawler actually sees?"
+      ],
+      "related": [
+        "streaming-and-suspense-nextjs",
+        "scenario-search-and-category-pages"
+      ],
+      "diagrams": [
+        {
+          "id": "seo",
+          "title": "Crawler view of a Next.js page",
+          "alt": "The crawler requests a URL, the server resolves the data and returns complete HTML with the right status code, metadata, canonical link and structured data, and the sitemap helps discovery of all valid URLs.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "cr",
+              "label": "Crawler"
+            },
+            {
+              "id": "sm",
+              "label": "Sitemap discovery"
+            },
+            {
+              "id": "req",
+              "label": "Request URL"
+            },
+            {
+              "id": "data",
+              "label": "Resolve data"
+            },
+            {
+              "id": "html",
+              "label": "HTML with status and metadata"
+            },
+            {
+              "id": "ld",
+              "label": "Canonical and JSON-LD"
+            }
+          ],
+          "edges": [
+            {
+              "from": "cr",
+              "to": "sm"
+            },
+            {
+              "from": "sm",
+              "to": "req"
+            },
+            {
+              "from": "req",
+              "to": "data"
+            },
+            {
+              "from": "data",
+              "to": "html"
+            },
+            {
+              "from": "html",
+              "to": "ld"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "nextjs-image-optimisation",
+      "title": "How does Next.js image optimisation work and what are its limits?",
+      "topic": "Images",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "nextjs",
+        "images",
+        "performance",
+        "lcp"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "The framework's image component resizes, converts to modern formats and serves responsive sizes, lazy-loads below-the-fold images and reserves space to avoid layout shift. For the hero image I mark it as a priority so it loads early. Remote sources must be allowed in configuration. Optimisation costs compute and cache storage, so at scale I may use a CDN or dedicated image service. I verify current options in the docs.",
+      "revision": "The image component gives responsive sizes, modern formats, lazy loading and reserved space; prioritise the LCP image and plan cost at scale.",
+      "detailed": "The built-in image component addresses several Core Web Vitals problems at once. Verify current props and defaults (for example the prop for priority loading) in the docs for your version.\n\n## What it does\n\n| Feature | Benefit |\n|---|---|\n| Resizing and responsive `srcset` | Right bytes for each device |\n| Modern formats (where supported) | Smaller files |\n| Lazy loading | Fewer bytes up front |\n| Required width and height or fill | Space reserved, less layout shift |\n| Priority for the main image | Better LCP |\n\n```tsx\n// illustrative\nimport Image from \"next/image\";\n\n<Image\n  src={product.imageUrl}\n  alt={product.name}\n  width={800}\n  height={600}\n  sizes=\"(max-width: 768px) 100vw, 50vw\"\n  priority // only for the above-the-fold LCP image\n/>\n```\n\n## Operational considerations\n\n- **Remote images** need allowed hosts or patterns in configuration.\n- On-demand optimisation uses server CPU and a cache; on serverless or many unique images this can become a cost and cold-start issue.\n- Options: keep the built-in optimiser behind a CDN, use a loader pointing to a dedicated image CDN, or pre-generate sizes.\n- Accessibility: always meaningful `alt` text, or empty alt for decorative images.\n\n{{diagram:img}}\n\n## Common mistakes\n\n- Setting `priority` on many images, defeating prioritisation.\n- Missing `sizes`, so large images are downloaded on mobile.\n- Using the optimiser for thousands of one-off uploads with no cache plan.\n- Unrestricted remote patterns that let others use your optimiser as a proxy.",
+      "followUps": [
+        "Which image should get priority and why?",
+        "What happens to optimisation cost on serverless hosting?",
+        "How do you restrict which remote hosts can be optimised?"
+      ],
+      "related": [
+        "nextjs-deployment-on-aws",
+        "nextjs-seo-and-metadata"
+      ],
+      "diagrams": [
+        {
+          "id": "img",
+          "title": "Image optimisation path",
+          "alt": "The browser asks for a responsive image size, the optimiser or image CDN fetches the original source, resizes and converts it, caches the result, and serves it with reserved dimensions so layout does not shift.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "b",
+              "label": "Browser requests size"
+            },
+            {
+              "id": "o",
+              "label": "Optimiser or image CDN"
+            },
+            {
+              "id": "s",
+              "label": "Original image source"
+            },
+            {
+              "id": "c",
+              "label": "Cached variant"
+            },
+            {
+              "id": "r",
+              "label": "Responsive image served"
+            }
+          ],
+          "edges": [
+            {
+              "from": "b",
+              "to": "o"
+            },
+            {
+              "from": "o",
+              "to": "s",
+              "label": "miss"
+            },
+            {
+              "from": "o",
+              "to": "c"
+            },
+            {
+              "from": "c",
+              "to": "r"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "nextjs-environment-variables-and-secrets",
+      "title": "How do environment variables and secrets work in Next.js, and what is the NEXT_PUBLIC risk?",
+      "topic": "Configuration",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "nextjs",
+        "environment-variables",
+        "secrets",
+        "security"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Variables are read on the server by default and stay private. Those prefixed NEXT_PUBLIC are inlined into the browser bundle at build time, so anything with that prefix is public and must never be a secret. Because inlining happens at build, changing a public value needs a rebuild, which matters for build-once, promote-everywhere pipelines. Secrets live in a secret manager and are injected at runtime on the server only.",
+      "revision": "Server variables stay private; NEXT_PUBLIC ones are inlined into the client bundle at build time, so never put secrets there.",
+      "detailed": "Next.js loads variables from the environment and `.env` files. The key distinction is **who can read them**.\n\n## Rules\n\n| Variable | Visible to browser? | When resolved |\n|---|---|---|\n| `DATABASE_URL` (no prefix) | No | Server runtime |\n| `NEXT_PUBLIC_API_BASE` | **Yes** | Inlined at build time |\n\n- Anything with the public prefix is shipped in JavaScript that anyone can read.\n- Public values are baked in, so promoting one build across environments (build once, deploy many) does not change them. Use a runtime config endpoint or server-rendered config for values that differ per environment; verify current docs on runtime configuration.\n- Server variables read in server code are not exposed, but passing them as props to a client component **does** expose them.\n\n```tsx\n// illustrative: wrong\n<ClientWidget apiKey={process.env.PAYMENT_SECRET} /> // leaks to the browser\n\n// right: call the provider from a server action or handler\n```\n\n{{diagram:env}}\n\n## Secret handling in practice\n\n1. Store secrets in a manager (for example AWS Secrets Manager or Parameter Store) and inject into the runtime, not into the repository.\n2. Do not bake secrets into container images.\n3. Separate variables per environment; never reuse production secrets in preview.\n4. Mark server-only modules with a server-only guard so an accidental client import fails the build; verify the current mechanism.\n5. Rotate on leak, and scan the repository.\n\n## Common mistakes\n\n- Putting an API key behind `NEXT_PUBLIC_` for convenience.\n- Logging whole environment objects.\n- Assuming a changed variable takes effect without a rebuild when it is a public one.\n- Committing `.env.local` files.",
+      "followUps": [
+        "How would you provide different public config per environment from one build?",
+        "How would you detect a leaked secret in the bundle?",
+        "How are preview environments kept away from production secrets?"
+      ],
+      "related": [
+        "server-vs-client-components-boundary",
+        "nextjs-deployment-on-aws"
+      ],
+      "diagrams": [
+        {
+          "id": "env",
+          "title": "Public and private variable flow",
+          "alt": "Server variables from the secret manager stay in the server runtime. Variables with the public prefix are inlined into the client bundle at build time and are readable by anyone, so secrets must stay on the server side.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "sm",
+              "label": "Secret manager"
+            },
+            {
+              "id": "sr",
+              "label": "Server runtime"
+            },
+            {
+              "id": "pub",
+              "label": "Public prefixed variable"
+            },
+            {
+              "id": "bun",
+              "label": "Client bundle at build"
+            },
+            {
+              "id": "user",
+              "label": "Anyone in the browser"
+            }
+          ],
+          "edges": [
+            {
+              "from": "sm",
+              "to": "sr",
+              "label": "runtime"
+            },
+            {
+              "from": "pub",
+              "to": "bun",
+              "label": "inlined"
+            },
+            {
+              "from": "bun",
+              "to": "user",
+              "label": "readable"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "nextjs-error-handling-files",
+      "title": "How do error.tsx, not-found and global-error work in the App Router?",
+      "topic": "Error handling",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "nextjs",
+        "error-handling",
+        "error-boundary",
+        "not-found"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Convention files define error UI per route segment. An error file acts as a boundary for its segment and children, so one failing widget does not blank the whole app, and it must be a client component with a reset option. A not-found file renders when I call the not-found function or a route does not match, with a 404 status. A global-error file catches failures in the root layout. I still log errors server-side and avoid leaking details.",
+      "revision": "error.tsx is a segment error boundary (client component), not-found handles 404s, global-error covers the root layout; log server-side and show safe messages.",
+      "detailed": "The App Router uses **file conventions** to place error boundaries in the route tree. Verify exact props and behaviour in the docs for your version.\n\n## Files\n\n| File | Scope | Notes |\n|---|---|---|\n| `error.tsx` | Its segment and children | Client component; gets the error and a reset function |\n| `not-found.tsx` | Segment or app | Rendered when the not-found function is called or no route matches; 404 status |\n| `global-error.tsx` | Root layout failures | Replaces the root layout when active, so it defines its own html and body |\n| `loading.tsx` | Segment | Suspense fallback, not an error file but part of the same tree |\n\n```tsx\n// app/products/[id]/error.tsx - illustrative\n\"use client\";\nexport default function Error({ error, reset }: { error: Error; reset: () => void }) {\n  return (\n    <div role=\"alert\">\n      <p>We could not load this product.</p>\n      <button onClick={reset}>Try again</button>\n    </div>\n  );\n}\n```\n\n```tsx\n// in a server component\nimport { notFound } from \"next/navigation\";\nconst product = await getProduct(id);\nif (!product) notFound();\n```\n\n{{diagram:err}}\n\n## Practices\n\n- Nest error boundaries close to risky widgets so the rest of the page survives.\n- In production, error messages from server components are generally redacted for the client; rely on logs and a digest or id for correlation. Verify current behaviour.\n- Expected errors (validation, not found) should be handled as values or with `notFound`, not thrown as exceptions.\n- Report errors to your monitoring tool from the boundary and from the server.\n\n## Common mistakes\n\n- One top-level boundary only, so any failure blanks the page.\n- Showing raw error messages containing internals.\n- Forgetting that errors thrown after streaming starts cannot change the status code.\n- Not testing the error UI.",
+      "followUps": [
+        "Why must error.tsx be a client component?",
+        "How do you correlate a user-visible error with a server log?",
+        "How do expected and unexpected errors differ in design?"
+      ],
+      "related": [
+        "streaming-and-suspense-nextjs",
+        "nextjs-seo-and-metadata"
+      ],
+      "diagrams": [
+        {
+          "id": "err",
+          "title": "Error boundary hierarchy",
+          "alt": "A failure in a segment is caught by the nearest error boundary file, which shows a local fallback. Failures in the root layout are caught by the global error file. Missing resources trigger the not-found file with a 404 status.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "f",
+              "label": "Failure in a segment"
+            },
+            {
+              "id": "e",
+              "label": "Nearest error file"
+            },
+            {
+              "id": "l",
+              "label": "Local fallback with retry"
+            },
+            {
+              "id": "g",
+              "label": "Global error file"
+            },
+            {
+              "id": "rl",
+              "label": "Root layout failure"
+            },
+            {
+              "id": "nf",
+              "label": "Not-found file"
+            },
+            {
+              "id": "m",
+              "label": "Missing resource, 404"
+            }
+          ],
+          "edges": [
+            {
+              "from": "f",
+              "to": "e"
+            },
+            {
+              "from": "e",
+              "to": "l"
+            },
+            {
+              "from": "rl",
+              "to": "g"
+            },
+            {
+              "from": "m",
+              "to": "nf"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "nextjs-deployment-on-aws",
+      "title": "Next.js deployment options on AWS: containers, serverless or managed hosting?",
+      "topic": "Deployment",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "nextjs",
+        "aws",
+        "deployment",
+        "containers",
+        "lambda"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "There are three broad options. Containers on ECS or EKS behind a load balancer and CloudFront give the most predictable behaviour, including streaming and caching, and suit steady traffic. Serverless approaches such as community adapters mapping Next.js to Lambda, S3 and CloudFront scale to zero but need care with cold starts, feature support and image optimisation. Amplify is the quickest managed route. I verify current support before choosing.",
+      "revision": "Containers on ECS behind CloudFront are predictable; Lambda-based adapters scale to zero but need feature checks; Amplify is fastest to start. Verify current support.",
+      "detailed": "Next.js can run as a Node server, or be adapted to serverless primitives. Feature support (streaming, image optimisation, ISR, middleware) depends on the **platform and adapter version**, so verify current docs and adapter release notes before deciding.\n\n## Options\n\n| Option | Strengths | Weaknesses |\n|---|---|---|\n| Container on ECS (Fargate) or EKS | Full Node feature set, steady performance, simple mental model, easy local parity | Pay for idle capacity, you manage scaling and cache storage |\n| Lambda plus S3 plus CloudFront via an adapter (OpenNext-style) | Scale to zero, pay per use, good for spiky traffic | Cold starts, adapter lag behind new features, more moving parts, limits on payload and duration |\n| AWS Amplify hosting | Fastest setup, CI and previews included | Less control, check feature parity and cost at scale |\n| Static export to S3 and CloudFront | Cheapest, simplest | No server features, only for fully static sites |\n\n{{diagram:aws}}\n\n## Architecture notes\n\n- **CloudFront** in front of everything: cache static assets with long-lived hashed names, and control caching of HTML explicitly.\n- **Shared cache**: with several containers or Lambdas, the incremental cache needs a shared store (for example S3 or a key-value service) so revalidation is consistent; confirm the supported cache-handler approach.\n- **Images**: decide between the built-in optimiser (CPU cost) and an image CDN.\n- **Secrets and config**: Secrets Manager or Parameter Store; build-time public variables need a build per environment or runtime config.\n- **Observability**: logs, traces and real-user metrics, with a health endpoint for the load balancer.\n- **Deployments**: blue/green or rolling, with asset version skew handled so old pages can still fetch old assets.\n\n## Common mistakes\n\n- Choosing Lambda for latency-sensitive steady traffic without measuring cold starts.\n- Multiple instances with local-disk caches, giving inconsistent pages.\n- Letting CloudFront cache personalised HTML.\n- Deleting old build assets immediately, breaking users on old pages.",
+      "followUps": [
+        "How do multiple instances share revalidated pages?",
+        "When would you pick Lambda over containers?",
+        "How do you avoid asset version skew during deploys?"
+      ],
+      "related": [
+        "edge-vs-node-runtime",
+        "scenario-global-multi-region-content-platform"
+      ],
+      "diagrams": [
+        {
+          "id": "aws",
+          "title": "AWS deployment option for Next.js",
+          "alt": "Users reach CloudFront, which serves static assets from S3 and forwards dynamic requests to a container service behind a load balancer or to Lambda functions, with a shared cache store, secrets manager and observability alongside.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "u",
+              "label": "Users"
+            },
+            {
+              "id": "cf",
+              "label": "CloudFront"
+            },
+            {
+              "id": "s3",
+              "label": "S3 static assets"
+            },
+            {
+              "id": "alb",
+              "label": "Load balancer and ECS containers"
+            },
+            {
+              "id": "lam",
+              "label": "Or Lambda functions"
+            },
+            {
+              "id": "cs",
+              "label": "Shared cache store"
+            },
+            {
+              "id": "sec",
+              "label": "Secrets Manager"
+            }
+          ],
+          "edges": [
+            {
+              "from": "u",
+              "to": "cf"
+            },
+            {
+              "from": "cf",
+              "to": "s3",
+              "label": "static"
+            },
+            {
+              "from": "cf",
+              "to": "alb",
+              "label": "dynamic"
+            },
+            {
+              "from": "cf",
+              "to": "lam",
+              "label": "or dynamic"
+            },
+            {
+              "from": "alb",
+              "to": "cs"
+            },
+            {
+              "from": "lam",
+              "to": "cs"
+            },
+            {
+              "from": "alb",
+              "to": "sec"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "edge-vs-node-runtime",
+      "title": "Edge runtime vs Node.js runtime in Next.js: how do you choose?",
+      "topic": "Runtimes",
+      "difficulty": "advanced",
+      "type": "comparison",
+      "tags": [
+        "nextjs",
+        "edge",
+        "nodejs",
+        "runtime"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "The Node runtime has the full Node API and library ecosystem, so it is my default for rendering and data access. The edge runtime runs lighter code closer to users with fast startup but limited APIs, smaller size limits and restrictions on database drivers and native modules. I use edge for small request-time logic such as redirects, geo routing or lightweight personalisation, and keep data-heavy work in Node near the database. I verify current runtime support.",
+      "revision": "Node is the default for rendering and data access; edge suits small, fast request logic close to users. Keep data work near the database.",
+      "detailed": "Next.js lets a route or middleware choose a runtime. What each runtime supports changes between versions and hosts, so **verify current docs and your platform**.\n\n## Comparison\n\n| Aspect | Node runtime | Edge runtime |\n|---|---|---|\n| APIs | Full Node API | Web-standard subset |\n| Libraries | Most npm packages, native modules | Only compatible, small packages |\n| Startup | Slower cold start (varies by host) | Very fast |\n| Location | Region(s) you deploy to | Many locations, close to users |\n| Size and duration limits | Generous | Tight |\n| Database access | Connection pools, any driver | HTTP-based or edge-compatible drivers, pooling is harder |\n\n## The latency trap\n\nRunning code at the edge helps only if the **data** is also close. An edge function in Sydney that calls a database in Frankfurt on every request is slower than a Node function next to that database. Edge pays off when:\n\n- the logic needs no or little data (redirects, header rewrites, bucketing),\n- data is replicated globally or cached at the edge,\n- you personalise using a small token or cookie.\n\n{{diagram:rt}}\n\n## Practical choice\n\n1. Default: Node runtime, deployed in the region of your data.\n2. Move small stateless logic (geo redirects, feature flag bucketing) to the edge.\n3. Do not chase edge for rendering unless data placement supports it.\n\n## Common mistakes\n\n- Assuming edge is always faster.\n- Importing a library that silently needs Node APIs.\n- Opening a database connection per edge invocation.\n- Ignoring the extra complexity of debugging two runtimes.",
+      "followUps": [
+        "Why can edge rendering be slower than regional Node?",
+        "Which workloads would you put at the edge?",
+        "How do you handle database access from edge code?"
+      ],
+      "related": [
+        "middleware-limits-and-edge-runtime",
+        "scenario-global-multi-region-content-platform"
+      ],
+      "diagrams": [
+        {
+          "id": "rt",
+          "title": "Edge or Node decision",
+          "alt": "If the logic is small, stateless and needs little data, run it at the edge. If it queries a database or uses Node libraries, run it in the Node runtime in the region closest to the data.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "w",
+              "label": "Request logic"
+            },
+            {
+              "id": "q",
+              "label": "Small and stateless, little data?"
+            },
+            {
+              "id": "e",
+              "label": "Edge runtime"
+            },
+            {
+              "id": "n",
+              "label": "Node runtime near the data"
+            }
+          ],
+          "edges": [
+            {
+              "from": "w",
+              "to": "q"
+            },
+            {
+              "from": "q",
+              "to": "e",
+              "label": "yes"
+            },
+            {
+              "from": "q",
+              "to": "n",
+              "label": "no"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "nextjs-monolith-vs-separate-backend",
+      "title": "Full-stack Next.js monolith or a separate frontend and backend?",
+      "topic": "Architecture",
+      "difficulty": "advanced",
+      "type": "comparison",
+      "tags": [
+        "nextjs",
+        "monolith",
+        "backend",
+        "architecture"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "A Next.js full-stack app is fast to build and deploy for a single team with a UI-centred product. A separate backend is better when several clients such as mobile apps or partners need the API, when backend teams scale independently, when workloads are long-running, or when compliance demands isolation. I often start with a modular monolith and clear service boundaries so extraction later is cheap, rather than deciding on microservices on day one.",
+      "revision": "Full-stack Next.js suits one team and UI-led products; a separate backend suits multiple clients, independent scaling, long jobs and isolation. Start modular.",
+      "detailed": "Next.js can host data access, mutations and API endpoints, so teams are tempted to skip a backend. The right answer depends on **who consumes the API and who owns it**.\n\n## Comparison\n\n| Factor | Next.js full-stack | Separate backend |\n|---|---|---|\n| Team shape | One product team | Frontend and backend teams |\n| Clients | Web only | Web, mobile, partners |\n| Delivery speed early | Faster | More setup |\n| Scaling | UI and logic scale together | Scale each independently |\n| Long-running work | Poor fit (request lifecycle limits) | Queues and workers |\n| Domain complexity | Simple to moderate | Complex domains, many integrations |\n| Compliance and isolation | Harder | Easier network and data isolation |\n| Language ecosystem | TypeScript only | Any language |\n\n{{diagram:mono}}\n\n## Middle path: modular monolith\n\nKeep a **service layer** with clear module boundaries and no direct database calls from components. Then the same code can later move behind an HTTP service with little UI change.\n\n## Decision cues\n\n- A mobile app is planned: separate API (or a shared service layer exposed as an API).\n- Heavy integration, batch or event processing: separate backend and workers.\n- One team, web only, modest backend: full-stack Next.js is reasonable.\n\n## Common mistakes\n\n- Spreading SQL and business rules across components.\n- Building a second, undocumented API inside route handlers that mobile later depends on.\n- Splitting into microservices before the domain is understood.\n- Keeping long jobs in request handlers.",
+      "followUps": [
+        "What signals tell you the monolith should be split?",
+        "How do you keep a Next.js app extractable?",
+        "How do you handle a mobile client added later?"
+      ],
+      "related": [
+        "bff-pattern-with-nextjs",
+        "nextjs-with-nestjs-backend"
+      ],
+      "diagrams": [
+        {
+          "id": "mono",
+          "title": "Monolith versus split architecture",
+          "alt": "On one side a Next.js app contains UI, service layer and database access. On the other side a Next.js UI calls a separate backend API, which owns business logic, workers and the database, and which mobile apps and partners can also use.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "ui",
+              "label": "Next.js UI"
+            },
+            {
+              "id": "svc",
+              "label": "Service layer"
+            },
+            {
+              "id": "db",
+              "label": "Database"
+            },
+            {
+              "id": "ui2",
+              "label": "Next.js UI"
+            },
+            {
+              "id": "api",
+              "label": "Backend API"
+            },
+            {
+              "id": "wk",
+              "label": "Workers"
+            },
+            {
+              "id": "db2",
+              "label": "Database"
+            },
+            {
+              "id": "mob",
+              "label": "Mobile and partners"
+            }
+          ],
+          "edges": [
+            {
+              "from": "ui",
+              "to": "svc"
+            },
+            {
+              "from": "svc",
+              "to": "db"
+            },
+            {
+              "from": "ui2",
+              "to": "api"
+            },
+            {
+              "from": "mob",
+              "to": "api"
+            },
+            {
+              "from": "api",
+              "to": "db2"
+            },
+            {
+              "from": "api",
+              "to": "wk"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "bff-pattern-with-nextjs",
+      "title": "Explain the Backend for Frontend pattern and how Next.js fits it.",
+      "topic": "BFF",
+      "difficulty": "advanced",
+      "type": "conceptual",
+      "tags": [
+        "nextjs",
+        "bff",
+        "api-gateway",
+        "architecture"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "A Backend for Frontend is a thin server layer owned by the UI team that shapes backend data for one client experience. Next.js server components, actions and route handlers can act as that layer: they call several downstream services, aggregate and trim responses, handle session cookies and hide internal APIs and tokens from the browser. It reduces chattiness and client complexity, but I keep business rules in the downstream services so the BFF does not become a second monolith.",
+      "revision": "A BFF is a UI-owned server layer that aggregates and shapes downstream data and hides tokens. Next.js server code fits; keep business rules downstream.",
+      "detailed": "A **BFF** gives each client experience its own tailored API, owned by the team that builds the client.\n\n## What the BFF does\n\n- **Aggregates** several downstream calls into one response shaped for a page.\n- **Trims** payloads to what the screen needs, which helps mobile and Core Web Vitals.\n- **Handles session**: browser holds an httpOnly cookie; the BFF holds downstream tokens, so tokens never reach JavaScript.\n- **Translates** protocols and hides internal service topology.\n- **Applies** UI-specific caching and error handling.\n\n{{diagram:bff}}\n\n## How Next.js implements it\n\n| Next.js piece | BFF role |\n|---|---|\n| Server components | Fetch and compose data for rendering |\n| Route handlers | JSON endpoints for client-side calls or other clients |\n| Server actions | Mutations that call downstream services |\n| Middleware | Early redirects only |\n\n```ts\n// illustrative aggregation in a server function\nexport async function getAccountPage(userId: string) {\n  const [profile, orders, offers] = await Promise.all([\n    profiles.get(userId), orders.recent(userId), offers.forUser(userId),\n  ]);\n  return { name: profile.name, orders: orders.slice(0, 5), offers };\n}\n```\n\n## Trade-offs\n\n| Benefit | Cost |\n|---|---|\n| Simpler, faster clients | Another layer to operate and monitor |\n| Token safety | Extra hop of latency |\n| Independent UI team delivery | Risk of duplicated logic across BFFs |\n\n## Common mistakes\n\n- Putting domain rules in the BFF, so rules diverge across clients.\n- One giant BFF for web and mobile, losing the \"per experience\" point.\n- Sequential downstream calls instead of parallel ones.\n- No timeouts, retries or fallbacks for downstream failures.",
+      "followUps": [
+        "How do you stop a BFF becoming a second monolith?",
+        "How would the BFF handle a downstream timeout?",
+        "When is a BFF unnecessary?"
+      ],
+      "related": [
+        "nextjs-with-nestjs-backend",
+        "nextjs-monolith-vs-separate-backend"
+      ],
+      "diagrams": [
+        {
+          "id": "bff",
+          "title": "BFF between UI and services",
+          "alt": "The browser holds only a session cookie and talks to the Next.js BFF layer, which calls the catalogue, order and profile services in parallel using server-held tokens, aggregates the results and returns a response shaped for the page.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "br",
+              "label": "Browser with cookie"
+            },
+            {
+              "id": "bff",
+              "label": "Next.js BFF layer"
+            },
+            {
+              "id": "c",
+              "label": "Catalogue service"
+            },
+            {
+              "id": "o",
+              "label": "Order service"
+            },
+            {
+              "id": "p",
+              "label": "Profile service"
+            },
+            {
+              "id": "r",
+              "label": "Shaped page data"
+            }
+          ],
+          "edges": [
+            {
+              "from": "br",
+              "to": "bff"
+            },
+            {
+              "from": "bff",
+              "to": "c"
+            },
+            {
+              "from": "bff",
+              "to": "o"
+            },
+            {
+              "from": "bff",
+              "to": "p"
+            },
+            {
+              "from": "bff",
+              "to": "r"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "nextjs-with-nestjs-backend",
+      "title": "How would you structure Next.js with a separate NestJS or Node backend?",
+      "topic": "Next.js and NestJS",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "nextjs",
+        "nestjs",
+        "nodejs",
+        "mern",
+        "api-design"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I let NestJS own the domain: modules, validation, authorisation, persistence, queues and a versioned REST or GraphQL API with an OpenAPI contract. Next.js is the delivery layer that renders pages, calls NestJS from server code over a private network, and holds the browser session cookie. I generate a typed client from the contract, share only types and not logic, handle auth consistently, and set timeouts, retries and tracing across both.",
+      "revision": "NestJS owns domain, validation, authorisation and data; Next.js renders and calls it server-side over a private network, using a generated typed client from an OpenAPI contract.",
+      "detailed": "This is the common **MERN-style enterprise split**: React and Next.js on the front, Node (often NestJS) with MongoDB or another store behind.\n\n## Responsibilities\n\n| Concern | Next.js | NestJS |\n|---|---|---|\n| Rendering, routing, SEO | Yes | No |\n| Session cookie for browser | Yes (or delegated to auth service) | Validates tokens |\n| Business rules and authorisation | No | Yes |\n| Validation | Input shaping for UX | Authoritative (DTOs and pipes) |\n| Persistence, queues, jobs | No | Yes |\n| API contract | Consumes | Publishes OpenAPI |\n\n{{diagram:nest}}\n\n## Key design decisions\n\n1. **Contract first**: OpenAPI from NestJS, generate a typed client so Next.js fails the build on breaking changes.\n2. **Server-side calls**: server components call NestJS over a private network; the browser never needs the internal URL.\n3. **Auth**: one identity provider; Next.js maintains the session and forwards a token (or a signed internal header) to NestJS, which verifies and authorises every request independently.\n4. **Caching**: tag fetches and revalidate from NestJS events or webhooks.\n5. **Errors**: map NestJS problem responses to UI states; set timeouts and retries with backoff.\n6. **Observability**: propagate a correlation or trace id from Next.js to NestJS.\n7. **Deployment**: independent pipelines, versioned API, backwards-compatible changes.\n\n```ts\n// illustrative typed call from a server component\nconst res = await fetch(`${process.env.API_URL}/v1/products/${id}`, {\n  headers: { authorization: `Bearer ${await getServiceToken()}` },\n  next: { tags: [`product-${id}`] },\n});\nif (!res.ok) throw new ApiError(res.status);\n```\n\n## Common mistakes\n\n- Duplicating validation rules or business logic in both layers.\n- Letting browser code call NestJS directly with long-lived tokens when a BFF would be safer.\n- No API versioning, so deployments must be lock-step.\n- Sharing a code package that couples release cycles.",
+      "followUps": [
+        "How do you keep the contract in sync between teams?",
+        "Should the browser ever call NestJS directly?",
+        "How would you version the API without breaking Next.js?"
+      ],
+      "related": [
+        "bff-pattern-with-nextjs",
+        "nextjs-monolith-vs-separate-backend"
+      ],
+      "diagrams": [
+        {
+          "id": "nest",
+          "title": "Next.js with NestJS",
+          "alt": "The browser talks to Next.js, which renders pages and calls NestJS over a private network using a typed client generated from an OpenAPI contract. NestJS applies validation and authorisation and uses the database, queue and workers.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "b",
+              "label": "Browser"
+            },
+            {
+              "id": "n",
+              "label": "Next.js rendering and session"
+            },
+            {
+              "id": "k",
+              "label": "Typed client from OpenAPI"
+            },
+            {
+              "id": "s",
+              "label": "NestJS modules and auth"
+            },
+            {
+              "id": "d",
+              "label": "MongoDB or database"
+            },
+            {
+              "id": "w",
+              "label": "Queue and workers"
+            }
+          ],
+          "edges": [
+            {
+              "from": "b",
+              "to": "n"
+            },
+            {
+              "from": "n",
+              "to": "k"
+            },
+            {
+              "from": "k",
+              "to": "s",
+              "label": "private network"
+            },
+            {
+              "from": "s",
+              "to": "d"
+            },
+            {
+              "from": "s",
+              "to": "w"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "when-nextjs-adds-unnecessary-complexity",
+      "title": "When does Next.js add unnecessary complexity?",
+      "topic": "Next.js fundamentals",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "nextjs",
+        "trade-offs",
+        "architecture",
+        "simplicity"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Next.js adds cost when the app is a logged-in internal tool with no SEO need, when a static site generator or plain SPA would do, when the team lacks server and caching experience, or when the backend is already complete and the UI only needs a bundle on a CDN. Then you inherit a server to run, caching rules, client/server boundaries and fast framework change for little benefit. I say this to clients plainly.",
+      "revision": "Skip it for internal tools, simple static sites and teams without server skills; you inherit servers, caching and boundaries for little benefit.",
+      "detailed": "A good architect states when **not** to use a tool. Next.js is excellent, but it is a framework with a runtime, not just a library.\n\n## Signs it is unnecessary\n\n| Situation | Simpler alternative |\n|---|---|\n| Internal dashboard behind SSO, stable API | Vite and React on S3 and CloudFront |\n| Small brochure site updated rarely | Static site generator or Next.js static export |\n| Team with no Node ops experience | Managed static hosting, or a platform that runs Next.js for you |\n| Heavy backend, UI is thin | SPA over the API |\n| Highly interactive tool (editor, canvas) | SPA; server rendering adds little |\n| Micro-frontends with a different composition model | Evaluate against the composition approach first |\n\n## Costs you inherit\n\n- **Operations**: a Node server or adapter, scaling, cache storage.\n- **Mental model**: server versus client components, serialisation, caching layers.\n- **Churn**: conventions and defaults change across versions; upgrades need effort.\n- **Debugging**: problems split across build, server and browser.\n- **Lock-in**: some features work best on particular hosts.\n\n{{diagram:cost}}\n\n## How to decide with evidence\n\n1. List the real requirements: SEO, first-load performance, personalisation, server-side integration.\n2. Check whether each is met by a simpler option.\n3. Prototype the riskiest page both ways and measure.\n4. Write the decision and revisit when requirements change.\n\n## Common mistakes\n\n- Adopting it because the market does.\n- Rendering everything dynamically and paying server cost with no benefit.\n- Using it as the only backend for a complex domain.\n- Hiding the operational cost from the client.",
+      "followUps": [
+        "How would you tell a client their chosen framework is overkill?",
+        "Is a static export of Next.js ever a sensible compromise?",
+        "How do you measure whether SSR is paying off?"
+      ],
+      "related": [
+        "nextjs-vs-react-spa-decision",
+        "nextjs-monolith-vs-separate-backend"
+      ],
+      "diagrams": [
+        {
+          "id": "cost",
+          "title": "Benefit against cost",
+          "alt": "Requirements for SEO, first load and server integration push toward Next.js, while the cost of operating a server, learning caching and the client server boundary pushes back, so the architect weighs both before choosing.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "rq",
+              "label": "Real requirements"
+            },
+            {
+              "id": "b",
+              "label": "Benefit: SEO, first load, server layer"
+            },
+            {
+              "id": "c",
+              "label": "Cost: ops, caching, boundary, churn"
+            },
+            {
+              "id": "d",
+              "label": "Decision"
+            },
+            {
+              "id": "n",
+              "label": "Next.js or simpler option"
+            }
+          ],
+          "edges": [
+            {
+              "from": "rq",
+              "to": "b"
+            },
+            {
+              "from": "rq",
+              "to": "c"
+            },
+            {
+              "from": "b",
+              "to": "d"
+            },
+            {
+              "from": "c",
+              "to": "d"
+            },
+            {
+              "from": "d",
+              "to": "n"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "scenario-ecommerce-product-detail-pages",
+      "title": "Scenario: design product detail pages for a large ecommerce site in Next.js",
+      "topic": "Scenario design",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "nextjs",
+        "ecommerce",
+        "isr",
+        "seo",
+        "scenario"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would serve the product content, which is shared and SEO-critical, from a revalidated static or cached render, tagged by product so catalogue changes invalidate precisely. Price, stock and personalised offers change quickly, so I fetch them separately, streamed or client-side, with sensible fallbacks. I add metadata, canonicals, JSON-LD, optimised images and real 404s. Add-to-cart goes through a validated server action. I would measure Core Web Vitals and cache hit ratio.",
+      "revision": "Cache shared product content with tag revalidation; fetch volatile price and stock separately; add SEO metadata and JSON-LD; validate add-to-cart on the server.",
+      "detailed": "**Requirements (assumed)**: very large catalogue, SEO-driven traffic, frequent price and stock changes, global users, peaks during campaigns.\n\n## Split by volatility\n\n| Data | Volatility | Strategy |\n|---|---|---|\n| Title, description, images, specs | Low | Cached render, tag revalidation on CMS or PIM change |\n| Price and promotions | Medium | Short revalidation or separate fetch; must match checkout |\n| Stock and delivery estimate | High | Fetched separately (streamed or client-side), shown with fallback |\n| Personalised recommendations | Per user | Streamed or client-side; never in a shared cache |\n| Reviews | Medium | Suspense boundary, revalidated |\n\n{{diagram:pdp}}\n\n## Key decisions\n\n1. **Pre-render hot products**, render the long tail on first request and cache. Verify current docs for dynamic parameter generation behaviour.\n2. **Tag every fetch** (`product-<id>`); the PIM or CMS webhook calls revalidation for that tag.\n3. **Do not cache price independently of checkout** without a clear rule; checkout must re-verify price server-side.\n4. **SEO**: unique metadata, canonical to the clean URL, JSON-LD product data, sitemap, real 404 for retired products resolved before streaming.\n5. **Images**: priority for the main image, responsive sizes, CDN.\n6. **Add to cart**: server action with authorisation, validation and idempotency; the client never sends a price.\n7. **Resilience**: if the stock service is slow, show the page with \"checking availability\" rather than failing it.\n8. **Measure**: LCP, INP, CLS from real users; CDN and data cache hit ratios.\n\n## Common mistakes\n\n- Statically freezing price and stock, then showing wrong values.\n- Reading cookies in the page, making the whole route dynamic and uncacheable.\n- Trusting client-sent prices.\n- Soft 404s for removed products.",
+      "followUps": [
+        "How do you keep displayed price consistent with checkout?",
+        "How do you handle a million long-tail products?",
+        "What happens when the stock service is down?"
+      ],
+      "related": [
+        "nextjs-caching-layers-revalidation",
+        "rendering-strategies-per-page-type"
+      ],
+      "diagrams": [
+        {
+          "id": "pdp",
+          "title": "Product page data split",
+          "alt": "A cached render supplies product content tagged for revalidation by the PIM webhook, while price, stock and personalised recommendations are fetched separately and streamed so volatile data does not invalidate the cached page.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "pim",
+              "label": "PIM or CMS change"
+            },
+            {
+              "id": "wh",
+              "label": "Revalidate by tag"
+            },
+            {
+              "id": "cp",
+              "label": "Cached product shell"
+            },
+            {
+              "id": "pr",
+              "label": "Price and stock fetch"
+            },
+            {
+              "id": "pe",
+              "label": "Personalised streamed parts"
+            },
+            {
+              "id": "pg",
+              "label": "Final page"
+            }
+          ],
+          "edges": [
+            {
+              "from": "pim",
+              "to": "wh"
+            },
+            {
+              "from": "wh",
+              "to": "cp"
+            },
+            {
+              "from": "cp",
+              "to": "pg"
+            },
+            {
+              "from": "pr",
+              "to": "pg",
+              "label": "streamed"
+            },
+            {
+              "from": "pe",
+              "to": "pg",
+              "label": "streamed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "scenario-search-and-category-pages",
+      "title": "Scenario: design search and category listing pages in Next.js",
+      "topic": "Scenario design",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "nextjs",
+        "search",
+        "category",
+        "seo",
+        "scenario"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Category pages are SEO landing pages, so I render them on the server with cached results, canonical URLs and controlled pagination. Search and filters are driven by a search engine such as OpenSearch or Algolia, not the primary database. Filter state lives in the URL so results are shareable and back button works. I decide which filter combinations are indexable, noindex the rest, and let the client refine results progressively without full reloads.",
+      "revision": "Server-render and cache category pages for SEO, use a search engine for queries, keep filters in the URL, and control which facet URLs are indexable.",
+      "detailed": "**Requirements (assumed)**: large catalogue, facets (brand, size, price), sorting, pagination, SEO landing pages for main categories, fast interactions.\n\n## Page types\n\n| Page | Strategy |\n|---|---|\n| Top category pages | Cached or revalidated render, indexable |\n| Common facet combinations | Selected ones indexable with canonical |\n| Arbitrary filters | `noindex` or canonical to parent, not crawled |\n| Free-text search results | Server-rendered per query, usually not indexed |\n\n{{diagram:search}}\n\n## Architecture\n\n1. **Search engine** (OpenSearch, Algolia or similar) serves queries and facets, fed from the catalogue by an indexing pipeline.\n2. **URL as state**: filters, sort and page in the query string, parsed on the server so the first render matches the URL.\n3. **Server render the first result set**, then enhance: the client updates results on filter changes using client-side fetching or navigation with transitions.\n4. **Pagination** with crawlable links, not only infinite scroll; infinite scroll can complement it.\n5. **Caching**: cache popular category queries with short revalidation; avoid caching unbounded query combinations.\n6. **Crawl control**: robots rules, canonicals, sitemaps for approved landing pages.\n7. **Performance**: image priority only for the first row, skeletons sized to avoid layout shift, debounced typeahead.\n\n```tsx\n// illustrative: searchParams drive the server render\nexport default async function Category({ params, searchParams }: Props) {\n  const filters = parseFilters(await searchParams); // may be async in newer versions\n  const results = await searchCatalogue(await params, filters);\n  return <ResultList results={results} filters={filters} />;\n}\n```\n\n## Common mistakes\n\n- Querying the transactional database for facets.\n- Client-only filtering that leaves crawlers an empty page.\n- Letting every facet combination become an indexable URL.\n- Losing filter state on navigation.",
+      "followUps": [
+        "How do you decide which facets are indexable?",
+        "How would you keep a typeahead responsive?",
+        "Why not query the main database for facets?"
+      ],
+      "related": [
+        "nextjs-seo-and-metadata",
+        "scenario-ecommerce-product-detail-pages"
+      ],
+      "diagrams": [
+        {
+          "id": "search",
+          "title": "Search and category flow",
+          "alt": "Catalogue changes feed an indexing pipeline into a search engine. The Next.js server parses URL filters, queries the engine, renders the first results with canonical and robots rules, and the client refines results using the URL as state.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "cat",
+              "label": "Catalogue"
+            },
+            {
+              "id": "ix",
+              "label": "Indexing pipeline"
+            },
+            {
+              "id": "se",
+              "label": "Search engine"
+            },
+            {
+              "id": "nx",
+              "label": "Next.js server render from URL filters"
+            },
+            {
+              "id": "seo",
+              "label": "Canonical and robots rules"
+            },
+            {
+              "id": "cl",
+              "label": "Client refinement"
+            }
+          ],
+          "edges": [
+            {
+              "from": "cat",
+              "to": "ix"
+            },
+            {
+              "from": "ix",
+              "to": "se"
+            },
+            {
+              "from": "se",
+              "to": "nx"
+            },
+            {
+              "from": "nx",
+              "to": "seo"
+            },
+            {
+              "from": "nx",
+              "to": "cl",
+              "label": "URL state"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "scenario-authenticated-customer-dashboard",
+      "title": "Scenario: design an authenticated customer dashboard in Next.js",
+      "topic": "Scenario design",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "nextjs",
+        "dashboard",
+        "authentication",
+        "scenario"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "The dashboard is private, so SEO is irrelevant and nothing personal may enter a shared cache. I authenticate with secure cookies, render a fast server shell for the layout, and stream each widget such as orders, balance and notifications from the backend using the user's identity, with independent error boundaries. Interactive parts are client components with a data-fetching library for refresh. Every data call authorises the user, and mutations use validated actions.",
+      "revision": "Private, uncached, per-user: secure cookie auth, server shell, streamed widgets with their own error boundaries, and authorisation on every data call.",
+      "detailed": "**Requirements (assumed)**: logged-in customers, several widgets from different services, some live-updating data, privacy and audit needs.\n\n## Key choices\n\n| Concern | Choice |\n|---|---|\n| Rendering | Dynamic, per-request; no shared caching of personal data |\n| Auth | Secure httpOnly cookie, session verified in server code |\n| Layout | Server-rendered shell, nested layouts for navigation |\n| Widgets | Each in a Suspense boundary and an error boundary |\n| Live data | Polling, server-sent events or WebSocket via the backend |\n| Mutations | Server actions or API calls with validation and idempotency |\n| Caching | Browser-private caching only; mark responses private; verify router cache behaviour after mutations |\n\n{{diagram:dash}}\n\n## Design\n\n1. **Verify the session** in a shared helper used by every server component, action and handler.\n2. **Fetch in parallel** per widget; a slow billing service must not block the orders widget.\n3. **Isolate failures**: error boundary per widget with retry.\n4. **Authorise per record**: customer id comes from the session, never from the URL or props alone.\n5. **Interactive pieces** (filters, tables) as small client components; keep the heavy data layer on the server.\n6. **Live updates**: choose the simplest mechanism that meets the freshness need; polling is often enough.\n7. **Security**: strict cookie flags, CSRF protection for mutations, security headers, audit log of sensitive actions.\n8. **Observability**: per-widget latency and error metrics.\n\n## Where Next.js adds little\n\nIf the dashboard is purely client-driven behind SSO with a ready API, a SPA is equally valid; server rendering mainly helps the first paint and token hiding.\n\n## Common mistakes\n\n- One big awaited fetch so one slow service delays the whole dashboard.\n- Using a customer id from query parameters.\n- Letting CDN or data cache store personalised responses.\n- Stale router cache after a mutation.",
+      "followUps": [
+        "How do you stop one slow service delaying the dashboard?",
+        "How do you provide near-real-time updates?",
+        "Would you pick a SPA here instead?"
+      ],
+      "related": [
+        "authentication-in-server-rendered-nextjs",
+        "streaming-and-suspense-nextjs"
+      ],
+      "diagrams": [
+        {
+          "id": "dash",
+          "title": "Dashboard widget isolation",
+          "alt": "The server verifies the session once per request, renders a shell, and each widget fetches from its own backend service inside its own Suspense and error boundary so slow or failing services do not affect others.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "s",
+              "label": "Verify session"
+            },
+            {
+              "id": "sh",
+              "label": "Server shell"
+            },
+            {
+              "id": "w1",
+              "label": "Orders widget"
+            },
+            {
+              "id": "w2",
+              "label": "Billing widget"
+            },
+            {
+              "id": "w3",
+              "label": "Notifications widget"
+            },
+            {
+              "id": "b1",
+              "label": "Orders service"
+            },
+            {
+              "id": "b2",
+              "label": "Billing service"
+            },
+            {
+              "id": "b3",
+              "label": "Notification service"
+            }
+          ],
+          "edges": [
+            {
+              "from": "s",
+              "to": "sh"
+            },
+            {
+              "from": "sh",
+              "to": "w1"
+            },
+            {
+              "from": "sh",
+              "to": "w2"
+            },
+            {
+              "from": "sh",
+              "to": "w3"
+            },
+            {
+              "from": "w1",
+              "to": "b1"
+            },
+            {
+              "from": "w2",
+              "to": "b2"
+            },
+            {
+              "from": "w3",
+              "to": "b3"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "scenario-admin-portal",
+      "title": "Scenario: design an internal admin portal. Is Next.js the right choice?",
+      "topic": "Scenario design",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "nextjs",
+        "admin",
+        "rbac",
+        "scenario"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Admin portals sit behind SSO, have no SEO need, and are form and table heavy, so a plain React SPA is often simpler and cheaper. I would pick Next.js only if the organisation already standardises on it or needs server-side token handling. Either way the real work is role-based access control enforced in the backend, audit trails, safe bulk operations, pagination and filtering on the server, and an accessible component library.",
+      "revision": "Internal, behind SSO, no SEO: a React SPA is often enough. Whatever the choice, enforce RBAC in the backend, audit changes and paginate on the server.",
+      "detailed": "**Requirements (assumed)**: staff users, SSO, roles, CRUD-heavy tables and forms, audit and compliance needs, modest traffic.\n\n## Is Next.js justified?\n\n| Factor | SPA | Next.js |\n|---|---|---|\n| SEO | Not needed | Not needed |\n| Hosting | Static on CDN | Server to operate |\n| Token handling | Needs care in browser | Server-held tokens possible |\n| Organisational standard | Fine | Good if shared tooling exists |\n| Verdict | Simple default | Choose for standardisation or BFF needs |\n\n{{diagram:admin}}\n\n## What matters more than the framework\n\n1. **RBAC and permissions** enforced in the **backend** on every endpoint; the UI only hides what the user cannot use.\n2. **SSO** via OIDC with groups mapped to roles.\n3. **Audit trail**: who changed what and when, immutable.\n4. **Tables**: server-side pagination, sorting and filtering; never load all rows.\n5. **Bulk operations**: confirmation, dry run, background job with progress, idempotency.\n6. **Forms**: schema validation shared as a contract, clear error states, unsaved-changes guard.\n7. **Safety**: destructive actions need confirmation and, where policy requires, a second approver.\n8. **Accessibility** and consistent design system components.\n9. **Observability**: error tracking and usage logs.\n\n## Common mistakes\n\n- Hiding buttons and assuming that is security.\n- Choosing a framework for fashion and then operating a server for twenty users.\n- Loading entire datasets into the browser.\n- No audit log until compliance asks.",
+      "followUps": [
+        "Why is hiding a button not authorisation?",
+        "How would you run a bulk update safely?",
+        "What would make you choose Next.js here anyway?"
+      ],
+      "related": [
+        "when-nextjs-adds-unnecessary-complexity",
+        "authentication-in-server-rendered-nextjs"
+      ],
+      "diagrams": [
+        {
+          "id": "admin",
+          "title": "Admin portal controls",
+          "alt": "Staff sign in with SSO, the UI calls a backend that enforces role-based access on every endpoint, writes an audit record for changes and runs bulk operations as background jobs with progress.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "sso",
+              "label": "SSO login"
+            },
+            {
+              "id": "ui",
+              "label": "Admin UI"
+            },
+            {
+              "id": "api",
+              "label": "Backend API"
+            },
+            {
+              "id": "rbac",
+              "label": "RBAC on every endpoint"
+            },
+            {
+              "id": "aud",
+              "label": "Audit log"
+            },
+            {
+              "id": "job",
+              "label": "Background bulk jobs"
+            }
+          ],
+          "edges": [
+            {
+              "from": "sso",
+              "to": "ui"
+            },
+            {
+              "from": "ui",
+              "to": "api"
+            },
+            {
+              "from": "api",
+              "to": "rbac"
+            },
+            {
+              "from": "rbac",
+              "to": "aud"
+            },
+            {
+              "from": "rbac",
+              "to": "job"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "scenario-global-multi-region-content-platform",
+      "title": "Scenario: design a global multi-region content platform with Next.js",
+      "topic": "Scenario design",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "nextjs",
+        "multi-region",
+        "cdn",
+        "i18n",
+        "scenario"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would make content mostly static or revalidated and serve it from a CDN so most requests never reach origin. Editors publish in a headless CMS, a webhook triggers tag revalidation, and origins run in two or more regions with a shared or replicated cache and replicated data. I handle locales with routing and hreflang, route users to the nearest healthy region, and keep edge logic small. I define freshness targets, failover behaviour and cost per region explicitly.",
+      "revision": "CDN-first static or revalidated content, headless CMS webhooks for tag revalidation, multi-region origins with replicated data and cache, locale routing and failover.",
+      "detailed": "**Requirements (assumed)**: global audience, many locales, editorial publishing, high availability, low latency.\n\n## Architecture\n\n{{diagram:global}}\n\n| Layer | Decision |\n|---|---|\n| Delivery | CDN caches HTML and assets; long TTL with explicit invalidation for static assets |\n| Origin | Next.js containers or serverless in two or more regions, health-checked |\n| Content | Headless CMS as source of truth; webhook to revalidate affected tags and paths |\n| Data and cache | Replicated content store; shared incremental cache per region, or a global one with eventual consistency accepted |\n| Locales | Locale in the URL, `hreflang` alternates, locale negotiation redirects, translated metadata |\n| Personalisation | Minimal: small edge logic or client enhancement; keep HTML cacheable |\n| Routing | Latency-based or geo DNS with failover |\n\n## Consistency and freshness\n\n- Publishing must reach **all regions**: the webhook should fan out to each region's revalidation endpoint, or use a shared cache. Otherwise users see different versions.\n- Define acceptable staleness (for example minutes) and monitor for drift.\n- Preview and draft modes bypass the cache for editors.\n\n## Edge versus regional\n\nPut redirects and locale routing at the edge. Keep rendering regional unless data is replicated near users; see the runtime comparison question.\n\n## Operations\n\nMulti-region deploys with progressive rollout, synthetic checks per region, real-user monitoring segmented by country, and cost tracking for data transfer and duplicate caches.\n\n## Common mistakes\n\n- Revalidating only one region.\n- A single-region database behind multi-region compute, adding cross-region latency.\n- Locale redirects that trap crawlers or break canonicals.\n- Caching personalised HTML at the CDN.",
+      "followUps": [
+        "How does a publish reach every region?",
+        "How do you handle failover for the CMS?",
+        "Where would you draw the line on personalisation?"
+      ],
+      "related": [
+        "nextjs-deployment-on-aws",
+        "edge-vs-node-runtime"
+      ],
+      "diagrams": [
+        {
+          "id": "global",
+          "title": "Global content platform",
+          "alt": "Editors publish in a headless CMS, a webhook fans out revalidation to origins in each region, users are routed by DNS to the nearest healthy region through a CDN, and each region has Next.js origins with a cache and replicated content.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "ed",
+              "label": "Editors and CMS"
+            },
+            {
+              "id": "wh",
+              "label": "Webhook fan-out"
+            },
+            {
+              "id": "u",
+              "label": "Global users"
+            },
+            {
+              "id": "cdn",
+              "label": "CDN and geo routing"
+            },
+            {
+              "id": "r1",
+              "label": "Region A origin and cache"
+            },
+            {
+              "id": "r2",
+              "label": "Region B origin and cache"
+            },
+            {
+              "id": "rc",
+              "label": "Replicated content store"
+            }
+          ],
+          "edges": [
+            {
+              "from": "ed",
+              "to": "wh"
+            },
+            {
+              "from": "wh",
+              "to": "r1",
+              "label": "revalidate"
+            },
+            {
+              "from": "wh",
+              "to": "r2",
+              "label": "revalidate"
+            },
+            {
+              "from": "u",
+              "to": "cdn"
+            },
+            {
+              "from": "cdn",
+              "to": "r1"
+            },
+            {
+              "from": "cdn",
+              "to": "r2"
+            },
+            {
+              "from": "r1",
+              "to": "rc"
+            },
+            {
+              "from": "r2",
+              "to": "rc"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "scenario-high-traffic-promotional-campaign",
+      "title": "Scenario: prepare a Next.js site for a high-traffic promotional campaign",
+      "topic": "Scenario design",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "nextjs",
+        "scalability",
+        "campaign",
+        "caching",
+        "scenario"
+      ],
+      "companies": [
+        "epam"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would make the campaign pages cacheable at the CDN, pre-render them, and move anything dynamic out of the critical path. Then I load test realistic journeys, protect downstream systems with caching, rate limits, queues and circuit breakers, scale origins ahead of time, and add a waiting room if inventory or checkout cannot scale. I prepare monitoring, a runbook, feature flags to shed load, and a rollback plan before the event.",
+      "revision": "Cache and pre-render campaign pages, protect backends with limits and queues, load test realistic journeys, pre-scale, and prepare monitoring, flags and rollback.",
+      "detailed": "**Requirements (assumed)**: a short, predictable traffic spike many times above normal, a landing page, product listing and checkout.\n\n## Plan\n\n{{diagram:campaign}}\n\n| Area | Action |\n|---|---|\n| Landing and listing pages | Static or revalidated, cached at the CDN with sensible TTL and stale-while-revalidate behaviour |\n| Dynamic parts | Move to client fetches or streamed regions behind their own caches; keep HTML shared |\n| Origin capacity | Pre-scale containers, or verify serverless concurrency limits and warm capacity |\n| Backends | Caching, bulkheads, timeouts, circuit breakers, queues for orders |\n| Checkout | Protect with rate limits; consider a virtual waiting room if stock or payment capacity is limited |\n| Third parties | Defer analytics and tags; confirm vendor limits |\n| Bot and abuse | WAF rules, bot controls, per-IP and per-session limits |\n| Images and assets | Pre-warm CDN, optimised sizes, no on-demand optimisation storms |\n\n## Preparation steps\n\n1. **Define success**: peak requests per second, conversion, error budget.\n2. **Load test** user journeys, not just the home page, in a production-like environment; include cache-cold and cache-warm runs.\n3. **Find the weakest link**, usually a database, search or payment dependency, not Next.js.\n4. **Feature flags** to disable heavy widgets or personalisation under load.\n5. **Observability**: dashboards for CDN hit ratio, origin latency, error rates, queue depth; alerts with owners.\n6. **Runbook and war room**: who decides to shed load, roll back or enable the waiting room.\n7. **Freeze changes** before the event.\n\n## Common mistakes\n\n- Testing only the landing page.\n- Cache-busting query parameters from marketing links bypassing the CDN.\n- Image optimisation or revalidation storms at origin.\n- No rollback or load-shedding switch.",
+      "followUps": [
+        "How do marketing query parameters affect caching?",
+        "What would you do if checkout cannot scale?",
+        "How do you test cache-cold behaviour?"
+      ],
+      "related": [
+        "nextjs-caching-layers-revalidation",
+        "nextjs-deployment-on-aws"
+      ],
+      "diagrams": [
+        {
+          "id": "campaign",
+          "title": "Campaign traffic protection",
+          "alt": "Campaign traffic hits the CDN and WAF first, cached pages are served without reaching origin, dynamic requests reach pre-scaled origins, and a waiting room, rate limits and queues protect checkout and downstream systems.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "t",
+              "label": "Campaign traffic"
+            },
+            {
+              "id": "w",
+              "label": "WAF and bot controls"
+            },
+            {
+              "id": "cdn",
+              "label": "CDN cached pages"
+            },
+            {
+              "id": "o",
+              "label": "Pre-scaled origins"
+            },
+            {
+              "id": "wr",
+              "label": "Waiting room and rate limits"
+            },
+            {
+              "id": "q",
+              "label": "Order queue"
+            },
+            {
+              "id": "d",
+              "label": "Downstream systems"
+            }
+          ],
+          "edges": [
+            {
+              "from": "t",
+              "to": "w"
+            },
+            {
+              "from": "w",
+              "to": "cdn"
+            },
+            {
+              "from": "cdn",
+              "to": "o",
+              "label": "cache miss"
+            },
+            {
+              "from": "o",
+              "to": "wr"
+            },
+            {
+              "from": "wr",
+              "to": "q"
+            },
+            {
+              "from": "q",
+              "to": "d"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
