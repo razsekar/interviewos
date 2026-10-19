@@ -1,0 +1,557 @@
+{
+  "category": "power-platform-dataverse",
+  "questions": [
+    {
+      "slug": "power-platform-architecture-overview",
+      "title": "What is Microsoft Power Platform and how would you architect a solution with it?",
+      "topic": "Architecture",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "power-platform",
+        "architecture",
+        "dataverse",
+        "power-apps",
+        "power-automate"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Power Platform is Microsoft's low-code suite: Power Apps for the UI, Dataverse for governed data, Power Automate for workflows, plus Power BI and Copilot Studio. I would put Dataverse at the centre, build apps on top, and use flows for orchestration. Anything heavy or reusable goes behind a custom connector to an Azure service such as Functions or API Management, authenticated with Entra ID. I would add environments, solutions and ALM from day one, and avoid it for high-throughput, latency-critical or deeply custom products.",
+      "revision": "Dataverse as governed data core, Power Apps for UI, Power Automate for orchestration, custom connectors to Azure for heavy logic, solutions and environments for ALM. Avoid for high-scale or highly bespoke systems.",
+      "detailed": "Power Platform is a low-code suite. The main pieces are **Power Apps** (canvas, model-driven, Power Pages), **Dataverse** (relational store with security, auditing and business logic), **Power Automate** (cloud and desktop flows), **Power BI** (reporting) and **Copilot Studio** (agents). Product names change, so verify the current lineup in Microsoft documentation.\n\n## Reference architecture\n\n{{diagram:pp-arch}}\n\n## Design choices\n\n| Concern | Recommendation |\n|---|---|\n| Data | Dataverse for app-owned, relational, secured data; connectors for systems of record that stay elsewhere |\n| UI | Model-driven for data-heavy internal apps, canvas for task-focused UX, Power Pages for external users |\n| Logic | Dataverse business rules and plug-ins for data integrity, flows for orchestration, Azure for heavy compute |\n| Integration | Custom connectors fronting APIs through API Management, Entra ID OAuth, no secrets in flows |\n| Delivery | Solutions, source control, pipelines, separate environments |\n| Governance | Managed environments, DLP policies, a named owner for every app |\n\n## When not to use it\n\n- Very high throughput or low latency workloads, because of service protection limits and per-user licensing.\n- Products with heavily bespoke UX or public-scale traffic.\n- Complex algorithms or long-running compute: keep these in code and call them.\n- Teams without governance, since citizen-built sprawl becomes a support burden.\n\n## Common mistakes\n\n- Building everything in the default environment with no solutions.\n- Putting business logic only in canvas app formulas, so it is bypassed by the API.\n- Embedding credentials in flows instead of using connection references and managed identities or service principals.\n- Ignoring licensing until rollout.",
+      "followUps": [
+        "How would you stop citizen developers creating ungoverned apps?",
+        "What would you put behind a custom connector instead of a flow?",
+        "How do you move changes between environments?"
+      ],
+      "related": [
+        "power-platform-environment-strategy",
+        "dataverse-vs-postgresql",
+        "power-platform-limits-licensing-capacity"
+      ],
+      "diagrams": [
+        {
+          "id": "pp-arch",
+          "title": "Power Platform reference architecture",
+          "alt": "Users reach Power Apps, which read and write Dataverse. Power Automate flows react to Dataverse events and call custom connectors, which go through API Management to Azure services. Entra ID secures every hop and solutions move through environments.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "user",
+              "label": "Users"
+            },
+            {
+              "id": "apps",
+              "label": "Power Apps"
+            },
+            {
+              "id": "dv",
+              "label": "Dataverse"
+            },
+            {
+              "id": "flow",
+              "label": "Power Automate"
+            },
+            {
+              "id": "cc",
+              "label": "Custom connector"
+            },
+            {
+              "id": "apim",
+              "label": "API Management"
+            },
+            {
+              "id": "az",
+              "label": "Azure Functions and services"
+            },
+            {
+              "id": "entra",
+              "label": "Entra ID"
+            }
+          ],
+          "edges": [
+            {
+              "from": "user",
+              "to": "apps",
+              "label": "sign in"
+            },
+            {
+              "from": "apps",
+              "to": "dv"
+            },
+            {
+              "from": "dv",
+              "to": "flow",
+              "label": "events"
+            },
+            {
+              "from": "flow",
+              "to": "cc"
+            },
+            {
+              "from": "cc",
+              "to": "apim"
+            },
+            {
+              "from": "apim",
+              "to": "az"
+            },
+            {
+              "from": "entra",
+              "to": "apps"
+            },
+            {
+              "from": "entra",
+              "to": "apim"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "dataverse-vs-postgresql",
+      "title": "Dataverse vs PostgreSQL: when would you choose each?",
+      "topic": "Data",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "dataverse",
+        "postgresql",
+        "data-store",
+        "comparison"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Dataverse is a managed, secured data platform designed for Power Platform: built-in row-level security, auditing, business logic, and native integration with apps and flows. PostgreSQL is a general relational database: full SQL, indexing control, extensions, and high throughput at lower marginal cost. I would pick Dataverse for line-of-business apps in the Microsoft ecosystem and PostgreSQL for custom, high-volume or analytical workloads, often with both connected through APIs.",
+      "revision": "Dataverse for secured, low-code line-of-business data with built-in governance; PostgreSQL for custom, high-volume, SQL-heavy workloads. Integrate rather than force one to do both.",
+      "detailed": "Both are relational in spirit, but they solve different problems.\n\n## Comparison\n\n| Aspect | Dataverse | PostgreSQL |\n|---|---|---|\n| Model | Tables, columns, relationships via metadata | Full SQL schema, constraints, views, extensions |\n| Security | Business units, roles, teams, field security built in | Roles and row-level security you design |\n| Business logic | Plug-ins, business rules, flows | Triggers, functions, application code |\n| Low-code integration | Native in Power Apps and Power Automate | Needs connectors or an API layer |\n| Query | OData Web API, FetchXML, limited SQL (TDS endpoint is read oriented) | Full SQL, joins, window functions, CTEs |\n| Throughput | Bounded by service protection and entitlements | Bounded by your hardware and tuning |\n| Cost | Capacity and licence based, verify current pricing | Infrastructure or managed service cost |\n| Ops | Fully managed | You choose managed or self-run |\n\n## Choose Dataverse when\n\n- The app is built with Power Apps and needs row-level security, audit and approvals quickly.\n- Business users will extend the model and you want governed metadata.\n- Data volume and request rates are moderate.\n\n## Choose PostgreSQL when\n\n- You need complex SQL, analytics, JSON or geospatial features, or custom indexing.\n- Volume or concurrency is high, or latency is critical.\n- The data serves many non-Microsoft consumers and should not be tied to a licence.\n\n## Hybrid\n\nKeep the system of record in PostgreSQL, expose it through a documented API and a custom connector, and use Dataverse only for app-owned process data. Virtual tables can surface external data, but check their limits.\n\n## Common mistakes\n\n- Choosing Dataverse for bulk analytics or huge event tables, then hitting storage cost and API limits.\n- Duplicating the same entity in both stores with no clear owner.\n- Assuming Dataverse is \"just SQL Server\" and writing around its security model.",
+      "followUps": [
+        "How would you sync data between the two?",
+        "What are virtual tables and when are they a bad idea?",
+        "How does storage cost influence the choice?"
+      ],
+      "related": [
+        "dataverse-data-modelling",
+        "power-platform-limits-licensing-capacity",
+        "dataverse-web-api-odata"
+      ]
+    },
+    {
+      "slug": "dataverse-web-api-odata",
+      "title": "How do you use the Dataverse Web API? Cover auth, querying, paging and limits.",
+      "topic": "API",
+      "difficulty": "advanced",
+      "type": "conceptual",
+      "tags": [
+        "dataverse",
+        "web-api",
+        "odata",
+        "entra-id",
+        "throttling"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "The Web API is an OData v4 REST endpoint on the environment URL. I authenticate with Entra ID using OAuth, typically a service principal with an application user for integrations. I query with $select to limit columns, $filter server side, $top and $orderby, $expand for related rows, and follow @odata.nextLink for paging. Service protection limits return 429 with Retry-After, so I honour that header, back off, batch where sensible and avoid chatty calls.",
+      "revision": "OData v4 REST endpoint, Entra ID OAuth with an application user, always $select and $filter, page with nextLink, and honour 429 Retry-After under service protection limits.",
+      "detailed": "The Dataverse Web API exposes tables as OData v4 entity sets, for example `https://org.crm.dynamics.com/api/data/v9.2/accounts`. Regional domains and versions vary, so verify the current form in Microsoft documentation.\n\n## Authentication\n\n1. Register an app in Entra ID.\n2. Create an **application user** in the Dataverse environment and assign a least-privilege security role.\n3. Acquire a token for the environment URL using client credentials (certificate or managed identity preferred over secrets).\n4. Send `Authorization: Bearer <token>`.\n\nFor user-facing apps use delegated tokens so Dataverse security applies per user.\n\n## Querying\n\n```\nGET /api/data/v9.2/accounts?$select=name,revenue\n  &$filter=statecode eq 0 and revenue gt 1000000\n  &$orderby=name&$top=50\n  &$expand=primarycontactid($select=fullname)\n```\n\n| Option | Why it matters |\n|---|---|\n| **$select** | Fewer columns means less data and faster queries |\n| **$filter** | Filter on the server, never download and filter |\n| **$expand** | Fetch related rows, but keep it shallow |\n| **Paging** | Use `Prefer: odata.maxpagesize` and follow `@odata.nextLink`; do not build skip logic |\n| **FetchXML** | For aggregates and complex joins |\n\n## Service protection and retries\n\nDataverse protects itself with limits on request count, execution time and concurrency per user in a sliding window. Exceeding them returns **HTTP 429** (or 503 in some cases) with a **Retry-After** header. Exact numbers change, so verify current limits.\n\n- Honour `Retry-After`, then retry with exponential backoff and jitter.\n- Prefer `$batch` or the bulk operations messages (such as CreateMultiple) over many single calls.\n- Limit parallelism per application user, or spread load across several.\n- Make retried writes idempotent, using alternate keys with upsert.\n\n## Common mistakes\n\n- Omitting $select and pulling every column.\n- Using one shared account for all integrations and exhausting its limits.\n- Retrying immediately in a tight loop.\n- Hard-coding secrets instead of certificates or managed identity.",
+      "followUps": [
+        "How would you do an idempotent upsert from an external system?",
+        "What is the difference between OData and FetchXML here?",
+        "How would you handle a 429 in a high-volume integration?"
+      ],
+      "related": [
+        "power-platform-limits-licensing-capacity",
+        "dataverse-security-design",
+        "dataverse-data-modelling"
+      ]
+    },
+    {
+      "slug": "dataverse-plugin-execution-pipeline",
+      "title": "Explain the Dataverse plug-in execution pipeline.",
+      "topic": "Extensibility",
+      "difficulty": "advanced",
+      "type": "conceptual",
+      "tags": [
+        "dataverse",
+        "plug-ins",
+        "pipeline",
+        "transactions"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "A plug-in is .NET code registered on a message such as Create or Update at a pipeline stage. Stages are PreValidation 10, outside the transaction, PreOperation 20 and MainOperation 30, inside it, and PostOperation 40. Synchronous plug-ins run in the transaction, so an exception rolls back the whole operation. Asynchronous ones run later and cannot block. I use filtering attributes, pre and post images, tracing, and keep plug-ins short because of timeouts and depth limits.",
+      "revision": "Stages 10 PreValidation, 20 PreOperation, 30 Main, 40 PostOperation. Sync runs in transaction and can roll back; async runs later. Use filtering attributes, images, tracing, and short logic.",
+      "detailed": "A plug-in is a .NET assembly with a class implementing `IPlugin`, registered against a **message** (Create, Update, Delete and others) on a **table**, at a **stage** and **mode**.\n\n{{diagram:pp-pipeline}}\n\n## Stages\n\n| Stage | Order | Transaction | Typical use |\n|---|---|---|---|\n| PreValidation | 10 | Outside, before the database transaction | Early validation, cancel cheaply |\n| PreOperation | 20 | Inside | Modify the target before save, set derived values |\n| MainOperation | 30 | Inside | Core platform operation, mainly for custom APIs |\n| PostOperation | 40 | Inside (sync) | Act on the saved record, create related rows |\n\n## Sync versus async\n\n- **Synchronous** plug-ins run inside the user's request. Throwing `InvalidPluginExecutionException` rolls back the whole transaction and shows the message. They add latency and must finish quickly.\n- **Asynchronous** plug-ins run after commit via the async service. They cannot block the user or roll back the original change, so use them for non-critical follow-up work with retries in mind.\n\n## Practical details\n\n- **Filtering attributes** on Update: run only when specific columns change.\n- **Pre and post images** give old and new values without extra retrieves.\n- **Tracing** with `ITracingService` is the main debugging tool; trace log settings are environment configuration.\n- **Depth and recursion:** the context depth increases when plug-ins trigger further operations. Check `Depth` to avoid loops, since the platform stops runaway chains.\n- **Timeouts and limits:** sync plug-ins have a short execution window, so no long external calls. Verify current limits.\n- Keep plug-ins stateless, because instances are cached and shared; do not store state in fields.\n\n## Common mistakes\n\n- Calling slow external APIs in a synchronous plug-in.\n- Registering on Update with no filtering attributes, so it fires constantly.\n- Updating the same record in PostOperation and triggering itself.\n- Expecting PreValidation changes to be inside the transaction.",
+      "followUps": [
+        "Why use PreOperation rather than PostOperation to set a field?",
+        "How would you debug a plug-in in production?",
+        "What happens to the transaction if an async plug-in fails?"
+      ],
+      "related": [
+        "plugin-vs-flow-vs-custom-api",
+        "dataverse-web-api-odata",
+        "dataverse-data-modelling"
+      ],
+      "diagrams": [
+        {
+          "id": "pp-pipeline",
+          "title": "Dataverse plug-in pipeline",
+          "alt": "A request passes PreValidation at stage 10 outside the transaction, then PreOperation at 20, MainOperation at 30 and PostOperation at 40 inside the transaction. Asynchronous plug-ins and flows run after the commit.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "req",
+              "label": "Client request"
+            },
+            {
+              "id": "pv",
+              "label": "PreValidation 10"
+            },
+            {
+              "id": "po",
+              "label": "PreOperation 20"
+            },
+            {
+              "id": "mo",
+              "label": "MainOperation 30"
+            },
+            {
+              "id": "pst",
+              "label": "PostOperation 40"
+            },
+            {
+              "id": "commit",
+              "label": "Commit"
+            },
+            {
+              "id": "async",
+              "label": "Async plug-ins and flows"
+            }
+          ],
+          "edges": [
+            {
+              "from": "req",
+              "to": "pv"
+            },
+            {
+              "from": "pv",
+              "to": "po",
+              "label": "transaction starts"
+            },
+            {
+              "from": "po",
+              "to": "mo"
+            },
+            {
+              "from": "mo",
+              "to": "pst"
+            },
+            {
+              "from": "pst",
+              "to": "commit"
+            },
+            {
+              "from": "commit",
+              "to": "async"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "plugin-vs-flow-vs-custom-api",
+      "title": "Plug-in, Power Automate or a custom API: how do you decide where logic lives?",
+      "topic": "Extensibility",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "dataverse",
+        "plug-ins",
+        "power-automate",
+        "custom-api",
+        "decision"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I ask whether the logic must be transactional and always enforced. If it must run inside the save and cannot be bypassed, I use a synchronous plug-in. If it is orchestration, approvals or integration with connectors and can be eventually consistent, I use Power Automate. If it is heavy, reusable or needs its own scaling and tests, I put it in an external service such as Azure Functions, exposed through a Dataverse custom API or a custom connector.",
+      "revision": "Transactional, always-enforced rules go in sync plug-ins; orchestration and connectors in flows; heavy, reusable or independently scalable logic in an external service behind a custom API.",
+      "detailed": "The decision is about **consistency, ownership, scale and who maintains it**.\n\n{{diagram:pp-decision}}\n\n## Comparison\n\n| Option | Strengths | Weaknesses |\n|---|---|---|\n| **Sync plug-in** | In the transaction, enforced for every client, can block bad data | Short time limit, needs developers, hard to change quickly |\n| **Async plug-in** | Code control, non-blocking | No rollback of the original change |\n| **Power Automate** | Fast to build, connectors, approvals, maker friendly | Eventually consistent, flow run limits, harder to test, can be disabled or owned by a leaver |\n| **Custom API plus Azure service** | Full code, testing, scaling, reuse across apps | More infrastructure and ownership |\n| **Business rules and calculated columns** | No code, simple | Limited expressiveness |\n\n## Heuristics\n\n- **Integrity rules** (must always hold, whichever app or API call): plug-in or business rule.\n- **Process automation** (notify, approve, create related work): flow.\n- **Heavy compute, ML or third-party SDKs:** external service called from a flow or a custom API. This is where AI calls usually sit.\n- **Reusable business operation** with typed inputs and outputs: a Dataverse custom API backed by a plug-in or an external endpoint.\n\n## Operational concerns\n\n- Source control and solution packaging for all three.\n- Flows should run as a service principal or with a connection reference, not a personal account.\n- Add retries, idempotency and monitoring for async paths.\n\n## Common mistakes\n\n- Enforcing a security or integrity rule only in a flow, which can be bypassed by direct API calls.\n- Calling slow services synchronously from a plug-in.\n- Building a large, branching flow that is really an application.",
+      "followUps": [
+        "Where would an Azure OpenAI call fit in this decision?",
+        "How do you make a flow resilient to Dataverse throttling?",
+        "What is a custom API and why use it over a raw Web API call?"
+      ],
+      "related": [
+        "dataverse-plugin-execution-pipeline",
+        "power-platform-architecture-overview",
+        "dataverse-web-api-odata"
+      ],
+      "diagrams": [
+        {
+          "id": "pp-decision",
+          "title": "Where should logic live",
+          "alt": "Start by asking if logic must be transactional and always enforced; if yes use a synchronous plug-in. Otherwise if it is heavy or reusable use an external service behind a custom API, else use Power Automate for orchestration.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "q",
+              "label": "New logic needed"
+            },
+            {
+              "id": "t",
+              "label": "Must be transactional and always enforced?"
+            },
+            {
+              "id": "pl",
+              "label": "Synchronous plug-in or business rule"
+            },
+            {
+              "id": "h",
+              "label": "Heavy, reusable or needs own scaling?"
+            },
+            {
+              "id": "ext",
+              "label": "External service behind custom API"
+            },
+            {
+              "id": "fl",
+              "label": "Power Automate flow"
+            }
+          ],
+          "edges": [
+            {
+              "from": "q",
+              "to": "t"
+            },
+            {
+              "from": "t",
+              "to": "pl",
+              "label": "yes"
+            },
+            {
+              "from": "t",
+              "to": "h",
+              "label": "no"
+            },
+            {
+              "from": "h",
+              "to": "ext",
+              "label": "yes"
+            },
+            {
+              "from": "h",
+              "to": "fl",
+              "label": "no"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "dataverse-security-design",
+      "title": "How would you design security in Dataverse?",
+      "topic": "Security",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "dataverse",
+        "security",
+        "roles",
+        "business-units",
+        "auditing"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I design in layers. Business units define the hierarchy and data boundaries, security roles grant table-level privileges with an access level, teams share roles and records, and ownership decides who sees what. Field-level security protects sensitive columns. Integrations use application users via service principals with least privilege. I enable auditing, and I never rely on hiding things in the UI because the Web API bypasses the app.",
+      "revision": "Layered: business units, security roles with access levels, teams, record ownership, field-level security, least-privilege application users, auditing. UI hiding is not security.",
+      "detailed": "Dataverse security is **role based and record aware**. Design it around who owns data and at what scope they may act.\n\n## Building blocks\n\n| Element | Purpose |\n|---|---|\n| **Business units** | Hierarchy that scopes data visibility, such as region or division |\n| **Security roles** | Privileges (create, read, write, delete, append, assign, share) per table, each with an access level: user, business unit, parent-child business units, organisation |\n| **Teams** | Owner teams hold records; access teams share specific records; Entra group teams map directory groups to roles |\n| **Record ownership** | User or team owned tables get row-level control; organisation owned tables do not |\n| **Field-level security** | Profiles restrict read, create or update on sensitive columns |\n| **Sharing** | Ad hoc access to a record, used sparingly because it scales poorly |\n| **Hierarchy security** | Managers see reports' records |\n\n## Design approach\n\n1. Model business units from the real data boundary, not the org chart.\n2. Create a small set of roles by persona, composed from least privilege.\n3. Map Entra groups to teams so access follows joiner and leaver processes.\n4. Mark sensitive columns with field security profiles.\n5. Use **application users** for integrations, with a dedicated minimal role, never an admin account.\n6. Turn on **auditing** for sensitive tables and review it.\n\n## Enforcement point\n\nSecurity must hold at the data layer. A hidden button or form field in a canvas or model-driven app does nothing against a direct Web API call. Rely on roles, field security and plug-ins for enforcement, and treat UI visibility as convenience only.\n\n## Common mistakes\n\n- Giving everyone System Administrator.\n- Heavy reliance on record sharing, producing huge access tables and slow queries.\n- One broad service account for all integrations.\n- Assuming a hidden control means protected data.",
+      "followUps": [
+        "How would you restrict a column to HR only?",
+        "What are the trade-offs of owner teams versus access teams?",
+        "How would you audit who changed a record?"
+      ],
+      "related": [
+        "dataverse-data-modelling",
+        "canvas-vs-model-driven-vs-power-pages",
+        "power-platform-environment-strategy"
+      ]
+    },
+    {
+      "slug": "canvas-vs-model-driven-vs-power-pages",
+      "title": "Canvas apps vs model-driven apps vs Power Pages: how do you choose?",
+      "topic": "Apps",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "power-apps",
+        "canvas",
+        "model-driven",
+        "power-pages"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Canvas apps give pixel-level control and suit task-focused, often mobile experiences over many data sources. Model-driven apps are generated from the Dataverse model, with views, forms, business process flows and built-in security, ideal for data-heavy internal systems. Power Pages is for external users such as customers and partners, with its own authentication and table permissions. I choose by audience, data complexity and how much custom UX is needed.",
+      "revision": "Canvas for custom task UX, model-driven for data-rich internal apps on Dataverse, Power Pages for external users. Choose by audience, data model and UX needs.",
+      "detailed": "All three sit on the same platform but target different needs.\n\n## Comparison\n\n| Aspect | Canvas | Model-driven | Power Pages |\n|---|---|---|---|\n| Audience | Internal, task workers, mobile | Internal, power users | External: customers, partners, public |\n| Layout | You design every screen | Generated from tables, views, forms | Web site with templates and components |\n| Data | Many sources via connectors | Dataverse only | Dataverse |\n| Security | Connector and data source permissions | Dataverse roles apply directly | Web roles and table permissions |\n| Strength | Flexible UX | Fast, consistent, process driven | External authentication and portals |\n| Weakness | More maintenance, delegation limits | Less visual freedom | Different licensing and governance model |\n\n## Guidance\n\n- **Many records, relationships, dashboards, approvals:** model-driven. You inherit sorting, filtering, bulk edit and security with little effort.\n- **A focused workflow such as a site inspection or an approvals inbox:** canvas, ideally with Dataverse and a compact set of tables.\n- **External users:** Power Pages, with careful table permissions, because anything exposed is internet facing.\n- **Mixed:** a model-driven app for back office plus a canvas app for field staff, sharing one Dataverse model and solution.\n\n## Considerations\n\n- Licensing differs per app type and per external user model, so verify current terms.\n- Canvas performance depends on how formulas map to the data source (delegation).\n- Accessibility and responsive design are easier to inherit in model-driven apps.\n\n## Common mistakes\n\n- Building a canvas app that re-implements a standard grid and form.\n- Treating Power Pages table permissions as optional.\n- Choosing by familiarity instead of audience.",
+      "followUps": [
+        "When would you embed a canvas app in a model-driven app?",
+        "How do you secure a Power Pages site?",
+        "Why is delegation a canvas-specific concern?"
+      ],
+      "related": [
+        "power-app-slow-large-dataverse-table",
+        "dataverse-security-design",
+        "power-platform-architecture-overview"
+      ]
+    },
+    {
+      "slug": "power-platform-environment-strategy",
+      "title": "What environment strategy would you set up for Power Platform?",
+      "topic": "Governance",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "power-platform",
+        "environments",
+        "alm",
+        "governance",
+        "managed-environments"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I separate environments per stage: development per team or project, test or UAT, and production, with solutions moving through a pipeline. I treat the default environment as a personal productivity space, restrict it with DLP policies, and keep business-critical apps out of it. Production and sandbox types differ in capabilities, and Managed Environments add governance such as sharing limits, usage insights and solution checks.",
+      "revision": "Dev, test, prod environments linked by solution pipelines; keep critical apps out of the default environment; apply DLP and Managed Environments for governance.",
+      "detailed": "Environments are the boundary for data, security, capacity and deployment, so the strategy is a core architectural decision.\n\n## Typical layout\n\n| Environment | Purpose |\n|---|---|\n| Developer or dev | Makers build unmanaged solutions, source control is the record |\n| Test or UAT | Managed solutions deployed by pipeline, realistic data, testers |\n| Production | Managed solutions only, locked down, monitored |\n| Default | Personal productivity, not for shared business systems |\n| Sandbox vs production type | Sandbox allows copy, reset and restore; production type is for live use. Verify current differences |\n\n## Default environment risks\n\nEvery licensed user is a maker in the default environment. Without controls it accumulates unowned flows and apps, shared broadly, using unvetted connectors, and nobody is accountable when the creator leaves.\n\n- Apply **DLP policies** to separate business and non-business connectors.\n- Limit sharing and monitor with the Centre of Excellence toolkit or admin analytics.\n- Direct serious solutions to a governed environment.\n\n## ALM\n\n- Build inside **solutions** with a dedicated publisher.\n- Store solution source in Git and use pipelines to promote as **managed** solutions.\n- Use **environment variables** and **connection references** so no value is hard-coded between stages.\n- Run solution checker in the pipeline.\n\n## Managed Environments\n\nA premium governance feature set: sharing limits, weekly usage insights, data policies and more control over makers. Verify current features and licensing in Microsoft documentation.\n\n## Common mistakes\n\n- Building directly in production.\n- Using personal connections that break on leavers.\n- One environment for all projects, leading to cross-team conflicts.\n- No capacity plan, so new environments are blocked later.",
+      "followUps": [
+        "How do you handle environment variables and connection references?",
+        "How would you onboard a new team safely?",
+        "What should be monitored in production?"
+      ],
+      "related": [
+        "power-platform-architecture-overview",
+        "power-platform-limits-licensing-capacity",
+        "dataverse-security-design"
+      ]
+    },
+    {
+      "slug": "dataverse-data-modelling",
+      "title": "How do you model data in Dataverse?",
+      "topic": "Data",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "dataverse",
+        "data-modelling",
+        "relationships",
+        "alternate-keys",
+        "rollup"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I start with the business entities and ownership, then pick standard tables where they fit and custom tables otherwise. I use one-to-many and many-to-many relationships, choice columns for fixed lists, and alternate keys for integration upserts. Calculated and rollup columns cover derived values, with rollups being asynchronous. I choose user or team ownership if row-level security matters, and denormalise only for measured read performance, accepting the update cost.",
+      "revision": "Model entities and ownership first, use relationships, choices and alternate keys, calculated or rollup columns for derived data, and denormalise only for measured performance.",
+      "detailed": "Good Dataverse design is relational design plus platform awareness.\n\n## Core elements\n\n| Element | Guidance |\n|---|---|\n| **Tables** | Reuse standard tables (account, contact) where they fit, create custom ones with a publisher prefix |\n| **Ownership type** | User or team owned enables row-level security; organisation owned is for reference data |\n| **Relationships** | One-to-many with a lookup column, many-to-many via an intersect table, and choose cascade behaviour carefully (delete, assign, share) |\n| **Choice columns** | Fixed lists; use a lookup table if values change often or need attributes |\n| **Alternate keys** | Business identifiers enabling upsert and idempotent integration |\n| **Calculated columns** | Computed on read from the same row or parent, always current |\n| **Rollup columns** | Aggregates over related rows, recalculated asynchronously, so slightly stale |\n| **Autonumber, currency, file and image** | Use the platform types instead of custom workarounds |\n\n## Design process\n\n1. List entities, owners and the access boundary, which drives ownership type.\n2. Draw relationships and decide cascade rules.\n3. Add alternate keys wherever an external system supplies identifiers.\n4. Decide derived values: calculated, rollup or plug-in maintained.\n5. Plan indexing through views and keys, and consider the volume of each table.\n\n## When to denormalise\n\nCopy a value from a parent when a hot view or app screen would otherwise need deep joins and the value rarely changes. Maintain it with a plug-in or flow, and document it. Do this only after measuring, because every copy is a consistency risk. Remember that columns count towards storage and form load time.\n\n## Common mistakes\n\n- Cascading delete on large hierarchies by default.\n- Using many choice columns where a lookup table belongs.\n- Treating rollup columns as real time.\n- Modelling attachments as large file columns on high-volume tables without checking capacity.",
+      "followUps": [
+        "When would you choose organisation ownership?",
+        "How do alternate keys help an integration?",
+        "How would you handle a column that needs history?"
+      ],
+      "related": [
+        "dataverse-security-design",
+        "dataverse-vs-postgresql",
+        "power-app-slow-large-dataverse-table"
+      ]
+    },
+    {
+      "slug": "power-platform-limits-licensing-capacity",
+      "title": "What Power Platform limits and licensing or capacity factors must an architect plan for?",
+      "topic": "Governance",
+      "difficulty": "advanced",
+      "type": "conceptual",
+      "tags": [
+        "power-platform",
+        "licensing",
+        "capacity",
+        "service-protection",
+        "limits"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I plan for four things. Licensing model per user or per app, and for flows, which decides who can use premium connectors and Dataverse. Request entitlements, since API calls are allocated per licence and may be metered. Service protection limits that throttle bursts. Storage capacity for database, file and log data. Figures and product names change, so I verify current Microsoft documentation and model expected volume against them early.",
+      "revision": "Plan licence type, daily request entitlements, service protection throttling and storage capacity. Numbers change, so verify Microsoft docs and model volumes before design is fixed.",
+      "detailed": "Power Platform is not just a technical choice. Licensing and limits shape the architecture, and they change often. **Treat every number here as something to verify in current Microsoft documentation.**\n\n## What to plan\n\n| Area | Principle | Design impact |\n|---|---|---|\n| **Licensing** | Per user, per app and per flow models exist, and premium connectors or Dataverse need premium licences | Decide who needs what before choosing connectors or app types |\n| **Request entitlements** | Power Platform API requests are allocated per licence over a time window, with possible add-ons | Estimate calls per user and per flow, including loops |\n| **Service protection** | Short-window limits per user on request count, time and concurrency, giving 429 responses | Batch, back off, spread integration identities sensibly |\n| **Flow limits** | Run duration, actions per run, throughput and concurrency caps | Split long workflows, avoid huge loops, prefer bulk operations |\n| **Storage capacity** | Separate pools for database, file and log storage, bought or entitled per licence | Archive, avoid storing large files in the database, monitor growth |\n| **Environments** | Each environment consumes capacity and may need minimum storage | Do not create environments casually |\n| **AI and automation add-ons** | Credits or capacity for AI features and desktop automation | Model usage before enabling at scale |\n\n## How to approach it\n\n1. Gather expected users, record volumes, integration frequency and attachments.\n2. Map to licence types and entitlements, then check the numbers with Microsoft or a licensing specialist.\n3. Add monitoring using the admin centre capacity and analytics reports.\n4. Build a throttling-tolerant design from the start: retries, idempotency, queues.\n5. Define data retention and archiving, such as moving old rows to cheaper storage.\n\n## Common mistakes\n\n- Using a personal account for flows, so entitlements and ownership are wrong.\n- Discovering premium connector licensing at go-live.\n- Storing documents in Dataverse rather than SharePoint or blob storage.\n- Ignoring the loop count when estimating flow requests.",
+      "followUps": [
+        "How would you estimate API request consumption for a new integration?",
+        "What would you archive and where?",
+        "How would you tell stakeholders about a licence risk?"
+      ],
+      "related": [
+        "dataverse-web-api-odata",
+        "power-platform-environment-strategy",
+        "power-platform-architecture-overview"
+      ]
+    },
+    {
+      "slug": "power-app-slow-large-dataverse-table",
+      "title": "A Power App is slow with a large Dataverse table. What do you investigate?",
+      "topic": "Performance",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "power-apps",
+        "performance",
+        "delegation",
+        "dataverse",
+        "scenario"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I start by measuring with Monitor and the performance tools to see which calls are slow. Then I check delegation, because non-delegable formulas pull only a limited number of rows and filter locally. I restrict columns, push filters and sorts to the server, add views or indexed columns that match the query, avoid loading whole tables into collections, reduce controls and screen load work, and use pagination or search-as-you-type for large lists.",
+      "revision": "Measure with Monitor, fix delegation, select fewer columns, filter server side with indexed views, avoid big collections, and reduce screen-load calls.",
+      "detailed": "Treat it as a diagnosis problem: **measure first, then fix the biggest cost**.\n\n## Triage\n\n1. **Reproduce and measure.** Use Power Apps Monitor and the browser network view to list calls, durations and payload sizes. Identify whether time goes to data calls, formulas or rendering.\n2. **Check delegation.** Delegation warnings mean part of the formula runs in the app after fetching only a limited number of rows (the data row limit, adjustable but not a fix). Results become both slow and wrong on large tables.\n3. **Inspect each query** and confirm it filters, sorts and limits on the server.\n\n## Common causes and fixes\n\n| Cause | Fix |\n|---|---|\n| Non-delegable function (some text or collection functions) | Rewrite using delegable filters, or move logic to a view, Dataverse search or a flow |\n| Too many columns returned | Use fewer columns, a trimmed view or ShowColumns where delegable |\n| Filtering on unindexed or calculated columns | Filter on indexed lookup, key or choice columns, or add a view designed for the screen |\n| Loading the whole table into a collection on start | Load only what the screen needs, with paging or search |\n| Many sequential calls on screen load | Parallelise with Concurrent, defer secondary data |\n| Heavy galleries and nested lookups per row | Flatten data, use a view that includes the needed related columns |\n| Wide forms with many controls | Split screens, reduce controls and formulas |\n| Backend throttling | Check service protection responses and reduce chatty calls |\n\n## Server-side thinking\n\nIf the same screen is slow in a model-driven app, the issue is data shape, not the canvas. Consider a Dataverse view or custom API that returns the exact shape needed, and archive old rows to keep the active table smaller.\n\n## Verify\n\nRetest with realistic data volume and a user with real security roles, because role scope affects query cost.\n\n## Common mistakes\n\n- Raising the delegation row limit and calling it fixed.\n- Testing only with a handful of rows.\n- Caching everything in collections, which moves the problem to the device.",
+      "followUps": [
+        "How do you confirm a formula is delegable?",
+        "When would you move the query into a flow or custom API?",
+        "How would you test with production-like volume?"
+      ],
+      "related": [
+        "canvas-vs-model-driven-vs-power-pages",
+        "dataverse-data-modelling",
+        "dataverse-web-api-odata"
+      ]
+    }
+  ]
+}

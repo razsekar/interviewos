@@ -1,0 +1,577 @@
+{
+  "category": "security-governance",
+  "questions": [
+    {
+      "slug": "entra-id-essentials-for-app-developers",
+      "title": "What should an app developer know about Microsoft Entra ID: app registrations, enterprise apps, service principals and managed identities?",
+      "topic": "Identity",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "entra-id",
+        "app-registration",
+        "service-principal",
+        "managed-identity"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "An app registration is the global definition of my application: its client ID, redirect URIs, exposed scopes and credentials. A service principal, shown as an enterprise application, is the local instance of that app inside a tenant, and it is what permissions and role assignments attach to. A managed identity is a special service principal whose credentials Azure creates and rotates for me, so code never holds a secret. I choose the identity type first, then the credential.",
+      "revision": "Registration defines the app; the enterprise application (service principal) is its tenant instance; managed identities are service principals with Azure-managed credentials.",
+      "detailed": "## The objects\n\n| Object | What it is | Where you see it |\n|---|---|---|\n| **App registration** | Global definition: client ID, redirect URIs, API scopes, app roles, credentials | App registrations blade, home tenant only |\n| **Enterprise application / service principal** | Instance of an app in a tenant; carries consent grants, role assignments, sign-in policy | Enterprise applications blade |\n| **Managed identity** | Service principal whose credential is issued and rotated by Azure; system-assigned (tied to one resource) or user-assigned (reusable) | Resource's Identity blade |\n\nA multi-tenant app has one registration but one service principal in every tenant that consents to it. A single-tenant line-of-business app has both in the same tenant, which is why people confuse them.\n\n## Practical rules\n\n- Register one app per deployable component and environment, not one shared registration for everything.\n- Set an **owner group** on every registration so it survives staff changes.\n- Prefer **managed identity** when the workload runs on Azure (Functions, App Service, Container Apps, VMs). Use **workload identity federation** for GitHub Actions or Kubernetes instead of stored secrets. Verify current options in vendor docs.\n- Use a **certificate or federated credential** over a client secret when a registration is unavoidable.\n- Keep API permissions minimal and review them on a schedule.\n\n## Controls, threats and trade-offs\n\n| Control | Threat addressed | Trade-off |\n|---|---|---|\n| Managed identity | Secret theft, leaked config | Azure-hosted only; local development needs a fallback |\n| Owner groups | Orphaned, unreviewed apps | Needs a process to keep groups current |\n| One registration per environment | Test credentials reaching production | More objects to manage |\n| Scheduled permission review | Permission creep | Reviewer time |\n\n## Common mistakes\n\n- Treating the enterprise application as a separate app from the registration.\n- Granting roles to a person's account that \"temporarily\" runs automation.\n- Leaving secrets with two-year expiry and no owner.",
+      "followUps": [
+        "What happens when a multi-tenant app is consented in a second tenant?",
+        "When would you use a user-assigned over a system-assigned managed identity?",
+        "How do you find unused app registrations?"
+      ]
+    },
+    {
+      "slug": "oauth2-oidc-flows-which-to-use",
+      "title": "Which OAuth 2.0 and OpenID Connect flow should you use: authorization code with PKCE, client credentials or on-behalf-of?",
+      "topic": "Authentication flows",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "oauth2",
+        "oidc",
+        "pkce",
+        "client-credentials",
+        "obo"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I pick the flow by who is acting. A user signing in to a web, mobile or single-page app uses authorization code with PKCE, with OpenID Connect adding the ID token for sign-in. A background service with no user uses client credentials. A middle-tier API that must call a downstream API as the signed-in user uses on-behalf-of. I avoid implicit and password grants, and I never put access tokens in URLs.",
+      "revision": "User present: auth code plus PKCE. No user: client credentials. API calling downstream as the user: on-behalf-of. Avoid implicit and password flows.",
+      "detailed": "{{diagram:oauth-flows}}\n\n## Decision table\n\n| Situation | Flow | Notes |\n|---|---|---|\n| Browser, mobile or server web app, user signs in | **Authorization code + PKCE** | PKCE binds the code to the client; recommended for public and confidential clients |\n| Daemon, scheduled job, service-to-service | **Client credentials** | App-only token, application permissions, no user context |\n| API receives user token, calls another API for that user | **On-behalf-of (OBO)** | Exchanges incoming token for a downstream token; keeps user identity |\n| Device with no browser | **Device code** | User signs in on another device |\n| Legacy | Implicit, resource owner password | Avoid; verify current guidance in vendor docs |\n\n## OpenID Connect versus OAuth\n\nOAuth 2.0 answers \"may this app call that API?\" and issues **access tokens**. OpenID Connect adds identity: an **ID token** for the client to learn who signed in. Never use an ID token to call an API, and never accept an access token as proof of login for a different app.\n\n## Validation checklist for an API\n\n1. Validate signature, issuer, **audience**, expiry and tenant.\n2. Check **scopes** (delegated) or **roles** (application) before acting.\n3. Do not trust claims the client sends separately.\n\n```ts\n// NestJS-style guard sketch: reject tokens for the wrong audience\nif (payload.aud !== process.env.API_AUDIENCE) throw new UnauthorizedException();\nif (!payload.scp?.split(' ').includes('Orders.Read')) throw new ForbiddenException();\n```\n\n## Controls, threats and trade-offs\n\n| Control | Threat | Trade-off |\n|---|---|---|\n| PKCE | Code interception | Slightly more client code |\n| Client credentials with certificate | Secret leakage | Certificate lifecycle work |\n| OBO instead of a shared service account | Loss of user attribution, over-privilege | Extra token exchange and consent setup |\n\n## Common mistakes\n\n- Using client credentials when user context matters, so audit shows only the app.\n- Skipping audience validation.",
+      "followUps": [
+        "Why is the implicit flow discouraged?",
+        "How does OBO behave when the downstream API needs consent?",
+        "How would you cache tokens safely?"
+      ],
+      "diagrams": [
+        {
+          "id": "oauth-flows",
+          "title": "Choosing an OAuth flow",
+          "alt": "Decision diagram: if a user is present, use authorization code with PKCE; if an API must call another API as that user, use on-behalf-of; if no user is present, use client credentials.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "start",
+              "label": "Who is acting?"
+            },
+            {
+              "id": "user",
+              "label": "User signs in"
+            },
+            {
+              "id": "none",
+              "label": "No user, service only"
+            },
+            {
+              "id": "pkce",
+              "label": "Authorization code + PKCE"
+            },
+            {
+              "id": "cc",
+              "label": "Client credentials"
+            },
+            {
+              "id": "api",
+              "label": "API calls downstream as user"
+            },
+            {
+              "id": "obo",
+              "label": "On-behalf-of"
+            }
+          ],
+          "edges": [
+            {
+              "from": "start",
+              "to": "user",
+              "label": "user"
+            },
+            {
+              "from": "start",
+              "to": "none",
+              "label": "service"
+            },
+            {
+              "from": "user",
+              "to": "pkce"
+            },
+            {
+              "from": "pkce",
+              "to": "api",
+              "label": "later calls"
+            },
+            {
+              "from": "api",
+              "to": "obo"
+            },
+            {
+              "from": "none",
+              "to": "cc"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "delegated-vs-application-permissions-and-consent",
+      "title": "What is the difference between delegated and application permissions, and how does consent work?",
+      "topic": "Permissions and consent",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "entra-id",
+        "permissions",
+        "consent",
+        "least-privilege"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Delegated permissions let an app act on behalf of a signed-in user, so effective access is the intersection of what the app was granted and what the user can do. Application permissions let the app act as itself with no user, and they usually need admin consent and are often tenant-wide, so they are far more dangerous. I default to delegated, request the narrowest scope, and put admin consent behind a reviewed workflow.",
+      "revision": "Delegated: app acts as the user, limited by user rights. Application: app acts alone, broad, admin consent. Prefer delegated and narrow scopes.",
+      "detailed": "## Comparison\n\n| | Delegated | Application |\n|---|---|---|\n| Acts as | Signed-in user plus app | The app alone |\n| Effective access | Intersection of app grant and user rights | Everything the grant allows |\n| Consent | User or admin, depending on scope | Admin consent required |\n| Audit trail | User identity visible | App identity only |\n| Typical use | Interactive apps, copilots | Daemons, scheduled sync |\n\n## Consent in practice\n\n- **User consent** is fine for low-risk scopes; tenants can restrict it to verified publishers or low-impact permissions.\n- **Admin consent** covers high-privilege scopes and tenant-wide grants. An **admin consent workflow** lets users request, and reviewers approve with a recorded reason.\n- Broad application permissions such as read-all-mail or read-write-all-directory should trigger a design review. Where the platform supports it, scope application access to specific resources (verify current vendor docs for resource-specific options).\n\n## Review questions for any request\n\n1. Can delegated permissions do the job?\n2. Is there a narrower scope or resource-specific alternative?\n3. Who owns the app and who reviews it?\n4. What is the blast radius if the credential leaks?\n\n## Controls, threats and trade-offs\n\n| Control | Threat | Trade-off |\n|---|---|---|\n| Restrict user consent | Illicit consent grants and phishing apps | Slower onboarding of harmless apps |\n| Admin consent workflow | Over-broad grants | Reviewer capacity, needs an SLA |\n| Periodic grant review | Stale permissions | Effort; automation helps |\n\n## Common mistakes\n\n- Using application permissions because \"it is easier\", then losing per-user audit.\n- Granting admin consent without reading the scope list.\n- Forgetting to remove grants when an app is retired.",
+      "followUps": [
+        "How would you detect a malicious consent grant?",
+        "When is an application permission genuinely needed?",
+        "What does intersection of permissions mean for a copilot?"
+      ]
+    },
+    {
+      "slug": "managed-identity-vs-service-principal-secret-certificate",
+      "title": "Managed identity, service principal with secret, or certificate: how do you choose a workload credential?",
+      "topic": "Workload credentials",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "managed-identity",
+        "certificates",
+        "secrets",
+        "workload-identity"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "My order of preference is: no stored credential at all, using a managed identity or workload identity federation; then a service principal with a certificate; then a client secret only as a last resort with short expiry, vault storage and an owner. The choice depends on where the code runs. Anything outside Azure that cannot federate gets a certificate or secret, with rotation automated and expiry monitored.",
+      "revision": "Prefer managed identity or federation, then certificate, then secret. Decide by hosting location, rotate automatically, monitor expiry.",
+      "detailed": "## Options compared\n\n| Option | Stored secret? | Rotation | Best for | Limitation |\n|---|---|---|---|---|\n| **Managed identity** | None | Azure-managed | Code on Azure resources | Not usable off Azure |\n| **Workload identity federation** | None | Token exchange per run | GitHub Actions, Kubernetes, other IdPs | Trust setup per issuer |\n| **Certificate** | Private key | You rotate | Off-Azure daemons | Key custody and renewal |\n| **Client secret** | Yes | You rotate | Quick tests, legacy tools | Easily leaked, copied into chats and tickets |\n\n## Decision path\n\n1. Does it run on Azure? Use managed identity.\n2. Does the platform issue its own tokens (CI, Kubernetes)? Use federation.\n3. Otherwise a certificate kept in Key Vault with a rotation schedule.\n4. Secret only with documented exception, 6 to 12 month maximum, and an alert before expiry.\n\n```ts\n// Azure SDK picks managed identity in Azure and developer sign-in locally\nimport { DefaultAzureCredential } from '@azure/identity';\nimport { SecretClient } from '@azure/keyvault-secrets';\nconst client = new SecretClient(process.env.VAULT_URL!, new DefaultAzureCredential());\n```\n\n## Power Platform touchpoint\n\nConnections in cloud flows often use a person's credentials. Prefer service principals or managed-identity-style connections where the connector supports them (verify current vendor docs), and avoid flows owned by individual accounts.\n\n## Controls, threats and trade-offs\n\n| Control | Threat | Trade-off |\n|---|---|---|\n| Managed identity | Credential theft | Locked to Azure hosting |\n| Certificate with Key Vault | Secret sprawl | Renewal automation required |\n| Expiry alerts | Silent outages | Alert fatigue if noisy |\n\n## Common mistakes\n\n- Putting a secret in app settings in plain text.\n- Letting a person's account own production automation.\n- No owner recorded, so expiry surprises the team.",
+      "followUps": [
+        "How do you give local developers access without secrets?",
+        "What happens to running apps when a certificate expires?",
+        "How would you migrate a secret-based integration to federation?"
+      ]
+    },
+    {
+      "slug": "rbac-least-privilege-azure-vs-dataverse",
+      "title": "How do you design RBAC and least privilege, and how do Azure RBAC and Dataverse security roles differ?",
+      "topic": "Authorisation",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "rbac",
+        "dataverse",
+        "azure-rbac",
+        "least-privilege"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Azure RBAC controls who can manage and access Azure resources, scoped at management group, subscription, resource group or resource. Dataverse security roles control access to data rows and tables inside an environment, using privileges at a depth such as user, business unit or organisation. They are separate systems, so I design both. I assign roles to groups, not people, start from minimum, and review regularly.",
+      "revision": "Azure RBAC governs Azure resources by scope; Dataverse roles govern data privileges inside an environment. Use groups, minimum rights and reviews.",
+      "detailed": "## Two systems, two questions\n\n| | Azure RBAC | Dataverse security roles |\n|---|---|---|\n| Question | Who can manage or call this resource? | Who can read, write, share or delete these rows? |\n| Scope | Management group down to resource | Environment, business unit, owner and team |\n| Unit | Role definition plus assignment | Privileges with access depth |\n| Identity | Entra users, groups, service principals, managed identities | Entra users and application users |\n\n## Design principles\n\n1. **Roles to groups.** Join and leave processes then drive access.\n2. **Separate duties.** Builders, operators and approvers are different groups; nobody deploys and approves their own change.\n3. **Narrow scope.** Assign at resource group or resource rather than subscription where practical.\n4. **Prefer built-in roles**, and write custom roles only with a documented gap.\n5. **Application users** in Dataverse get a purpose-built role, never a copy of System Administrator.\n6. **Just-in-time elevation** for privileged roles (verify current vendor docs for Privileged Identity Management features).\n\n## Environment roles\n\n| Group | Dev | Test | Prod |\n|---|---|---|---|\n| Makers | Edit | Read | None |\n| Release pipeline identity | Deploy | Deploy | Deploy |\n| Support | Read | Read | Read with approval |\n\n## Controls, threats and trade-offs\n\n| Control | Threat | Trade-off |\n|---|---|---|\n| Group-based assignment | Orphaned individual access | Group sprawl |\n| Narrow scope | Lateral movement | More assignments to maintain |\n| Just-in-time elevation | Standing admin abuse | Friction during incidents |\n| Access reviews | Permission creep | Reviewer fatigue |\n\n## Common mistakes\n\n- Giving the automation identity Owner or System Administrator.\n- Assuming Azure roles grant Dataverse data access, or the reverse.\n- Never reviewing assignments after reorganisations.",
+      "followUps": [
+        "How do business units affect Dataverse data access?",
+        "How would you handle break-glass access?",
+        "How do you test that a role is not too wide?"
+      ]
+    },
+    {
+      "slug": "environment-vs-tenant-dlp-connector-classification",
+      "title": "How do environment-level and tenant-level DLP policies differ, and what are the trade-offs of connector classification?",
+      "topic": "Data loss prevention",
+      "difficulty": "advanced",
+      "type": "comparison",
+      "tags": [
+        "dlp",
+        "power-platform",
+        "connectors",
+        "governance"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Tenant-level DLP policies set the floor for every environment; environment-level policies add stricter or more tailored rules to specific environments. Connectors are classified as business, non-business or blocked, and data cannot flow between business and non-business groups in one flow. The security gain is real, but strict policies break legitimate makers, so I pair them with a tiered environment strategy and an exception route.",
+      "revision": "Tenant DLP is the baseline; environment DLP tightens or tailors. Classify connectors by data risk, then balance control against maker friction.",
+      "detailed": "## Scope\n\n| | Tenant-level | Environment-level |\n|---|---|---|\n| Applies to | All or selected environments | One environment |\n| Purpose | Organisation-wide baseline and blocks | Tailored rules for sensitive or sandbox environments |\n| Owner | Central platform or security team | Environment admins, within the tenant floor |\n\nConnector groups are typically **business**, **non-business** and **blocked**. A single flow or app cannot combine business and non-business connectors. Many connectors also allow action-level and endpoint-level rules; verify current vendor docs because options evolve.\n\n## Designing classification\n\n1. Inventory connectors in use.\n2. Classify by data they touch: internal data stores as business; consumer social or personal storage as non-business or blocked.\n3. Block connectors that enable exfiltration, such as unmanaged file sharing or arbitrary HTTP, in sensitive environments.\n4. Treat custom connectors as high risk until reviewed.\n5. Use stricter policies in production and the default environment than in a sandbox.\n\n## Controls, threats and trade-offs\n\n| Control | Threat | Trade-off |\n|---|---|---|\n| Tenant baseline block list | Exfiltration to consumer services | Blocks some valid ideas; needs exceptions |\n| Stricter production policy | Data leaving a regulated process | Makers must request exceptions |\n| Restrict HTTP and custom connectors | Unreviewed external calls | Integration needs go through a review queue |\n| Default environment lockdown | Shadow IT in the shared space | Pushes makers to request dedicated environments |\n\n## Operating model\n\nPublish the policy and the rationale, provide a request form with an agreed response time, and review DLP violations and exception counts monthly. Rising exceptions signal either a wrong classification or a missing paved road.\n\n## Common mistakes\n\n- Changing a policy without checking which existing flows it will suspend.\n- Putting everything in business \"to stop complaints\".\n- One policy for all environments regardless of data risk.",
+      "followUps": [
+        "How do you roll out a stricter DLP policy safely?",
+        "Why is the default environment a special risk?",
+        "How would you allow one approved HTTP endpoint?"
+      ]
+    },
+    {
+      "slug": "secrets-management-rotation-key-vault",
+      "title": "How do you manage, rotate and audit secrets with Azure Key Vault?",
+      "topic": "Secrets",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "key-vault",
+        "secrets",
+        "rotation",
+        "audit"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Secrets live only in a vault, never in code, pipelines variables in clear text, tickets or chat. Applications read them at runtime using a managed identity with get permission only. I give each secret an owner, an expiry and a rotation method, and I prefer designs that need no secret at all. I enable soft delete and purge protection, send access logs to central monitoring, and alert on near-expiry and unusual reads.",
+      "revision": "Keep secrets in a vault, read by managed identity, rotate on a schedule with owners and expiry alerts, and log every access.",
+      "detailed": "## Design\n\n- **One vault per application and environment** keeps blast radius small and access lists readable.\n- Use **Azure RBAC** for vault data-plane access rather than legacy access policies where possible (verify current vendor docs).\n- Grant the workload's managed identity only **get** on the secrets it needs, not list or set.\n- Turn on **soft delete** and **purge protection**.\n- Send **diagnostic logs** to a central workspace; alert on reads from unknown identities and bulk reads.\n- Use **Key Vault references** in app settings so the secret is not copied into configuration.\n\n## Rotation\n\n| Approach | When | Note |\n|---|---|---|\n| Eliminate the secret | Managed identity, federation | Best option |\n| Automatic rotation | Supported secret types, keys, certificates | Consumers must re-read, not cache forever |\n| Dual-credential rotation | Third-party APIs with two keys | Rotate one, switch, rotate the other, no downtime |\n| Manual with runbook | Legacy | Calendar reminders and owner named |\n\n```ts\n// Re-read on 401 instead of caching forever\nasync function callApi() {\n  let res = await fetch(url, { headers: { 'x-api-key': await getSecret() } });\n  if (res.status === 401) { invalidateCache(); res = await fetch(url, { headers: { 'x-api-key': await getSecret() } }); }\n  return res;\n}\n```\n\n## Controls, threats and trade-offs\n\n| Control | Threat | Trade-off |\n|---|---|---|\n| Per-app vault | Wide exposure from one leak | More vaults to manage |\n| Read-only managed identity access | Secret tampering | Separate path for rotation jobs |\n| Expiry alerts | Outage from expired credential | Needs an owner who responds |\n| Access logging | Undetected misuse | Log volume and cost |\n\n## Common mistakes\n\n- Caching secrets for the process lifetime so rotation breaks the app.\n- Sharing one vault across teams.\n- Secrets pasted into pipeline variables or flow definitions.",
+      "followUps": [
+        "How do you find secrets that were committed to Git?",
+        "What would you do after a secret leak?",
+        "How do Power Automate flows consume secrets safely?"
+      ]
+    },
+    {
+      "slug": "data-classification-retention-audit-logs",
+      "title": "How do data classification, retention and audit logs fit together for an enterprise automation platform?",
+      "topic": "Data governance",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "classification",
+        "retention",
+        "audit-logs",
+        "compliance"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Classification tells me how sensitive data is, retention tells me how long to keep it, and audit logs tell me who did what. I define a small number of labels, such as public, internal, confidential and restricted, and attach rules to each: where it may be processed, who may access it, how long it is kept and whether it may reach a model. Audit logs are retained separately and protected from tampering.",
+      "revision": "Classification sets handling rules, retention sets lifetime, audit logs prove behaviour. Keep few labels and tie each to concrete controls.",
+      "detailed": "## How they connect\n\n| Concept | Question answered | Typical mechanism |\n|---|---|---|\n| Classification | How sensitive is this? | Sensitivity labels, tags on tables and stores |\n| Retention | How long do we keep it, and how is it deleted? | Retention policies, TTL, deletion jobs |\n| Audit | Who accessed or changed what, when? | Platform audit logs, application events |\n\n## Label-to-control mapping\n\n| Label | Processing | Access | Model use | Retention |\n|---|---|---|---|---|\n| Public | Any | Any | Allowed | Business need |\n| Internal | Approved tenant services | Employees | Approved models only | Per record type |\n| Confidential | Approved region and services | Role-based | Enterprise-agreement models, redacted | Per policy |\n| Restricted | Named systems only | Named roles, approval | Not sent to models unless approved | Legal minimum |\n\n## Audit log design\n\n1. Record **actor, action, object, time, outcome and correlation ID**.\n2. Log **access** to sensitive data, not just changes.\n3. Store in a separate, write-restricted location with its own retention (often longer than the data it describes).\n4. Never log the sensitive values themselves; log identifiers.\n5. Review and alert on anomalies such as bulk export.\n\nPlatform audit sources (Microsoft Purview audit, Dataverse auditing, Entra sign-in and audit logs) have specific retention defaults and licensing implications; verify current vendor docs.\n\n## Controls, threats and trade-offs\n\n| Control | Threat | Trade-off |\n|---|---|---|\n| Sensitivity labels | Mishandling of sensitive data | Labelling effort, user training |\n| Retention and deletion | Over-collection, legal exposure | Risk of deleting data later needed |\n| Immutable audit storage | Log tampering | Storage cost |\n| Access auditing | Insider misuse | Volume, privacy of the logs themselves |\n\n## Common mistakes\n\n- Many labels nobody can apply consistently.\n- Auditing writes only.\n- Indefinite retention \"just in case\".",
+      "followUps": [
+        "How would you handle a deletion request across copies?",
+        "What is the difference between audit logs and application logs?",
+        "How do labels reach the AI layer?"
+      ]
+    },
+    {
+      "slug": "tenant-isolation-and-data-residency",
+      "title": "How do you reason about tenant isolation and data residency for a Microsoft cloud platform?",
+      "topic": "Isolation and residency",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "tenant-isolation",
+        "data-residency",
+        "regions",
+        "compliance"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I separate three questions: which identity tenant owns the users, where the data is stored and processed, and how workloads are isolated from each other. Residency is about region choices for storage, backups, logs and model processing, including where AI inference runs. Isolation uses separate environments, subscriptions or tenants depending on risk. I document each data flow and check vendor documentation for geo and cross-region behaviour.",
+      "revision": "Separate identity tenant, data region and workload isolation. Map every data flow, including logs, backups and model inference, to a region.",
+      "detailed": "## Three separate questions\n\n| Question | Mechanism | Examples |\n|---|---|---|\n| Who owns identities? | Entra tenant | Single tenant, B2B guests, multi-tenant app |\n| Where is data stored and processed? | Region and geography selection | Environment region, storage account region, model deployment region |\n| How are workloads isolated? | Environments, subscriptions, networks, tenants | Separate prod subscription, private endpoints |\n\n## Residency checklist\n\n1. **Primary storage** region for each data store.\n2. **Backups and replicas**, which may be paired or geo-redundant by default.\n3. **Logs and telemetry**, often forgotten.\n4. **AI processing**: where prompts and completions are processed, and whether the deployment type may route across regions (verify current vendor docs).\n5. **Support access**, if vendor staff may access data from another geography.\n6. **Third-party services** called by flows and agents.\n\n## Isolation levels\n\n| Level | Strength | Cost |\n|---|---|---|\n| Separate environments in one tenant | Moderate | Low |\n| Separate subscriptions | Stronger for Azure resources and billing | Medium |\n| Separate tenants | Strongest identity boundary | High: duplicate identity, governance |\n\n## Controls, threats and trade-offs\n\n| Control | Threat | Trade-off |\n|---|---|---|\n| Region pinning with policy | Data stored in the wrong geography | Reduced service availability in some regions |\n| Private endpoints | Public exposure | Network complexity |\n| Separate tenant for high-risk data | Cross-boundary access | Duplicated administration |\n| Data flow register | Unknown exports | Needs upkeep |\n\n## Common mistakes\n\n- Pinning storage to a region but shipping logs elsewhere.\n- Assuming a region name guarantees where inference runs.\n- Treating tenant isolation as binary rather than a risk-based choice.",
+      "followUps": [
+        "How would you prove residency to an auditor?",
+        "When would you choose a separate tenant?",
+        "How do you stop developers creating resources in disallowed regions?"
+      ]
+    },
+    {
+      "slug": "sensitive-data-leakage-prompts-logs-redaction",
+      "title": "How do you prevent sensitive data leaking through prompts and logs?",
+      "topic": "Data leakage",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "redaction",
+        "prompt-security",
+        "logging",
+        "pii"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I assume anything sent to a model or written to a log can leak, so I minimise first, then redact. Retrieve only the fields a task needs, mask identifiers before prompts, and keep sensitive records out of prompts entirely when a tool call can fetch them at execution time. Logs store IDs and metadata, not payloads. I redact on both input and output, set short retention on traces, and test with seeded fake secrets.",
+      "revision": "Minimise, redact before prompts and logs, store IDs not payloads, filter outputs, shorten trace retention and test with seeded canaries.",
+      "detailed": "## Where leaks happen\n\n| Path | Example |\n|---|---|\n| Prompt content | Whole customer record pasted into context |\n| Model output | Echoing secrets seen in retrieved documents |\n| Logs and traces | Full request and response bodies in telemetry |\n| Third parties | Telemetry, error trackers, support tickets |\n| Retrieval | Index returns documents the user may not see |\n\n## Control layers\n\n1. **Minimise**: pass only needed fields; use tool calls to fetch at execution time.\n2. **Redact** before the model: detect emails, national IDs, card numbers, tokens; replace with placeholders and keep a mapping server-side if re-insertion is needed.\n3. **Filter output**: scan responses for patterns before display or action.\n4. **Log safely**: structured logs with IDs and hashes; allow-list fields.\n5. **Access-filter retrieval** by the caller's permissions.\n\n```ts\nconst PATTERNS: [RegExp, string][] = [\n  [/[\\w.+-]+@[\\w-]+\\.[\\w.]+/g, '[EMAIL]'],\n  [/\\b(?:\\d[ -]*?){13,16}\\b/g, '[CARD]'],\n  [/eyJ[\\w-]+\\.[\\w-]+\\.[\\w-]+/g, '[JWT]'],\n];\nexport const redact = (s: string) => PATTERNS.reduce((t, [re, v]) => t.replace(re, v), s);\n```\n\nPattern matching misses context-dependent data, so combine with a managed classifier service (verify current vendor docs) and test continuously.\n\n## Controls, threats and trade-offs\n\n| Control | Threat | Trade-off |\n|---|---|---|\n| Field minimisation | Oversharing to model | Less context, possible quality loss |\n| Input redaction | Sensitive data in prompts | False positives hurt answers |\n| Output filtering | Secret echo | Latency, false blocks |\n| ID-only logging | Log exposure | Harder debugging |\n| Short trace retention | Long-lived exposure | Less history for investigations |\n\n## Common mistakes\n\n- Redacting prompts but logging raw bodies.\n- Relying only on regex.\n- Debug logging left on in production.",
+      "followUps": [
+        "How do you debug without raw payloads?",
+        "How would you test redaction coverage?",
+        "What about data in vector indexes?"
+      ]
+    },
+    {
+      "slug": "excessive-agent-permissions-human-approval",
+      "title": "How do you control excessive agent permissions and require human approval for high-impact actions?",
+      "topic": "Agent security",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "agents",
+        "least-privilege",
+        "human-in-the-loop",
+        "threat-model"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "An agent should hold only the permissions its narrowest task needs, ideally per tool and per user, not one broad service account. I classify actions by impact: read, reversible write and irreversible or high-value action. Low-impact actions run automatically with logging, while high-impact ones require explicit human approval showing exactly what will happen. Every decision is audited, and the agent can be revoked quickly.",
+      "revision": "Scope tools narrowly, classify actions by impact, require explicit human approval for high-impact steps, audit everything and keep a kill switch.",
+      "detailed": "## Threat and control table\n\n| Threat | Control | Operational trade-off |\n|---|---|---|\n| Agent holds broad standing rights | Per-tool, per-task scopes; user-delegated tokens | More permission design up front |\n| Prompt injection triggers a destructive tool | Approval gate on high-impact tools | Slower workflows, approver load |\n| Agent loops or runs up cost | Step, time and spend limits | Legitimate long tasks need exceptions |\n| Approver rubber-stamps | Clear diff-style summary, sampled review | Design effort for the approval UI |\n| Compromised agent keeps acting | Kill switch, short-lived credentials | Needs re-authentication routine |\n| No evidence after an incident | Immutable audit of prompts, tool calls, approvals | Storage and privacy handling |\n\n## Impact tiers\n\n| Tier | Examples | Handling |\n|---|---|---|\n| Read-only | Search, summarise | Automatic, logged |\n| Reversible write | Draft a record, create a task | Automatic with undo, rate limited |\n| High-impact | Payments, deletions, external email, permission changes | Human approval, dual approval for the highest |\n\n## Approval design\n\n- Show **who requested, what exactly will change, on which records, and why**.\n- Bind approval to the **specific payload** so the agent cannot change it after approval.\n- Set expiry on approvals.\n- In Power Automate, an approvals action or Teams adaptive card can serve as the gate (verify current vendor docs); in code, a pending-action table keyed by hash of the payload.\n\n## Common mistakes\n\n- Approving a vague description rather than the exact action.\n- Giving the agent the maker's identity.\n- Approval fatigue from gating low-impact actions.",
+      "followUps": [
+        "How do you stop approval fatigue?",
+        "How would you bind an approval to a payload?",
+        "What does a kill switch look like in practice?"
+      ]
+    },
+    {
+      "slug": "threat-modelling-an-ai-agent-stride",
+      "title": "How would you threat-model an AI agent using STRIDE and trust boundaries?",
+      "topic": "Threat modelling",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "threat-modeling",
+        "stride",
+        "agents",
+        "trust-boundaries"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I draw the agent system, mark trust boundaries and walk STRIDE across each crossing. The boundaries are user to agent, agent to model, agent to tools and data, and external content into the context. Spoofing, tampering and elevation of privilege dominate, usually through prompt injection and over-permissioned tools. For each threat I record a control, an owner and the residual risk, then revisit the model when tools or data sources change.",
+      "revision": "Draw the flow, mark trust boundaries, apply STRIDE per crossing, record control, owner and residual risk, and revisit on change.",
+      "detailed": "## Diagram\n\n{{diagram:agent-trust-boundaries}}\n\n## STRIDE walkthrough\n\n| STRIDE | Agent example | Control | Trade-off |\n|---|---|---|---|\n| **Spoofing** | Attacker impersonates a user or a tool | Strong auth, user-delegated tokens, signed tool calls | Token handling complexity |\n| **Tampering** | Poisoned document alters instructions; payload changed after approval | Treat retrieved text as data, hash approved payloads | Some capability limits |\n| **Repudiation** | No proof who triggered an action | Immutable audit with correlation ID | Storage and privacy care |\n| **Information disclosure** | Retrieval returns restricted content; output leaks secrets | Permission-filtered retrieval, redaction | Latency, lower recall |\n| **Denial of service** | Loops, huge inputs, cost exhaustion | Quotas, step limits, timeouts | Limits can block valid work |\n| **Elevation of privilege** | Injected text makes the agent call a powerful tool | Least privilege, approval gates, tool allow-lists | Approver load |\n\n## Process\n\n1. Describe assets: customer data, credentials, reputation, money.\n2. Draw data flows and boundaries.\n3. Enumerate threats per boundary crossing.\n4. Rate by likelihood and impact; choose controls.\n5. Record residual risk and an owner; test with red-team prompts.\n6. Re-run when a tool, data source or model changes.\n\nRefer to current OWASP guidance for LLM applications as a checklist; verify the latest list.\n\n## Common mistakes\n\n- Modelling only the model, not the tools and data around it.\n- Assuming the system prompt is a security boundary.\n- A one-off workshop with no re-review.",
+      "followUps": [
+        "Why is the system prompt not a security boundary?",
+        "How would you test the model once built?",
+        "How does indirect prompt injection cross a boundary?"
+      ],
+      "diagrams": [
+        {
+          "id": "agent-trust-boundaries",
+          "title": "Agent trust boundaries",
+          "alt": "The user crosses a boundary into the agent orchestrator. The orchestrator calls the model, retrieves documents from a data store, and calls tools that reach business systems. External content enters the context from outside the trusted zone, and audit logs capture all activity.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "user",
+              "label": "User"
+            },
+            {
+              "id": "ext",
+              "label": "External content, web, email"
+            },
+            {
+              "id": "orch",
+              "label": "Agent orchestrator"
+            },
+            {
+              "id": "llm",
+              "label": "Model service"
+            },
+            {
+              "id": "ret",
+              "label": "Retrieval and data stores"
+            },
+            {
+              "id": "tools",
+              "label": "Tools and APIs"
+            },
+            {
+              "id": "biz",
+              "label": "Business systems"
+            },
+            {
+              "id": "audit",
+              "label": "Audit log"
+            }
+          ],
+          "edges": [
+            {
+              "from": "user",
+              "to": "orch",
+              "label": "boundary 1"
+            },
+            {
+              "from": "ext",
+              "to": "orch",
+              "label": "untrusted input"
+            },
+            {
+              "from": "orch",
+              "to": "llm",
+              "label": "boundary 2"
+            },
+            {
+              "from": "orch",
+              "to": "ret",
+              "label": "boundary 3"
+            },
+            {
+              "from": "orch",
+              "to": "tools",
+              "label": "boundary 4"
+            },
+            {
+              "from": "tools",
+              "to": "biz"
+            },
+            {
+              "from": "orch",
+              "to": "audit"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "secure-sdlc-and-incident-response-automation-platform",
+      "title": "How do secure SDLC and incident response apply to a low-code and AI automation platform?",
+      "topic": "Secure delivery",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "secure-sdlc",
+        "incident-response",
+        "containment",
+        "alm"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Low-code and AI solutions need the same discipline as code: source-controlled solutions, reviewed changes, automated checks, separate environments and pipeline-only deployment to production. For incidents I prepare in advance: an inventory of what runs where and who owns it, ways to disable a flow, connection or agent quickly, credential rotation runbooks and an evidence trail. During a breach I contain, rotate, investigate, then recover and learn.",
+      "revision": "Apply secure SDLC to low-code too: source control, review, checks, pipeline deployment. Prepare containment switches, rotation runbooks and an inventory.",
+      "detailed": "## Secure SDLC for automation\n\n| Stage | Control | Threat addressed | Trade-off |\n|---|---|---|---|\n| Plan | Threat model for new agents and integrations | Late discovery of design flaws | Upfront time |\n| Build | Solutions in source control, no direct prod edits | Untracked changes | Makers learn pipelines |\n| Review | Peer review, checks on connectors and permissions | Risky connectors, secrets in flows | Review capacity |\n| Test | Automated tests, secret and dependency scanning | Known vulnerabilities | Pipeline time |\n| Release | Pipeline identity deploys; approval for production | Rogue changes | Slower hotfixes |\n| Operate | Monitoring, expiry alerts, access reviews | Drift, stale credentials | Operational effort |\n\n## Incident response for a compromised automation\n\n1. **Detect**: alerts on unusual sign-ins, bulk reads, new connections, failed-then-successful auth.\n2. **Contain**: turn off affected flows or agents, disable the service principal, revoke sessions and tokens, block the connector via DLP if needed.\n3. **Eradicate**: rotate secrets and certificates, remove malicious grants and connections, patch the cause.\n4. **Recover**: redeploy from source control, verify integrity, re-enable gradually.\n5. **Learn**: timeline, root cause, control gaps, notification duties (legal and privacy teams decide).\n\n## Preparation that makes containment fast\n\n- A current **inventory** with owner, data classification and dependency list.\n- A documented **kill switch** per platform component.\n- **Break-glass** admin accounts, tested.\n- Rehearsed **tabletop exercises**.\n\n## Common mistakes\n\n- Production edits \"just this once\" with no trace.\n- No owner recorded, so nobody can approve containment.\n- Rotating credentials before capturing evidence.",
+      "followUps": [
+        "What is your first action on a suspected leaked token?",
+        "How do you preserve evidence?",
+        "How would you run a tabletop for an AI agent incident?"
+      ]
+    },
+    {
+      "slug": "governance-that-enables-delivery-guardrails-paved-roads",
+      "title": "How do you make governance enable delivery rather than become bureaucracy?",
+      "topic": "Governance operating model",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "governance",
+        "guardrails",
+        "paved-road",
+        "exceptions"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I replace approvals with guardrails. The default path, a paved road of templates, pre-approved connectors, pipelines and reference architectures, is the easiest and automatically compliant. Policy is enforced by platform checks, not meetings. Risk-based tiers decide where human review is needed, and a fast exception process with expiry handles the rest. I measure lead time and exception volume, because governance that slows teams just creates shadow IT.",
+      "revision": "Make the compliant path the easy path: templates, automated policy checks, risk tiers and time-boxed exceptions, measured by delivery speed.",
+      "detailed": "## Principles\n\n{{diagram:paved-road}}\n\n1. **Guardrails over gates.** Automated checks catch most issues without waiting for a person.\n2. **Paved roads.** Templates for common solutions with identity, logging, DLP and deployment pipelines built in.\n3. **Tier by risk.** Low-risk work self-serves; high-risk work (sensitive data, external actions, agents with write tools) gets design review.\n4. **Time-boxed exceptions.** Recorded owner, reason, compensating control and expiry.\n5. **Transparent rules.** Published policy with rationale and response-time commitments.\n\n## Controls, threats and trade-offs\n\n| Control | Threat | Trade-off |\n|---|---|---|\n| Policy as code in pipelines | Non-compliant deployments | Pipeline maintenance |\n| Pre-approved connector list | Unreviewed integrations | Slower onboarding of new tools |\n| Risk-tiered review | Heavy review for trivial work, light for risky work | Needs honest tiering and sampling |\n| Exception register with expiry | Permanent informal bypasses | Admin effort |\n| Champions network | Central team bottleneck | Training time |\n\n## Measuring it\n\n- Lead time from request to production for each tier.\n- Share of solutions on the paved road.\n- Exception count, age and renewals.\n- Policy violations caught automatically versus in review.\n- Maker satisfaction.\n\nRising exceptions point at a missing paved road; rising shadow solutions point at too much friction.\n\n## Common mistakes\n\n- A review board as the only control.\n- Rules without a documented route to a \"yes\".\n- Counting approvals instead of outcomes.",
+      "followUps": [
+        "How do you handle a team demanding an exception?",
+        "What goes on the paved road first?",
+        "How would you measure governance success?"
+      ],
+      "diagrams": [
+        {
+          "id": "paved-road",
+          "title": "Paved road versus exception path",
+          "alt": "A team starts from a template with built-in identity, logging and policy checks, then passes automated checks and deploys by pipeline. Work outside the template goes to a risk review, and approved exceptions are recorded with an expiry date.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "team",
+              "label": "Team request"
+            },
+            {
+              "id": "tpl",
+              "label": "Paved road template"
+            },
+            {
+              "id": "chk",
+              "label": "Automated policy checks"
+            },
+            {
+              "id": "dep",
+              "label": "Pipeline deployment"
+            },
+            {
+              "id": "rev",
+              "label": "Risk review"
+            },
+            {
+              "id": "exc",
+              "label": "Time-boxed exception"
+            }
+          ],
+          "edges": [
+            {
+              "from": "team",
+              "to": "tpl",
+              "label": "standard need"
+            },
+            {
+              "from": "tpl",
+              "to": "chk"
+            },
+            {
+              "from": "chk",
+              "to": "dep"
+            },
+            {
+              "from": "team",
+              "to": "rev",
+              "label": "non-standard"
+            },
+            {
+              "from": "rev",
+              "to": "exc"
+            },
+            {
+              "from": "exc",
+              "to": "dep",
+              "label": "with expiry"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

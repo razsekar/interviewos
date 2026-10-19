@@ -1,0 +1,1849 @@
+{
+  "category": "agentic-ai-engineering",
+  "questions": [
+    {
+      "slug": "maf-python-concepts-and-first-agent",
+      "title": "Microsoft Agent Framework in Python: core concepts and a minimal agent",
+      "topic": "Microsoft Agent Framework",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "agent-framework",
+        "python",
+        "workflows",
+        "middleware",
+        "sessions"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Microsoft Agent Framework is the successor from the Semantic Kernel and AutoGen teams. Its main pieces are agents, which call a model and tools, workflows, which are graph-based execution paths, sessions for conversation state, context providers for memory, and middleware to intercept actions. I would use an agent for open-ended tasks and a workflow when the steps are known. It is evolving quickly, so I pin versions and check the current Microsoft Learn docs before relying on any API.",
+      "revision": "Agent Framework: agents, graph workflows, sessions, context providers, middleware, hosting integrations. Agent for open-ended tasks, workflow for known steps. Pin versions; verify docs.",
+      "detailed": "Microsoft Agent Framework brings together simple agent abstractions (AutoGen heritage) and enterprise features such as session state, type safety, middleware and telemetry (Semantic Kernel heritage), plus graph-based workflows.\n\n## Concepts (as described in the official overview)\n\n| Concept | Role |\n|---|---|\n| **Agent** | Uses a model client, instructions and tools (including MCP) to process input and respond |\n| **Harness agent** | Opinionated agent for long tasks: planning, context compaction, approvals, observability |\n| **Workflow** | Functional or graph-based execution connecting agents and functions with explicit paths |\n| **Session** | State for multi-turn conversations |\n| **Context providers** | Agent memory and extra context injected per run |\n| **Middleware** | Intercepts agent actions for logging, safety, approvals |\n| **Integrations** | Model providers, hosting, evaluation, UI frameworks |\n\n{{diagram:maf}}\n\n## Minimal example\n\nVerified against the Microsoft Learn overview page (package `agent-framework`, installed with `pip install agent-framework`; checked October 2026). The docs describe the framework as evolving, so treat names as subject to change and re-check before copying.\n\n```python\nfrom agent_framework import Agent\nfrom agent_framework.foundry import FoundryChatClient\nfrom azure.identity import AzureCliCredential\n\nagent = Agent(\n    client=FoundryChatClient(\n        project_endpoint=\"https://<your-foundry-resource>/api/projects/<project>\",\n        model=\"<your-deployment>\",\n        credential=AzureCliCredential(),\n    ),\n    name=\"HelloAgent\",\n    instructions=\"You are a friendly assistant. Keep your answers brief.\",\n)\n\nresult = await agent.run(\"What is the largest city in France?\")\nprint(result.text)\n```\n\nResponses contain more than the answer: tool calls, tool results, usage and approval requests, so production code inspects content types rather than assuming text only.\n\n## Interview framing\n\nAgent versus workflow: the docs advise that if you can write a function for the task, do that. In a COE I standardise on one runtime, wrap model calls and tools with middleware for policy, and keep every dependency version pinned.\n\n## Common mistakes\n\n- Copying samples from blog posts that target older pre-release APIs.\n- Using a long-lived key where managed identity or developer credentials work.\n- Treating the response as text and ignoring approval or consent content.\n- Choosing an agent where a workflow or plain function is enough.",
+      "followUps": [
+        "How does Agent Framework relate to Semantic Kernel and AutoGen for existing codebases?",
+        "Where would you add policy checks without editing every tool?",
+        "How do you protect a team from API changes in a fast-moving framework?"
+      ],
+      "diagrams": [
+        {
+          "id": "maf",
+          "title": "Agent Framework building blocks",
+          "alt": "An application calls an agent, which uses a model client, tools and context providers. Middleware wraps the agent. A session holds conversation state. A workflow can orchestrate several agents and functions and telemetry is emitted from the runtime.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "app",
+              "label": "Application"
+            },
+            {
+              "id": "mw",
+              "label": "Middleware"
+            },
+            {
+              "id": "ag",
+              "label": "Agent"
+            },
+            {
+              "id": "mc",
+              "label": "Model client"
+            },
+            {
+              "id": "tl",
+              "label": "Tools and MCP"
+            },
+            {
+              "id": "cp",
+              "label": "Context providers"
+            },
+            {
+              "id": "se",
+              "label": "Session state"
+            },
+            {
+              "id": "wf",
+              "label": "Workflow"
+            }
+          ],
+          "edges": [
+            {
+              "from": "app",
+              "to": "wf"
+            },
+            {
+              "from": "wf",
+              "to": "ag",
+              "label": "step"
+            },
+            {
+              "from": "app",
+              "to": "mw"
+            },
+            {
+              "from": "mw",
+              "to": "ag"
+            },
+            {
+              "from": "ag",
+              "to": "mc"
+            },
+            {
+              "from": "ag",
+              "to": "tl"
+            },
+            {
+              "from": "cp",
+              "to": "ag",
+              "label": "memory"
+            },
+            {
+              "from": "ag",
+              "to": "se"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "orchestration-models-compared-langgraph-crewai",
+      "title": "Compare Agent Framework workflows, LangGraph, CrewAI, AutoGen and Semantic Kernel",
+      "topic": "Orchestration models",
+      "difficulty": "advanced",
+      "type": "comparison",
+      "tags": [
+        "langgraph",
+        "crewai",
+        "autogen",
+        "semantic-kernel",
+        "orchestration"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I compare them by how control flow is expressed. Agent Framework workflows and LangGraph are explicit graphs with shared state, so they are the easiest to test and resume. CrewAI is role-based crews, quick to prototype but less explicit about control. AutoGen is conversation between agents, flexible but harder to bound. Semantic Kernel is a plugin and planner toolkit now converging into Agent Framework. For enterprise I favour explicit graphs, and I check each project's current status first.",
+      "revision": "Explicit graphs (Agent Framework workflows, LangGraph) give control and resumability; crews and conversations give speed but looser control. Choose by control needs and verify project status.",
+      "detailed": "The real question is **who decides the next step**: your code (graph), the model (autonomous), or a conversation protocol.\n\n## Comparison\n\n| Model | Control flow | Strength | Risk |\n|---|---|---|---|\n| Agent Framework workflows | Graph of agents and functions, explicit edges | Typed, Microsoft ecosystem, state for long-running and approval cases | Younger APIs |\n| LangGraph | State machine graph with nodes, conditional edges, checkpoints | Mature checkpointing and branching | Another runtime to operate |\n| CrewAI | Role-based agents with tasks in a crew | Fast to prototype | Less explicit control, harder to audit |\n| AutoGen | Agents converse until a stop condition | Flexible research patterns | Unbounded chat, cost |\n| Semantic Kernel | Plugins, planners, filters | Enterprise features | Microsoft states Agent Framework is its successor |\n\n{{diagram:orch}}\n\n## Conceptual LangGraph-style example\n\nThis is **conceptual pseudocode** to show the shape, not verified API.\n\n```python\n# CONCEPTUAL, not exact API\ngraph = StateGraph(State)\ngraph.add_node(\"classify\", classify)\ngraph.add_node(\"retrieve\", retrieve)\ngraph.add_node(\"draft\", draft)\ngraph.add_node(\"approve\", human_approval)\ngraph.add_edge(\"classify\", \"retrieve\")\ngraph.add_conditional_edges(\"draft\", needs_approval, {True: \"approve\", False: END})\ngraph.compile(checkpointer=store)\n```\n\nThe ideas that matter: typed shared state, conditional edges, a checkpointer, and an approval node.\n\n## How I decide\n\n1. Does the process have known steps? Use a graph.\n2. Must it survive restarts and pauses? Need checkpointing.\n3. Does the team already run the framework? Switching cost matters.\n4. What do auditors need? Explicit paths are easier to explain.\n\n## Common mistakes\n\n- Picking by GitHub stars instead of operational fit.\n- Letting agents chat freely with no turn or budget limit.\n- Mixing three frameworks in one service.\n- Assuming a framework's status or feature set from memory; verify current docs.",
+      "followUps": [
+        "When would a crew of role-based agents still be a good choice?",
+        "How would you migrate a Semantic Kernel plugin set into a workflow?",
+        "What portability do you lose by adopting a framework-specific checkpoint store?"
+      ],
+      "related": [
+        "maf-python-concepts-and-first-agent"
+      ],
+      "diagrams": [
+        {
+          "id": "orch",
+          "title": "Who decides the next step",
+          "alt": "Three orchestration styles are shown. In a graph, code defines edges between nodes. In a crew, roles hand tasks to each other. In a conversation, agents exchange messages until a stop rule. The more control the code holds, the easier it is to test and audit.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "g",
+              "label": "Graph: code defines edges"
+            },
+            {
+              "id": "c",
+              "label": "Crew: roles and tasks"
+            },
+            {
+              "id": "v",
+              "label": "Conversation: agents chat"
+            },
+            {
+              "id": "t",
+              "label": "Testability and audit"
+            },
+            {
+              "id": "s",
+              "label": "Stop rules and budgets"
+            }
+          ],
+          "edges": [
+            {
+              "from": "g",
+              "to": "t",
+              "label": "high"
+            },
+            {
+              "from": "c",
+              "to": "t",
+              "label": "medium"
+            },
+            {
+              "from": "v",
+              "to": "t",
+              "label": "lower"
+            },
+            {
+              "from": "v",
+              "to": "s",
+              "label": "essential"
+            },
+            {
+              "from": "c",
+              "to": "s"
+            },
+            {
+              "from": "g",
+              "to": "s"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "tool-calling-structured-output-repair-loops",
+      "title": "Tool calling mechanics, structured outputs and schema repair loops",
+      "topic": "Tool calling",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "tool-calling",
+        "structured-output",
+        "json-schema",
+        "validation"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "The model never runs a tool. It emits a structured request with a tool name and arguments, my code validates it against a schema, executes it, and returns the result as a message. I validate every argument and output with a schema, never trust the model's JSON. If validation fails I feed the specific error back for one or two bounded repair attempts, then fail safely. Where the provider supports it I use native structured output to reduce failures.",
+      "revision": "Model emits a tool request; code validates, executes, returns the result. Validate with schemas, bounded repair loop with precise errors, then fail safely.",
+      "detailed": "## Mechanics\n\n1. You send the model messages plus **tool definitions**: name, description and a JSON schema for arguments.\n2. The model returns either text or one or more **tool call requests**.\n3. Your runtime **validates** the arguments, checks authorisation, executes, and appends a **tool result** message.\n4. The model continues until it answers or a limit is reached.\n\n{{diagram:tc}}\n\n## Structured outputs\n\n| Approach | Notes |\n|---|---|\n| Prompt only (\"reply in JSON\") | Fragile, needs validation |\n| Native structured output / schema-constrained decoding | Provider support varies; verify current docs |\n| Tool call as the output channel | Define a \"submit_result\" tool with the schema |\n| Post-validation (Pydantic, JSON Schema) | Always do this, even with constrained output |\n\n## Repair loop\n\n```python\n# Generic pattern, not a specific framework API\nfor attempt in range(MAX_REPAIRS + 1):\n    raw = model(messages)\n    try:\n        return Schema.model_validate_json(raw)\n    except ValidationError as e:\n        messages += [assistant(raw), user(f\"Invalid: {e.errors()[:3]}. Return corrected JSON only.\")]\nraise StructuredOutputError(\"fallback: route to human or default\")\n```\n\nKeep errors short and specific, never echo secrets, and count repair attempts in telemetry; a rising repair rate signals a prompt or model regression.\n\n## Schema design tips\n\n- Use enums instead of free text, required fields, and explicit units.\n- Keep schemas small; many optional fields invite hallucination.\n- Validate **semantics** too: does the customer id exist, is the amount within limits.\n\n## Common mistakes\n\n- Executing arguments without validation or authorisation.\n- Unlimited repair retries burning tokens.\n- Schemas with ambiguous names the model confuses.\n- Treating schema-valid output as correct output.",
+      "followUps": [
+        "How do you handle a model that calls a tool that does not exist?",
+        "What do you log when a repair loop is exhausted?",
+        "How would you test tool schemas for ambiguity?"
+      ],
+      "diagrams": [
+        {
+          "id": "tc",
+          "title": "Tool call round trip",
+          "alt": "The model emits a tool call request. The runtime validates arguments against a schema and checks authorisation. Valid calls execute and return a result to the model. Invalid calls return a specific error for a bounded repair attempt, and exhausted repairs go to a safe fallback.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "m",
+              "label": "Model"
+            },
+            {
+              "id": "rq",
+              "label": "Tool call request"
+            },
+            {
+              "id": "v",
+              "label": "Validate schema and authorise"
+            },
+            {
+              "id": "ex",
+              "label": "Execute tool"
+            },
+            {
+              "id": "rs",
+              "label": "Tool result message"
+            },
+            {
+              "id": "rp",
+              "label": "Repair with error"
+            },
+            {
+              "id": "fb",
+              "label": "Safe fallback"
+            }
+          ],
+          "edges": [
+            {
+              "from": "m",
+              "to": "rq"
+            },
+            {
+              "from": "rq",
+              "to": "v"
+            },
+            {
+              "from": "v",
+              "to": "ex",
+              "label": "valid"
+            },
+            {
+              "from": "ex",
+              "to": "rs"
+            },
+            {
+              "from": "rs",
+              "to": "m"
+            },
+            {
+              "from": "v",
+              "to": "rp",
+              "label": "invalid"
+            },
+            {
+              "from": "rp",
+              "to": "m",
+              "label": "retry"
+            },
+            {
+              "from": "rp",
+              "to": "fb",
+              "label": "limit reached"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "context-management-token-budgeting",
+      "title": "Managing context: windows, summarisation, retrieval and token budgets",
+      "topic": "Context management",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "context-window",
+        "summarisation",
+        "token-budget",
+        "context-poisoning"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Context is a budget, not a bucket. Each turn I allocate tokens to instructions, tool definitions, recent turns, a running summary and retrieved evidence, with hard caps for each. I prefer retrieval of relevant facts over stuffing whole documents, summarise old turns while keeping key decisions verbatim, and treat anything retrieved or tool-returned as untrusted. Long contexts also raise cost, latency and the chance of the model missing or being poisoned by content.",
+      "revision": "Budget tokens per slot each turn, retrieve rather than stuff, summarise old turns keeping decisions, treat retrieved content as untrusted, and measure quality against context length.",
+      "detailed": "A larger context window does not remove the need for management: cost and latency grow, relevant facts get diluted, and malicious text has more room.\n\n## Per-turn token budget\n\n| Slot | Typical policy |\n|---|---|\n| System instructions | Fixed, small, cached where supported |\n| Tool definitions | Only tools relevant to this step |\n| Conversation | Last N turns verbatim |\n| Running summary | Decisions, entities, open tasks |\n| Retrieved evidence | Top-k reranked chunks with a cap |\n| Tool results | Truncated or summarised before re-insertion |\n| Output reserve | Always keep room for the answer |\n\n{{diagram:ctx}}\n\n## Techniques\n\n- **Retrieval over stuffing**: fetch passages by relevance; stuff only when the corpus is small and stable.\n- **Summarisation**: compress older turns, but pin facts that must not drift (ids, approvals, amounts) in structured state rather than prose.\n- **Tool result shaping**: return fields the model needs, not the full API payload.\n- **Tool selection**: expose a subset of tools per step.\n- **Prompt caching**: keep stable content at the front; verify provider support.\n\n## Context poisoning\n\nRetrieved documents, web pages and tool outputs can carry instructions or false facts that persist in the summary. Mitigate by marking sources as data, never summarising untrusted text into system-level memory, storing provenance, and expiring summaries.\n\n## Measuring\n\nRun evaluations at several context lengths; watch for \"lost in the middle\" degradation, rising cost per task and truncation errors.\n\n## Common mistakes\n\n- Dumping full chat history on every call.\n- Summaries that silently drop constraints such as approval limits.\n- No reserve for output, causing truncated answers.\n- Trusting summaries as ground truth.",
+      "followUps": [
+        "How do you decide between summarising and retrieving past conversation?",
+        "How would you detect that a summary has lost a critical constraint?",
+        "What changes for very long running agents?"
+      ],
+      "related": [
+        "enterprise-agent-rag-permissions-freshness"
+      ],
+      "diagrams": [
+        {
+          "id": "ctx",
+          "title": "Per-turn context assembly",
+          "alt": "A context builder assembles instructions, selected tool definitions, recent turns, a summary, and retrieved evidence into a prompt under a token cap, while reserving output tokens. Untrusted content is labelled as data and an overflow step trims or summarises.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "i",
+              "label": "Instructions"
+            },
+            {
+              "id": "t",
+              "label": "Selected tools"
+            },
+            {
+              "id": "r",
+              "label": "Recent turns"
+            },
+            {
+              "id": "s",
+              "label": "Summary and pinned state"
+            },
+            {
+              "id": "e",
+              "label": "Retrieved evidence, untrusted"
+            },
+            {
+              "id": "b",
+              "label": "Budget enforcer"
+            },
+            {
+              "id": "p",
+              "label": "Prompt with output reserve"
+            }
+          ],
+          "edges": [
+            {
+              "from": "i",
+              "to": "b"
+            },
+            {
+              "from": "t",
+              "to": "b"
+            },
+            {
+              "from": "r",
+              "to": "b"
+            },
+            {
+              "from": "s",
+              "to": "b"
+            },
+            {
+              "from": "e",
+              "to": "b"
+            },
+            {
+              "from": "b",
+              "to": "p"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "enterprise-agent-rag-permissions-freshness",
+      "title": "Enterprise RAG for agents: hybrid search, permission trimming, freshness and citations",
+      "topic": "Agent knowledge retrieval",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "rag",
+        "sharepoint",
+        "dataverse",
+        "permissions",
+        "citations"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "For an agent, retrieval is a tool call that must respect who is asking. I use hybrid keyword plus vector search with a reranker, filter by the user's permissions at query time so nothing unauthorised ever reaches the prompt, and carry source, version and modified date for freshness. The agent must cite sources and be able to say it found nothing. Structured business data in Dataverse is queried through scoped tools rather than embedded.",
+      "revision": "Retrieval tool: hybrid search plus rerank, permission trimming at query time, freshness metadata, citations, and abstain when evidence is weak. Structured data via scoped queries.",
+      "detailed": "This goes beyond a generic RAG pipeline by focusing on the agent as a **caller of retrieval tools** over enterprise sources such as SharePoint, Dataverse, wikis and ticketing.\n\n## Design points\n\n| Concern | Approach |\n|---|---|\n| Recall | **Hybrid** search: keyword for exact terms and codes, vectors for meaning, then **rerank** |\n| Security | **Permission trimming**: filter by the caller's identity or groups inside the query, not after generation |\n| Freshness | Index modified date and version; incremental sync; delete propagation; prefer newest authoritative source |\n| Trust | Return citations with title, link, date; the agent quotes or references them |\n| Structured data | Query Dataverse or databases through parameterised tools with row-level security, do not embed tables blindly |\n| Abstention | Return a \"no sufficient evidence\" signal the agent must respect |\n\n{{diagram:erag}}\n\n## Tool contract\n\nA good retrieval tool takes a query plus optional filters and returns a small list of `{text, source, url, modified, score}`. The agent decides whether to search again, narrow by filters, or answer. Cap the number of searches per task.\n\n## Permission trimming options\n\n1. Query-time filter on security groups stored with each chunk (fast, needs sync of ACL changes).\n2. Delegated access to the source system with the user's token (accurate, slower).\n3. Hybrid: pre-filter then verify on the top results.\n\nVerify how your chosen search service and Microsoft 365 connectors handle security trimming in the current vendor docs.\n\n## Common mistakes\n\n- Indexing with a service account and answering for every user.\n- Stale ACLs after a group change.\n- Ignoring deletions at source so removed content is still cited.\n- Citations that were never actually in the retrieved set.",
+      "followUps": [
+        "How do you test that permission trimming works?",
+        "When would you not index a Dataverse table at all?",
+        "How do you handle conflicting sources of different dates?"
+      ],
+      "related": [
+        "context-management-token-budgeting",
+        "tool-authorisation-identity-propagation"
+      ],
+      "diagrams": [
+        {
+          "id": "erag",
+          "title": "Agent retrieval with trimming",
+          "alt": "The agent calls a retrieval tool with the user identity. The tool runs hybrid keyword and vector search with a permission filter, reranks, and returns passages with citations and dates. Structured data is read through a separate scoped Dataverse query tool.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "a",
+              "label": "Agent"
+            },
+            {
+              "id": "rt",
+              "label": "Retrieval tool"
+            },
+            {
+              "id": "f",
+              "label": "Permission filter from user identity"
+            },
+            {
+              "id": "h",
+              "label": "Hybrid search"
+            },
+            {
+              "id": "rr",
+              "label": "Reranker"
+            },
+            {
+              "id": "dv",
+              "label": "Scoped Dataverse query tool"
+            },
+            {
+              "id": "o",
+              "label": "Passages with citations and dates"
+            }
+          ],
+          "edges": [
+            {
+              "from": "a",
+              "to": "rt"
+            },
+            {
+              "from": "rt",
+              "to": "f"
+            },
+            {
+              "from": "f",
+              "to": "h"
+            },
+            {
+              "from": "h",
+              "to": "rr"
+            },
+            {
+              "from": "rr",
+              "to": "o"
+            },
+            {
+              "from": "a",
+              "to": "dv",
+              "label": "structured facts"
+            },
+            {
+              "from": "o",
+              "to": "a"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "agent-state-checkpoints-durable-execution",
+      "title": "Agent state, checkpoints and durable execution after a crash",
+      "topic": "Agent persistence",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "checkpoints",
+        "durable-execution",
+        "idempotency",
+        "recovery"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I persist the agent's state after each step: the plan, the message history, tool results and a unique step id. If a worker crashes, another instance loads the last checkpoint and resumes. Because a crash can happen after a tool ran but before the checkpoint was saved, every side-effecting step uses an idempotency key and records its outcome first. I keep the state schema versioned so old checkpoints survive deployments.",
+      "revision": "Checkpoint after every step with versioned state; resume from the last checkpoint; make side-effecting tool steps idempotent so replay is safe.",
+      "detailed": "Long-running agents wait for approvals, call slow systems and run on infrastructure that restarts. Without durable state, a restart loses work or repeats actions.\n\n## What to persist\n\n| Item | Why |\n|---|---|\n| Run id, user, tenant | Ownership and audit |\n| Messages and summary | Rebuild context |\n| Plan and current step | Resume point |\n| Tool call ids, arguments, results | Avoid repeating calls |\n| Pending approvals with expiry | Pause and resume |\n| State schema version | Survive code upgrades |\n\n{{diagram:ckpt}}\n\n## The crash window\n\nSequence: decide tool call, call external system, save result. A crash after the call but before the save causes a **repeat** on resume. Solutions:\n\n1. Write an **intent record** (step id, idempotency key) before the call.\n2. Pass the key to the downstream API so a retry returns the original result.\n3. On resume, check the intent record and the downstream system before re-executing.\n\n## Options\n\n- Framework checkpointing (workflow frameworks provide checkpoint features; verify what your chosen version supports).\n- A durable execution engine or orchestrator (for example Azure Durable Functions or similar) wrapping agent steps.\n- A database table keyed by run id with optimistic concurrency, enough for many cases.\n\n## Operational rules\n\n- Keep checkpoints small; store large artefacts by reference.\n- Encrypt state at rest and apply retention, since it holds user data.\n- Test recovery by killing workers during chaos runs.\n- Allow a human to inspect, edit and resume or cancel a run.\n\n## Common mistakes\n\n- Checkpointing only the chat history, not tool outcomes.\n- No schema version, so a deployment orphans live runs.\n- Replaying tool calls blindly on resume.\n- Keeping state forever.",
+      "followUps": [
+        "How do you handle a checkpoint created by an older prompt version?",
+        "What happens when a tool is not idempotent?",
+        "How would you test crash recovery automatically?"
+      ],
+      "related": [
+        "agent-tool-retries-timeouts-cancellation-idempotency"
+      ],
+      "diagrams": [
+        {
+          "id": "ckpt",
+          "title": "Resume after a crash",
+          "alt": "The runtime writes an intent record, calls the tool with an idempotency key, saves the result and checkpoint, then continues. If the worker crashes, a new worker loads the last checkpoint, checks the intent record and downstream result, and resumes without repeating the action.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "s",
+              "label": "Step starts"
+            },
+            {
+              "id": "ir",
+              "label": "Write intent and key"
+            },
+            {
+              "id": "t",
+              "label": "Call tool with key"
+            },
+            {
+              "id": "cp",
+              "label": "Save result and checkpoint"
+            },
+            {
+              "id": "n",
+              "label": "Next step"
+            },
+            {
+              "id": "cr",
+              "label": "Worker crash"
+            },
+            {
+              "id": "rs",
+              "label": "New worker loads checkpoint"
+            },
+            {
+              "id": "ck",
+              "label": "Check intent and downstream"
+            }
+          ],
+          "edges": [
+            {
+              "from": "s",
+              "to": "ir"
+            },
+            {
+              "from": "ir",
+              "to": "t"
+            },
+            {
+              "from": "t",
+              "to": "cp"
+            },
+            {
+              "from": "cp",
+              "to": "n"
+            },
+            {
+              "from": "t",
+              "to": "cr",
+              "label": "failure"
+            },
+            {
+              "from": "cr",
+              "to": "rs"
+            },
+            {
+              "from": "rs",
+              "to": "ck"
+            },
+            {
+              "from": "ck",
+              "to": "n",
+              "label": "resume"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "tool-authorisation-identity-propagation",
+      "title": "Tool authorisation and identity propagation: on-behalf-of, scopes and audit",
+      "topic": "Agent identity and access",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "identity",
+        "oauth",
+        "on-behalf-of",
+        "least-privilege",
+        "audit"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "The agent should act as the user, not as a super account. I use the on-behalf-of flow so each tool call carries a token for that user with only the scopes that tool needs, and the downstream system enforces its own permissions. Application permissions are reserved for background jobs, scoped narrowly. The tool layer authorises each call independently of the model, and every call is logged with user, agent, tool, arguments and decision.",
+      "revision": "Delegated user identity via on-behalf-of, minimum scopes per tool, downstream enforcement, authorisation in the tool layer not the prompt, and full who-did-what audit.",
+      "detailed": "The model must never be the security boundary. Authorisation lives in code that the model cannot talk its way past.\n\n## Delegated versus application permissions\n\n| Aspect | Delegated (on behalf of user) | Application (service identity) |\n|---|---|---|\n| Acts as | The signed-in user | The agent's own identity |\n| Limits | Intersection of user rights and granted scopes | Whatever the app was granted |\n| Use for | Interactive agents reading or changing user data | Scheduled or system-initiated work |\n| Risk | Token handling | Over-privilege, confused deputy |\n\n## On-behalf-of flow (principle)\n\nThe user signs in to the front end. The agent service exchanges the incoming user token for a **downstream token** for a specific API, with specific scopes. Check the current Microsoft Entra documentation for the exact flow and token lifetime behaviour.\n\n{{diagram:obo}}\n\n## Per-tool controls\n\n1. **Scope per tool**: a \"read invoice\" tool does not receive write scopes.\n2. **Policy check before execution**: role, tenant, amount limits, data classification.\n3. **Short-lived tokens**; never put tokens in prompts or logs.\n4. **Parameter binding**: tenant and user ids come from the verified context, never from model-chosen arguments.\n5. **Sensitive tools** require approval.\n\n## Audit record\n\nCapture: timestamp, user id, agent and version, run id, tool, redacted arguments, policy decision, downstream response status, approval id. This answers \"who did what, on whose authority\".\n\n## Common mistakes\n\n- One shared service account for all tools.\n- Passing the user id as a model-supplied argument.\n- Logging bearer tokens.\n- Granting broad scopes \"for now\" and never reviewing.",
+      "followUps": [
+        "How do you stop a confused deputy where the agent uses its own broad rights?",
+        "How do you handle token expiry in a long running task?",
+        "What differs for an autonomous scheduled agent?"
+      ],
+      "related": [
+        "enterprise-agent-rag-permissions-freshness",
+        "approval-design-for-financial-actions"
+      ],
+      "diagrams": [
+        {
+          "id": "obo",
+          "title": "Identity propagation per tool call",
+          "alt": "A user token reaches the agent service. For each tool call, a policy check runs, then the service exchanges the user token for a downstream token with narrow scopes. The downstream API enforces its own permissions and the call is written to an audit log with user and tool.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "u",
+              "label": "User token"
+            },
+            {
+              "id": "ag",
+              "label": "Agent service"
+            },
+            {
+              "id": "pc",
+              "label": "Policy check per tool"
+            },
+            {
+              "id": "ex",
+              "label": "Token exchange, narrow scope"
+            },
+            {
+              "id": "api",
+              "label": "Downstream API enforces rights"
+            },
+            {
+              "id": "al",
+              "label": "Audit log"
+            }
+          ],
+          "edges": [
+            {
+              "from": "u",
+              "to": "ag"
+            },
+            {
+              "from": "ag",
+              "to": "pc"
+            },
+            {
+              "from": "pc",
+              "to": "ex",
+              "label": "allowed"
+            },
+            {
+              "from": "ex",
+              "to": "api"
+            },
+            {
+              "from": "pc",
+              "to": "al",
+              "label": "decision"
+            },
+            {
+              "from": "api",
+              "to": "al",
+              "label": "result"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "agent-autonomy-ladder-planning-routing",
+      "title": "Planning, routing, delegation and the autonomy ladder",
+      "topic": "Controlled autonomy",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "autonomy",
+        "planning",
+        "routing",
+        "delegation",
+        "governance"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I treat autonomy as a ladder per capability, not a switch. Level one suggests, level two drafts for a human to send, level three acts after approval, level four acts and reports within tight limits, and level five acts freely, which I rarely allow. Each tool and use case is promoted only when evaluations and incident history justify it. A router picks the right specialist or workflow, and delegation passes narrow context and permissions, never the whole session.",
+      "revision": "Autonomy ladder: suggest, draft, act with approval, act within limits, act freely. Promote per tool using evidence; routers and delegation pass minimum context and rights.",
+      "detailed": "## The ladder\n\n| Level | Behaviour | Typical use |\n|---|---|---|\n| 0 | Answers questions only | Knowledge Q and A |\n| 1 | **Suggests** actions | Next best action |\n| 2 | **Drafts**; human sends or submits | Emails, tickets |\n| 3 | **Acts after approval** | Refunds, config changes |\n| 4 | **Acts within limits**, reports afterwards | Low-value reversible actions |\n| 5 | Acts freely | Rare, narrow, heavily monitored |\n\n{{diagram:ladder}}\n\nAutonomy is set per **tool and context**, not per agent. Reading a record may be level 4 while issuing a payment is level 2.\n\n## Promotion criteria\n\n- Offline evaluation pass rate on realistic cases and adversarial cases.\n- Shadow mode: agent proposes, humans decide, compare agreement.\n- Reversibility and blast radius of the action.\n- Incident and override history; a demotion rule when it worsens.\n\n## Planning, routing, delegation\n\n- **Planning**: let the model propose a plan, then validate it against allowed tools and budgets before executing; for regulated flows, use a fixed workflow instead.\n- **Routing**: classify intent then dispatch to a specialist agent or deterministic workflow; log the route and confidence; low confidence asks a clarifying question.\n- **Delegation**: the sub-agent receives a task brief, narrow tool set and its own limits; results come back as structured data.\n\n## Controls that sit outside the model\n\nPer-tool allow lists, spend and count limits, kill switch, approval workflow, and audit.\n\n## Common mistakes\n\n- One global \"autonomous mode\" flag.\n- Promoting because a demo worked.\n- Delegating with the full conversation and all tools.\n- No demotion path.",
+      "followUps": [
+        "What evidence would move a refund tool from level 3 to level 4?",
+        "How do you route when two specialists could both apply?",
+        "What is your kill switch design?"
+      ],
+      "related": [
+        "approval-design-for-financial-actions"
+      ],
+      "diagrams": [
+        {
+          "id": "ladder",
+          "title": "Autonomy ladder",
+          "alt": "Five levels rise from suggest, to draft, to act with approval, to act within limits and report, to act freely. Evidence from evaluation and shadow mode promotes a capability upward and incidents demote it. Controls outside the model apply at every level.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "l1",
+              "label": "Level 1: suggest"
+            },
+            {
+              "id": "l2",
+              "label": "Level 2: draft for human"
+            },
+            {
+              "id": "l3",
+              "label": "Level 3: act after approval"
+            },
+            {
+              "id": "l4",
+              "label": "Level 4: act within limits"
+            },
+            {
+              "id": "l5",
+              "label": "Level 5: act freely, rare"
+            },
+            {
+              "id": "ev",
+              "label": "Evidence: evals, shadow mode"
+            },
+            {
+              "id": "in",
+              "label": "Incidents and overrides"
+            }
+          ],
+          "edges": [
+            {
+              "from": "l1",
+              "to": "l2"
+            },
+            {
+              "from": "l2",
+              "to": "l3"
+            },
+            {
+              "from": "l3",
+              "to": "l4"
+            },
+            {
+              "from": "l4",
+              "to": "l5"
+            },
+            {
+              "from": "ev",
+              "to": "l3",
+              "label": "promote"
+            },
+            {
+              "from": "in",
+              "to": "l2",
+              "label": "demote"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "agent-tool-retries-timeouts-cancellation-idempotency",
+      "title": "Retries, timeouts, cancellation and idempotency in agent tool calls",
+      "topic": "Tool reliability",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "retries",
+        "timeouts",
+        "cancellation",
+        "idempotency"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Every tool call gets a timeout, a retry policy and an idempotency key. I retry only transient errors such as timeouts and 429 or 5xx responses, with exponential backoff and jitter, and never retry an unsafe write without a key. Cancellation propagates from the user or the run budget down to the tool. Errors go back to the model as short structured messages that say whether retrying is sensible, so it does not guess.",
+      "revision": "Timeout, bounded retries with backoff and jitter for transient errors only, idempotency keys for writes, propagate cancellation, return structured errors to the model.",
+      "detailed": "## Policy per tool\n\n| Control | Guidance |\n|---|---|\n| Timeout | Per call and overall run deadline; shorter for reads |\n| Retry | Only transient failures: network, 429, 502 to 504; respect `Retry-After` |\n| Backoff | Exponential with jitter; small max attempts (2 to 3) |\n| Idempotency | Key per logical action; same key returns same result |\n| Cancellation | Pass a cancellation token or deadline downstream |\n| Circuit breaker | Stop calling a failing dependency for a cool-down period |\n\n{{diagram:retry}}\n\n## Idempotency in practice\n\nA retry after a timeout is dangerous because the first attempt may have succeeded. Generate the key from the **run id and step id**, not randomly per attempt. For APIs without key support, add a lookup (\"does an order with this reference exist?\") before creating, or wrap the call with your own dedupe table.\n\n## Telling the model what happened\n\nReturn structured errors:\n\n```json\n{\"error\": \"rate_limited\", \"retryable\": true, \"retry_after_seconds\": 20,\n \"message\": \"Try again later or choose another approach.\"}\n```\n\nDistinguish **retryable**, **fix the arguments**, and **permanent**. The runtime, not the model, owns retry decisions for transport errors, otherwise the model re-issues the call and multiplies attempts.\n\n## Cancellation\n\nUser stop, budget exhaustion and timeouts should cancel in-flight tool calls and mark the run state so no late result is applied twice.\n\n## Common mistakes\n\n- Retrying at several layers (SDK, tool, agent) and multiplying load.\n- Random idempotency keys per retry.\n- Treating a timeout as proof that nothing happened.\n- Infinite retries with no breaker.",
+      "followUps": [
+        "How do you avoid retry storms when a model endpoint returns 429?",
+        "What if the downstream API offers no idempotency support?",
+        "How do you surface a late result after cancellation?"
+      ],
+      "related": [
+        "agent-state-checkpoints-durable-execution",
+        "agent-infinite-loop-scenario"
+      ],
+      "diagrams": [
+        {
+          "id": "retry",
+          "title": "Tool call resilience",
+          "alt": "A tool call starts with a deadline and idempotency key. Transient failures retry with backoff up to a limit. Repeated failures open a circuit breaker. Permanent errors and exhausted retries return a structured error to the model. Cancellation stops any in-flight call.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "c",
+              "label": "Call with deadline and key"
+            },
+            {
+              "id": "f",
+              "label": "Failure?"
+            },
+            {
+              "id": "b",
+              "label": "Backoff and retry"
+            },
+            {
+              "id": "cb",
+              "label": "Circuit breaker"
+            },
+            {
+              "id": "er",
+              "label": "Structured error to model"
+            },
+            {
+              "id": "ok",
+              "label": "Result"
+            },
+            {
+              "id": "x",
+              "label": "Cancellation"
+            }
+          ],
+          "edges": [
+            {
+              "from": "c",
+              "to": "ok",
+              "label": "success"
+            },
+            {
+              "from": "c",
+              "to": "f"
+            },
+            {
+              "from": "f",
+              "to": "b",
+              "label": "transient"
+            },
+            {
+              "from": "b",
+              "to": "c",
+              "label": "attempt"
+            },
+            {
+              "from": "b",
+              "to": "cb",
+              "label": "limit"
+            },
+            {
+              "from": "f",
+              "to": "er",
+              "label": "permanent"
+            },
+            {
+              "from": "cb",
+              "to": "er"
+            },
+            {
+              "from": "x",
+              "to": "c",
+              "label": "stops"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "agent-vs-cloud-flow-decision-matrix",
+      "title": "Agent or cloud flow: a decision matrix with eight criteria",
+      "topic": "Choosing automation style",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "agents",
+        "cloud-flows",
+        "decision-matrix",
+        "power-automate"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I choose a cloud flow when the steps are known, the inputs are structured and the outcome must be predictable and auditable. I choose an agent when inputs are unstructured, the path varies, and judgement over several tools is needed. Often the best answer is a hybrid: a flow owns the process and calls a model for a bounded step such as classification or drafting. I score the choice against eight criteria rather than preferring the newer technology.",
+      "revision": "Cloud flow for known steps, structured input and strict audit; agent for variable paths and unstructured judgement; hybrid often wins. Score eight criteria.",
+      "detailed": "The rule of thumb in Microsoft's own agent guidance is: if you can write a deterministic process, do that rather than use an agent.\n\n## Decision matrix\n\n| Criterion | Prefer cloud flow when | Prefer agent when |\n|---|---|---|\n| 1. Path predictability | Steps are known and fixed | Path depends on the situation |\n| 2. Input type | Structured fields, events | Free text, documents, conversation |\n| 3. Determinism needed | Same input must give same result | Variation is acceptable |\n| 4. Error tolerance | Low; money, compliance | Moderate; human reviews |\n| 5. Auditability | Step-by-step run history required | Trace plus review is enough |\n| 6. Cost and latency | Cheap, fast, high volume | Per-task model cost acceptable |\n| 7. Tool breadth | Few fixed connectors | Many tools chosen dynamically |\n| 8. Change rate | Stable process | Frequently changing cases or knowledge |\n\n{{diagram:dm}}\n\n## Hybrid pattern\n\nFlow triggers on an event, calls a model step to extract or classify into a schema, applies deterministic rules, and routes exceptions to an agent or a human. The flow remains the system of record for what happened.\n\n## Examples (hypothetical)\n\n- Invoice approval with fixed thresholds: cloud flow.\n- Triage of unstructured supplier emails into cases: model step inside a flow.\n- Investigating a customer dispute across several systems: agent with human approval for outcomes.\n\n## Common mistakes\n\n- Using an agent because it is fashionable.\n- Using a flow with a dozen branches to imitate language understanding.\n- Skipping a cost estimate per run.\n- Letting the agent bypass the flow's approvals.",
+      "followUps": [
+        "Which criterion would override the others in a regulated process?",
+        "How would you migrate an over-branched flow to a model step?",
+        "Where would you put the exception handling in a hybrid design?"
+      ],
+      "diagrams": [
+        {
+          "id": "dm",
+          "title": "Flow, agent or hybrid",
+          "alt": "A decision path starts with whether steps are known. Known and structured steps lead to a cloud flow. Variable paths with unstructured input lead to an agent. A mixed case uses a flow that calls a bounded model step and escalates exceptions to an agent or human.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "q",
+              "label": "Are the steps known and the input structured?"
+            },
+            {
+              "id": "f",
+              "label": "Cloud flow"
+            },
+            {
+              "id": "m",
+              "label": "Flow with a bounded model step"
+            },
+            {
+              "id": "a",
+              "label": "Agent with guardrails"
+            },
+            {
+              "id": "h",
+              "label": "Human for exceptions"
+            }
+          ],
+          "edges": [
+            {
+              "from": "q",
+              "to": "f",
+              "label": "yes"
+            },
+            {
+              "from": "q",
+              "to": "m",
+              "label": "mostly"
+            },
+            {
+              "from": "q",
+              "to": "a",
+              "label": "no"
+            },
+            {
+              "from": "m",
+              "to": "h",
+              "label": "exceptions"
+            },
+            {
+              "from": "a",
+              "to": "h",
+              "label": "approvals"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "agent-infinite-loop-scenario",
+      "title": "Scenario: an agent loops indefinitely",
+      "topic": "Agent failure handling",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "loops",
+        "circuit-breaker",
+        "budgets",
+        "no-progress"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "First I stop the bleeding: kill or pause the run and cap spend. Then I look at the trace to see the repeated pattern, usually the same tool with the same arguments, or alternating failing steps. Prevention is layered: max iterations, token and cost budgets per run, a wall-clock deadline, loop detection on repeated calls, no-progress detection on state, and a circuit breaker. When a limit trips, the agent hands off with a summary instead of silently dying.",
+      "revision": "Contain, then diagnose from the trace. Prevent with max steps, budgets, deadline, repeated-call and no-progress detection, circuit breakers and a graceful handoff.",
+      "detailed": "## Immediate response\n\n1. **Contain**: cancel the run, disable the offending tool or route if needed, check spend.\n2. **Preserve evidence**: keep the trace, prompts and tool outputs for replay.\n3. **Notify** the owner and affected users if actions were taken.\n\n## Diagnose\n\n| Pattern | Likely cause |\n|---|---|\n| Same tool, same arguments | Tool result unhelpful or ignored |\n| Alternating A and B | Two steps undoing each other |\n| Growing context, no new facts | Poor stop condition |\n| Repeated error then retry | Error message not actionable to the model |\n| Ambiguous goal | Missing definition of done |\n\n## Layered guards\n\n{{diagram:loop}}\n\n- **Max iterations** per run (a small number for the task type).\n- **Budgets**: tokens, cost, tool-call count, wall-clock deadline.\n- **Loop detection**: hash of (tool, normalised arguments); more than N repeats triggers a stop or a forced strategy change.\n- **No-progress detection**: compare a state fingerprint (facts gathered, fields filled) across steps; no change over K steps stops the run.\n- **Circuit breaker** on failing dependencies.\n- **Definition of done** in the prompt and as a checkable condition in code.\n\n```python\n# Generic pattern, not a framework API\nseen = Counter()\nfor step in range(MAX_STEPS):\n    call = agent.next_action(state)\n    seen[fingerprint(call)] += 1\n    if seen[fingerprint(call)] > 2 or budget.exceeded() or no_progress(state):\n        return handoff(state, reason=\"guard_tripped\")\n    state = execute(call, state)\n```\n\n## After the incident\n\nAdd the trace to the regression suite, improve error messages, and track \"guard tripped\" as a metric.\n\n## Common mistakes\n\n- Relying on the model to decide to stop.\n- A max-iteration value so high it is no protection.\n- Failing silently with no handoff.\n- Fixing the prompt without adding a test.",
+      "followUps": [
+        "How do you pick the max iteration value?",
+        "What should the handoff message contain?",
+        "How do you tell a legitimate long task from a loop?"
+      ],
+      "related": [
+        "agent-tool-retries-timeouts-cancellation-idempotency",
+        "tracing-incorrect-agent-decision"
+      ],
+      "diagrams": [
+        {
+          "id": "loop",
+          "title": "Loop guards",
+          "alt": "Each agent step passes through guards: iteration limit, budget and deadline, repeated call detection and no-progress detection. Any tripped guard stops the run and hands off to a human or fallback with a summary, and the event is recorded for the regression suite.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "s",
+              "label": "Next agent action"
+            },
+            {
+              "id": "g1",
+              "label": "Max iterations"
+            },
+            {
+              "id": "g2",
+              "label": "Budget and deadline"
+            },
+            {
+              "id": "g3",
+              "label": "Repeated call detector"
+            },
+            {
+              "id": "g4",
+              "label": "No-progress check"
+            },
+            {
+              "id": "ex",
+              "label": "Execute tool"
+            },
+            {
+              "id": "h",
+              "label": "Handoff with summary"
+            },
+            {
+              "id": "m",
+              "label": "Metric and regression case"
+            }
+          ],
+          "edges": [
+            {
+              "from": "s",
+              "to": "g1"
+            },
+            {
+              "from": "g1",
+              "to": "g2"
+            },
+            {
+              "from": "g2",
+              "to": "g3"
+            },
+            {
+              "from": "g3",
+              "to": "g4"
+            },
+            {
+              "from": "g4",
+              "to": "ex",
+              "label": "all pass"
+            },
+            {
+              "from": "ex",
+              "to": "s"
+            },
+            {
+              "from": "g1",
+              "to": "h",
+              "label": "trip"
+            },
+            {
+              "from": "g2",
+              "to": "h",
+              "label": "trip"
+            },
+            {
+              "from": "g3",
+              "to": "h",
+              "label": "trip"
+            },
+            {
+              "from": "g4",
+              "to": "h",
+              "label": "trip"
+            },
+            {
+              "from": "h",
+              "to": "m"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "making-agent-workflows-deterministic",
+      "title": "Making an agent workflow deterministic enough for enterprise use",
+      "topic": "Determinism and reliability",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "determinism",
+        "structured-output",
+        "evaluation",
+        "replay",
+        "workflow"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Models are not deterministic, so I contain the non-determinism. I use a workflow-first design where code owns the path and the model fills bounded steps, force structured output with schema validation, set low temperature, and keep prompts and model versions pinned. Business rules run in code, not in the prompt. Evaluation gates block releases, and I record inputs and outputs so a run can be replayed and compared.",
+      "revision": "Workflow-first, model only in bounded steps, schema-constrained output, low temperature, pinned versions, rules in code, evaluation gates and recorded replay.",
+      "detailed": "Even at temperature zero, outputs can vary across runs, versions and infrastructure, so aim for **predictable behaviour**, not bit-identical text.\n\n## Levers\n\n| Lever | Effect |\n|---|---|\n| Workflow-first control flow | Fixed sequence, branches decided by code |\n| Narrow steps | Classify, extract, draft; one job per call |\n| Structured output | Schema-constrained and validated results |\n| Low temperature and fixed sampling settings | Less variation (not zero) |\n| Pinned model, prompt and tool versions | No silent change |\n| Rules in code | Thresholds, eligibility, calculations never left to the model |\n| Evaluation gates | Release blocked below target pass rate |\n| Record and replay | Debug and regression with captured IO |\n\n{{diagram:det}}\n\n## Evaluation gate\n\nMaintain a golden set of cases with expected structured results and adversarial cases. Run on each change to prompt, tool, model or retrieval config. Check **field-level accuracy**, refusal behaviour and consistency across repeated runs (for example run each case several times and measure disagreement).\n\n## Replay\n\nStore the request, retrieved context, prompts, model id, parameters, tool results and output. For replay without side effects, stub tools with recorded responses. This separates \"the model changed\" from \"the data changed\".\n\n## Where to accept variation\n\nFree-text explanations and drafts are fine to vary if the decisions they describe come from validated fields.\n\n## Common mistakes\n\n- Believing temperature zero guarantees identical outputs.\n- Putting calculations or eligibility rules in prompts.\n- Testing only a few happy paths.\n- Changing prompts in production without a version.",
+      "followUps": [
+        "How would you measure consistency across repeated runs?",
+        "Which decisions must never be made by the model?",
+        "How do you replay a run that used live tools?"
+      ],
+      "related": [
+        "model-upgrades-without-breaking-production",
+        "tool-calling-structured-output-repair-loops"
+      ],
+      "diagrams": [
+        {
+          "id": "det",
+          "title": "Containing non-determinism",
+          "alt": "Code owns the workflow path. The model performs bounded steps with schema validated output at low temperature. Business rules run in code. Results pass evaluation gates before release, and inputs and outputs are recorded for replay.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "w",
+              "label": "Workflow in code"
+            },
+            {
+              "id": "m",
+              "label": "Bounded model step, pinned version"
+            },
+            {
+              "id": "s",
+              "label": "Schema validation"
+            },
+            {
+              "id": "r",
+              "label": "Business rules in code"
+            },
+            {
+              "id": "o",
+              "label": "Decision and output"
+            },
+            {
+              "id": "rc",
+              "label": "Recorded IO for replay"
+            },
+            {
+              "id": "g",
+              "label": "Evaluation gate before release"
+            }
+          ],
+          "edges": [
+            {
+              "from": "w",
+              "to": "m"
+            },
+            {
+              "from": "m",
+              "to": "s"
+            },
+            {
+              "from": "s",
+              "to": "r"
+            },
+            {
+              "from": "r",
+              "to": "o"
+            },
+            {
+              "from": "m",
+              "to": "rc"
+            },
+            {
+              "from": "o",
+              "to": "rc"
+            },
+            {
+              "from": "rc",
+              "to": "g"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "approval-design-for-financial-actions",
+      "title": "Human approval for financial or customer-impacting agent actions",
+      "topic": "Human approval design",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "approval",
+        "human-in-the-loop",
+        "audit",
+        "financial"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "For money or customer impact, the agent proposes and a human with the right authority approves. The approval request shows exactly what will happen: action, amounts, recipient, evidence and risk. It is bound to a hash of the payload so any change invalidates it, it expires, and I verify that the approver is allowed to approve that amount and is not the requester. The executor runs only the approved payload, and everything is logged.",
+      "revision": "Agent proposes, authorised human approves a hash-bound, expiring payload; check approver authority and separation of duties; execute exactly what was approved; audit it.",
+      "detailed": "This goes deeper than the general idea of human in the loop and covers the **approval object** itself.\n\n## Approval payload\n\n| Field | Purpose |\n|---|---|\n| Action and parameters | Exactly what will run, in plain language and structured form |\n| Amounts, currency, recipient | Prevent ambiguity |\n| Evidence | Sources, tool results, the agent's rationale |\n| Risk indicators | Limit proximity, anomaly flags, confidence |\n| Requester, run id, agent version | Traceability |\n| Payload hash and expiry | Tamper-proofing and staleness control |\n\n{{diagram:appr}}\n\n## Controls\n\n1. **Bind approval to the payload hash** (signed by your service). If arguments change, the approval is void.\n2. **Expiry**: approvals lapse after a short time, because balances and context change.\n3. **Approver authority**: check role, limit and delegation per amount; enforce **separation of duties** so the requester cannot approve their own request.\n4. **Out-of-band channel**: approval happens in a trusted UI, not inside the model conversation, where it could be spoofed or injected.\n5. **Single use**: an approval authorises one execution; combine with idempotency keys.\n6. **Execution check**: the executor re-validates limits at run time.\n7. **Audit**: store request, approver, decision, time, comment and result.\n\n## Usability\n\nShow a clear diff, not a wall of text; allow reject with reason, feeding back to the agent. Track approval rates; near-100 percent approval in seconds suggests rubber-stamping and a need to redesign.\n\n## Common mistakes\n\n- Approving a summary while a different payload executes.\n- Letting the model produce the text the approver relies on without showing raw fields.\n- No expiry or no limit check for the approver.\n- Approval embedded in chat where injected text can imitate it.",
+      "followUps": [
+        "How do you handle an approver who is on leave?",
+        "What if the amount changes between approval and execution?",
+        "How do you detect rubber-stamping?"
+      ],
+      "related": [
+        "agent-autonomy-ladder-planning-routing",
+        "tool-authorisation-identity-propagation"
+      ],
+      "diagrams": [
+        {
+          "id": "appr",
+          "title": "Approval flow",
+          "alt": "The agent proposes an action. The service builds an approval payload with a hash and expiry and sends it to an authorised approver in a trusted interface. The authority check and separation of duties run, then an approved payload executes once, with every step audited.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "ag",
+              "label": "Agent proposes action"
+            },
+            {
+              "id": "pl",
+              "label": "Payload with hash and expiry"
+            },
+            {
+              "id": "ap",
+              "label": "Approver in trusted UI"
+            },
+            {
+              "id": "au",
+              "label": "Authority and separation check"
+            },
+            {
+              "id": "ex",
+              "label": "Execute approved payload once"
+            },
+            {
+              "id": "lg",
+              "label": "Audit log"
+            },
+            {
+              "id": "rj",
+              "label": "Reject with reason"
+            }
+          ],
+          "edges": [
+            {
+              "from": "ag",
+              "to": "pl"
+            },
+            {
+              "from": "pl",
+              "to": "ap"
+            },
+            {
+              "from": "ap",
+              "to": "au",
+              "label": "approve"
+            },
+            {
+              "from": "au",
+              "to": "ex",
+              "label": "valid"
+            },
+            {
+              "from": "ap",
+              "to": "rj",
+              "label": "reject"
+            },
+            {
+              "from": "rj",
+              "to": "ag",
+              "label": "feedback"
+            },
+            {
+              "from": "ex",
+              "to": "lg"
+            },
+            {
+              "from": "ap",
+              "to": "lg"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "tracing-incorrect-agent-decision",
+      "title": "Tracing an incorrect agent decision across several tools",
+      "topic": "Agent observability",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "tracing",
+        "opentelemetry",
+        "observability",
+        "replay",
+        "redaction"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I want one trace per run with a span for each model call and each tool call, linked by run id, user, agent version and prompt version. With that I walk the trace: what context did the model see, which tool returned what, where did the decision diverge. OpenTelemetry has generative AI semantic conventions, still evolving, so I verify the current attribute names. Prompt and tool inputs and outputs are captured with redaction and replayed offline to confirm the fix.",
+      "revision": "One trace per run; spans for model and tool calls with versions; redacted IO capture; walk the trace to the divergence, then replay offline and add a regression case.",
+      "detailed": "## Trace design\n\n| Span | Key attributes |\n|---|---|\n| Run (root) | run id, tenant, user pseudonym, agent and prompt version, outcome |\n| Model call | model name and version, token counts, latency, finish reason, parameters |\n| Tool call | tool name, schema version, duration, status, retry count, idempotency key |\n| Retrieval | query, filters applied, document ids and scores |\n| Approval | approval id, decision, approver role |\n\n{{diagram:trace}}\n\nOpenTelemetry defines semantic conventions for generative AI, but they have been marked as in development in the past. **Verify the current spec and your framework's support** before standardising attribute names; Agent Framework documents telemetry integration, check its pages for the current setup.\n\n## Content capture\n\nPrompts and tool IO are the most useful evidence and the riskiest data.\n\n- Capture content behind a flag, with **redaction** of personal and secret data before export.\n- Short retention, restricted access, encryption.\n- Store large payloads by reference.\n- Sampling: keep all failures and low-confidence runs, sample the rest.\n\n## Investigation steps\n\n1. Find the run by user report or id.\n2. Read the final decision, then walk backwards: which tool result or retrieved passage led to it?\n3. Classify: bad retrieval, wrong tool output, prompt ambiguity, model reasoning error, missing guard.\n4. **Replay** offline with recorded tool results and the same versions; change one thing and compare.\n5. Add the case to the regression set, fix, and monitor a metric for that failure class.\n\n## Common mistakes\n\n- Logging only the final answer.\n- No version tags, so you cannot tell what changed.\n- Raw personal data in traces.\n- Fixing the symptom without a regression test.",
+      "followUps": [
+        "Which attributes let you compare behaviour before and after a model change?",
+        "How do you balance trace content capture with privacy?",
+        "How would you alert on decision quality, not just errors?"
+      ],
+      "related": [
+        "agent-infinite-loop-scenario",
+        "model-upgrades-without-breaking-production"
+      ],
+      "diagrams": [
+        {
+          "id": "trace",
+          "title": "One trace per agent run",
+          "alt": "A root run span contains child spans for retrieval, model calls, tool calls and approval. Each carries versions and status. Redaction runs before export to the trace store, from which an investigator replays the run offline and adds a regression case.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "r",
+              "label": "Run span"
+            },
+            {
+              "id": "rt",
+              "label": "Retrieval span"
+            },
+            {
+              "id": "m",
+              "label": "Model call spans"
+            },
+            {
+              "id": "t",
+              "label": "Tool call spans"
+            },
+            {
+              "id": "a",
+              "label": "Approval span"
+            },
+            {
+              "id": "rd",
+              "label": "Redaction"
+            },
+            {
+              "id": "ts",
+              "label": "Trace store"
+            },
+            {
+              "id": "rp",
+              "label": "Offline replay and regression case"
+            }
+          ],
+          "edges": [
+            {
+              "from": "r",
+              "to": "rt"
+            },
+            {
+              "from": "r",
+              "to": "m"
+            },
+            {
+              "from": "r",
+              "to": "t"
+            },
+            {
+              "from": "r",
+              "to": "a"
+            },
+            {
+              "from": "rt",
+              "to": "rd"
+            },
+            {
+              "from": "m",
+              "to": "rd"
+            },
+            {
+              "from": "t",
+              "to": "rd"
+            },
+            {
+              "from": "rd",
+              "to": "ts"
+            },
+            {
+              "from": "ts",
+              "to": "rp"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "model-upgrades-without-breaking-production",
+      "title": "Managing model upgrades without breaking production",
+      "topic": "Model lifecycle",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "model-upgrade",
+        "regression",
+        "canary",
+        "versioning"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I never follow a floating model alias in production. I pin a specific model version, track the vendor's deprecation dates, and treat an upgrade like a release. A candidate version runs against the regression suite, then in shadow mode on live traffic, then a small canary, with metrics for quality, cost, latency and safety. Rollback is a configuration change back to the pinned previous version, kept available until the old model retires.",
+      "revision": "Pin versions, track deprecation, run regression suite, shadow, canary, compare quality cost latency safety, and keep rollback as a config switch.",
+      "detailed": "A model change can alter tone, tool choice, formatting and refusal behaviour even if benchmarks improve.\n\n## Upgrade pipeline\n\n| Stage | Purpose | Gate |\n|---|---|---|\n| Inventory | Know which agents use which model and version | Registry |\n| Offline regression | Golden and adversarial cases | Pass rate not below baseline |\n| Shadow | Candidate sees live inputs, outputs compared, not shown to users | Agreement and no new failures |\n| Canary | Small share of traffic or tenants | Metrics within thresholds |\n| Ramp and monitor | Gradual increase | Alerts, quick rollback |\n| Retire old | After deprecation margin | Cleanup |\n\n{{diagram:upg}}\n\n## What to compare\n\n- **Task quality** by field-level and rubric scores.\n- **Tool behaviour**: right tool, valid arguments, number of steps.\n- **Safety**: refusals, content filter hits, injection resilience.\n- **Cost** per task and **latency**; newer models can use more reasoning tokens.\n- **Format stability**: structured output validity rate.\n\n## Practices\n\n- Pin versions and store model id in every trace.\n- Subscribe to vendor deprecation notices; keep a calendar of retirement dates (verify in current vendor docs, as policies differ by provider and region).\n- Prompts are versioned with the model; a prompt tuned for one model may regress on another.\n- Keep a fallback model that has passed the same suite.\n- Communicate behaviour changes to business owners.\n\n## Common mistakes\n\n- Using \"latest\" aliases.\n- Upgrading under deadline pressure with no regression suite.\n- Comparing only on benchmark scores.\n- Removing the old deployment immediately after cutover.",
+      "followUps": [
+        "How big should the regression suite be?",
+        "How do you canary an agent with side effects?",
+        "What do you do when the vendor deprecates a model sooner than expected?"
+      ],
+      "related": [
+        "model-selection-routing-fallback",
+        "making-agent-workflows-deterministic"
+      ],
+      "diagrams": [
+        {
+          "id": "upg",
+          "title": "Model upgrade pipeline",
+          "alt": "A candidate model version passes offline regression, then shadow evaluation on live inputs, then a small canary, then a gradual ramp. A regression at any stage returns traffic to the pinned previous version through a configuration switch. The old version retires only after a safety margin.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "p",
+              "label": "Pinned current version"
+            },
+            {
+              "id": "c",
+              "label": "Candidate version"
+            },
+            {
+              "id": "rg",
+              "label": "Offline regression suite"
+            },
+            {
+              "id": "sh",
+              "label": "Shadow on live traffic"
+            },
+            {
+              "id": "ca",
+              "label": "Canary"
+            },
+            {
+              "id": "rm",
+              "label": "Ramp"
+            },
+            {
+              "id": "rb",
+              "label": "Rollback switch"
+            },
+            {
+              "id": "rt",
+              "label": "Retire old version"
+            }
+          ],
+          "edges": [
+            {
+              "from": "c",
+              "to": "rg"
+            },
+            {
+              "from": "rg",
+              "to": "sh"
+            },
+            {
+              "from": "sh",
+              "to": "ca"
+            },
+            {
+              "from": "ca",
+              "to": "rm"
+            },
+            {
+              "from": "rm",
+              "to": "rt"
+            },
+            {
+              "from": "rg",
+              "to": "rb",
+              "label": "fail"
+            },
+            {
+              "from": "sh",
+              "to": "rb",
+              "label": "fail"
+            },
+            {
+              "from": "ca",
+              "to": "rb",
+              "label": "fail"
+            },
+            {
+              "from": "rb",
+              "to": "p"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "model-selection-routing-fallback",
+      "title": "Model selection, routing and fallback strategies",
+      "topic": "Model routing",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "model-routing",
+        "fallback",
+        "cost",
+        "data-residency"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I match model tier to task: a small cheap model for classification and extraction, a stronger one for complex reasoning, and escalation when confidence is low or validation fails. Routing is explicit, logged and evaluated. For provider outages I define a fallback that has passed the same regression suite, and I accept that outputs will differ, so downstream steps rely on schemas. Data residency and contract terms constrain which models and regions are allowed at all.",
+      "revision": "Tiered models by task, explicit evaluated routing with escalation, tested fallbacks for outages, schema-based consistency, and residency and contract limits applied first.",
+      "detailed": "## Selection criteria\n\n| Criterion | Question |\n|---|---|\n| Quality | Pass rate on our own evaluation set, not public leaderboards |\n| Cost | Per successful task, including retries and reasoning tokens |\n| Latency | Interactive versus batch |\n| Capability | Tool calling, structured output, context length, modalities |\n| Compliance | Region, retention, training-use terms, certifications |\n| Stability | Version retention and deprecation policy |\n\n{{diagram:route}}\n\n## Routing strategies\n\n- **Static by task**: each workflow step has an assigned model.\n- **Escalation**: try the cheap model, validate, escalate on failure or low confidence.\n- **Classifier router**: a small model estimates difficulty; keep its cost low and measure mistakes.\n- **Per-tenant or per-region policy**: residency rules choose the deployment.\n\n## Fallback\n\n1. Health checks and error-rate thresholds on each endpoint.\n2. Same-provider second region or deployment, then a second provider if contracts and residency allow.\n3. Fallback models must pass the same regression suite; record which model served each request.\n4. Degraded mode: reduce autonomy, disable high-risk tools, or queue work, rather than switch to an untested model for sensitive actions.\n\n## Consistency\n\nDifferent models produce different wording and decisions. Keep decisions in validated schemas and rules, avoid mixing models within one conversation unless the state is model-neutral, and expect prompt adjustments per model.\n\n## Governance\n\nMaintain an approved-model list, with data classification allowed for each. Verify current provider terms and regional availability, since they change.\n\n## Common mistakes\n\n- Choosing the biggest model everywhere.\n- A fallback never tested until the outage.\n- Sending regulated data to an unapproved region during failover.\n- Measuring cost per token instead of per task.",
+      "followUps": [
+        "How do you test a fallback path regularly?",
+        "When is it better to degrade than to fail over?",
+        "How would you evaluate a difficulty router?"
+      ],
+      "related": [
+        "model-upgrades-without-breaking-production",
+        "agent-deployment-operations-azure"
+      ],
+      "diagrams": [
+        {
+          "id": "route",
+          "title": "Model routing with fallback",
+          "alt": "A request passes a policy check for data class and region, then a router selects a model tier. The small model handles simple steps and validation failures escalate to a stronger model. If the primary endpoint is unhealthy, traffic fails over to a tested secondary, or the agent degrades to a safe mode.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "rq",
+              "label": "Request"
+            },
+            {
+              "id": "pol",
+              "label": "Policy: data class and region"
+            },
+            {
+              "id": "rt",
+              "label": "Router"
+            },
+            {
+              "id": "sm",
+              "label": "Small model tier"
+            },
+            {
+              "id": "lg",
+              "label": "Stronger model tier"
+            },
+            {
+              "id": "sec",
+              "label": "Tested secondary endpoint"
+            },
+            {
+              "id": "dg",
+              "label": "Degraded safe mode"
+            }
+          ],
+          "edges": [
+            {
+              "from": "rq",
+              "to": "pol"
+            },
+            {
+              "from": "pol",
+              "to": "rt"
+            },
+            {
+              "from": "rt",
+              "to": "sm",
+              "label": "simple"
+            },
+            {
+              "from": "rt",
+              "to": "lg",
+              "label": "complex"
+            },
+            {
+              "from": "sm",
+              "to": "lg",
+              "label": "validation fails"
+            },
+            {
+              "from": "lg",
+              "to": "sec",
+              "label": "outage"
+            },
+            {
+              "from": "sec",
+              "to": "dg",
+              "label": "also unavailable"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "responsible-ai-auditability-access-control",
+      "title": "Responsible AI, auditability and access control for enterprise agents",
+      "topic": "Responsible AI governance",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "responsible-ai",
+        "audit",
+        "content-safety",
+        "retention",
+        "compliance"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I build responsible AI into the design: content safety filters on inputs and outputs, clear disclosure that users are talking to an AI, least-privilege access, human oversight for high-impact actions, and complete logs. Data retention follows policy: log enough to audit and investigate but minimise and redact personal data. I stay aware of regulation such as the EU AI Act and data protection law in general terms, and work with legal and security for the specifics rather than assuming compliance.",
+      "revision": "Content safety, transparency, least privilege, human oversight, auditable logs with redaction and retention limits, and general regulatory awareness with legal input.",
+      "detailed": "Responsible AI is a set of engineering controls with owners, not a policy document.\n\n## Control areas\n\n| Area | Controls |\n|---|---|\n| Safety | Content filtering on input and output, prompt-injection defences, red-team testing |\n| Transparency | Tell users they interact with AI, show sources and limits, explain escalation |\n| Fairness and quality | Evaluate across user groups and languages, monitor drift |\n| Access control | Delegated identity, least privilege, tool allow lists, tenant isolation |\n| Human oversight | Approvals for high-impact actions, override and kill switch |\n| Accountability | Named owner, risk assessment, change approval, incident process |\n| Privacy | Data minimisation, redaction, residency, deletion on request |\n\n{{diagram:rai}}\n\n## Auditability\n\nAn auditor should be able to reconstruct **who asked, what the agent saw, what it decided, which tools it called with what authority, who approved, and what changed**. That needs run ids, versioned prompts and models, tool and approval logs, and tamper-evident storage with restricted access.\n\n## Retention\n\n- Define retention per data class; keep audit metadata longer than raw prompts.\n- Redact personal data and secrets before storing content.\n- Support deletion and legal hold processes.\n- Confirm what the model provider retains and whether data is used for training; verify in current contract and vendor documentation.\n\n## Regulatory awareness (general)\n\nLaws such as the EU AI Act, GDPR-style data protection, sector rules in finance and health, and employment law can apply depending on use. Classify each use case by risk, document intended purpose, and involve legal and compliance early. This is awareness, not legal advice.\n\n## Common mistakes\n\n- Treating the model provider's filters as the whole safety story.\n- Logging everything forever, creating a privacy liability.\n- No named owner for each agent.\n- Compliance review only at launch, not at each material change.",
+      "followUps": [
+        "How would you classify the risk of a new agent use case?",
+        "What would an auditor ask for first?",
+        "How do you handle a deletion request when prompts are logged?"
+      ],
+      "related": [
+        "tool-authorisation-identity-propagation",
+        "tracing-incorrect-agent-decision"
+      ],
+      "diagrams": [
+        {
+          "id": "rai",
+          "title": "Responsible AI control layers",
+          "alt": "A user request passes input safety checks and access control. The agent acts with human oversight for high-impact actions. Outputs pass safety checks and transparency labelling. Redacted audit logs flow to retention controlled storage, and a governance owner reviews incidents and changes.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "u",
+              "label": "User request"
+            },
+            {
+              "id": "in",
+              "label": "Input safety and access control"
+            },
+            {
+              "id": "ag",
+              "label": "Agent with least privilege"
+            },
+            {
+              "id": "ho",
+              "label": "Human oversight for high impact"
+            },
+            {
+              "id": "out",
+              "label": "Output safety and AI disclosure"
+            },
+            {
+              "id": "lg",
+              "label": "Redacted audit logs"
+            },
+            {
+              "id": "gv",
+              "label": "Owner review and risk assessment"
+            }
+          ],
+          "edges": [
+            {
+              "from": "u",
+              "to": "in"
+            },
+            {
+              "from": "in",
+              "to": "ag"
+            },
+            {
+              "from": "ag",
+              "to": "ho"
+            },
+            {
+              "from": "ho",
+              "to": "out"
+            },
+            {
+              "from": "ag",
+              "to": "out"
+            },
+            {
+              "from": "out",
+              "to": "u"
+            },
+            {
+              "from": "ag",
+              "to": "lg"
+            },
+            {
+              "from": "ho",
+              "to": "lg"
+            },
+            {
+              "from": "lg",
+              "to": "gv"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "agent-deployment-operations-azure",
+      "title": "Deploying and operating agents on Azure: hosting, secrets, scaling and runbooks",
+      "topic": "Agent operations",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "azure",
+        "deployment",
+        "container-apps",
+        "aks",
+        "quotas",
+        "runbook"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I host the agent as a stateless service with state in a database, so it scales out. Azure Container Apps suits most HTTP agents, Functions suits event-driven or short tasks, AKS when we need fine control, and Foundry offers managed agent hosting that I would verify against current docs. Secrets live in Key Vault with managed identity. The real constraint is model endpoint quota, so I plan rate limits, queueing and backoff, and I keep a support runbook.",
+      "revision": "Stateless agent service with external state; Container Apps, Functions, AKS or Foundry hosting (verify); Key Vault and managed identity; plan for model quotas; keep a runbook.",
+      "detailed": "## Hosting options (verify current features and limits in Microsoft docs)\n\n| Option | Fits | Watch for |\n|---|---|---|\n| Azure Container Apps | HTTP agents, scale to zero or by load, simple operations | Long-running tasks need external state or queues |\n| Azure Functions | Event-driven, short steps, durable orchestration options | Execution time limits depend on plan |\n| AKS | Many services, custom networking, policy control | Operational overhead |\n| Foundry managed agent hosting | Managed lifecycle and integration with Foundry | Feature set and region availability change; confirm before committing |\n| Existing app hosting (App Service etc.) | Reuse platform | Scaling model |\n\n{{diagram:ops}}\n\n## Design for operations\n\n- **Stateless workers**; run state in a database or durable store (see checkpoints).\n- **Secrets** in Key Vault, **managed identity** for Azure resources, no keys in config or prompts.\n- **Network**: private endpoints to model and data services where required.\n- **Configuration**: model deployment, prompt version and feature flags in config, changeable without redeploy.\n- **CI/CD**: automated evaluation gate, staged environments, infrastructure as code.\n\n## Quotas and rate limits\n\nModel endpoints enforce tokens-per-minute and requests-per-minute limits per deployment and region. Plan capacity per agent, use queues for background work, apply client-side backoff and priority (interactive before batch), and monitor 429 rates. Request quota early; it can take time.\n\n## Support runbook\n\n1. Dashboards: success rate, latency, token use, 429s, guard trips, approval backlog.\n2. Triage steps by symptom (slow, wrong, failing, expensive).\n3. Kill switches and degrade modes.\n4. How to find a run trace and replay it.\n5. Escalation contacts and vendor status pages.\n6. Post-incident review feeding the regression suite.\n\n## Common mistakes\n\n- Storing session state in process memory.\n- Sizing compute and ignoring model quota.\n- No degrade mode for model outage.\n- Secrets in environment files committed to source.",
+      "followUps": [
+        "How would you scale an agent that waits hours for approval?",
+        "How do you split quota between interactive and batch agents?",
+        "What goes on the first page of the runbook?"
+      ],
+      "related": [
+        "model-selection-routing-fallback",
+        "agent-state-checkpoints-durable-execution"
+      ],
+      "diagrams": [
+        {
+          "id": "ops",
+          "title": "Agent hosting and operations",
+          "alt": "Clients call an agent service hosted on a container platform with managed identity. Secrets come from Key Vault. State lives in a database and a queue buffers background work. The service calls a quota-limited model endpoint, and telemetry feeds dashboards and a runbook.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "cl",
+              "label": "Clients"
+            },
+            {
+              "id": "sv",
+              "label": "Agent service, stateless"
+            },
+            {
+              "id": "kv",
+              "label": "Key Vault and managed identity"
+            },
+            {
+              "id": "db",
+              "label": "State database"
+            },
+            {
+              "id": "qu",
+              "label": "Queue for background work"
+            },
+            {
+              "id": "mo",
+              "label": "Model endpoint with quotas"
+            },
+            {
+              "id": "ob",
+              "label": "Telemetry and dashboards"
+            },
+            {
+              "id": "rb",
+              "label": "Support runbook"
+            }
+          ],
+          "edges": [
+            {
+              "from": "cl",
+              "to": "sv"
+            },
+            {
+              "from": "sv",
+              "to": "kv"
+            },
+            {
+              "from": "sv",
+              "to": "db"
+            },
+            {
+              "from": "sv",
+              "to": "qu"
+            },
+            {
+              "from": "sv",
+              "to": "mo"
+            },
+            {
+              "from": "sv",
+              "to": "ob"
+            },
+            {
+              "from": "ob",
+              "to": "rb"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

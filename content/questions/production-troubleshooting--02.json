@@ -1,0 +1,736 @@
+{
+  "category": "production-troubleshooting",
+  "questions": [
+    {
+      "slug": "operations-handover-checklist",
+      "title": "What must the AI COE provide before handing a product to a global operations team?",
+      "topic": "Operational handover",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "operations",
+        "handover",
+        "support",
+        "runbooks"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Operations can only support what they can see, understand and safely change. Before handover I provide an architecture and dependency map, runbooks and known errors, dashboards and alerts with owners, access and permissions, deployment and rollback procedures, support tiers and escalation, release notes, test evidence, and trained people. I only call it handed over when operations pass a readiness review and have handled a rehearsed incident.",
+      "revision": "Handover needs architecture, runbooks, dashboards, alerts, access, deployment and rollback, escalation, release notes, training and a passed readiness review.",
+      "detailed": "A global support team works across time zones and will not have the builders on hand. The handover is a **contract**: what the product does, how it fails, how to see it and who to call. The checklist below is the minimum for a hybrid Power Platform, Dataverse, Azure and AI agent product.\n\n## Handover checklist\n\n| Area | Deliverable | Typical owner |\n|---|---|---|\n| Architecture | Context diagram, component list (flows, plug-ins, APIs, agents, models), dependencies and data flows | Architect |\n| Environments | Dev, test, production, URLs, regions, owners, solution names and versions | Platform lead |\n| Access | Roles and groups for support, break-glass process, service identities, connection owners and secret rotation dates | Security lead |\n| Observability | Dashboards, alert rules, log locations, correlation id format, how to query a failed run | Engineering lead |\n| Runbooks | Per alert, with known errors and safe actions | Service owner |\n| Release and rollback | Pipeline, approvals, rollback steps, release notes and change history | Release manager |\n| Support model | Tiers, severity matrix, escalation contacts, on-call rota, working hours | Service manager |\n| Quality evidence | Test results, evaluation results for AI features, known limitations | QA lead |\n| Operational limits | Throttling limits, quotas, licences, cost budgets and review dates (verify current Microsoft docs) | Engineering lead |\n| Training | Walkthrough, recorded sessions, shadowing, a rehearsed incident | COE team |\n| Data and compliance | Data classification, retention, privacy and audit requirements | Compliance |\n\n{{diagram:handover}}\n\n## Acceptance\n\nOperations signs an **operational acceptance** record: all items present, a game-day incident handled with the runbook, and a defined **hypercare** period during which the COE still answers escalations.\n\n## Common mistakes\n\n- Handing over a diagram and a wiki link only.\n- Running alerts nobody owns or understands.\n- Leaving connection ownership with a named individual.\n- Ending hypercare by date, not by evidence of stability.\n\nIn an interview I would say that handover is a readiness gate, not a meeting.",
+      "followUps": [
+        "Who owns the product during hypercare?",
+        "How do you test that runbooks work?",
+        "What if operations reject the handover?"
+      ],
+      "diagrams": [
+        {
+          "id": "handover",
+          "title": "Operational handover flow",
+          "alt": "The AI COE prepares architecture, runbooks, dashboards and access. Operations reviews them, a rehearsed incident tests them, acceptance is signed, then a hypercare period starts with escalation back to the COE.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "a",
+              "label": "Handover pack: architecture, runbooks, dashboards, access"
+            },
+            {
+              "id": "r",
+              "label": "Operations readiness review"
+            },
+            {
+              "id": "g",
+              "label": "Rehearsed incident"
+            },
+            {
+              "id": "s",
+              "label": "Operational acceptance sign-off"
+            },
+            {
+              "id": "h",
+              "label": "Hypercare with COE escalation"
+            },
+            {
+              "id": "o",
+              "label": "Steady-state operations"
+            }
+          ],
+          "edges": [
+            {
+              "from": "a",
+              "to": "r"
+            },
+            {
+              "from": "r",
+              "to": "g"
+            },
+            {
+              "from": "g",
+              "to": "s",
+              "label": "pass"
+            },
+            {
+              "from": "g",
+              "to": "a",
+              "label": "gaps"
+            },
+            {
+              "from": "s",
+              "to": "h"
+            },
+            {
+              "from": "h",
+              "to": "o"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "structured-logging-correlation-ids",
+      "title": "How do you design structured logging and correlation IDs across flow, plug-in, API and agent?",
+      "topic": "Correlation and logging",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "logging",
+        "correlation-id",
+        "application-insights",
+        "observability"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I define one correlation id at the entry point and carry it through every hop: flow, API, plug-in and agent. Logs are structured with fixed fields such as correlation id, component, operation, outcome, duration and tenant, and never contain secrets or personal data. Each hop logs when it receives an id and passes it on. Then one query in Application Insights or Log Analytics reconstructs a whole journey.",
+      "revision": "One correlation id from entry point through every hop, structured fields, no secrets; a single query rebuilds the journey.",
+      "detailed": "A single user action may touch a flow, a Dataverse plug-in, an API and an AI agent. Without a shared id, each tool shows a fragment.\n\n## Design\n\n{{diagram:corr}}\n\n| Hop | Practice | Note |\n|---|---|---|\n| Entry point | Generate a GUID if none is supplied; accept an inbound `x-correlation-id` | Never trust it for security |\n| Flow | Store the id in a variable from the trigger; pass it as a header on HTTP calls; write it into the run description or a Dataverse column | Add the flow run id as well |\n| Dataverse plug-in | Read the platform `CorrelationId` from the execution context; write it to trace log and Application Insights | Link with the custom id stored on the row |\n| API | Middleware reads the header, sets `operation_Id` or a custom dimension, returns it in the response | Include `x-ms-client-request-id` where Azure services are called |\n| Agent | Use the conversation id and a per-turn id; log tool calls with the same correlation id | Record model deployment and token counts |\n\n## Log schema\n\nUse one schema: `timestamp`, `correlationId`, `component`, `operation`, `outcome`, `durationMs`, `tenant`, `errorClass`, `version`. **Never log** tokens, secrets or free-text personal data; log identifiers and hashes.\n\n## Illustrative query\n\n```kusto\nunion requests, dependencies, traces, exceptions\n| where customDimensions.correlationId == \"<id>\"\n| project timestamp, itemType, name, resultCode, duration, message\n| order by timestamp asc\n```\n\nThe query is illustrative; adapt table and field names to your telemetry.\n\n## Common mistakes\n\n- Each component inventing its own id.\n- Losing the id at the flow boundary because the HTTP action did not forward the header.\n- Logging payloads containing personal data.\n- Free-text messages that cannot be queried.\n\nI would also test it: a synthetic transaction must show up end to end in one query.",
+      "followUps": [
+        "How do you correlate with a third-party system that drops headers?",
+        "How do you stop personal data entering logs?",
+        "What do you do about sampling in Application Insights?"
+      ],
+      "diagrams": [
+        {
+          "id": "corr",
+          "title": "Correlation id propagation",
+          "alt": "A request enters at the entry point where a correlation id is created. The id passes to the cloud flow, the API, the Dataverse plug-in and the agent. All components write structured logs with that id to a single workspace, queried together.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "e",
+              "label": "Entry point creates correlation id"
+            },
+            {
+              "id": "f",
+              "label": "Cloud flow"
+            },
+            {
+              "id": "a",
+              "label": "API"
+            },
+            {
+              "id": "p",
+              "label": "Dataverse plug-in"
+            },
+            {
+              "id": "g",
+              "label": "AI agent"
+            },
+            {
+              "id": "w",
+              "label": "Log workspace: one query per journey"
+            }
+          ],
+          "edges": [
+            {
+              "from": "e",
+              "to": "f"
+            },
+            {
+              "from": "f",
+              "to": "a",
+              "label": "header"
+            },
+            {
+              "from": "a",
+              "to": "p",
+              "label": "context"
+            },
+            {
+              "from": "a",
+              "to": "g",
+              "label": "header"
+            },
+            {
+              "from": "f",
+              "to": "w"
+            },
+            {
+              "from": "a",
+              "to": "w"
+            },
+            {
+              "from": "p",
+              "to": "w"
+            },
+            {
+              "from": "g",
+              "to": "w"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "observability-design-low-code-pro-code",
+      "title": "How would you design observability for a product spanning flows, plug-ins, APIs and agents?",
+      "topic": "Observability design",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "observability",
+        "monitoring",
+        "alerts",
+        "dashboards"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I design observability by layer with a common correlation id. For flows I use run history and flow diagnostics; for plug-ins the trace log plus telemetry; for APIs request, dependency and failure metrics; for agents execution traces, tool-call outcomes and token usage. Dashboards answer user-impact questions first, alerts are tied to runbooks and owners, and every alert is actionable. Telemetry is tested like any other feature.",
+      "revision": "Layered signals joined by correlation id: flow runs, plug-in traces, API metrics, agent traces and token usage; user-impact dashboards and actionable alerts.",
+      "detailed": "Observability must answer three questions: **is it working for users, where is it failing, and what changed?** The layers differ, so the signals do.\n\n## Signals by layer\n\n| Layer | Signals | Headline metric |\n|---|---|---|\n| Cloud flow | Run history status, duration percentiles, retries, throttling; flow diagnostics exported to a workspace (verify current Microsoft docs) | Failure rate per flow, run duration p95 |\n| Plug-in | PluginTraceLog (time-boxed), exceptions, duration, depth; Application Insights integration if used | Slow or failing steps by message |\n| API | Request rate, error rate, latency percentiles, dependency failures, 429 counts | Error budget burn |\n| Agent | Conversation outcomes, tool-call success, groundedness checks, fallback rate, token usage and cost | Resolution rate, refusal rate |\n| Platform | Solution history, connection health, licence and capacity consumption | Connection status, deployment events |\n\n{{diagram:obs}}\n\n## Dashboards\n\nOne **service health** view for support (user impact, current incidents), one **engineering** view per layer, and one **AI quality and cost** view. Overlay deployment events on every chart so changes are visible.\n\n## Alerts\n\nAlert on symptoms users feel (error budget burn, failure rate, queue age), not on every exception. Each alert has an owner, a severity and a runbook link. Review noisy alerts monthly.\n\n## Common mistakes\n\n- Dashboards full of CPU graphs and no user-impact metric.\n- Alerts without runbooks.\n- Leaving plug-in trace logging fully on permanently.\n- Not monitoring connection expiry.\n\nFinally, run a game day to prove the signals show a deliberate failure.",
+      "followUps": [
+        "Which three alerts would you create first?",
+        "How do you monitor an agent's answer quality?",
+        "How do you control telemetry cost?"
+      ],
+      "diagrams": [
+        {
+          "id": "obs",
+          "title": "Layered observability",
+          "alt": "Flows, plug-ins, the API and the agent each emit signals into a shared workspace. Dashboards show user impact and engineering detail. Alert rules notify owners with runbook links.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "fl",
+              "label": "Flow diagnostics"
+            },
+            {
+              "id": "pl",
+              "label": "Plug-in traces"
+            },
+            {
+              "id": "ap",
+              "label": "API metrics"
+            },
+            {
+              "id": "ag",
+              "label": "Agent traces and tokens"
+            },
+            {
+              "id": "ws",
+              "label": "Shared workspace"
+            },
+            {
+              "id": "db",
+              "label": "Dashboards"
+            },
+            {
+              "id": "al",
+              "label": "Alerts with owners and runbooks"
+            }
+          ],
+          "edges": [
+            {
+              "from": "fl",
+              "to": "ws"
+            },
+            {
+              "from": "pl",
+              "to": "ws"
+            },
+            {
+              "from": "ap",
+              "to": "ws"
+            },
+            {
+              "from": "ag",
+              "to": "ws"
+            },
+            {
+              "from": "ws",
+              "to": "db"
+            },
+            {
+              "from": "ws",
+              "to": "al"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "error-classification-retry-dead-letter",
+      "title": "How do you classify errors and design retry and dead-letter handling?",
+      "topic": "Error handling design",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "errors",
+        "retry",
+        "dead-letter",
+        "idempotency"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I classify errors first, because retrying the wrong kind is harmful. Transient errors such as timeouts, 429 and 503 get bounded exponential back-off honouring Retry-After. Permanent errors such as validation failures or 404 go straight to a dead-letter store with context. Unknown errors retry a few times, then dead-letter. Every retried action is idempotent, and the dead-letter queue has an owner, an alert and a replay procedure.",
+      "revision": "Classify transient, permanent, unknown; bounded back-off for transient, dead-letter permanent; idempotent actions; owned queue with alert and replay.",
+      "detailed": "Retry logic is only safe when you know **why** something failed and whether repeating it is harmless.\n\n## Classification\n\n| Class | Examples | Handling |\n|---|---|---|\n| Transient | Timeout, 429, 503, connection reset | Retry with exponential back-off and jitter; honour `Retry-After`; cap attempts |\n| Permanent | Validation failure, 400, 404 for a missing reference, business rule rejection | No retry; dead-letter with reason; notify data owner |\n| Authentication or authorisation | 401, 403, expired connection | Do not loop; alert platform owner; pause the consumer |\n| Poison message | Fails every time for a specific payload | Dead-letter after N attempts; do not block the queue |\n| Unknown | Unclassified exceptions | Limited retries, then dead-letter and raise for review |\n\n{{diagram:retry}}\n\n## Dead-letter design\n\nStore the original payload (redacted as required), correlation id, error class, attempt count, first and last failure time, and component version. Provide a **replay** procedure that re-submits after the fix, using idempotency keys so replays cannot duplicate. Alert on queue depth and on the age of the oldest item.\n\n## In Power Platform\n\nSet the action retry policy deliberately, use scopes with run-after configured for failure to route errors, and write failures to a Dataverse table. Verify current Microsoft docs for default retry behaviour and limits.\n\n## Common mistakes\n\n- Retrying every error identically.\n- Infinite retries with no cap.\n- A dead-letter store nobody reads.\n- Replays that duplicate data.",
+      "followUps": [
+        "How do you pick the retry count and delay?",
+        "Who triages the dead-letter queue?",
+        "How do you handle a poison message?"
+      ],
+      "diagrams": [
+        {
+          "id": "retry",
+          "title": "Retry and dead-letter routing",
+          "alt": "A failed operation is classified. Transient errors retry with back-off and either succeed or exhaust attempts. Permanent errors and poison messages go to a dead-letter store. Authentication errors pause the consumer. Operators replay dead-letter items after a fix.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "f",
+              "label": "Failed operation"
+            },
+            {
+              "id": "c",
+              "label": "Classify error"
+            },
+            {
+              "id": "r",
+              "label": "Retry with back-off"
+            },
+            {
+              "id": "ok",
+              "label": "Success"
+            },
+            {
+              "id": "dl",
+              "label": "Dead-letter store"
+            },
+            {
+              "id": "pa",
+              "label": "Pause consumer and alert"
+            },
+            {
+              "id": "rp",
+              "label": "Replay after fix"
+            }
+          ],
+          "edges": [
+            {
+              "from": "f",
+              "to": "c"
+            },
+            {
+              "from": "c",
+              "to": "r",
+              "label": "transient"
+            },
+            {
+              "from": "r",
+              "to": "ok"
+            },
+            {
+              "from": "r",
+              "to": "dl",
+              "label": "attempts exhausted"
+            },
+            {
+              "from": "c",
+              "to": "dl",
+              "label": "permanent or poison"
+            },
+            {
+              "from": "c",
+              "to": "pa",
+              "label": "auth"
+            },
+            {
+              "from": "dl",
+              "to": "rp"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "incident-severity-escalation-on-call",
+      "title": "How do you design incident severity, escalation and on-call for a hybrid low-code and pro-code product?",
+      "topic": "Incident management",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "incident-management",
+        "on-call",
+        "escalation",
+        "severity"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I define severity by user and business impact, not by technology, and attach response targets to each level. Tier one follows runbooks, tier two handles platform and configuration issues, and engineering on-call covers code, plug-ins, APIs and AI behaviour. Escalation paths name roles and have time limits. Makers and pro developers share one rota or a clear handoff, because failures cross the low-code and code boundary.",
+      "revision": "Severity from impact with response targets; tiers with runbooks; named escalation roles with time limits; one coordinated rota across makers and developers.",
+      "detailed": "The danger in a hybrid product is the gap between **makers** who own flows and apps and **developers** who own plug-ins and APIs. An incident often spans both.\n\n## Severity matrix (illustrative; agree targets with the business)\n\n| Level | Definition | Response |\n|---|---|---|\n| Sev 1 | Core process down or data exposure or harm | Immediate page, incident commander, updates at agreed intervals |\n| Sev 2 | Major feature degraded, workaround exists | Response within agreed hours, engineering engaged |\n| Sev 3 | Minor defect or single-user issue | Handled in business hours via ticket |\n| Sev 4 | Request or cosmetic | Backlog |\n\n## Tiers and escalation\n\n{{diagram:esc}}\n\n- **Tier 1** triage with runbooks, confirm impact, collect the correlation id.\n- **Tier 2** platform and configuration: connections, environment variables, solution state, licences.\n- **Tier 3 on-call engineering**: plug-ins, APIs, agent behaviour, data fixes.\n- **Vendor escalation** to Microsoft support with request ids when platform behaviour is suspected.\n\nAI-specific issues (unsafe answers, data leakage) escalate to security and the product owner at once, with the ability to switch the agent to a safe fallback.\n\n## On-call design\n\nPublish a rota with a primary and a secondary, handover notes, a rule for maximum consecutive nights, and compensation. Keep paging reserved for severity one and two; everything else is a ticket.\n\n## Common mistakes\n\n- Severity defined by system, not impact.\n- Makers and developers on separate, unconnected rotas.\n- No authority to disable a feature.\n- No post-incident review.",
+      "followUps": [
+        "Who is incident commander and why?",
+        "How do you reduce alert fatigue?",
+        "What goes in a post-incident review?"
+      ],
+      "diagrams": [
+        {
+          "id": "esc",
+          "title": "Support tiers and escalation",
+          "alt": "Alerts and tickets arrive at tier one which follows runbooks. Unresolved issues pass to tier two for platform and configuration, then to engineering on-call, with a vendor escalation path. Severity one adds an incident commander and security.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "al",
+              "label": "Alert or ticket"
+            },
+            {
+              "id": "t1",
+              "label": "Tier 1 runbooks"
+            },
+            {
+              "id": "t2",
+              "label": "Tier 2 platform and configuration"
+            },
+            {
+              "id": "t3",
+              "label": "Engineering on-call"
+            },
+            {
+              "id": "vn",
+              "label": "Vendor support"
+            },
+            {
+              "id": "ic",
+              "label": "Incident commander and security"
+            }
+          ],
+          "edges": [
+            {
+              "from": "al",
+              "to": "t1"
+            },
+            {
+              "from": "t1",
+              "to": "t2",
+              "label": "unresolved"
+            },
+            {
+              "from": "t2",
+              "to": "t3",
+              "label": "code or data"
+            },
+            {
+              "from": "t2",
+              "to": "vn",
+              "label": "platform suspected"
+            },
+            {
+              "from": "t1",
+              "to": "ic",
+              "label": "severity 1"
+            },
+            {
+              "from": "t3",
+              "to": "ic",
+              "label": "severity 1"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "runbooks-known-error-documentation",
+      "title": "What belongs in a runbook and a known-error record?",
+      "topic": "Runbooks and known errors",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "runbooks",
+        "documentation",
+        "known-errors",
+        "support"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "A runbook lets someone who did not build the system resolve an alert safely. It states the trigger, impact, checks with exact queries, safe actions, rollback, escalation and verification. A known-error record documents a recurring problem with symptoms, cause, workaround and the permanent fix status. Both are tied to alerts, reviewed after incidents and tested by someone other than the author.",
+      "revision": "Runbook: trigger, impact, exact checks, safe actions, rollback, escalation, verification. Known error: symptoms, cause, workaround, fix status. Tested and kept current.",
+      "detailed": "A runbook is written for the person on call at 03:00 who has never seen the code.\n\n## Runbook template\n\n| Section | Content | Note |\n|---|---|---|\n| Title and alert | Name of the alert and where it fires | Link both ways |\n| Impact | Who is affected and how to confirm | User-facing wording |\n| Prerequisites | Access and tools needed | Roles, portals |\n| Checks | Exact steps and queries with expected results | Illustrative KQL, run-history path |\n| Safe actions | Restart, rerun, pause, re-bind connection, with warnings | Each with undo |\n| Do not | Actions that cause harm | For example, do not delete runs |\n| Escalate | When, to whom, with which evidence | Correlation id, run id |\n| Verify | How to confirm recovery | Metric returns to normal |\n| History | Owner, last tested date, change log | Review cadence |\n\n## Known-error record\n\n| Field | Content |\n|---|---|\n| ID and title | Short unique name |\n| Symptoms | What users and logs show |\n| Root cause | Confirmed or suspected |\n| Workaround | Steps and risks |\n| Permanent fix | Backlog item, target release, status |\n| Related | Alerts, runbooks, incidents |\n\n{{diagram:kedb}}\n\n## Keeping them alive\n\nReview after every incident, retire entries when the fix ships, and run a **dry run** by someone who did not write it.\n\n## Common mistakes\n\n- Prose with no exact commands or queries.\n- Runbooks that say \"restart it\" without a rollback.\n- No owner, so steps go stale.\n- Known errors never closed.",
+      "followUps": [
+        "How do you test a runbook?",
+        "How do you decide what to automate?",
+        "Where do you store runbooks so they are found?"
+      ],
+      "diagrams": [
+        {
+          "id": "kedb",
+          "title": "Incident to known error lifecycle",
+          "alt": "An alert fires and the runbook guides resolution. A recurring cause is recorded as a known error with a workaround. The permanent fix is released, the entry is closed and the runbook is updated.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "a",
+              "label": "Alert"
+            },
+            {
+              "id": "r",
+              "label": "Runbook steps"
+            },
+            {
+              "id": "i",
+              "label": "Incident review"
+            },
+            {
+              "id": "k",
+              "label": "Known-error record"
+            },
+            {
+              "id": "f",
+              "label": "Permanent fix released"
+            },
+            {
+              "id": "u",
+              "label": "Runbook updated, entry closed"
+            }
+          ],
+          "edges": [
+            {
+              "from": "a",
+              "to": "r"
+            },
+            {
+              "from": "r",
+              "to": "i"
+            },
+            {
+              "from": "i",
+              "to": "k",
+              "label": "recurring"
+            },
+            {
+              "from": "k",
+              "to": "f"
+            },
+            {
+              "from": "f",
+              "to": "u"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "slos-error-budgets-ai-feature",
+      "title": "How do you define SLOs and error budgets for an AI feature?",
+      "topic": "SLOs for AI",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "slo",
+        "error-budget",
+        "ai-quality",
+        "reliability"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I define service level indicators users feel, then set targets and an error budget. For an AI feature that means availability and latency, but also quality indicators such as grounded-answer rate, correct-tool rate, safe-refusal behaviour and cost per resolved task. Targets are agreed with the product owner using baseline data, measured continuously, and when the budget is burnt the team slows feature work and fixes reliability or quality.",
+      "revision": "Pick user-felt SLIs: availability, latency, plus quality and cost; agree targets from baselines; track error-budget burn and slow releases when exhausted.",
+      "detailed": "An SLO is a promise measured over a window, and an **error budget** is the allowed shortfall. AI features need quality indicators because a fast, available agent can still be wrong.\n\n## Example SLIs (illustrative, targets are for the business to set)\n\n| Indicator | Definition | Note |\n|---|---|---|\n| Availability | Successful responses divided by valid requests | Excludes user errors |\n| Latency | Share of responses within an agreed time, by percentile | Measure end to end |\n| Groundedness | Share of sampled answers supported by cited sources | Human or automated evaluation |\n| Tool correctness | Share of turns calling the expected tool with valid arguments | From evaluation and traces |\n| Safe behaviour | Rate of policy violations or leaked data | Target is near zero, handled as incidents |\n| Cost | Tokens or cost per resolved task | Guardrail, not a promise |\n\n{{diagram:slo}}\n\n## Process\n\n1. Establish a **baseline** from real data before choosing numbers.\n2. Agree targets and the measurement window with the product owner.\n3. Compute burn rate and alert when the budget burns too fast.\n4. Define a policy: when the budget is spent, pause risky releases and prioritise reliability work.\n5. Review quarterly; model or prompt changes need a fresh evaluation run.\n\nQuality SLIs rely on sampling and evaluation sets, so state the sample size and confidence honestly.\n\n## Common mistakes\n\n- Choosing 99.99 percent without a baseline.\n- Only technical SLIs, ignoring answer quality.\n- Counting user input errors against the budget.\n- No consequence when the budget is gone.",
+      "followUps": [
+        "How would you measure groundedness at scale?",
+        "What happens to releases when the budget is spent?",
+        "How do you set an SLO with no history?"
+      ],
+      "diagrams": [
+        {
+          "id": "slo",
+          "title": "SLO and error-budget loop",
+          "alt": "Telemetry and evaluation produce indicators. They are compared with the target to compute error-budget burn. High burn triggers a release slowdown and reliability work, and the outcome feeds the next review.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "t",
+              "label": "Telemetry and evaluations"
+            },
+            {
+              "id": "i",
+              "label": "Indicators"
+            },
+            {
+              "id": "g",
+              "label": "Target and window"
+            },
+            {
+              "id": "b",
+              "label": "Error-budget burn"
+            },
+            {
+              "id": "p",
+              "label": "Policy: slow releases, fix reliability"
+            },
+            {
+              "id": "v",
+              "label": "Quarterly review"
+            }
+          ],
+          "edges": [
+            {
+              "from": "t",
+              "to": "i"
+            },
+            {
+              "from": "i",
+              "to": "b"
+            },
+            {
+              "from": "g",
+              "to": "b"
+            },
+            {
+              "from": "b",
+              "to": "p",
+              "label": "budget low"
+            },
+            {
+              "from": "p",
+              "to": "v"
+            },
+            {
+              "from": "v",
+              "to": "g",
+              "label": "adjust"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "knowledge-transfer-operational-acceptance",
+      "title": "What are your knowledge transfer and operational acceptance criteria?",
+      "topic": "Knowledge transfer and acceptance",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "knowledge-transfer",
+        "release-notes",
+        "acceptance",
+        "change-management"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Knowledge transfer is complete when the receiving team can operate and change the product without the builders. My criteria are documented architecture and runbooks, recorded walkthroughs, shadowing and reverse shadowing, a successful rehearsed incident, release notes with a change history, and access in place. Operational acceptance is a signed checklist with evidence, followed by hypercare, and it can be refused if criteria are not met.",
+      "revision": "Transfer is done when the receiving team operates and changes the product unaided: docs, walkthroughs, shadowing, rehearsed incident, release notes, change history, access, signed acceptance.",
+      "detailed": "The test of knowledge transfer is **capability**, not attendance.\n\n## Phased approach\n\n1. **Document**: architecture, data flows, dependency and configuration inventory, runbooks, known errors.\n2. **Walk through**: recorded sessions per component (flows, plug-ins, API, agent, pipeline).\n3. **Shadow**: the receiving team watches the COE handle changes and incidents.\n4. **Reverse shadow**: the receiving team leads with the COE observing.\n5. **Accept**: sign off against criteria.\n\n## Acceptance criteria\n\n| Criterion | Pass condition | Evidence |\n|---|---|---|\n| Deployment | Receiving team deploys a release and a rollback through the pipeline unaided | Pipeline log |\n| Incident | Resolves a rehearsed incident using the runbook within the agreed time | Game-day record |\n| Documentation | Architecture, runbooks and known errors reviewed and signed | Review sign-off |\n| Release notes | Every release has notes: changes, impacted components, configuration changes, known issues, rollback | Notes archive |\n| Change history | Solution versions, pipeline runs and approvals traceable to work items | Change log |\n| Access | Roles, service identities and secret rotation owners assigned | Access review |\n| Monitoring | Alerts routed to receiving team and tested | Test alert |\n| AI evaluation | Evaluation set, last results and how to rerun | Evaluation report |\n\n{{diagram:kt}}\n\n## Release notes and change history\n\nUse a fixed template with version, date, summary, components changed, configuration or environment variable changes, migration steps, known issues, rollback and links to work items. Keep a single change history that links solution versions to pipeline runs.\n\n## Hypercare\n\nA defined period with COE escalation. Exit on evidence: no severity one or two incidents for an agreed time, and alerts handled within targets.\n\n## Common mistakes\n\n- Counting a slide deck as transfer.\n- Skipping reverse shadowing.\n- No version trace between code, solution and release note.\n- Acceptance under schedule pressure with open gaps.",
+      "followUps": [
+        "What if the receiving team fails the incident rehearsal?",
+        "How do you keep release notes useful?",
+        "How long should hypercare last?"
+      ],
+      "diagrams": [
+        {
+          "id": "kt",
+          "title": "Knowledge transfer phases",
+          "alt": "Documentation leads to recorded walkthroughs, then shadowing, then reverse shadowing. A rehearsed incident and a deployment test feed the acceptance sign-off, followed by hypercare.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "d",
+              "label": "Document"
+            },
+            {
+              "id": "w",
+              "label": "Walkthroughs"
+            },
+            {
+              "id": "s",
+              "label": "Shadow"
+            },
+            {
+              "id": "r",
+              "label": "Reverse shadow"
+            },
+            {
+              "id": "g",
+              "label": "Rehearsed incident and deployment test"
+            },
+            {
+              "id": "a",
+              "label": "Acceptance sign-off"
+            },
+            {
+              "id": "h",
+              "label": "Hypercare"
+            }
+          ],
+          "edges": [
+            {
+              "from": "d",
+              "to": "w"
+            },
+            {
+              "from": "w",
+              "to": "s"
+            },
+            {
+              "from": "s",
+              "to": "r"
+            },
+            {
+              "from": "r",
+              "to": "g"
+            },
+            {
+              "from": "g",
+              "to": "a",
+              "label": "pass"
+            },
+            {
+              "from": "g",
+              "to": "r",
+              "label": "gaps"
+            },
+            {
+              "from": "a",
+              "to": "h"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

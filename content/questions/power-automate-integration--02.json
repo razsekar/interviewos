@@ -1,0 +1,858 @@
+{
+  "category": "power-automate-integration",
+  "questions": [
+    {
+      "slug": "flow-expressions-every-lead-should-know",
+      "title": "Which Power Automate expressions should every lead know, and what are the common pitfalls?",
+      "topic": "Expressions",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "expressions",
+        "null-handling",
+        "workflow-definition-language"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I group expressions by job. For text and defaults I use concat, coalesce and if. For checks I use empty, length, contains and equals. For arrays, first, union and item(). For dates, formatDateTime and utcNow. For data access, triggerBody(), body() and outputs(). The pitfalls are null handling, where I use the safe access operator ?[ ] and coalesce, and type mismatches, because a string '10' does not equal an integer 10. I also test expressions in a Compose action first.",
+      "revision": "Know the core functions, use ?[ ] and coalesce for nulls, convert types explicitly before comparing, and prototype in Compose.",
+      "detailed": "Expressions use the Workflow Definition Language. Leads should be fluent enough to review a flow and spot a fragile expression quickly.\n\n## Core functions by purpose\n\n| Purpose | Functions | Example |\n|---|---|---|\n| Defaults and branching | coalesce, if, empty | `coalesce(triggerBody()?['email'], 'unknown@example.com')` |\n| Strings | concat, replace, substring, toLower | `concat('INV-', formatNumber(item()?['number'], '00000'))` |\n| Collections | first, last, length, union, contains | `union(variables('a'), variables('b'))` |\n| Dates | formatDateTime, utcNow, addDays | `formatDateTime(utcNow(), 'yyyy-MM-dd')` |\n| Data access | triggerBody(), body('Action'), outputs('Action'), item() | `body('Get_row')?['value']` |\n\n## Safe access and null handling\n\nThe `?` operator returns null instead of failing when a property is missing: `triggerBody()?['customer']?['id']`. Array items use `?[0]`, for example `body('List_rows')?['value']?[0]?['name']`. Combine it with coalesce so downstream actions always receive a value.\n\n```\nif(empty(body('List_rows')?['value']), 'none', first(body('List_rows')?['value'])?['name'])\n```\n\nNote that `empty()` is true for null, empty string, empty array and empty object, which is usually what you want, but `length()` fails on null, so guard it with coalesce.\n\n## Type pitfalls\n\n- Comparing `'10'` with `10` using `equals` returns false. Convert with `int()`, `float()` or `string()` first.\n- A condition comparing `greater(item()?['amount'], 100)` works only if amount is numeric; text amounts compare lexically in some paths, so convert.\n- `item()` is valid only inside a loop, Filter array or Select; in nested loops use `items('Apply_to_each')`.\n- `outputs()` returns the full output including headers and status; `body()` returns just the body.\n- Dates are UTC; convert with `convertTimeZone` for display only.\n\n## Practice\n\nPrototype in a Compose action, check the run history for the actual value and type, and keep long expressions in named Compose actions instead of one unreadable line.\n\n## Common mistakes\n\n- Indexing `[0]` on an empty array, which fails the run.\n- Using `body('X')['field']` without `?`, so a missing field kills the flow.\n- Building JSON by string concatenation instead of using the `json()` function or object literals.",
+      "followUps": [
+        "How would you debug an expression that returns null in production?",
+        "When would you prefer a Compose action over an inline expression?",
+        "How does item() behave in nested loops?"
+      ]
+    },
+    {
+      "slug": "select-vs-filter-array-vs-apply-to-each",
+      "title": "Select, Filter array or Apply to each: how do you choose, and how do you reshape an array without a loop?",
+      "topic": "Data operations",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "select",
+        "filter-array",
+        "apply-to-each",
+        "performance"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Apply to each runs one action per item, so it is slow, consumes many action runs and can hit throttling. Select maps every item to a new shape in a single action, and Filter array keeps only matching items, also in one action. So I use Select and Filter array for pure data transformation and reserve Apply to each for when I must call an external system per item. Chaining Filter array then Select reshapes data in two actions with no loop at all.",
+      "revision": "Select reshapes, Filter array filters, both in one action; loop only for side effects per item, ideally with controlled concurrency.",
+      "detailed": "The main cost difference: each iteration of Apply to each runs its inner actions and counts towards action limits and run duration. Select and Filter array are in-memory operations and finish in one action.\n\n## Comparison\n\n| Need | Best tool | Why |\n|---|---|---|\n| Rename or reshape fields | Select | One action, no loop |\n| Keep rows that match | Filter array | One action |\n| Call an API per row | Apply to each | Side effect needed |\n| Combine fields into text | Select then join() | Avoids string append in a loop |\n| Extract one column | Select (text mode) | Gives a plain array |\n\n## Reshaping without a loop\n\nInput is an array of Dataverse rows. Use Filter array with the condition `@equals(item()?['statuscode'], 1)`, then Select in key-value mode:\n\n```json\n{\n  \"id\": \"@item()?['accountid']\",\n  \"name\": \"@toUpper(item()?['name'])\",\n  \"city\": \"@coalesce(item()?['address1_city'], '')\"\n}\n```\n\nThe output of Select is `body('Select')`. Build a delimited string with `join(body('Select_names'), ',')`. To count, use `length(body('Filter_array'))`.\n\n## When a loop is still right\n\n- Each item requires a connector call, such as updating a row.\n- You need per-item error handling.\n- Set concurrency deliberately (see the concurrency question) and avoid appending to shared variables inside parallel loops.\n\n## Pitfalls\n\n- Select in text mode returns strings, not objects; use key-value mode for objects.\n- Filter array runs over the whole array in memory, so filter at source with OData `$filter` first to reduce volume.\n- Large arrays hit message size limits regardless of method; verify current limits in Microsoft documentation.\n\n## Common mistakes\n\n- Looping to build an output array with Append to array variable, which is slow and unsafe under concurrency.\n- Filtering inside a loop with a Condition for each item instead of one Filter array beforehand.",
+      "followUps": [
+        "How would you filter at the source rather than in the flow?",
+        "Why is Append to array variable risky inside a concurrent loop?",
+        "How do you count matching items without a loop?"
+      ]
+    },
+    {
+      "slug": "pagination-and-batching-in-flows",
+      "title": "How do pagination and batching work in cloud flows and HTTP actions?",
+      "topic": "Pagination",
+      "difficulty": "advanced",
+      "type": "conceptual",
+      "tags": [
+        "pagination",
+        "batching",
+        "http",
+        "do-until"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Many connector list actions return one page by default. I turn on the Pagination setting and set a threshold to fetch more, noting that it caps the item count and the maximum is documented, so I verify current limits. For HTTP APIs that return a nextLink or cursor, I use a Do until loop that follows the link and appends results, with a hard iteration cap. For writing, I batch where the API supports bulk operations, and otherwise chunk into controlled loops.",
+      "revision": "Enable Pagination with a threshold for connectors, follow nextLink in Do until with an iteration cap for APIs, and batch writes in chunks.",
+      "detailed": "## Reading in pages\n\n- **Pagination setting.** On supported actions, such as List rows or SharePoint Get items, open Settings, switch Pagination on and set a Threshold. Without it you receive only the default page size. The maximum threshold and per-page limits vary by connector and licence, so verify current Microsoft documentation.\n- **Filter first.** Use `$filter`, `$select` and `$top` so you pull fewer rows.\n- **HTTP APIs with next links.** Pagination setting on the HTTP action only works with specific response patterns; otherwise loop manually.\n\n## Manual next-link loop\n\n1. Initialise `nextUrl` with the first URL, `all` as an array and `guard` as an integer 0.\n2. Do until `nextUrl` is empty or `guard` exceeds a cap.\n3. Inside: HTTP GET to `nextUrl`, append `body('HTTP')?['value']` using `union()` into a Compose, and set `nextUrl` to `coalesce(body('HTTP')?['@odata.nextLink'], '')`.\n4. Increment guard.\n\n```\n@coalesce(body('HTTP')?['@odata.nextLink'], body('HTTP')?['next'], '')\n```\n\nDo until has its own count and timeout limits (defaults are modest and configurable up to a documented maximum), so always set them explicitly.\n\n## Batching writes\n\n| Option | Use when |\n|---|---|\n| Bulk API (Dataverse batch, `$batch`, array endpoints) | API supports it, fewer calls |\n| Chunking with `take()` and `skip()` | Process 100 at a time in child flows |\n| Queue plus worker | Very large volumes |\n\n## Pitfalls\n\n- Arrays accumulated in memory can exceed message size limits; store pages in a table or blob instead.\n- A moving dataset can cause skipped or duplicated rows when paging with offsets; prefer cursors or a stable sort key.\n- Pagination threshold is a cap, not a guarantee of full data; log the count.\n\n## Common mistakes\n\n- No iteration guard, so a bad nextLink loops until timeout.\n- Trusting the default page size and silently processing only the first page.",
+      "followUps": [
+        "How would you detect that only the first page was processed?",
+        "Offset paging versus cursor paging: which is safer and why?",
+        "How would you chunk a 50,000-item array?"
+      ]
+    },
+    {
+      "slug": "concurrency-control-and-parallel-branches",
+      "title": "How do you control concurrency and parallel branches in a flow, and what can go wrong?",
+      "topic": "Concurrency",
+      "difficulty": "advanced",
+      "type": "conceptual",
+      "tags": [
+        "concurrency",
+        "parallelism",
+        "race-condition",
+        "ordering"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Apply to each can run iterations in parallel through its concurrency control, and branches can run in parallel too. Parallelism speeds things up but loses ordering, and iterations that update shared variables race each other. I set the degree deliberately, use 1 where order or exclusivity matters, and avoid shared variables in parallel loops by using Select or per-item outputs. Trigger concurrency can also cause duplicate or out-of-order effects, so I design for idempotency.",
+      "revision": "Parallel speeds throughput but drops order and exposes shared state; use degree 1 for ordering, avoid shared variables, and be idempotent.",
+      "detailed": "## Where concurrency appears\n\n| Place | Setting | Default behaviour |\n|---|---|---|\n| Apply to each | Concurrency control, degree of parallelism | Commonly on with a modest default; the maximum is documented, verify |\n| Trigger | Concurrency control or split on | Runs may overlap |\n| Parallel branches | Add a parallel branch | Branches run independently |\n\n## Ordering\n\nWith degree 1, items process sequentially in array order. With a higher degree, completion order is not guaranteed. Trigger concurrency can also reorder events: the second update can finish before the first. If order matters, either set trigger concurrency to 1 (note it is a one-way setting on some triggers, so check) or carry a version or timestamp and ignore stale updates.\n\n## Shared variable race conditions\n\nVariables are flow-wide. Inside a parallel loop, Increment variable or Append to array variable can lose updates because two iterations read the same value. Safer patterns:\n\n- Use Select or Filter array to compute values without a loop.\n- Collect per-iteration results from `outputs()` after the loop.\n- Process with degree 1 if a running total is truly required.\n\nAlso, variables cannot be initialised inside loops.\n\n## Duplicate or out-of-order effects\n\n- Two runs for the same record update the same row concurrently, so the last write wins.\n- A retry plus parallelism can create two invoices.\n- Fix with idempotency keys, optimistic concurrency (ETag or row version) and a single-writer queue per key.\n\n## Choosing a degree\n\nStart low, observe downstream throttling (429), and raise gradually. The right number is bounded by the slowest dependency, not by the flow.\n\n## Common mistakes\n\n- Setting maximum parallelism to fix slowness, then triggering throttling.\n- Assuming results appear in input order.\n- Using a shared counter to number records in a parallel loop.",
+      "followUps": [
+        "How would you guarantee ordering per customer but parallelism across customers?",
+        "What is optimistic concurrency and how do you apply it in Dataverse?",
+        "How do you compute a running total safely?"
+      ]
+    },
+    {
+      "slug": "centralised-error-handling-in-flows",
+      "title": "How do you design centralised error handling in Power Automate?",
+      "topic": "Error handling",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "error-handling",
+        "scope",
+        "run-after",
+        "terminate"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I wrap business actions in a Try scope, add a Catch scope with Configure run after set to failed, skipped and timed out, and a Finally scope that always runs. In Catch I use the result() function on the Try scope to find which actions failed, write a row to an error table with a correlation ID, alert the right team, and end with a Terminate action set to Failed so the run history is honest. Common logging goes into a reusable child flow.",
+      "revision": "Try scope, Catch with run-after failed, result() to find the failing action, log with a correlation ID, then Terminate as Failed.",
+      "detailed": "{{diagram:errorflow}}\n\n## Structure\n\n1. **Try scope** holds all business actions.\n2. **Catch scope** runs after Try when it has failed, been skipped or timed out (Configure run after).\n3. **Finally scope** runs after Catch and Try regardless, for cleanup and metrics.\n4. **Terminate** in Catch sets status Failed, otherwise the run shows as Succeeded because Catch succeeded.\n\n## Finding the failure with result()\n\n`result('Try')` returns an array of results for actions inside the scope. Filter for failures:\n\n```\n@first(body('Filter_failed'))\n```\n\nwhere Filter array runs over `result('Try')` with the condition `@equals(item()?['status'], 'Failed')`. Useful properties are `name`, `error?['message']`, `error?['code']` and `outputs`.\n\n## Error table row\n\n| Column | Value |\n|---|---|\n| CorrelationId | `workflow()?['run']?['name']` or business key |\n| FlowName | `workflow()?['tags']?['flowDisplayName']` |\n| FailedAction | name from result() |\n| ErrorMessage | message, truncated |\n| Payload reference | record ID, never secrets |\n| Status | New, Retried, Resolved |\n\n## Design points\n\n- Nested scopes: scopes inside Try can have their own Catch for recoverable steps.\n- Retry policies on individual actions handle transient errors before Catch fires.\n- Put the logging into a solution-aware child flow so every flow logs identically.\n- Alert through a channel or ticket, not just email, and deduplicate noisy alerts.\n\n## Common mistakes\n\n- Forgetting Terminate, so failures look like successes.\n- Setting run-after only to failed and missing timed-out and skipped.\n- Logging whole payloads containing personal data.\n- Using Catch to swallow errors without a retry or owner.",
+      "followUps": [
+        "How would you stop a single bad record failing a whole batch?",
+        "Why does the run show Succeeded if you omit Terminate?",
+        "How do you avoid alert storms?"
+      ],
+      "diagrams": [
+        {
+          "id": "errorflow",
+          "title": "Centralised try, catch, finally",
+          "alt": "Trigger leads to a Try scope. If Try succeeds the flow goes to Finally. If it fails the Catch scope uses result to find the failed action, writes an error table row, then Terminate marks the run failed and Finally runs cleanup.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "t",
+              "label": "Trigger"
+            },
+            {
+              "id": "try",
+              "label": "Try scope"
+            },
+            {
+              "id": "c",
+              "label": "Catch: result() and filter"
+            },
+            {
+              "id": "log",
+              "label": "Error table row with correlation ID"
+            },
+            {
+              "id": "term",
+              "label": "Terminate Failed"
+            },
+            {
+              "id": "fin",
+              "label": "Finally scope"
+            }
+          ],
+          "edges": [
+            {
+              "from": "t",
+              "to": "try"
+            },
+            {
+              "from": "try",
+              "to": "fin",
+              "label": "success"
+            },
+            {
+              "from": "try",
+              "to": "c",
+              "label": "failed or timed out"
+            },
+            {
+              "from": "c",
+              "to": "log"
+            },
+            {
+              "from": "log",
+              "to": "term"
+            },
+            {
+              "from": "term",
+              "to": "fin",
+              "label": "run after any"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "correlation-ids-and-telemetry-for-flows",
+      "title": "How do you add correlation IDs and telemetry to Power Automate flows?",
+      "topic": "Observability",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "observability",
+        "correlation-id",
+        "application-insights",
+        "monitoring"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Run history is useful but short-lived and not searchable across flows. So I generate or accept a correlation ID at the start, using a business key or the run name from the workflow() expression, pass it in headers and child-flow inputs, and write structured events to a central store such as Application Insights, Log Analytics or a Dataverse log table. I also use the Power Platform admin centre and analytics for health trends, noting exact feature names change so I verify.",
+      "revision": "Create one correlation ID per business transaction, propagate it everywhere, log structured events centrally, and use admin analytics for trends.",
+      "detailed": "## What run history gives and lacks\n\nRun history shows inputs, outputs and durations per run, but retention is limited (verify current period), it is per flow, and it is awkward to search by business key. For a lead, that is not enough for support or audit.\n\n## Correlation ID design\n\n- Prefer a **business correlation ID** (order number, case ID) when one exists; otherwise generate a GUID with `guid()`.\n- The flow's own run identifier is available through `workflow()?['run']?['name']`, and the flow name through `workflow()?['name']`. Record both so a log line maps back to run history.\n- Pass the ID as an `x-correlation-id` header on HTTP calls, as an input to child flows and as a column on records you create.\n\n```\n@coalesce(triggerOutputs()?['headers']?['x-correlation-id'], guid())\n```\n\n## Where to log\n\n| Target | Strength | Caution |\n|---|---|---|\n| Dataverse log table | Simple, in the solution | Storage cost, growth, retention job |\n| Application Insights or Log Analytics | Query with KQL, alerts, dashboards | Needs an endpoint call and a key held securely |\n| Service Bus or event hub | Fan-out to monitoring | More moving parts |\n\nLog structured fields: timestamp, correlation ID, flow, step, status, duration, record key, error code. Never log secrets or full personal data.\n\n## Platform-level monitoring\n\nPower Platform admin centre and the Centre of Excellence toolkit offer analytics on flow runs, failures and usage. Names and capabilities change, so confirm current options. Alert on failure rates and on missing runs (a scheduled flow that did not run).\n\n## Common mistakes\n\n- Different IDs in each system, so tracing stops at the first boundary.\n- Logging inside the main path with no error handling, so telemetry failure breaks the business flow.\n- No retention policy for the log table.",
+      "followUps": [
+        "How would you alert when a scheduled flow does not run at all?",
+        "What would you put in a structured log event?",
+        "How do you trace one order across a flow, an API and a worker?"
+      ]
+    },
+    {
+      "slug": "secure-inputs-outputs-and-secrets-in-flows",
+      "title": "How do you protect sensitive data and secrets in flows?",
+      "topic": "Security",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "security",
+        "secrets",
+        "key-vault",
+        "governance",
+        "dlp"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I treat flows as code that handles data. I turn on Secure inputs and Secure outputs for actions that touch sensitive data so values are hidden in run history, store secrets in Azure Key Vault surfaced through environment variables of the secret type, use managed connections with service principals instead of personal accounts, and apply data loss prevention policies for connector governance. I also restrict who can view run history and share flows.",
+      "revision": "Secure inputs and outputs, Key Vault-backed environment variables, service identities, DLP policies, and limited run history access.",
+      "detailed": "## Run history exposure\n\nAnyone who can open run history can normally see action inputs and outputs. For sensitive actions, enable **Secure inputs** and **Secure outputs** in the action settings. Values show as hidden, but note downstream actions that use the output may reveal it again unless they are also secured. Also be aware trigger inputs may need the same treatment; verify behaviour in current documentation.\n\n## Secrets\n\n| Approach | Verdict |\n|---|---|\n| Hard-coded key in HTTP header | Avoid |\n| Plain environment variable of type text | Not for secrets |\n| Environment variable of type secret referencing Azure Key Vault | Preferred, per-environment values |\n| Managed identity or service principal authentication | Best where the connector supports it |\n\nKey Vault-backed environment variables need the vault configured so the Power Platform service can read the secret, and access is granted by role. Check current setup steps. Rotate secrets in the vault with no flow edit required.\n\n## Connector governance\n\n- **DLP policies** classify connectors as business, non-business or blocked, and stop flows mixing them. Apply per environment.\n- Block or restrict HTTP and custom connectors in personal environments.\n- Use connection references so solutions bind to a service account connection on import.\n- Run production flows under a service account or service principal, not an individual who may leave.\n\n## Other controls\n\n- Least-privilege security roles on Dataverse.\n- Restrict flow sharing and co-owners.\n- Do not email sensitive payloads or put them in approval cards.\n- Audit with admin logs.\n\n## Common mistakes\n\n- Securing the HTTP action but leaving the Compose that copies the secret visible.\n- Production flows owned by a personal account.\n- Treating DLP as optional in the default environment.",
+      "followUps": [
+        "How does a Key Vault secret reach a flow at runtime?",
+        "What happens to flows when the owner leaves?",
+        "How would you stop makers using HTTP to exfiltrate data?"
+      ]
+    },
+    {
+      "slug": "child-flows-and-reusable-components",
+      "title": "When should you use child flows and reusable components in Power Automate?",
+      "topic": "Reuse",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "child-flow",
+        "solutions",
+        "reuse",
+        "alm"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "A child flow is a solution-aware flow triggered from a parent, taking inputs and returning outputs. I use them for shared logic like logging, address validation or a standard retry-and-notify routine, so there is one place to fix. Limits to watch are input and output sizes, nesting depth and the licensing and ownership of the connection. I avoid them for trivial steps, when synchronous latency matters, or when versioning would break many parents.",
+      "revision": "Child flows centralise shared logic with typed inputs and outputs, but add latency, limits and coupling, so use them for real reuse only.",
+      "detailed": "## What they are\n\nA child flow lives in a solution and uses the trigger **Manually trigger a flow** (or the Power Apps / child flow trigger, depending on the current designer) with defined inputs and a **Respond to a Power App or flow** action for outputs. The parent calls it with the **Run a Child Flow** action.\n\n## Good candidates\n\n| Candidate | Why |\n|---|---|\n| Standard logging and error table write | Consistency |\n| Calling a flaky API with retry rules | One tuned implementation |\n| Data normalisation, validation | Shared business rule |\n| Chunk processing from a batch parent | Parallelism with isolation |\n\n## Rules and limits\n\n- Both flows must be in a solution, and the child needs run-only permissions for the parent's connection setup. Verify current requirements.\n- Input and output payload sizes and nesting depth are limited; verify current numbers and pass IDs rather than big payloads.\n- The child runs as its own run with its own history, so pass a correlation ID.\n- Child errors do not propagate automatically unless the child responds or fails, so handle both.\n\n## Versioning\n\nChanging a child's input or output contract can break every parent. Treat the contract like an API: add optional inputs, do not rename outputs, or create a versioned child (`Log_v2`) and migrate parents. Use solution versions and managed solutions in test and production.\n\n## When not to use\n\n- Two simple actions repeated in two flows.\n- Latency-sensitive paths where a nested run adds delay.\n- Logic needing real unit tests, version control and reuse beyond Power Platform, which belongs in a function or service.\n\n## Common mistakes\n\n- Child flows outside solutions, so ALM breaks.\n- Passing large arrays instead of references.\n- Owner-specific connections that fail after the owner leaves.",
+      "followUps": [
+        "How do you version a child flow without breaking parents?",
+        "What would you pass instead of a large array?",
+        "When would you move shared logic into an Azure Function?"
+      ]
+    },
+    {
+      "slug": "avoid-duplicate-invoices-or-crm-updates",
+      "title": "Scenario: a flow created duplicate invoices or CRM updates after a retry. How do you make it idempotent?",
+      "topic": "Idempotency",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "idempotency",
+        "duplicates",
+        "dataverse",
+        "upsert",
+        "alternate-key"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Duplicates come from at-least-once delivery: triggers can fire twice, retries re-run actions and runs overlap. I derive a deterministic idempotency key from the business event, for example source system plus document number, and enforce it in the data store. In Dataverse I define an alternate key and use upsert, or I write the key to a dedupe table first and treat a uniqueness error as already processed. Then I add reconciliation and monitoring.",
+      "revision": "Assume at-least-once; derive a deterministic key, enforce it with an alternate key or dedupe table, and use upsert so repeats are harmless.",
+      "detailed": "{{diagram:idem}}\n\n## Why duplicates happen\n\n- The trigger can fire more than once for one event.\n- An action retry after a timeout repeats a request that actually succeeded.\n- Concurrent runs read the same state and both create a record.\n- A user resubmits or a message is redelivered.\n\n## Idempotency key\n\nBuild the key from facts that identify the business event, never from a time or random value:\n\n```\n@concat(triggerBody()?['sourceSystem'], '|', triggerBody()?['invoiceNumber'])\n```\n\n## Enforcement options\n\n| Option | How | Notes |\n|---|---|---|\n| Dataverse alternate key plus upsert | Define alternate key on the key column, then Upsert a row | Atomic, preferred |\n| Dedupe table | Insert key row first; unique constraint rejects repeats | Works across systems |\n| Check then create | List rows then Add row | Racy under concurrency, avoid alone |\n| Idempotency header | Pass key to the downstream API | Only if the API supports it |\n\nAn alternate key creates an index, and creation can take time on large tables; check current limits on the number of keys.\n\n## Flow outline\n\n1. Compute key.\n2. Upsert the invoice by alternate key (or insert dedupe row).\n3. If the dedupe row exists, terminate as Succeeded with a note.\n4. Proceed with side effects (email, ERP call) only once, passing the key onward.\n5. Set concurrency to 1 per key if side effects have no key support.\n\n## Clean-up and prevention\n\nFind existing duplicates by grouping on the key, merge or deactivate, and add a scheduled reconciliation that reports duplicate counts.\n\n## Common mistakes\n\n- Check-then-create with no uniqueness backing it.\n- Keys that include timestamps.\n- Making the database call idempotent but sending the email every retry.",
+      "followUps": [
+        "What if the downstream ERP has no idempotency support?",
+        "How would you clean up existing duplicate invoices?",
+        "Why is check-then-create unsafe?"
+      ],
+      "diagrams": [
+        {
+          "id": "idem",
+          "title": "Idempotent processing",
+          "alt": "An incoming event produces a deterministic idempotency key. The flow tries to upsert by alternate key or insert a dedupe row. If the key already exists it stops as already processed, otherwise it performs side effects once.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "ev",
+              "label": "Incoming event"
+            },
+            {
+              "id": "key",
+              "label": "Build idempotency key"
+            },
+            {
+              "id": "up",
+              "label": "Upsert by alternate key or insert dedupe row"
+            },
+            {
+              "id": "skip",
+              "label": "Already processed: stop"
+            },
+            {
+              "id": "act",
+              "label": "Side effects once"
+            }
+          ],
+          "edges": [
+            {
+              "from": "ev",
+              "to": "key"
+            },
+            {
+              "from": "key",
+              "to": "up"
+            },
+            {
+              "from": "up",
+              "to": "skip",
+              "label": "key exists"
+            },
+            {
+              "from": "up",
+              "to": "act",
+              "label": "new"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "long-running-approvals-timeouts-escalation",
+      "title": "How do you handle long-running approvals, timeouts, reminders and escalation?",
+      "topic": "Approvals",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "approvals",
+        "timeouts",
+        "escalation",
+        "durable"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "A flow waiting on an approval is a long-running run, and runs have a maximum duration after which they time out, so I verify the current limit. For approvals that may take days I set an explicit timeout on the wait, run a parallel branch with a Delay and reminder, escalate to a delegate when the deadline passes, and record the state in a table. For very long or complex processes I move to a status-driven design or a durable orchestration instead of one waiting run.",
+      "revision": "Set explicit timeouts, use a parallel reminder and escalation branch, persist state in a table, and use state-driven or durable designs for very long waits.",
+      "detailed": "## The problem\n\nThe approval action waits for a response while the run stays active. Cloud flow runs have a maximum duration (documented, currently measured in days, verify the current figure) and Delay actions have their own limits. Approvals also have configurable timeouts. A flow that outlives the limit fails or expires.\n\n## Pattern inside one run\n\n1. Start approval with **Create an approval** and use **Wait for an approval** in a parallel branch.\n2. In the other branch use **Delay until** a reminder time, then send a reminder.\n3. Use Configure run after or a scope timeout (an ISO 8601 duration such as `P3D`) to stop waiting.\n4. On timeout, escalate: create a new approval for the manager, or auto-reject, depending on policy.\n\n```\n\"limit\": { \"timeout\": \"P3D\" }\n```\n\n## Parallel waiting race\n\nWhichever branch finishes first should cancel the other: use a **Do until** with a flag variable or terminate the scope, because the losing branch continues otherwise.\n\n## When one run is the wrong model\n\n| Situation | Better design |\n|---|---|\n| Waits longer than the run limit | Store state in Dataverse, end the run, resume with a new flow on the response event |\n| Many reminder levels | Scheduled flow scanning a pending-approvals table |\n| Complex human workflow, audit and retries | Durable Functions or a workflow engine |\n\nIn the state-driven design, the approval response triggers a second flow that reads the table, updates the status and continues. Scheduled sweeps handle reminders and escalation with no waiting runs.\n\n## Operational points\n\n- Approver unavailable: delegate and out-of-office rules.\n- Approval results should be recorded with who, when and comments for audit.\n- Cancel pending approvals when the source record is withdrawn.\n\n## Common mistakes\n\n- Assuming an approval can wait indefinitely.\n- No cancellation path, leaving orphaned approvals.\n- Escalation logic duplicated across flows instead of centralised.",
+      "followUps": [
+        "How would you resume a process after the run limit is exceeded?",
+        "How do you cancel pending approvals when the request is withdrawn?",
+        "When would you choose Durable Functions for approvals?"
+      ]
+    },
+    {
+      "slug": "integrating-with-strictly-rate-limited-api",
+      "title": "A partner REST API is strictly rate limited. How do you integrate it from a flow?",
+      "topic": "Throttling",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "rate-limiting",
+        "throttling",
+        "queue",
+        "token-bucket"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "First I read the documented limit and the retry signals such as Retry-After. In the flow I set concurrency to 1, add a Delay, configure the retry policy and respect Retry-After on 429. That works for modest volumes. For more, I put requests on a queue and run a worker that applies a token bucket so the global rate stays under the limit regardless of how many flows enqueue, then writes results back for the flow or a callback to pick up.",
+      "revision": "Respect Retry-After, use concurrency 1 and delays for small loads, and decouple with a queue and a token bucket worker for real volume.",
+      "detailed": "{{diagram:ratelimit}}\n\n## Understand the limit\n\nFind the limit unit (per second, minute or day), whether it is per key or per IP, burst allowance and the signals returned (429 plus Retry-After, or rate headers). Also remember Power Platform has its own request limits per user and per flow; verify the current documentation.\n\n## Level 1: inside the flow\n\n- Apply to each with **concurrency control set to 1**.\n- A **Delay** of `1000 / allowedPerSecond` ms between calls.\n- Custom retry policy (exponential or fixed) on the HTTP action.\n- On 429 read `outputs('HTTP')?['headers']?['Retry-After']` and delay that many seconds, then retry in a Do until with a cap.\n\nThis is simple but blocks a run for the full duration, burns action runs and breaks if several flows share the same API key, because each flow limits itself only.\n\n## Level 2: queue and worker\n\n| Part | Role |\n|---|---|\n| Flows | Enqueue work items with a correlation ID |\n| Queue (Service Bus or similar) | Buffer and durable ordering |\n| Worker (Function, container or NestJS service) | Token bucket limiter, calls the API |\n| Result store or callback | Flow resumes or updates status |\n\nA **token bucket** has capacity N and refills at R tokens per second. A request takes a token or waits. This allows controlled bursts while keeping the average under R. In a distributed worker, keep the bucket in shared storage (for example Redis) or run a single consumer.\n\n```ts\nif (bucket.tryTake()) await call(item);\nelse await sleep(bucket.msUntilToken());\n```\n\n## Extras\n\n- Dead-letter items after repeated failure.\n- Idempotency keys so retries are safe.\n- Metrics: queue depth, 429 rate, age of oldest message.\n\n## Common mistakes\n\n- Parallel flows each assuming they own the whole quota.\n- Ignoring Retry-After and hammering the API.\n- Retrying non-idempotent calls without a key.",
+      "followUps": [
+        "How would a token bucket differ from a fixed delay?",
+        "How would the flow learn the result of a queued call?",
+        "What if multiple tenants share one API key?"
+      ],
+      "diagrams": [
+        {
+          "id": "ratelimit",
+          "title": "Queue and rate-limited worker",
+          "alt": "Several flows put work items on a queue. A worker takes items using a token bucket limiter and calls the rate-limited partner API. Failures are retried and eventually dead-lettered, and results are written to a status store.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "f",
+              "label": "Flows enqueue work"
+            },
+            {
+              "id": "qu",
+              "label": "Queue"
+            },
+            {
+              "id": "w",
+              "label": "Worker with token bucket"
+            },
+            {
+              "id": "api",
+              "label": "Partner API"
+            },
+            {
+              "id": "dl",
+              "label": "Dead-letter queue"
+            },
+            {
+              "id": "st",
+              "label": "Status store"
+            }
+          ],
+          "edges": [
+            {
+              "from": "f",
+              "to": "qu"
+            },
+            {
+              "from": "qu",
+              "to": "w"
+            },
+            {
+              "from": "w",
+              "to": "api"
+            },
+            {
+              "from": "w",
+              "to": "dl",
+              "label": "repeated failure"
+            },
+            {
+              "from": "api",
+              "to": "st",
+              "label": "result"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "processing-large-json-payloads-in-flows",
+      "title": "How do you process a large JSON payload in a flow without hitting limits?",
+      "topic": "Payload size",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "json",
+        "payload-limits",
+        "chunking",
+        "blob",
+        "functions"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Flows have message size limits and Parse JSON on huge arrays is slow and memory heavy, so I verify current limits first. My approach is not to carry the payload through the flow: land the file in blob or SharePoint, pass a reference, and either chunk it into manageable batches processed by a child flow, or offload parsing and transformation to an Azure Function that streams it. The flow then orchestrates and tracks status only.",
+      "revision": "Pass references not payloads, chunk to batches, and offload heavy parsing to a streaming function; the flow orchestrates.",
+      "detailed": "## Limits\n\nCloud flows have maximum message sizes for actions and connectors, limits on array lengths for some operations, and run-duration and action-count limits. They vary by connector and licence, so **verify current Microsoft documentation** instead of designing to remembered numbers. Design for the principle: keep each payload small.\n\n## Strategies\n\n| Strategy | When |\n|---|---|\n| Reference pattern | File stored in blob or SharePoint, flow handles the URL |\n| Chunking | Split into batches of fixed size, process each batch in a child flow |\n| Offload to Function | Parsing, mapping or aggregating the whole document |\n| Streaming | Read line by line (NDJSON) so memory stays flat |\n| Filter at source | Ask the API for fewer fields with `$select` or query parameters |\n\n## Chunking example\n\n```\ntake(skip(body('Parse_JSON'), mul(variables('page'), 500)), 500)\n```\n\nBetter still, have the function return a list of chunk IDs or blob names and have the flow fan out over those.\n\n## Parse JSON pitfalls\n\n- The schema is used to build dynamic content tokens and to validate; a strict schema fails the whole action on one odd row, and a loose schema hides errors (see the silent-drop question).\n- Generating a schema from one sample produces required fields that real data lacks and single-type fields that are sometimes null.\n- Parse JSON on a large array is slow; if you only need a count or a field, use expressions on `json()` output or do it in the function.\n\n## Offloading\n\nAn Azure Function can stream the blob with a streaming JSON parser, validate rows, write good rows to a table and bad rows to an error blob, then return counts. The flow receives only a summary.\n\n## Common mistakes\n\n- Passing a multi-megabyte body between many actions, each copying it into run history.\n- Using Apply to each over a huge parsed array.\n- Not storing the original payload for replay.",
+      "followUps": [
+        "How would you decide the chunk size?",
+        "Why keep the original payload for replay?",
+        "What would the function return to the flow?"
+      ]
+    },
+    {
+      "slug": "json-transformation-silently-drops-records",
+      "title": "Scenario: a JSON transformation silently drops records. How do you find and prevent it?",
+      "topic": "Data quality",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "json",
+        "parse-json",
+        "data-loss",
+        "validation",
+        "scenario"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Silent drops usually come from a loose or wrong assumption: Parse JSON with a schema that treats an array of one as an object, null versus missing fields, type coercion where a string number fails a comparison, or a Filter array condition that excludes rows with null values. I detect it by counting at each stage, comparing input count with output plus rejected count, and asserting that nothing is unaccounted for. Then I route rejects to an error store.",
+      "revision": "Count at every stage, assert in equals out plus rejected, and route rejects to an error store rather than filtering silently.",
+      "detailed": "## Typical causes\n\n| Cause | What happens |\n|---|---|\n| Array of one sent as a plain object by some APIs | Schema expects array, `items` loop sees nothing or fails |\n| Null versus missing | `item()?['x']` is null; condition `equals(null, ...)` false, row filtered out |\n| Type coercion | `'100'` versus `100` in `greater()` or `equals()` never matches |\n| Loose Parse JSON schema | Missing fields become empty and downstream conditions skip them |\n| Filter array on a non-existent field | Evaluates null and excludes everything |\n| Pagination | Only the first page processed |\n\n## Normalise first\n\nHandle the single-object case explicitly:\n\n```\nif(equals(substring(string(body('HTTP')), 0, 1), '['), body('HTTP'), createArray(body('HTTP')))\n```\n\nCoerce types in Select (`int(item()?['qty'])`) and default nulls with coalesce before any filter.\n\n## Detect with counts and assertions\n\n1. `inputCount = length(body('Parse_JSON'))`\n2. After filtering: `keptCount = length(body('Filter_array'))`\n3. Rejected rows: Filter array with the inverse condition, `rejectedCount = length(body('Filter_rejected'))`\n4. Assert: `equals(inputCount, add(keptCount, rejectedCount))`\n5. Compare with the source's reported total, if the API gives one.\n6. If the assertion fails, Terminate as Failed and alert.\n\n## Prevent\n\n- Write rejects with a reason to an error table, never discard.\n- Use a sensible, tested schema: allow `[\"string\",\"null\"]` where nulls are valid, and mark truly mandatory fields required so missing ones fail loudly.\n- Add a daily reconciliation comparing source and target counts.\n- Test with edge payloads: empty array, single object, null fields, numeric strings.\n\n## Common mistakes\n\n- Relying on the absence of errors as evidence of success.\n- Loosening the schema until nothing fails.\n- Filtering in the trigger or a Condition with no else branch logging.",
+      "followUps": [
+        "How would you find which records were dropped last month?",
+        "Should a bad record fail the whole run?",
+        "How would you test with edge payloads?"
+      ]
+    },
+    {
+      "slug": "xpath-fails-with-xml-namespaces",
+      "title": "Scenario: an xpath() expression returns nothing because of XML namespaces. How do you fix it?",
+      "topic": "XML",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "xml",
+        "xpath",
+        "namespaces",
+        "scenario"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "When the XML declares a default namespace, a plain path like /Order/Id matches nothing because the elements are in a namespace. I fix it by using local-name() and namespace-uri() in the XPath so it ignores the prefix, or by stripping namespaces first. I always convert the content with xml() before calling xpath(), and wrap results with first() or string() because xpath returns an array. I also check the count so an empty result is not silently ignored.",
+      "revision": "Default namespaces break plain paths; use local-name() predicates, convert with xml(), and check the result count.",
+      "detailed": "## The symptom\n\nInput:\n\n```xml\n<Order xmlns=\"urn:example:orders:v2\">\n  <Id>1001</Id>\n  <Line><Sku>A1</Sku></Line>\n  <Line><Sku>B2</Sku></Line>\n</Order>\n```\n\n`xpath(xml(body('Get_blob')), '/Order/Id')` returns an empty array, because `Order` is in the namespace `urn:example:orders:v2`, not in no namespace.\n\n## Fixes\n\n| Technique | Expression |\n|---|---|\n| Ignore namespaces with local-name() | `xpath(xml(variables('x')), '/*[local-name()=\"Order\"]/*[local-name()=\"Id\"]/text()')` |\n| Also constrain the namespace | `/*[local-name()=\"Order\" and namespace-uri()=\"urn:example:orders:v2\"]` |\n| Count nodes | `xpath(xml(variables('x')), 'count(//*[local-name()=\"Line\"])')` |\n| Single value | `first(xpath(xml(variables('x')), '//*[local-name()=\"Id\"]/text()'))` |\n\nThe `xpath()` function evaluates an XPath over an XML object, so a string must go through `xml()` first. Content from a connector may be base64 or a binary object, so use `base64ToString()` before `xml()` where required.\n\n## Pitfalls\n\n- `xpath()` returns an array unless the path yields a number or a boolean; wrap with `first()` or `string()`.\n- Selecting an element without `/text()` returns the XML fragment, not the value.\n- Prefixes in your XPath (`o:Order`) are not resolved because you cannot declare prefix mappings in the expression; local-name() is the workaround.\n- Matching on `namespace-uri()` protects you when two schema versions share element names but differ in meaning.\n- Encoding issues, such as a byte-order mark, make `xml()` fail.\n\n## Alternatives\n\nFor heavy XML work, such as XSLT, schema validation or large files, use an Azure Function, or Logic Apps with integration account maps, instead of long expressions.\n\n## Common mistakes\n\n- Treating an empty array as no data instead of a defect, so add an assertion on node count.\n- Testing with a sample that had no namespace.",
+      "followUps": [
+        "Why can you not declare namespace prefixes in xpath()?",
+        "How would you validate XML against a schema in this architecture?",
+        "When would you move XML transformation to a function?"
+      ]
+    },
+    {
+      "slug": "reconciling-partial-failures-across-systems",
+      "title": "How do you reconcile partial failures when a flow updates several business systems?",
+      "topic": "Consistency",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "saga",
+        "compensation",
+        "reconciliation",
+        "consistency"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "There is no distributed transaction across a CRM, ERP and billing system, so I design a saga. Each step is recorded in a status table with the business key. On failure I choose between retrying, when the failure is transient and steps are idempotent, and compensating, when I must reverse completed steps. Anything I cannot resolve automatically goes to a manual queue. A scheduled reconciliation job compares systems and repairs drift.",
+      "revision": "Model the process as a saga with a status table, retry transient failures, compensate when needed, and run reconciliation to catch drift.",
+      "detailed": "{{diagram:saga}}\n\n## The problem\n\nA flow creates a customer in CRM, an order in ERP and an invoice in billing. Step 3 fails. Systems now disagree, and a plain retry might duplicate steps 1 and 2.\n\n## Saga approach\n\nEach step has a **forward action** and, where possible, a **compensating action**.\n\n| Step | Forward | Compensation |\n|---|---|---|\n| CRM | Create or upsert account | Deactivate account |\n| ERP | Create order | Cancel order |\n| Billing | Create invoice | Void or credit note |\n\nSome actions cannot be undone, such as an email sent, so order steps to place irreversible ones last.\n\n## Status table\n\nColumns: BusinessKey, Step, State (Pending, Done, Failed, Compensated), Attempts, LastError, UpdatedOn, CorrelationId. The flow writes state before and after each step so a restart knows where to continue.\n\n## Retry or compensate\n\n- **Retry** when the error is transient (timeouts, 429, 503) and the step is idempotent, using the idempotency key.\n- **Compensate** when the error is permanent (validation failure, closed account) or retries are exhausted.\n- **Escalate** to a human queue when compensation is also failing or business judgement is needed.\n\n## Reconciliation job\n\nA scheduled flow or function compares the systems by business key: orders without invoices, invoices without orders, state mismatches. It repairs by replaying the missing step or raising a task, and reports counts as a health metric.\n\n## Design notes\n\n- Use a durable orchestrator if there are many steps and long waits.\n- Keep compensations idempotent too.\n- Decide eventual consistency windows with the business.\n\n## Common mistakes\n\n- Retrying whole flows from step 1 and duplicating earlier steps.\n- Writing no state, so nobody knows what completed.\n- Assuming compensation always restores the exact previous state.",
+      "followUps": [
+        "How would you order steps in a saga?",
+        "What if the compensating action fails?",
+        "How often would reconciliation run?"
+      ],
+      "diagrams": [
+        {
+          "id": "saga",
+          "title": "Saga with status table and reconciliation",
+          "alt": "A flow runs steps against CRM, ERP and billing, recording each step in a status table. On a failure it retries transient errors, compensates completed steps for permanent errors, or escalates to a manual queue. A reconciliation job compares systems and repairs drift.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "fl",
+              "label": "Orchestrating flow"
+            },
+            {
+              "id": "crm",
+              "label": "CRM step"
+            },
+            {
+              "id": "erp",
+              "label": "ERP step"
+            },
+            {
+              "id": "bill",
+              "label": "Billing step"
+            },
+            {
+              "id": "st",
+              "label": "Status table"
+            },
+            {
+              "id": "dec",
+              "label": "Failure: retry or compensate?"
+            },
+            {
+              "id": "man",
+              "label": "Manual queue"
+            },
+            {
+              "id": "rec",
+              "label": "Reconciliation job"
+            }
+          ],
+          "edges": [
+            {
+              "from": "fl",
+              "to": "crm"
+            },
+            {
+              "from": "crm",
+              "to": "erp"
+            },
+            {
+              "from": "erp",
+              "to": "bill"
+            },
+            {
+              "from": "bill",
+              "to": "st",
+              "label": "record state"
+            },
+            {
+              "from": "bill",
+              "to": "dec",
+              "label": "fails"
+            },
+            {
+              "from": "dec",
+              "to": "man",
+              "label": "cannot resolve"
+            },
+            {
+              "from": "rec",
+              "to": "st",
+              "label": "compare and repair"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "preventing-infinite-trigger-loops",
+      "title": "How do you prevent infinite trigger loops in Power Automate?",
+      "topic": "Triggers",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "triggers",
+        "loops",
+        "trigger-conditions",
+        "dataverse"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "A loop happens when the flow updates the record that triggers it. I break the cycle in layers: restrict the trigger to specific columns with filtering columns, add a trigger condition so the flow does not start for unwanted changes, ignore changes made by the flow's own service account, and use a flag or hash field that records the already processed state. I also update only when values have changed, since no-change updates can still trigger.",
+      "revision": "Break the cycle with filtering columns, a trigger condition, a service-account guard and a processed flag, and avoid no-op updates.",
+      "detailed": "{{diagram:loopguard}}\n\n## Why it loops\n\nA flow with the trigger **When a row is added, modified or deleted** updates the same row, which fires the trigger again. Each run counts against limits and can hit throttling or flood users with emails.\n\n## Layers of defence\n\n| Layer | How |\n|---|---|\n| Filtering columns | Trigger only when named columns change, and never include columns the flow itself writes |\n| Trigger condition | Evaluated before the run starts, so skipped events create no run |\n| Service-account guard | Ignore changes made by the flow's own identity |\n| Flag or hash field | Process only when `Processed` is false or the source hash differs |\n| Update only on change | Compare before updating |\n\n## Trigger condition example\n\nIn the trigger Settings, Trigger Conditions:\n\n```\n@and(\n  not(equals(triggerOutputs()?['body/_modifiedby_value'], 'SERVICE-ACCOUNT-GUID')),\n  equals(triggerOutputs()?['body/new_needsprocessing'], true)\n)\n```\n\nProperty names depend on the connector and table, so inspect the trigger's outputs in a test run. Conditions are expressions that must all be true to start a run.\n\n## Flag pattern\n\n1. Trigger fires only when `new_needsprocessing` is true.\n2. The flow does its work, then sets `new_needsprocessing` to false in a single update.\n3. The update's own trigger is blocked by the condition, so the loop ends.\n\nSet the flag and the data in one update to avoid a second trigger.\n\n## Detection\n\nAlert on runs per record per hour, and on sudden spikes in flow runs. Admin analytics help spot runaway flows.\n\n## Common mistakes\n\n- Using a Condition action inside the flow, which still starts a run each time.\n- Filtering by columns but forgetting a plugin or another flow also updates them.\n- Two flows triggering each other in a ring.",
+      "followUps": [
+        "How would you detect a loop between two flows?",
+        "Why does a trigger condition beat a Condition action?",
+        "What if the modifying user is a real person who also uses the service account?"
+      ],
+      "diagrams": [
+        {
+          "id": "loopguard",
+          "title": "Loop guard layers",
+          "alt": "A row change event passes through filtering columns and a trigger condition that checks the modifying user and a needs processing flag. Only genuine changes start a run. The run does its work and clears the flag in one update, which the condition then blocks.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "ch",
+              "label": "Row change"
+            },
+            {
+              "id": "fc",
+              "label": "Filtering columns"
+            },
+            {
+              "id": "tc",
+              "label": "Trigger condition: not service account and flag set"
+            },
+            {
+              "id": "run",
+              "label": "Flow runs"
+            },
+            {
+              "id": "up",
+              "label": "Update data and clear flag"
+            },
+            {
+              "id": "stop",
+              "label": "No run started"
+            }
+          ],
+          "edges": [
+            {
+              "from": "ch",
+              "to": "fc"
+            },
+            {
+              "from": "fc",
+              "to": "tc"
+            },
+            {
+              "from": "tc",
+              "to": "run",
+              "label": "true"
+            },
+            {
+              "from": "tc",
+              "to": "stop",
+              "label": "false"
+            },
+            {
+              "from": "run",
+              "to": "up"
+            },
+            {
+              "from": "up",
+              "to": "tc",
+              "label": "new event blocked"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "when-cloud-flow-is-the-wrong-tool",
+      "title": "When is a cloud flow the wrong tool, and how do you choose between Functions, Service Bus with a worker, Logic Apps, Durable Functions and a NestJS service?",
+      "topic": "Tool selection",
+      "difficulty": "advanced",
+      "type": "comparison",
+      "tags": [
+        "architecture",
+        "azure-functions",
+        "logic-apps",
+        "durable-functions",
+        "nestjs",
+        "service-bus"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I keep cloud flows for low-code, business-owned orchestration with connectors and modest volume. I move away when I need high throughput, strict ordering or rate control, complex branching and testing, long-running state, or tight latency. Then I choose: Functions for stateless compute, Service Bus plus a worker for buffering and throttling, Logic Apps for managed integration workflows, Durable Functions for code-first stateful orchestration, and a NestJS service for a full API with domain logic and its own lifecycle.",
+      "revision": "Flows suit low-code connector work; for scale, control, testing or state, pick Functions, queue and worker, Logic Apps, Durable Functions or a service.",
+      "detailed": "{{diagram:decide}}\n\n## Signals a flow is wrong\n\n- Volume in the hundreds of thousands per day or strict throughput targets.\n- Need for unit tests, code review, branching and CI as normal engineering practice.\n- Complex logic, heavy data transformation or large payloads.\n- Long-running state beyond run limits, or exactly-once semantics.\n- Tight latency or a public API surface.\n- Cost: per-action and licensing costs at scale; model it, verify current pricing.\n\n## Comparison\n\n| Option | Strength | Weakness | Best for |\n|---|---|---|---|\n| Cloud flow | Fast delivery, connectors, citizen developers | Limits, harder testing and diff review | Departmental automation, approvals |\n| Azure Functions | Cheap, code, scalable, testable | No built-in state or connectors | Stateless transforms, glue, webhooks |\n| Service Bus plus worker | Buffering, retry, dead-letter, rate control | More components to run | High volume, throttled partners |\n| Logic Apps | Managed workflows, many connectors, designer plus ARM | Still a designer; cost per action | Enterprise integration, B2B, XML maps |\n| Durable Functions | Code-first stateful orchestration, timers, fan-out | Learning curve, determinism rules | Sagas, long approvals, fan-out |\n| NestJS service | Full control, domain logic, any hosting | You run and secure it | Core APIs, complex domains, shared logic |\n\n## Hybrid is normal\n\nA flow can still be the front door: a maker-friendly trigger that calls a function or enqueues a message. Keep the business logic in tested code, and let the flow connect to Microsoft 365 and Dataverse.\n\n## Decision factors\n\nOwnership (who maintains it), skills, ALM maturity, volume, state duration, compliance and total cost.\n\n## Common mistakes\n\n- Rebuilding a complex system as 300 actions in a flow.\n- Moving everything to code and losing low-code business agility.\n- Choosing by fashion, not requirements.",
+      "followUps": [
+        "How would you migrate a growing flow to a function gradually?",
+        "How do you compare cost between flows and Functions?",
+        "Where does a NestJS service beat Durable Functions?"
+      ],
+      "diagrams": [
+        {
+          "id": "decide",
+          "title": "Choosing the right tool",
+          "alt": "Decision flow starting with whether the work is low-code and business owned with modest volume, leading to a cloud flow. Otherwise it asks about long running state, then high volume with throttling, then stateless compute or a full API, leading to Durable Functions, Service Bus with a worker, Functions or a NestJS service.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "s",
+              "label": "New integration requirement"
+            },
+            {
+              "id": "q1",
+              "label": "Low-code, connectors, modest volume?"
+            },
+            {
+              "id": "cf",
+              "label": "Cloud flow"
+            },
+            {
+              "id": "q2",
+              "label": "Long-running state or saga?"
+            },
+            {
+              "id": "df",
+              "label": "Durable Functions or Logic Apps"
+            },
+            {
+              "id": "q3",
+              "label": "High volume or rate-limited target?"
+            },
+            {
+              "id": "sb",
+              "label": "Service Bus plus worker"
+            },
+            {
+              "id": "q4",
+              "label": "Stateless compute only?"
+            },
+            {
+              "id": "fn",
+              "label": "Azure Functions"
+            },
+            {
+              "id": "ns",
+              "label": "NestJS service"
+            }
+          ],
+          "edges": [
+            {
+              "from": "s",
+              "to": "q1"
+            },
+            {
+              "from": "q1",
+              "to": "cf",
+              "label": "yes"
+            },
+            {
+              "from": "q1",
+              "to": "q2",
+              "label": "no"
+            },
+            {
+              "from": "q2",
+              "to": "df",
+              "label": "yes"
+            },
+            {
+              "from": "q2",
+              "to": "q3",
+              "label": "no"
+            },
+            {
+              "from": "q3",
+              "to": "sb",
+              "label": "yes"
+            },
+            {
+              "from": "q3",
+              "to": "q4",
+              "label": "no"
+            },
+            {
+              "from": "q4",
+              "to": "fn",
+              "label": "yes"
+            },
+            {
+              "from": "q4",
+              "to": "ns",
+              "label": "no, full API"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

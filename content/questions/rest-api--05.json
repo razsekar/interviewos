@@ -1,0 +1,398 @@
+{
+  "category": "rest-api",
+  "questions": [
+    {
+      "slug": "retryable-vs-non-retryable-http-status-codes",
+      "title": "Which HTTP status codes are safe to retry in an integration and which are not?",
+      "topic": "Retry policy",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "http",
+        "retry",
+        "status-codes",
+        "integration"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I retry only when the failure is probably transient and the operation is safe to repeat. Timeouts, 502, 503 and 504 are usually retryable, and 429 is retryable after honouring Retry-After. Most 4xx errors, such as 400, 401, 403, 404 and 422, will fail identically each time, so retrying wastes capacity. For non-idempotent writes I only retry with an idempotency key or after checking state.",
+      "revision": "Retry transient failures: timeouts, 429 with Retry-After, 502/503/504. Do not retry most 4xx. Retry unsafe writes only with idempotency.",
+      "detailed": "## Retryability table\n\n| Status or condition | Retry? | Notes |\n|---|---|---|\n| Network error, timeout | Yes, if idempotent | Outcome unknown for writes; check state or use a key |\n| 408 Request Timeout | Usually | Server gave up waiting |\n| 429 Too Many Requests | Yes, after delay | Honour `Retry-After`; reduce concurrency |\n| 500 Internal Server Error | Sometimes | Limited retries; may be a bug |\n| 502, 503, 504 | Yes | Backoff with jitter; 503 may include `Retry-After` |\n| 400, 422 | No | Fix the request |\n| 401 | Once, after token refresh | Then stop |\n| 403 | No | Permission problem |\n| 404 | Usually no | Maybe yes for eventual consistency just after create |\n| 409 | Depends | Conflict: re-read and decide |\n| 412 | No blind retry | Refetch ETag, reapply |\n\n## Safe retry rules\n\n1. **Cap attempts and total time**; combine with timeouts.\n2. **Exponential backoff with jitter** to avoid synchronised retry storms.\n3. **Retry at one layer** only, or attempts multiply (3 x 3 x 3 = 27 calls).\n4. **Idempotency** for POST: send an idempotency key where the provider supports it.\n5. Send failures that exhaust retries to a **dead-letter** store, not the void.\n\n```ts\nconst RETRYABLE = new Set([408, 429, 502, 503, 504]);\nexport async function withRetry(fn: () => Promise<Response>, max = 4) {\n  for (let i = 0; ; i++) {\n    const res = await fn();\n    if (res.ok || !RETRYABLE.has(res.status) || i === max) return res;\n    const ra = Number(res.headers.get('retry-after'));\n    const wait = ra ? ra * 1000 : Math.min(30000, 2 ** i * 500) * (0.5 + Math.random() / 2);\n    await new Promise((r) => setTimeout(r, wait));\n  }\n}\n```\n\n## Power Platform touchpoint\n\nCloud flow actions have configurable retry policies (default, fixed, exponential, none); verify current vendor docs. Set them deliberately on write actions and for 429 handling.\n\n## Common mistakes\n\n- Retrying 4xx validation errors.\n- Retrying POST blindly and creating duplicates.\n- Ignoring `Retry-After`.",
+      "followUps": [
+        "How do you retry a POST that timed out?",
+        "Where should retries live in a gateway-plus-flow architecture?",
+        "How do you stop a retry storm?"
+      ]
+    },
+    {
+      "slug": "pagination-continuation-tokens-odata-nextlink",
+      "title": "How do continuation tokens and OData nextLink work, and how do they compare with offset and cursor pagination?",
+      "topic": "Pagination",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "pagination",
+        "odata",
+        "continuation-token",
+        "dataverse"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "A continuation token is an opaque cursor the server returns so the client can ask for the next page without computing positions. OData uses an @odata.nextLink URL that already contains the paging state, and the client simply follows it until it disappears. Offset is simple but drifts and slows on large sets, while cursors stay stable. The rule is to treat tokens as opaque and never build them yourself.",
+      "revision": "Follow the opaque token or nextLink until absent. Offset drifts and slows; cursors are stable. Never parse or fabricate tokens.",
+      "detailed": "## Styles compared\n\n| Style | Request | Strength | Weakness |\n|---|---|---|---|\n| Offset and limit | `?offset=200&limit=50` | Simple, random access | Skips or repeats rows when data changes; deep pages are slow |\n| Cursor or keyset | `?after=<id or key>` | Stable, fast | No random jump; needs a stable sort |\n| Continuation token | Opaque token in response header or body | Server may encode any state | Tokens can expire; opaque |\n| OData nextLink | `@odata.nextLink` full URL | Client just follows link | Server controls page size; link may expire |\n\n## Dataverse and Graph touchpoints\n\n- Dataverse Web API returns `@odata.nextLink` when results exceed the page size; do not append `$skip`, which is not supported for paging there. Use `Prefer: odata.maxpagesize` to hint page size.\n- Microsoft Graph uses `@odata.nextLink` and `@odata.deltaLink` for incremental sync.\n- Power Automate list actions have a **pagination** setting with a threshold; check that the threshold covers your data size and understand that results are capped. Verify current vendor docs.\n\n```ts\nasync function* pages<T>(url: string, headers: HeadersInit) {\n  let next: string | undefined = url;\n  while (next) {\n    const res = await fetch(next, { headers });\n    const body = await res.json();\n    yield* body.value as T[];\n    next = body['@odata.nextLink'];\n  }\n}\n```\n\n## Design guidance for your own API\n\n1. Return a **stable sort** with a unique tiebreaker such as ID.\n2. Encode tokens opaquely and sign or version them.\n3. Document **expiry** and what a client does when a token is rejected: restart.\n4. Set a **maximum page size**.\n5. Prefer **delta** endpoints for sync instead of re-reading everything.\n\n## Common mistakes\n\n- Parsing or rewriting nextLink.\n- Offset paging on live tables, causing duplicates.\n- Stopping when a page is empty rather than when the link is absent.",
+      "followUps": [
+        "How would you implement delta sync?",
+        "What if a continuation token expires mid-run?",
+        "How do you page a result set that is being modified?"
+      ]
+    },
+    {
+      "slug": "webhooks-signature-replay-ordering-retries",
+      "title": "How do you build a reliable and secure webhook receiver: signatures, replay, ordering and retries?",
+      "topic": "Webhooks",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "webhooks",
+        "hmac",
+        "idempotency",
+        "event-driven"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "A webhook receiver should verify, acknowledge fast and process later. I verify an HMAC signature over the raw body with a constant-time comparison and reject stale timestamps to limit replay. I store the event ID for deduplication because providers deliver at least once. I return 2xx quickly, put the event on a queue, and never rely on delivery order, using version or timestamp checks, or fetching current state.",
+      "revision": "Verify HMAC on raw body, reject stale timestamps, dedupe by event ID, ack fast and queue, and do not assume ordering.",
+      "detailed": "## Flow\n\n{{diagram:webhook-receiver}}\n\n## Controls, threats and trade-offs\n\n| Control | Threat | Trade-off |\n|---|---|---|\n| HMAC signature on raw body | Forged events | Must keep the raw bytes before JSON parsing |\n| Timestamp tolerance | Replay of captured requests | Clock skew handling |\n| Event ID deduplication | Duplicate processing | Storage for seen IDs with expiry |\n| Fast 2xx plus queue | Provider timeouts, retries | Added queue infrastructure |\n| Fetch-current-state | Out-of-order overwrites | Extra API call |\n| IP allow-list (if published) | Casual spoofing | IP ranges change; not sufficient alone |\n\n## Implementation sketch\n\n```ts\nimport { createHmac, timingSafeEqual } from 'node:crypto';\nexport function verify(raw: Buffer, sig: string, ts: string, secret: string) {\n  if (Math.abs(Date.now() / 1000 - Number(ts)) > 300) return false;\n  const expected = createHmac('sha256', secret).update(`${ts}.`).update(raw).digest();\n  const got = Buffer.from(sig, 'hex');\n  return got.length === expected.length && timingSafeEqual(got, expected);\n}\n```\n\nExact header names and signing schemes differ per provider; follow the provider's documentation.\n\n## Ordering and retries\n\n- Providers retry on non-2xx with backoff, so processing must be **idempotent**.\n- Ordering is not guaranteed. Either compare a **sequence or version number**, or treat the event as a trigger and **read the latest state**.\n- Use a **dead-letter queue** and alerting for poison events.\n- Provide a **reconciliation job** that compares with the source periodically, since webhooks can be lost.\n\n## Platform touchpoints\n\nAn HTTP-triggered Azure Function can validate and enqueue to Service Bus or Storage Queue; a Power Automate \"when an HTTP request is received\" trigger should sit behind verification, not exposed bare. Verify current vendor docs for trigger authentication options.\n\n## Common mistakes\n\n- Verifying a re-serialised body rather than raw bytes.\n- Doing slow work before responding.\n- Using `===` for signature comparison.",
+      "followUps": [
+        "How would you handle a poison webhook?",
+        "Why reconcile if you have retries?",
+        "How do you rotate a webhook secret without downtime?"
+      ],
+      "diagrams": [
+        {
+          "id": "webhook-receiver",
+          "title": "Webhook receiver flow",
+          "alt": "The provider sends an event. The receiver verifies the signature and timestamp, checks whether the event ID was seen, enqueues the event and returns 2xx. A worker processes it idempotently, and failures move to a dead-letter queue.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "prov",
+              "label": "Provider"
+            },
+            {
+              "id": "ver",
+              "label": "Verify signature and timestamp"
+            },
+            {
+              "id": "dup",
+              "label": "Seen event ID?"
+            },
+            {
+              "id": "q",
+              "label": "Queue"
+            },
+            {
+              "id": "ack",
+              "label": "Return 2xx"
+            },
+            {
+              "id": "wk",
+              "label": "Worker, idempotent"
+            },
+            {
+              "id": "dlq",
+              "label": "Dead-letter queue"
+            }
+          ],
+          "edges": [
+            {
+              "from": "prov",
+              "to": "ver"
+            },
+            {
+              "from": "ver",
+              "to": "dup"
+            },
+            {
+              "from": "dup",
+              "to": "q",
+              "label": "new"
+            },
+            {
+              "from": "q",
+              "to": "ack"
+            },
+            {
+              "from": "q",
+              "to": "wk"
+            },
+            {
+              "from": "wk",
+              "to": "dlq",
+              "label": "repeated failure"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "backward-compatibility-when-providers-and-consumers-change",
+      "title": "How do you keep integrations backward compatible as APIs and consumers evolve independently?",
+      "topic": "Compatibility",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "compatibility",
+        "versioning",
+        "integration",
+        "deprecation"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I treat compatibility as a rule set both sides follow. Providers add, never remove or repurpose: new optional fields, new endpoints, new enum values documented as extensible. Consumers follow the tolerant reader principle, ignoring unknown fields and not crashing on unknown enum values. Breaking changes get a new version, a deprecation window, usage telemetry showing who still calls the old one, and a published sunset date.",
+      "revision": "Providers add, never remove or repurpose; consumers ignore the unknown. Breaking change means new version, telemetry, deprecation window and sunset date.",
+      "detailed": "## Compatibility rules\n\n| Change | Safe? | Note |\n|---|---|---|\n| Add optional response field | Yes | Consumers must ignore unknown fields |\n| Add optional request parameter | Yes | Must have a default |\n| Add new endpoint | Yes | |\n| Add enum value | Risky | Document enums as open; consumers need a default branch |\n| Remove or rename field | No | New version |\n| Change type, units or meaning | No | New version or new field |\n| Make optional field required | No | |\n| Tighten validation | Usually no | May reject earlier valid input |\n\n## Strategies\n\n- **URL or header versioning** for major breaks (see the existing versioning question for trade-offs).\n- **Expand and contract**: add the new field alongside the old, migrate consumers, then remove.\n- **Deprecation signals**: documentation, response headers such as `Deprecation` and `Sunset` where adopted (verify current standards), direct notice.\n- **Usage telemetry** by client ID so you know who to chase.\n\n## Consumer-side defence\n\n```ts\ntype Order = { id: string; status: string };\nconst KNOWN = new Set(['new', 'paid', 'shipped']);\nfunction toDomain(o: Order) {\n  return { id: o.id, status: KNOWN.has(o.status) ? o.status : 'unknown' };\n}\n```\n\n## Connector and flow touchpoint\n\nPower Automate flows bind to the response schema. A removed field breaks expressions at run time and a changed type can fail parsing, so keep flows tolerant and monitor failures after provider releases.\n\n## Controls, threats and trade-offs\n\n| Control | Threat | Trade-off |\n|---|---|---|\n| Additive-only policy | Breaking live consumers | Contract accumulates legacy fields |\n| Tolerant reader | Crash on new fields | Silent acceptance of bad data if overused |\n| Sunset window | Surprise outages | Long-running dual maintenance |\n| Contract tests in CI | Unnoticed breaks | Test maintenance |\n\n## Common mistakes\n\n- Reusing a field with a new meaning.\n- Removing before measuring usage.\n- Treating enum additions as harmless.",
+      "followUps": [
+        "How long should a deprecation window be?",
+        "How do you find unknown consumers?",
+        "When is a breaking change justified?"
+      ]
+    },
+    {
+      "slug": "data-contracts-schema-evolution-json-schema",
+      "title": "How do data contracts and schema evolution work with JSON Schema and consumer-driven contracts?",
+      "topic": "Data contracts",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "json-schema",
+        "data-contracts",
+        "schema-evolution",
+        "pact"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "A data contract is an explicit, versioned, machine-checkable agreement on structure, meaning, quality and ownership of data exchanged between teams. I express structure in JSON Schema or OpenAPI, validate at the boundary, and evolve additively. Consumer-driven contracts invert the check: consumers publish what they actually depend on, and the provider's pipeline verifies it before release. Meaning, such as units and null semantics, goes into the contract too.",
+      "revision": "A data contract is versioned structure plus semantics and ownership. Validate at boundaries, evolve additively, and use consumer-driven tests to protect real dependencies.",
+      "detailed": "## What a contract contains\n\n| Element | Example |\n|---|---|\n| Structure | JSON Schema or OpenAPI component |\n| Semantics | Units, currency, time zone, meaning of null versus missing |\n| Quality | Required fields, ranges, uniqueness |\n| Ownership | Owning team, contact, support hours |\n| Versioning | Semantic version, change log, deprecation policy |\n\n## JSON Schema evolution\n\n- `additionalProperties` left open on **consumers** so additions do not break them.\n- Providers may be strict about what they **emit**.\n- Add fields as optional first; promote to required only in a new major version.\n- Keep schemas in a repository, reviewed, with automated compatibility checks in CI.\n\n```ts\nimport Ajv from 'ajv';\nconst schema = { type: 'object', required: ['id', 'amount'],\n  properties: { id: { type: 'string' }, amount: { type: 'number', minimum: 0 }, currency: { type: 'string' } } };\nconst validate = new Ajv().compile(schema);\nif (!validate(payload)) throw new Error(JSON.stringify(validate.errors));\n```\n\n## Consumer-driven contracts\n\nEach consumer records the interactions and fields it uses (for example with Pact; verify current tooling docs). The provider verifies all consumer contracts in its pipeline, so a change that breaks any real consumer fails before release. Compared with a shared schema, it detects **actual** breakage and lets unused fields change.\n\n## Platform touchpoints\n\n- Dataverse table definitions are a contract for flows and apps; renaming a column breaks them.\n- Event Grid, Service Bus and Event Hubs payloads benefit from a schema registry approach (verify current vendor docs).\n\n## Controls, threats and trade-offs\n\n| Control | Threat | Trade-off |\n|---|---|---|\n| Boundary validation | Bad data propagating | Rejection handling needed |\n| CI compatibility check | Accidental breaks | Pipeline time |\n| Consumer-driven tests | Breaking an unknown dependency | Consumer teams must contribute |\n| Named owner | Orphaned contracts | Ongoing responsibility |\n\n## Common mistakes\n\n- Schema without semantics, so units are guessed.\n- Strict consumers that reject unknown fields.\n- Contracts nobody owns.",
+      "followUps": [
+        "How is consumer-driven contract testing different from integration tests?",
+        "How do you version an event schema?",
+        "What is the meaning of null versus missing?"
+      ]
+    },
+    {
+      "slug": "correlation-ids-w3c-traceparent-across-gateways-and-flows",
+      "title": "How do you propagate correlation IDs and W3C traceparent across API gateways, functions and Power Automate flows?",
+      "topic": "Distributed tracing",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "tracing",
+        "traceparent",
+        "correlation-id",
+        "observability"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I use the W3C traceparent header as the standard carrier. It holds a trace ID, parent span ID and flags, and every hop forwards it and creates its own child span. The gateway generates one if it is missing, services log the trace ID, and asynchronous hops copy it into message properties. For systems that cannot join the trace, such as some flows, I pass a business correlation ID in a custom header and log it everywhere.",
+      "revision": "Propagate W3C traceparent through every hop, generate at the edge, copy into message properties, and log the trace ID. Use a correlation ID where tracing cannot reach.",
+      "detailed": "## The header\n\n```text\ntraceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01\n             ver  trace-id (32 hex)              parent-id (16 hex) flags\n```\n\nThe trace ID stays constant for the whole request; each hop generates a new span ID and sends it as the next parent ID. `tracestate` carries vendor data.\n\n## Propagation by hop\n\n| Hop | What to do |\n|---|---|\n| API gateway | Create traceparent if absent; forward it; log the trace ID; return a request ID to the client |\n| NestJS service | Use OpenTelemetry auto-instrumentation; include trace ID in structured logs |\n| Queue or event | Copy trace context into message properties; consumer starts a linked span |\n| Azure Functions | Application Insights and OpenTelemetry support W3C context (verify current vendor docs) |\n| Power Automate | Cannot always join a trace; add a **correlation ID** to outbound headers, store it with the run, and log it |\n| Dataverse | Store the correlation ID on the record or in an audit column for lookup |\n\n```ts\n// NestJS middleware: ensure a correlation ID, echo it back\napp.use((req, res, next) => {\n  const id = (req.headers['x-correlation-id'] as string) ?? crypto.randomUUID();\n  res.setHeader('x-correlation-id', id);\n  (req as any).correlationId = id;\n  next();\n});\n```\n\n## Practices\n\n1. **One ID in every log line** as a structured field.\n2. **Return the ID** to the client and in error bodies so support can quote it.\n3. **Sample traces** by rate but always keep errors.\n4. **Never put personal data** in trace attributes.\n5. Keep **business IDs** (order number) as searchable attributes.\n\n## Controls, threats and trade-offs\n\n| Control | Threat | Trade-off |\n|---|---|---|\n| Standard header | Broken traces across vendors | Every component must support it |\n| Edge generation | Missing IDs | Untrusted clients could send forged IDs, so treat them as labels only |\n| Sampling | Telemetry cost | May miss rare issues |\n| Attribute scrubbing | Sensitive data in telemetry | Less debugging detail |\n\n## Common mistakes\n\n- Generating a new ID at every hop.\n- Trusting client-supplied IDs for security decisions.\n- Dropping context at queues.",
+      "followUps": [
+        "How would you trace across a Power Automate flow?",
+        "Why return the ID to clients?",
+        "How do you trace async queue workflows?"
+      ]
+    },
+    {
+      "slug": "api-gateways-custom-connectors-openapi-quality",
+      "title": "How do API gateways and custom connectors fit together, and what makes an OpenAPI definition good enough for a connector?",
+      "topic": "Gateways and connectors",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "api-gateway",
+        "custom-connector",
+        "openapi",
+        "power-platform"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I put the connector in front of a gateway rather than the raw backend. The gateway handles authentication, throttling, versioning and logging, and the connector is generated from a clean OpenAPI definition. A good definition has stable operationId values, clear summaries, typed request and response schemas, documented errors, security schemes that match the gateway and examples. Poor definitions produce confusing actions for makers and for agents choosing tools.",
+      "revision": "Front the backend with a gateway and build the connector from a clean OpenAPI file: operationIds, typed schemas, errors, examples, matching security scheme.",
+      "detailed": "## Architecture\n\n| Layer | Responsibility |\n|---|---|\n| Backend service | Business logic |\n| Gateway (for example Azure API Management; verify vendor docs) | Authentication, throttling, quotas, versioning, logging, transformation |\n| Custom connector | Typed actions and triggers for makers and agents |\n| Flow or app | Uses connector actions, not raw HTTP |\n\nBenefits: one policy point, credentials hidden from makers, versions managed centrally, and DLP can govern the connector as a unit.\n\n## OpenAPI quality checklist\n\n| Item | Why it matters |\n|---|---|\n| Stable, descriptive **operationId** | Becomes the action identity; renaming breaks flows |\n| Short **summary** and **description** | Shown to makers; used by agents for tool selection |\n| Typed **schemas**, required fields, enums | Dynamic content and validation in designer |\n| **Examples** | Test and designer experience |\n| Documented **4xx and 5xx** with a common error schema | Predictable handling |\n| **Security scheme** matching the gateway (OAuth 2.0 preferred) | Correct sign-in and consent |\n| **x-ms-summary** and visibility hints, where supported | Friendlier designer (verify current vendor docs) |\n| Pagination and long-running patterns described | Avoids truncated data and timeouts |\n\n```yaml\npaths:\n  /orders/{id}:\n    get:\n      operationId: GetOrder\n      summary: Get an order by ID\n      parameters:\n        - { name: id, in: path, required: true, schema: { type: string } }\n      responses:\n        '200': { description: The order, content: { application/json: { schema: { $ref: '#/components/schemas/Order' } } } }\n        '404': { description: Order not found, content: { application/json: { schema: { $ref: '#/components/schemas/Problem' } } } }\n```\n\n## Controls, threats and trade-offs\n\n| Control | Threat | Trade-off |\n|---|---|---|\n| Gateway in front | Direct backend access, no throttling | Extra hop, latency, cost |\n| OAuth on the connector | Shared static keys | Consent and app registration work |\n| Linting OpenAPI in CI | Poor or inconsistent definitions | Rule maintenance |\n| Connector review before DLP classification | Unreviewed external calls | Review queue |\n\n## Common mistakes\n\n- Generating a connector from an undocumented auto-exported file.\n- Renaming operationIds after release.\n- Unbounded responses with no pagination.",
+      "followUps": [
+        "Why does operationId stability matter?",
+        "How would you version a custom connector?",
+        "How does OpenAPI quality affect agents choosing tools?"
+      ]
+    },
+    {
+      "slug": "partial-failure-and-compensation-multi-system-integrations",
+      "title": "How do you handle partial failure and compensation in a multi-system integration?",
+      "topic": "Partial failure",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "saga",
+        "compensation",
+        "consistency",
+        "integration"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "There is no distributed transaction across SaaS systems, so I design for partial failure. I split the process into steps, make each idempotent, record progress in a durable state store, and define a compensating action for each step that has side effects. If a later step fails permanently, I run compensations in reverse and alert if one cannot complete. Reconciliation jobs catch what retries and compensations miss.",
+      "revision": "No cross-system transactions: use idempotent steps, durable progress state, compensating actions, dead-letter handling and reconciliation.",
+      "detailed": "## Saga outline\n\n{{diagram:saga-compensation}}\n\n## Design steps\n\n1. List steps and their **side effects** (create order, reserve stock, take payment, notify).\n2. Mark each step **idempotent**, using keys derived from a business ID.\n3. Persist a **process record**: state, step, attempt count, last error, correlation ID.\n4. Define **compensation** for each step: cancel, refund, release, or \"mark void\".\n5. Distinguish **transient** (retry) from **permanent** (compensate) failures.\n6. Escalate to a human when compensation fails.\n\n## Compensation table\n\n| Step | Compensation | Caveat |\n|---|---|---|\n| Create record in system B | Delete or mark cancelled | Delete may be impossible; mark inactive |\n| Reserve stock | Release reservation | Reservation expiry as safety net |\n| Capture payment | Refund | Not instantaneous, fees may apply |\n| Send email | Send correction | Cannot be undone |\n\nOrder steps so that **irreversible actions come last**.\n\n```ts\ntype Step = { name: string; run: (ctx: Ctx) => Promise<void>; undo?: (ctx: Ctx) => Promise<void> };\nasync function runSaga(steps: Step[], ctx: Ctx) {\n  const done: Step[] = [];\n  try { for (const s of steps) { await s.run(ctx); done.push(s); } }\n  catch (e) { for (const s of done.reverse()) await s.undo?.(ctx).catch(() => alertOps(s.name, ctx)); throw e; }\n}\n```\n\n## Platform touchpoints\n\nDurable Functions provide orchestration with state and retries; Power Automate scopes with run-after settings model try, catch and compensate paths. Verify current vendor docs.\n\n## Controls, threats and trade-offs\n\n| Control | Threat | Trade-off |\n|---|---|---|\n| Idempotent steps | Duplicates on retry | Key design effort |\n| Durable process state | Lost progress after crash | State store to operate |\n| Compensation | Inconsistent systems | Not always possible; business rules needed |\n| Reconciliation job | Silent drift | Extra jobs and reporting |\n\n## Common mistakes\n\n- Assuming retries alone give consistency.\n- Compensation that is not itself idempotent.\n- No alert when compensation fails.",
+      "followUps": [
+        "How would you handle a refund that fails?",
+        "Orchestration or choreography here?",
+        "How do you test failure paths?"
+      ],
+      "diagrams": [
+        {
+          "id": "saga-compensation",
+          "title": "Saga with compensation",
+          "alt": "Steps run in sequence: create order, reserve stock, take payment, confirm. If payment fails permanently, the saga releases stock and cancels the order in reverse order, then alerts operations if any compensation fails.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "o",
+              "label": "Create order"
+            },
+            {
+              "id": "s",
+              "label": "Reserve stock"
+            },
+            {
+              "id": "p",
+              "label": "Take payment"
+            },
+            {
+              "id": "c",
+              "label": "Confirm"
+            },
+            {
+              "id": "rs",
+              "label": "Release stock"
+            },
+            {
+              "id": "co",
+              "label": "Cancel order"
+            },
+            {
+              "id": "al",
+              "label": "Alert operations"
+            }
+          ],
+          "edges": [
+            {
+              "from": "o",
+              "to": "s"
+            },
+            {
+              "from": "s",
+              "to": "p"
+            },
+            {
+              "from": "p",
+              "to": "c",
+              "label": "success"
+            },
+            {
+              "from": "p",
+              "to": "rs",
+              "label": "permanent failure"
+            },
+            {
+              "from": "rs",
+              "to": "co"
+            },
+            {
+              "from": "co",
+              "to": "al",
+              "label": "if undo fails"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "secure-credential-storage-and-rotation-for-integrations",
+      "title": "How do you store and rotate credentials securely for integrations with third-party APIs?",
+      "topic": "Integration credentials",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "credentials",
+        "rotation",
+        "key-vault",
+        "integration"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Credentials for integrations go in a vault, are read at runtime by a managed identity, and are scoped to the least privilege the provider allows. I prefer OAuth with short-lived tokens over long-lived API keys. Every credential has an owner, an expiry and a rotation runbook. Where the provider supports two active keys I rotate without downtime. Flows and connections use service accounts, never an individual's login.",
+      "revision": "Vault storage, runtime read by managed identity, least privilege, short-lived OAuth where possible, owner and expiry for each credential, dual-key rotation.",
+      "detailed": "## Principles\n\n| Principle | Practice |\n|---|---|\n| No secrets in code or config | Vault references; pipelines inject at deploy time |\n| Least privilege | Provider-side scopes, read-only keys where possible |\n| Short-lived beats long-lived | OAuth client credentials with certificate over static key |\n| Separation | Different credentials per environment and per integration |\n| Ownership | Named owner group, expiry, rotation date recorded |\n| Service identities | Dedicated accounts, not a person's login |\n\n## Rotation without downtime\n\n1. Provider supports two keys: create key B, deploy consumers to use B, verify, revoke A.\n2. Provider supports one key: schedule a window, update the vault, restart or refresh consumers, verify; add retry-on-401 re-read logic.\n3. Certificate: add the new certificate to the registration, switch the client, remove the old one.\n\n```ts\n// Read per call with short TTL cache so rotation propagates quickly\nconst cache = new Map<string, { v: string; exp: number }>();\nexport async function secret(name: string) {\n  const hit = cache.get(name);\n  if (hit && hit.exp > Date.now()) return hit.v;\n  const v = (await kv.getSecret(name)).value!;\n  cache.set(name, { v, exp: Date.now() + 5 * 60_000 });\n  return v;\n}\n```\n\n## Platform touchpoints\n\n- Azure Functions: Key Vault references in app settings with managed identity.\n- Power Automate: avoid pasting keys into HTTP actions; use connector connections, or fetch from Key Vault through an approved connector (verify current vendor docs). Mark inputs and outputs as secure where supported so they are hidden in run history.\n- Dataverse: environment variables of secret type can reference Key Vault (verify current vendor docs).\n\n## Controls, threats and trade-offs\n\n| Control | Threat | Trade-off |\n|---|---|---|\n| Vault plus managed identity | Leaked config, repo secrets | Dependency on vault availability |\n| Secure inputs and outputs in flows | Secrets in run history | Harder debugging |\n| Expiry monitoring | Outage from lapsed key | Alert noise |\n| Per-environment keys | Test leak reaching production | More keys |\n\n## Common mistakes\n\n- Caching a secret forever.\n- Sharing one key across integrations.\n- Secrets visible in flow run history.",
+      "followUps": [
+        "How do you find leaked keys in flow definitions?",
+        "What do you do when the provider supports only one key?",
+        "How do you alert before expiry?"
+      ]
+    },
+    {
+      "slug": "graceful-degradation-and-fallbacks-in-integrations",
+      "title": "How do you design graceful degradation and fallbacks when a dependency is down?",
+      "topic": "Resilience",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "fallback",
+        "degradation",
+        "resilience",
+        "integration"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I decide up front what the user experience should be when each dependency fails. Options include serving cached or stale data with a clear label, queueing the work for later, switching to a secondary provider, reducing features, or failing fast with a helpful message. Fallbacks must be tested, bounded and visible in monitoring. I classify dependencies as critical or optional so a recommendations outage never blocks checkout.",
+      "revision": "Choose per dependency: stale cache, queue for later, secondary provider, reduced feature or fast clear failure. Test fallbacks and make them observable.",
+      "detailed": "## Options\n\n| Fallback | Good for | Risk |\n|---|---|---|\n| Serve stale cache | Reference data, read paths | Wrong data; label freshness |\n| Queue and process later | Writes that can wait | User expects immediate result; need status |\n| Secondary provider | Payments, messaging, mapping | Cost, differing behaviour |\n| Feature off | Optional enrichments | Reduced value |\n| Default value | Non-critical lookups | Hidden inaccuracies |\n| Fail fast with message | Critical, unsafe-to-guess actions | Visible outage |\n\n## Design steps\n\n1. Classify each dependency: **critical** (no safe fallback) or **optional**.\n2. For each, define the fallback and the **user message**.\n3. Combine with timeouts, circuit breakers and bulkheads (covered in other questions) so failure is detected quickly.\n4. **Test fallbacks** with fault injection; an untested fallback often fails first.\n5. Emit a **metric when a fallback fires** and alert if it persists.\n6. Plan **recovery**: drain the queue, refresh the cache, replay.\n\n```ts\nasync function getPrice(sku: string) {\n  try { return await pricing.get(sku, { timeoutMs: 800 }); }\n  catch { const stale = cache.get(sku); if (stale) return { ...stale, stale: true }; throw new ServiceUnavailable('Pricing unavailable'); }\n}\n```\n\n## Platform touchpoints\n\nIn Power Automate, use scope-based try and catch with run-after configured for failed and timed-out, then queue the work item in Dataverse for retry. Azure Functions with queue triggers give built-in poison handling. Verify current vendor docs.\n\n## Controls, threats and trade-offs\n\n| Control | Threat | Trade-off |\n|---|---|---|\n| Stale cache with label | Outage on read paths | Possible stale decisions |\n| Durable queue | Lost work during outage | Backlog drain and ordering |\n| Secondary provider | Single-provider outage | Duplicate integration and testing |\n| Fallback metric | Silent degradation | Alerting design |\n\n## Common mistakes\n\n- Falling back to a default that causes wrong business decisions.\n- Never testing the fallback.\n- Unbounded queues that hide a long outage.",
+      "followUps": [
+        "Which dependencies are critical in a typical order flow?",
+        "How would you test a fallback?",
+        "When is failing fast better than a fallback?"
+      ]
+    }
+  ]
+}

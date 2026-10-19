@@ -1,0 +1,1283 @@
+{
+  "category": "power-platform-dataverse",
+  "questions": [
+    {
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "slug": "plugin-execution-context-in-depth",
+      "title": "Dataverse plug-in execution context: InputParameters, Target, Depth, images and isolation",
+      "topic": "Plug-ins",
+      "difficulty": "advanced",
+      "type": "coding",
+      "tags": [
+        "plugins",
+        "execution-context",
+        "csharp",
+        "entity-images",
+        "dataverse"
+      ],
+      "quick": "Every plug-in receives an IPluginExecutionContext describing the message, the stage, the primary entity and who is acting. For Create and Update I read the Target from InputParameters, which holds only the columns being changed on Update. If I need the old or merged values I register pre or post images. Depth tells me how many nested calls led here, so I guard against loops. I trace with ITracingService and throw InvalidPluginExecutionException to block with a clear message.",
+      "revision": "Context gives message, stage, Target, user and Depth. Update Target is partial; use images for old values; guard Depth; throw InvalidPluginExecutionException to block.",
+      "diagrams": [
+        {
+          "id": "ctx",
+          "title": "What a plug-in receives",
+          "alt": "The platform builds an execution context with message, stage, input parameters and Target, images and Depth, then passes it to the plug-in, which reads values, validates and either returns or throws an exception that rolls back the transaction.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "msg",
+              "label": "Message and stage"
+            },
+            {
+              "id": "ctx",
+              "label": "Execution context"
+            },
+            {
+              "id": "tgt",
+              "label": "Target in InputParameters"
+            },
+            {
+              "id": "img",
+              "label": "Pre and post images"
+            },
+            {
+              "id": "plg",
+              "label": "Plug-in Execute"
+            },
+            {
+              "id": "ok",
+              "label": "Return, pipeline continues"
+            },
+            {
+              "id": "ex",
+              "label": "Throw, rollback"
+            }
+          ],
+          "edges": [
+            {
+              "from": "msg",
+              "to": "ctx"
+            },
+            {
+              "from": "ctx",
+              "to": "tgt"
+            },
+            {
+              "from": "ctx",
+              "to": "img"
+            },
+            {
+              "from": "tgt",
+              "to": "plg"
+            },
+            {
+              "from": "img",
+              "to": "plg"
+            },
+            {
+              "from": "plg",
+              "to": "ok",
+              "label": "valid"
+            },
+            {
+              "from": "plg",
+              "to": "ex",
+              "label": "invalid"
+            }
+          ]
+        }
+      ],
+      "detailed": "A plug-in is a class implementing **IPlugin** with one method, Execute(IServiceProvider). Everything you need comes from the service provider, so knowing the context is the core skill.\n\n## The execution context\n\n{{diagram:ctx}}\n\n| Item | Meaning |\n|---|---|\n| MessageName, PrimaryEntityName | What is happening (Create, Update, Delete) and to which table |\n| Stage | Pre-validation, pre-operation, post-operation (verify numeric values in the SDK docs) |\n| InputParameters[\"Target\"] | The Entity being created or updated; on Update it contains **only the changed columns** |\n| PreEntityImages / PostEntityImages | Snapshots you request at registration |\n| Depth | How many nested plug-in or workflow calls led to this execution |\n| UserId and InitiatingUserId | Executing identity versus the user who started the operation |\n| IsolationMode | Sandbox in Dataverse online; plug-ins run in the sandbox, so no unrestricted file or registry access |\n\n## Images: when each is available\n\n- **Pre-image** is the row before the operation; available for Update and Delete, not Create.\n- **Post-image** is the row after; available only in post-operation for Create and Update, not Delete.\n- Images contain only the columns you select, so select the minimum.\n\n## Business requirement and sample\n\nRequirement: an opportunity cannot be closed won with a discount above 20 percent unless an approval flag is set.\n\n```csharp\npublic class ValidateDiscount : IPlugin\n{\n    public void Execute(IServiceProvider sp)\n    {\n        var ctx = (IPluginExecutionContext)sp.GetService(typeof(IPluginExecutionContext));\n        var trace = (ITracingService)sp.GetService(typeof(ITracingService));\n        if (ctx.Depth > 1) return; // loop guard\n        if (!ctx.InputParameters.Contains(\"Target\") || !(ctx.InputParameters[\"Target\"] is Entity target)) return;\n        var pre = ctx.PreEntityImages.Contains(\"pre\") ? ctx.PreEntityImages[\"pre\"] : null;\n        var discount = target.GetAttributeValue<decimal?>(\"new_discount\")\n            ?? pre?.GetAttributeValue<decimal?>(\"new_discount\") ?? 0m;\n        var approved = target.GetAttributeValue<bool?>(\"new_approved\")\n            ?? pre?.GetAttributeValue<bool?>(\"new_approved\") ?? false;\n        trace.Trace(\"Discount {0}, approved {1}\", discount, approved);\n        if (discount > 20m && !approved)\n            throw new InvalidPluginExecutionException(\"Discounts above 20 percent need approval.\");\n    }\n}\n```\n\n## Operational notes\n\n- **Security:** the plug-in runs as the calling user by default; elevating to the system user needs a deliberate registration choice. Never log secrets.\n- **Failure behaviour:** a thrown exception in a synchronous step rolls back the operation and shows the message to the user.\n- **Performance:** register on specific messages with **filtering attributes**, keep logic short, no external calls.\n- **Testing:** unit-test with a mocked context, then integration-test in a dev environment.\n- **Deployment:** sign the assembly if required, register steps inside a solution so they are solution-aware, and deploy through managed solutions. Plug-in packages (NuGet-style dependent assemblies) are the current direction for dependencies; verify in Microsoft Learn.\n\n## Common mistakes\n\n- Assuming Target has all columns on Update.\n- Using Depth checks that silently skip legitimate nested calls.\n- No filtering attributes, so the step fires on every update.\n- Swallowing exceptions so bad data is saved.",
+      "followUps": [
+        "Why is Depth greater than one not always a loop?",
+        "When would you choose a post-image over reading the row again?",
+        "How would you debug a plug-in that works in dev but fails in production?"
+      ],
+      "related": [
+        "plugin-transaction-rollback-sync-async"
+      ]
+    },
+    {
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "slug": "plugin-transaction-rollback-sync-async",
+      "title": "Plug-in transactions: stages, rollback, sync versus async and external calls",
+      "topic": "Plug-ins",
+      "difficulty": "advanced",
+      "type": "conceptual",
+      "tags": [
+        "plugins",
+        "transactions",
+        "rollback",
+        "async",
+        "integration"
+      ],
+      "quick": "Synchronous plug-ins in the pre-operation and post-operation stages run inside the database transaction of the operation, so an unhandled exception rolls everything back, including earlier steps. Pre-validation typically runs outside it. Asynchronous steps run later, after the commit, so their failure does not undo the original change. That is why I never call slow external services from synchronous plug-ins: they hold locks, risk timeouts and cannot be rolled back.",
+      "revision": "Sync pre/post-operation steps share the transaction and roll back together; async runs after commit; external calls in sync steps hold locks and cannot be undone.",
+      "diagrams": [
+        {
+          "id": "txn",
+          "title": "Pipeline and transaction",
+          "alt": "A request passes pre-validation outside the transaction, then pre-operation, the core database operation and post-operation inside the transaction. An exception triggers rollback, while asynchronous steps run after the commit.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "pv",
+              "label": "Pre-validation"
+            },
+            {
+              "id": "po",
+              "label": "Pre-operation"
+            },
+            {
+              "id": "core",
+              "label": "Core operation"
+            },
+            {
+              "id": "post",
+              "label": "Post-operation"
+            },
+            {
+              "id": "commit",
+              "label": "Commit"
+            },
+            {
+              "id": "async",
+              "label": "Async steps"
+            },
+            {
+              "id": "rb",
+              "label": "Rollback on exception"
+            }
+          ],
+          "edges": [
+            {
+              "from": "pv",
+              "to": "po"
+            },
+            {
+              "from": "po",
+              "to": "core"
+            },
+            {
+              "from": "core",
+              "to": "post"
+            },
+            {
+              "from": "post",
+              "to": "commit"
+            },
+            {
+              "from": "commit",
+              "to": "async",
+              "label": "queued"
+            },
+            {
+              "from": "post",
+              "to": "rb",
+              "label": "exception"
+            }
+          ]
+        }
+      ],
+      "detailed": "The question to answer is: what is undone when something fails, and what is not?\n\n## Boundaries\n\n{{diagram:txn}}\n\n| Stage or mode | Inside the transaction? | On exception |\n|---|---|---|\n| Pre-validation | Generally outside (verify docs) | Operation cancelled before changes |\n| Pre-operation | Yes | Whole transaction rolls back |\n| Post-operation (sync) | Yes | Whole transaction rolls back, including the core change |\n| Post-operation (async) | No, runs after commit | Original change stays; the system job fails and can be retried |\n\n## What this means in practice\n\n- **Atomic validation:** use synchronous steps for rules that must block a save, because failure removes the change cleanly.\n- **Side effects:** use asynchronous steps for things that can happen later, such as notifications or outbound calls.\n- **Nested operations:** a sync plug-in that calls other messages usually joins the same transaction, so a failure rolls the lot back.\n- **Catching exceptions:** catching and swallowing an error inside a plug-in may leave the transaction in a state the platform has already marked for rollback; handle carefully and test.\n\n## Why external calls in sync plug-ins are dangerous\n\n1. **Locks:** the transaction holds database locks while waiting for a remote service, hurting other users.\n2. **Timeouts:** plug-ins have an execution time limit (verify the current value); a slow dependency kills the user's save.\n3. **No rollback of the remote effect:** if you call a payment or messaging API and the transaction later rolls back, the external effect remains.\n4. **Availability coupling:** the remote outage becomes a Dataverse outage for that action.\n\n## Better design\n\nWrite an outbox row or raise an async step, let a flow, Azure Function or Service Bus consumer do the external work with retries and idempotency keys, and surface status back on the row.\n\n## Common mistakes\n\n- Doing remote calls synchronously because it is easier to demo.\n- Assuming async failure undoes the user's save.\n- No monitoring of failed system jobs.\n- Treating retry as safe without idempotency.",
+      "followUps": [
+        "How would you make an async integration step idempotent?",
+        "What happens to a user's save when a post-operation sync plug-in throws?",
+        "Where would you look to find failed async operations?"
+      ],
+      "related": [
+        "plugin-execution-context-in-depth"
+      ]
+    },
+    {
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "slug": "custom-api-actions-functions",
+      "title": "Custom APIs, actions and functions: when to create one and how to call it",
+      "topic": "Custom API",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "custom-api",
+        "actions",
+        "functions",
+        "web-api",
+        "plugins"
+      ],
+      "quick": "A Custom API is my own message in Dataverse: a named operation with typed request and response parameters, optional binding to a table, an optional execute privilege, and a plug-in that implements it. I create one when I want a reusable, secured business operation callable from apps, flows and the Web API, rather than scattering logic. Functions are read-only and called with GET; actions change data and use POST.",
+      "revision": "Custom API: named message with typed parameters, binding, privilege and a plug-in; function is GET and side-effect free, action is POST; callable from Web API, flows and apps.",
+      "diagrams": [
+        {
+          "id": "capi",
+          "title": "Custom API call path",
+          "alt": "Callers such as a canvas app, a flow and an external client invoke the Custom API through the Web API. Dataverse checks the execute privilege and runs the plug-in implementation, which returns typed response parameters.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "app",
+              "label": "Canvas app"
+            },
+            {
+              "id": "flow",
+              "label": "Cloud flow"
+            },
+            {
+              "id": "ext",
+              "label": "External client"
+            },
+            {
+              "id": "api",
+              "label": "Web API"
+            },
+            {
+              "id": "priv",
+              "label": "Privilege check"
+            },
+            {
+              "id": "plg",
+              "label": "Plug-in implementation"
+            },
+            {
+              "id": "resp",
+              "label": "Typed response"
+            }
+          ],
+          "edges": [
+            {
+              "from": "app",
+              "to": "api"
+            },
+            {
+              "from": "flow",
+              "to": "api"
+            },
+            {
+              "from": "ext",
+              "to": "api"
+            },
+            {
+              "from": "api",
+              "to": "priv"
+            },
+            {
+              "from": "priv",
+              "to": "plg"
+            },
+            {
+              "from": "plg",
+              "to": "resp"
+            }
+          ]
+        }
+      ],
+      "detailed": "A Custom API turns a piece of business logic into a first-class, discoverable operation.\n\n## Anatomy\n\n{{diagram:capi}}\n\n| Part | Notes |\n|---|---|\n| Unique name | Publisher prefix plus name, for example a prefix_ApproveOrder |\n| Binding | Unbound (global), bound to an entity, or bound to a collection |\n| Function or action | Function: no side effects, called with GET. Action: may change data, called with POST |\n| Request parameters | Typed inputs (string, integer, entity reference and so on; verify the current type list) |\n| Response properties | Typed outputs returned to the caller |\n| Execute privilege | Optional privilege so only chosen roles can call it |\n| Implementation | A plug-in type registered as the main operation |\n\n## When to create one\n\n- The same rule is needed from several clients (apps, flows, integrations).\n- You need a contract with typed inputs and outputs rather than ad hoc table writes.\n- The operation should be secured separately from table permissions.\n- You want to hide multi-step logic behind one transaction-aware call.\n\nWhen the logic is a simple field default or validation, a plug-in on the table or a business rule is lighter.\n\n## Calling it\n\n- **Web API:** POST to the action's endpoint with a JSON body of parameters; bound operations are addressed through the row.\n- **Power Automate:** unbound and bound actions appear in the Dataverse connector (perform an unbound or bound action).\n- **Canvas apps:** commonly via a flow or by calling it from a connector; verify supported patterns.\n\n## Design advice\n\n- Version by name (ApproveOrderV2) rather than changing parameters in place.\n- Return structured results and meaningful errors via InvalidPluginExecutionException.\n- Keep it idempotent where callers may retry.\n- Ship it in a solution with its parameters.\n\n## Common mistakes\n\n- Making a data-changing operation a function.\n- Granting no privilege, so anyone with API access can call it.\n- Putting long external calls inside it.\n- Changing parameters after consumers depend on them.",
+      "followUps": [
+        "How would you secure a Custom API to a small group of users?",
+        "Custom API versus a custom action built with the older workflow-based approach?",
+        "How do you call a bound Custom API from the Web API?"
+      ]
+    },
+    {
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "slug": "alternate-keys-upsert-idempotent-writes",
+      "title": "Alternate keys, Upsert and idempotent integration writes in Dataverse",
+      "topic": "Integration",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "alternate-keys",
+        "upsert",
+        "idempotency",
+        "integration",
+        "web-api"
+      ],
+      "quick": "For integrations I define an alternate key on the business identifier from the source system, such as a customer number. Then the integration can Upsert by that key: Dataverse updates the row if it exists and creates it if not, without needing the GUID. That makes retries safe, because replaying the same message does not create duplicates. I also store source version or timestamp to ignore stale updates.",
+      "revision": "Alternate key on the external business id plus Upsert gives idempotent writes; retries do not duplicate; add version checks to ignore stale messages.",
+      "diagrams": [
+        {
+          "id": "ups",
+          "title": "Idempotent upsert flow",
+          "alt": "A source system message is sent to an integration that calls Upsert using an alternate key. Dataverse looks up the key, updates the existing row or creates a new one, and a retry of the same message results in the same single row.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "src",
+              "label": "Source message"
+            },
+            {
+              "id": "int",
+              "label": "Integration service"
+            },
+            {
+              "id": "up",
+              "label": "Upsert by alternate key"
+            },
+            {
+              "id": "find",
+              "label": "Key lookup"
+            },
+            {
+              "id": "upd",
+              "label": "Update existing row"
+            },
+            {
+              "id": "cre",
+              "label": "Create new row"
+            }
+          ],
+          "edges": [
+            {
+              "from": "src",
+              "to": "int"
+            },
+            {
+              "from": "int",
+              "to": "up"
+            },
+            {
+              "from": "up",
+              "to": "find"
+            },
+            {
+              "from": "find",
+              "to": "upd",
+              "label": "found"
+            },
+            {
+              "from": "find",
+              "to": "cre",
+              "label": "not found"
+            },
+            {
+              "from": "int",
+              "to": "src",
+              "label": "retry safe"
+            }
+          ]
+        }
+      ],
+      "detailed": "Integrations fail and retry, so writes must be safe to repeat. Alternate keys plus Upsert are the standard Dataverse tool.\n\n## Alternate keys\n\nAn **alternate key** is a column, or combination of columns, that uniquely identifies a row besides its GUID. Dataverse enforces uniqueness and indexes the key. Typical choices: external customer number, order number from an ERP, or a composite of source system and id.\n\nPoints to verify in current documentation: supported column types for keys, the maximum number of keys per table and key size limits, and that key creation is an asynchronous job which can fail if existing data has duplicates.\n\n## Upsert\n\n{{diagram:ups}}\n\n- **Web API:** a PATCH addressed by the alternate key, for example a path with the key in parentheses, acts as an upsert. Using If-None-Match or If-Match headers lets you restrict it to create-only or update-only; verify the exact header semantics.\n- **SDK:** UpsertRequest with an entity that has key attributes set.\n- Result tells you whether the row was created or updated.\n\n## Making writes idempotent\n\n1. Choose the key from the source system's stable business id.\n2. Upsert rather than check-then-create, which has a race window.\n3. Carry a **source version or modified timestamp** and ignore older messages, because a retry or reordering can deliver stale data.\n4. Make child rows reference the parent by key where supported, so you avoid a lookup round trip.\n5. Log the key and outcome for reconciliation.\n\n## Design cautions\n\n| Concern | Advice |\n|---|---|\n| Key changes in source | Treat as a migration, not an upsert |\n| Null key parts | Not valid for uniqueness; validate before sending |\n| Key column edits | Changing key values affects integrations |\n| Large loads | Combine with batching |\n\n## Common mistakes\n\n- Using the display name as a key.\n- Creating the alternate key after data is dirty and being surprised the job fails.\n- Check-then-create in parallel workers.\n- Ignoring ordering, so an old message overwrites a new one.",
+      "followUps": [
+        "How would you load a million rows with upsert safely?",
+        "What happens when two messages with the same key arrive at the same time?",
+        "How do you handle a source key being corrected later?"
+      ],
+      "related": [
+        "dataverse-optimistic-concurrency-etag",
+        "duplicate-detection-vs-alternate-keys-unique"
+      ]
+    },
+    {
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "slug": "dataverse-optimistic-concurrency-etag",
+      "title": "Optimistic concurrency in Dataverse: ETag, If-Match and handling 412 conflicts",
+      "topic": "Concurrency",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "concurrency",
+        "etag",
+        "if-match",
+        "412",
+        "web-api"
+      ],
+      "quick": "Two users or integrations editing the same row will silently overwrite each other by default, which is last-writer-wins. Dataverse rows carry a version, exposed as an ETag in the Web API. I read the row, send the update with an If-Match header containing that ETag, and if someone changed it meanwhile I get HTTP 412. I then re-read, merge or ask the user, and retry. I use it where lost updates matter.",
+      "revision": "Default is last-writer-wins. Send If-Match with the row ETag; a 412 means it changed; re-read, merge, retry. Verify SDK concurrency behaviour in docs.",
+      "diagrams": [
+        {
+          "id": "etag",
+          "title": "Optimistic concurrency",
+          "alt": "Two clients read the same row and receive the same ETag. Client A updates with If-Match and succeeds, creating a new version. Client B updates with the old ETag and receives a 412 response, then re-reads and retries.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "read",
+              "label": "Both read row, ETag v1"
+            },
+            {
+              "id": "a",
+              "label": "Client A PATCH If-Match v1"
+            },
+            {
+              "id": "ok",
+              "label": "Success, row becomes v2"
+            },
+            {
+              "id": "b",
+              "label": "Client B PATCH If-Match v1"
+            },
+            {
+              "id": "fail",
+              "label": "412 Precondition Failed"
+            },
+            {
+              "id": "retry",
+              "label": "Re-read, merge, retry"
+            }
+          ],
+          "edges": [
+            {
+              "from": "read",
+              "to": "a"
+            },
+            {
+              "from": "read",
+              "to": "b"
+            },
+            {
+              "from": "a",
+              "to": "ok"
+            },
+            {
+              "from": "b",
+              "to": "fail"
+            },
+            {
+              "from": "fail",
+              "to": "retry"
+            }
+          ]
+        }
+      ],
+      "detailed": "Concurrency bugs in business apps usually show up as \"my change disappeared\". Understand the default and the control.\n\n## The pitfall: last-writer-wins\n\nIf client B updates only the columns it changed, the platform applies them even when client A changed the same columns a second earlier. Partial updates reduce collisions but do not eliminate them: both can set the same status, or compute a value from stale data.\n\n## Optimistic concurrency\n\n{{diagram:etag}}\n\n1. **Read** the row. The Web API returns an **ETag** header and an @odata.etag property based on the row version.\n2. **Update** with **If-Match: <etag>**.\n3. If the version still matches, the update succeeds. If not, you get **412 Precondition Failed**.\n4. **Resolve:** re-read, compare, merge automatically if the changes touch different columns, or show the user a conflict message.\n\nWithout If-Match (or with If-Match: *), the update is unconditional. In the SDK, there is a concurrency behaviour option on requests that uses the row version; verify the exact property names in current docs.\n\n## Choosing a strategy\n\n| Situation | Approach |\n|---|---|\n| Interactive form, rare conflicts | Optimistic, show message on 412 |\n| Integration updating system-owned columns | Single writer or ownership by column |\n| Counters, totals | Rollup or atomic server-side logic, not read-modify-write |\n| State transitions | Check the current state in a plug-in and reject invalid transitions |\n\n## Practical notes\n\n- The row version changes on any update, so a harmless change by another process can cause 412; retry loops need a limit and backoff.\n- Model-driven apps already warn users in many cases; custom integrations must implement it themselves.\n- Do not combine long-held read state with optimistic checks across minutes without telling the user.\n\n## Common mistakes\n\n- Never sending If-Match, then wondering about lost updates.\n- Retrying the same stale payload after a 412 instead of re-reading.\n- Treating 412 as a server error and alerting on it.\n- Using read-modify-write for counters.",
+      "followUps": [
+        "How would a plug-in prevent invalid state transitions under concurrency?",
+        "Why can a 412 loop forever and how do you stop it?",
+        "How would you implement a running counter safely?"
+      ],
+      "related": [
+        "alternate-keys-upsert-idempotent-writes"
+      ]
+    },
+    {
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "slug": "duplicate-detection-vs-alternate-keys-unique",
+      "title": "Duplicate detection rules vs alternate keys vs unique constraints in Dataverse",
+      "topic": "Data quality",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "duplicate-detection",
+        "alternate-keys",
+        "data-quality",
+        "dataverse"
+      ],
+      "quick": "They solve different problems. Alternate keys enforce hard uniqueness on exact values and are used by integrations. Duplicate detection rules are fuzzy, advisory matching that warns users at save time or when scanning with a job, using criteria like same email or similar name. Plain SQL-style unique constraints are not a general Dataverse feature, so I use alternate keys for must-be-unique and rules for human-managed data.",
+      "revision": "Alternate key: exact, enforced, integration-friendly. Duplicate detection: matching rules, warning and jobs, not a guarantee. Merge is a separate process.",
+      "detailed": "Choose by how strict the rule is and who creates the data.\n\n## Comparison\n\n| Aspect | Alternate key | Duplicate detection rule | Custom plug-in check |\n|---|---|---|---|\n| Enforcement | Hard, platform rejects duplicates | Advisory warning in forms; API behaviour depends on parameters (verify) | Hard if you throw |\n| Matching | Exact value of key columns | Criteria such as exact match, same first characters, case options | Anything you code |\n| Typical user | Integrations, migrations | Sales and service users entering contacts | Complex business rules |\n| Performance | Indexed lookups | Needs match codes and publishing; async cost | Your responsibility |\n| Cleanup | Prevents the problem | Duplicate detection jobs find existing duplicates; merge resolves | Not included |\n\n## When to use which\n\n- **Business identifier must be unique** (order number, tax id, customer number from another system): alternate key.\n- **People data with spelling variation** (contacts, leads): duplicate detection rules, plus training and merge.\n- **Conditional uniqueness** (unique per account and year, only while active): plug-in check, possibly with a composite alternate key plus a calculated discriminator column.\n\n## How duplicate detection behaves\n\nRules are created per table, with conditions on columns, and then **published**. Matching is based on stored match codes, so changes need time to propagate. Detection can run on create and update in the user interface, and on demand through detection jobs. Programmatic writes may bypass the warning unless the request asks for it; verify current options in Microsoft Learn.\n\n## Layered approach\n\n1. Alternate key for system identifiers.\n2. Duplicate rules for user-entered data.\n3. Scheduled duplicate detection job and a merge procedure.\n4. Reconciliation reports for integrations.\n\n## Common mistakes\n\n- Relying on duplicate detection as a guarantee for integrations.\n- Adding an alternate key to a table with existing duplicates without cleaning first.\n- Forgetting to publish rules.\n- Using plug-in checks that are race-prone instead of keys.",
+      "followUps": [
+        "How would you clean existing duplicates before adding an alternate key?",
+        "What is a safe merge process for contacts?",
+        "How do you enforce uniqueness across two columns plus a date?"
+      ],
+      "related": [
+        "alternate-keys-upsert-idempotent-writes"
+      ]
+    },
+    {
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "slug": "dataverse-web-api-typescript-client",
+      "title": "Calling the Dataverse Web API from TypeScript: token, queries, paging and 429 handling",
+      "topic": "Web API",
+      "difficulty": "intermediate",
+      "type": "coding",
+      "tags": [
+        "web-api",
+        "typescript",
+        "msal",
+        "odata",
+        "throttling"
+      ],
+      "quick": "For a service integration I register an app in Entra ID, create an application user in Dataverse, and acquire a token with the client credentials flow using MSAL or Azure Identity, scoped to the environment URL. Then I call the OData endpoint with select, filter, expand, orderby and top, follow the nextLink for paging, and on 429 wait for the Retry-After value before retrying. I never hard-code secrets.",
+      "revision": "Client-credentials token scoped to the org URL; use select, filter, top; follow @odata.nextLink; on 429 honour Retry-After; secrets from a vault.",
+      "diagrams": [
+        {
+          "id": "tsflow",
+          "title": "Token, query and retry loop",
+          "alt": "The client obtains a token from Entra ID with client credentials, calls the Dataverse Web API, processes a page, follows the next link until none remains, and waits for the Retry-After period when throttled with a 429 response.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "cred",
+              "label": "Credential from vault"
+            },
+            {
+              "id": "tok",
+              "label": "Entra ID token"
+            },
+            {
+              "id": "get",
+              "label": "GET with select, filter, top"
+            },
+            {
+              "id": "page",
+              "label": "Process page"
+            },
+            {
+              "id": "next",
+              "label": "Follow nextLink"
+            },
+            {
+              "id": "thr",
+              "label": "429, wait Retry-After"
+            }
+          ],
+          "edges": [
+            {
+              "from": "cred",
+              "to": "tok"
+            },
+            {
+              "from": "tok",
+              "to": "get"
+            },
+            {
+              "from": "get",
+              "to": "page",
+              "label": "200"
+            },
+            {
+              "from": "page",
+              "to": "next"
+            },
+            {
+              "from": "next",
+              "to": "get",
+              "label": "more"
+            },
+            {
+              "from": "get",
+              "to": "thr",
+              "label": "429"
+            },
+            {
+              "from": "thr",
+              "to": "get"
+            }
+          ]
+        }
+      ],
+      "detailed": "This is an illustrative sketch. **Verify the current API version and authentication guidance in Microsoft Learn** before using it.\n\n## Prerequisites\n\n1. App registration in Entra ID with a client secret or, better, a certificate.\n2. An **application user** in the Dataverse environment mapped to that app, with a least-privilege security role.\n3. Scope: the environment URL followed by /.default.\n\n## Illustrative TypeScript\n\n```typescript\nimport { ClientSecretCredential } from \"@azure/identity\";\n\nconst org = process.env.DATAVERSE_URL!; // e.g. https://yourorg.crm.dynamics.com\nconst credential = new ClientSecretCredential(\n  process.env.TENANT_ID!, process.env.CLIENT_ID!, process.env.CLIENT_SECRET!);\n\nconst sleep = (ms: number) => new Promise(r => setTimeout(r, ms));\n\nasync function getJson(url: string, attempt = 0): Promise<any> {\n  const token = await credential.getToken(org + \"/.default\");\n  const res = await fetch(url, {\n    headers: {\n      Authorization: \"Bearer \" + token.token,\n      Accept: \"application/json\",\n      \"OData-MaxVersion\": \"4.0\",\n      \"OData-Version\": \"4.0\",\n      Prefer: \"odata.maxpagesize=500\",\n    },\n  });\n  if (res.status === 429 && attempt < 5) {\n    const wait = Number(res.headers.get(\"Retry-After\") ?? \"5\") * 1000;\n    await sleep(wait);\n    return getJson(url, attempt + 1);\n  }\n  if (!res.ok) throw new Error(res.status + \" \" + (await res.text()));\n  return res.json();\n}\n\nexport async function* listAccounts() {\n  let url: string | undefined =\n    org + \"/api/data/v9.2/accounts\" +\n    \"?$select=name,accountnumber&$filter=statecode eq 0\" +\n    \"&$orderby=name&$top=1000\";\n  while (url) {\n    const body = await getJson(url);\n    yield* body.value;\n    url = body[\"@odata.nextLink\"];\n  }\n}\n```\n\n{{diagram:tsflow}}\n\n## Notes\n\n| Topic | Advice |\n|---|---|\n| Query | Always $select; $expand only what you need; paging uses the nextLink exactly as returned |\n| Throttling | Honour Retry-After; add jitter and concurrency limits |\n| Token | Credential libraries cache tokens; do not fetch per request without caching |\n| Secrets | Key Vault or managed identity or certificate, never source control |\n| Errors | Log the error body and the request id header for support |\n\n## Common mistakes\n\n- Rebuilding the nextLink instead of following it.\n- Using a licensed person's credentials.\n- Unbounded parallelism that triggers throttling.\n- Selecting all columns on wide tables.",
+      "followUps": [
+        "Why follow the nextLink exactly as returned?",
+        "How would you avoid a client secret altogether?",
+        "How would you cap concurrency to stay under service protection limits?"
+      ],
+      "related": [
+        "service-principal-application-user-setup"
+      ]
+    },
+    {
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "slug": "dataverse-batch-bulk-operations",
+      "title": "Batch and bulk operations in Dataverse: ExecuteMultiple, $batch and multiple-row messages",
+      "topic": "Performance",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "batch",
+        "bulk",
+        "executemultiple",
+        "changeset",
+        "performance"
+      ],
+      "quick": "For volume I avoid one request per row. The SDK has ExecuteMultiple, and the Web API has the batch endpoint, which can group requests and use change sets for atomic groups. Newer bulk messages such as CreateMultiple, UpdateMultiple and UpsertMultiple are designed for higher throughput, though availability varies by table, so I verify in the docs. I design for partial failure, retries and service protection limits.",
+      "revision": "Use ExecuteMultiple or $batch to cut round trips; changesets are atomic; multiple-row messages are faster, verify availability; plan partial failures and throttling.",
+      "diagrams": [
+        {
+          "id": "batch",
+          "title": "Bulk write with partial failure handling",
+          "alt": "A loader splits source rows into chunks, sends each as a batch or multiple-row request, records successes, collects failed rows with errors for retry or a dead letter store, and slows down when throttled.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "rows",
+              "label": "Source rows"
+            },
+            {
+              "id": "chunk",
+              "label": "Chunks"
+            },
+            {
+              "id": "send",
+              "label": "Batch or multiple-row request"
+            },
+            {
+              "id": "ok",
+              "label": "Record successes"
+            },
+            {
+              "id": "fail",
+              "label": "Failed rows with errors"
+            },
+            {
+              "id": "retry",
+              "label": "Retry or dead-letter"
+            },
+            {
+              "id": "thr",
+              "label": "Throttle and back off"
+            }
+          ],
+          "edges": [
+            {
+              "from": "rows",
+              "to": "chunk"
+            },
+            {
+              "from": "chunk",
+              "to": "send"
+            },
+            {
+              "from": "send",
+              "to": "ok"
+            },
+            {
+              "from": "send",
+              "to": "fail"
+            },
+            {
+              "from": "fail",
+              "to": "retry"
+            },
+            {
+              "from": "send",
+              "to": "thr",
+              "label": "429"
+            }
+          ]
+        }
+      ],
+      "detailed": "Round trips dominate cost in loops. Batching reduces overhead but changes your error model.\n\n## Options\n\n{{diagram:batch}}\n\n| Mechanism | What it does | Notes |\n|---|---|---|\n| ExecuteMultiple (SDK) | Sends many requests in one call | Option to continue on error; returns a response per request |\n| $batch (Web API) | Multipart request with many operations | **Change sets** group writes into one atomic unit |\n| CreateMultiple, UpdateMultiple, UpsertMultiple | Single message for many rows, optimised server-side | Availability depends on table and release; verify in Microsoft Learn |\n| Dataflows or data import | Low-code loading | Less control, good for one-off loads |\n\n## Change sets\n\nOperations inside a change set succeed or fail **together**. Reads and independent operations can sit outside. Use change sets for small related groups (a parent and its children), not thousands of rows, because large transactions lock more and fail more.\n\n## Error handling\n\n1. Decide per use case: **stop on first error** or **continue and collect**.\n2. Capture the index of the failing item and its error message.\n3. Retry transient errors (429, timeouts) with backoff; do not retry validation errors.\n4. Send permanent failures to a dead-letter table or file with the payload.\n5. Make writes idempotent with alternate keys so reruns are safe.\n\n## Throttling\n\nDataverse applies service protection limits per user and per time window (verify current numbers). On 429, honour Retry-After. Batching helps with request counts but does not remove execution-time limits, so chunk sizes need testing.\n\n## Plug-in impact\n\nEach row in a batch still runs your plug-ins unless the bulk message has specific behaviour (verify). Slow plug-ins make bulk loads slow; consider disabling non-essential logic through a controlled flag during migrations.\n\n## Common mistakes\n\n- Giant change sets that time out and roll back everything.\n- Treating a batch HTTP 200 as success for every item.\n- Ignoring plug-in and flow triggers during bulk loads.\n- Parallelising with no limit.",
+      "followUps": [
+        "How would you size chunks for a migration of five million rows?",
+        "What happens to the other rows if one fails inside a change set?",
+        "How do you stop flows firing during a migration?"
+      ],
+      "related": [
+        "alternate-keys-upsert-idempotent-writes"
+      ]
+    },
+    {
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "slug": "service-principal-application-user-setup",
+      "title": "Service principals and application users for Dataverse integrations",
+      "topic": "Security",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "service-principal",
+        "application-user",
+        "entra-id",
+        "secrets",
+        "certificates"
+      ],
+      "quick": "Integrations should run as an application user tied to an Entra ID app registration, not a licensed person. I register the app, create an application user in the environment's admin settings, assign a least-privilege custom security role, and authenticate with client credentials. I prefer certificates or managed identity over secrets, store anything secret in a vault, and rotate on a schedule with overlap so there is no outage.",
+      "revision": "Entra app registration plus Dataverse application user plus least-privilege role; no licensed user accounts; prefer certificate or managed identity; rotate with overlap.",
+      "diagrams": [
+        {
+          "id": "spn",
+          "title": "Application user setup",
+          "alt": "An app registration in Entra ID is mapped to an application user in the Dataverse environment. The user is assigned a least-privilege security role, the integration authenticates using a certificate or secret held in a key vault, and credentials are rotated with overlap.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "reg",
+              "label": "Entra app registration"
+            },
+            {
+              "id": "cred",
+              "label": "Certificate or secret"
+            },
+            {
+              "id": "vault",
+              "label": "Key vault"
+            },
+            {
+              "id": "au",
+              "label": "Application user in environment"
+            },
+            {
+              "id": "role",
+              "label": "Least-privilege role"
+            },
+            {
+              "id": "int",
+              "label": "Integration service"
+            }
+          ],
+          "edges": [
+            {
+              "from": "reg",
+              "to": "cred"
+            },
+            {
+              "from": "cred",
+              "to": "vault"
+            },
+            {
+              "from": "reg",
+              "to": "au",
+              "label": "mapped"
+            },
+            {
+              "from": "au",
+              "to": "role"
+            },
+            {
+              "from": "vault",
+              "to": "int"
+            },
+            {
+              "from": "int",
+              "to": "au",
+              "label": "token, calls"
+            }
+          ]
+        }
+      ],
+      "detailed": "An integration identity should be non-human, auditable and narrowly scoped.\n\n## Setup\n\n{{diagram:spn}}\n\n1. **Register an app** in Entra ID; note tenant and client id.\n2. **Create credentials**: certificate preferred; client secret only with short expiry.\n3. **Create an application user** in the target environment (Power Platform admin centre, users section) using the app id. Application users do not consume a standard user licence in many cases; verify current licensing in Microsoft Learn.\n4. **Assign a security role.** Create a custom role with only the tables and privileges required; avoid System Administrator.\n5. **Authenticate** with client credentials against the environment URL scope.\n6. Promote through environments with a separate registration or credential per environment.\n\n## Why not a licensed user account\n\n| Problem with a person's account | Consequence |\n|---|---|\n| Password expiry or MFA policies | Integration breaks unexpectedly |\n| Person leaves | Integration stops, or the account stays active |\n| Broad privileges | Over-permissioned and hard to audit |\n| Licence cost | Paying for a seat that is a process |\n| Audit trail | Actions look like a human did them |\n\n## Secret versus certificate\n\n| | Secret | Certificate | Managed identity |\n|---|---|---|---|\n| Exposure risk | Can be copied from config | Private key harder to leak | No stored credential |\n| Rotation | Manual or scripted | Needs issuance process | Platform handled |\n| Use | Quick start, short expiry | Production default | Preferred for Azure-hosted workloads where supported (verify) |\n\n## Rotation\n\nAdd the new credential **before** removing the old, deploy the consumer, confirm calls succeed, then remove the old. Alert on credential expiry well in advance.\n\n## Governance\n\nKeep an inventory of application users and owners, review roles periodically, and use data loss prevention and environment strategy to limit who can create connections.\n\n## Common mistakes\n\n- Giving the application user System Administrator for convenience.\n- One shared registration across all environments.\n- Secrets in pipeline variables with no expiry tracking.\n- No owner recorded for the registration.",
+      "followUps": [
+        "How would you rotate a secret with zero downtime?",
+        "What role privileges would a read-only reporting integration need?",
+        "How does a Power Automate flow authenticate differently?"
+      ],
+      "related": [
+        "dataverse-web-api-typescript-client"
+      ]
+    },
+    {
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "slug": "dataverse-query-performance-indexing",
+      "title": "Dataverse query performance: indexes, columns, FetchXML versus OData and large tables",
+      "topic": "Performance",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "performance",
+        "indexes",
+        "fetchxml",
+        "odata",
+        "large-tables"
+      ],
+      "quick": "I start by measuring which query is slow. Then I return only the columns needed, filter on indexed or selective columns, avoid leading wildcards and N+1 patterns by using expand or a single filtered query, and page results. FetchXML supports aggregates and joins that OData handles less easily. For very large tables I look at indexing options, archival or long-term retention, and whether Dataverse is the right store for analytics.",
+      "revision": "Measure first; select few columns; filter selectively; avoid N+1 and leading wildcards; page; use FetchXML for aggregates; archive or retain old data; verify index options.",
+      "diagrams": [
+        {
+          "id": "perf",
+          "title": "Query tuning order",
+          "alt": "Tuning starts with measuring the slow query, then reducing columns, making filters selective and indexed, removing N+1 calls, paging, and finally considering archival, retention or an analytics store for very large tables.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "m",
+              "label": "Measure slow query"
+            },
+            {
+              "id": "c",
+              "label": "Fewer columns"
+            },
+            {
+              "id": "f",
+              "label": "Selective, indexed filters"
+            },
+            {
+              "id": "n",
+              "label": "Remove N+1"
+            },
+            {
+              "id": "p",
+              "label": "Page results"
+            },
+            {
+              "id": "a",
+              "label": "Archive or retain old data"
+            },
+            {
+              "id": "an",
+              "label": "Analytics store for reporting"
+            }
+          ],
+          "edges": [
+            {
+              "from": "m",
+              "to": "c"
+            },
+            {
+              "from": "c",
+              "to": "f"
+            },
+            {
+              "from": "f",
+              "to": "n"
+            },
+            {
+              "from": "n",
+              "to": "p"
+            },
+            {
+              "from": "p",
+              "to": "a"
+            },
+            {
+              "from": "a",
+              "to": "an"
+            }
+          ]
+        }
+      ],
+      "detailed": "Treat this as a tuning order, not a list of tricks.\n\n{{diagram:perf}}\n\n## Practical steps\n\n1. **Measure:** use monitoring tools, the browser network trace for apps, and plug-in or flow run durations. Do not guess.\n2. **Select columns:** wide tables with many lookups and calculated columns are costly. Use $select or explicit FetchXML attributes.\n3. **Filter well:** equality and range filters on selective columns beat functions on columns. Leading wildcard searches (contains on a large text column) tend to be slow; consider search features such as Dataverse search for text lookup (verify).\n4. **Indexes:** Dataverse manages many indexes itself and supports custom or quick-find related indexing; options for adding indexes and recommendations have changed over time, so check Microsoft Learn and support guidance rather than assuming SQL-style control.\n5. **Avoid N+1:** loading a list, then calling for each row's related data, multiplies round trips. Use $expand (verify limits on depth and rows), a link-entity in FetchXML, or a second query using an in filter on the collected ids.\n6. **Page:** use paging cookies or nextLink; never request unbounded sets.\n\n## FetchXML versus OData\n\n| | FetchXML | OData Web API |\n|---|---|---|\n| Aggregates and group by | Strong support | Limited, verify current options |\n| Joins | link-entity with filters | $expand, mostly navigation |\n| Paging | Page and paging cookie | nextLink, page size preference |\n| Fit | Reports, complex joins | Simple CRUD, integrations |\n\n## Large table considerations\n\n- Row count is less important than the query shape, but unfiltered views and security-trimmed queries on millions of rows are the usual failure.\n- **Archive or long-term retention** features can move old rows out of the active set; verify availability and constraints.\n- For reporting at scale, replicate to an analytics store (Synapse Link or Fabric link; verify naming) and report there.\n- Review row ownership and sharing volume, as they affect security query cost.\n\n## Common mistakes\n\n- Optimising the app when the cause is a plug-in or a synchronous flow.\n- Default views showing all rows with many columns.\n- Calculated columns used in filters on big tables.\n- Using Dataverse as a reporting warehouse.",
+      "followUps": [
+        "How would you find the slowest query in a model-driven app?",
+        "When would you choose FetchXML over OData?",
+        "How would you design archival for a table with fifty million rows?"
+      ]
+    },
+    {
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "slug": "model-driven-customisation-xrm-vs-pcf",
+      "title": "Model-driven app customisation: forms, views, command bar, Xrm scripting and PCF",
+      "topic": "Model-driven apps",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "model-driven",
+        "pcf",
+        "xrm",
+        "forms",
+        "command-bar"
+      ],
+      "quick": "I customise declaratively first: forms, views, business process flows and business rules. For behaviour the form cannot express, I write client scripts against the Xrm API, such as setting field visibility or reacting to changes. For a better control on a field or dataset, I build a PCF component. Command bar buttons use modern commanding with Power Fx or JavaScript. Anything that must always be enforced goes server-side.",
+      "revision": "Declarative first (forms, views, rules); Xrm scripts for form behaviour; PCF for custom controls; commands for actions; enforce rules server-side.",
+      "detailed": "Each tool has a clear job. Choosing wrongly creates upgrade pain and inconsistent rules.\n\n## Options compared\n\n| Tool | Best for | Limits |\n|---|---|---|\n| Forms and views | Layout, tabs, sections, filters, sorting | Not behaviour |\n| Business rules | Simple show or hide, required, defaults, validation messages on a form | Limited logic; scope can be form or table (verify) |\n| Client scripts (Xrm API) | Dynamic form behaviour, calling APIs, complex conditions | Runs in the browser only; can be bypassed |\n| PCF (Power Apps component framework) | Custom field or dataset controls, rich visuals, reuse across apps | Needs development, packaging and testing |\n| Command bar (modern commanding) | Buttons and actions with visibility rules | Needs careful design for rule and enable logic; verify current options |\n| Business process flows | Guided stages | Not enforcement by itself |\n\n## Xrm scripting guidance\n\n- Use the **form context** passed to handlers (executionContext.getFormContext()), not the deprecated global Xrm.Page.\n- Register handlers by library and function name in the form designer; keep libraries small and namespaced.\n- Prefer Xrm.WebApi calls over hand-written fetch to the Web API where it fits.\n- Never trust client checks for security or integrity: re-validate in a plug-in or business rule at table scope.\n\n## PCF guidance\n\nUse PCF when a standard control cannot present the data, for example a timeline, map, or specialised input. Package it in a solution, test across canvas and model-driven if both are targets, and mind accessibility and performance.\n\n## Decision path\n\n1. Can a form setting or view change do it? Do that.\n2. Simple conditional logic? Business rule.\n3. Needs script or async calls? Xrm script.\n4. Needs a new visual control? PCF.\n5. Needs guaranteed enforcement? Server-side as well.\n\n## Common mistakes\n\n- Heavy onLoad scripts that slow every form open.\n- Relying on hiding a field for security instead of column security.\n- Unsupported DOM manipulation that breaks after updates.\n- Building PCF for something a standard control already offers.",
+      "followUps": [
+        "Why is hiding a field on a form not a security control?",
+        "How would you test a client script?",
+        "When would you pick a PCF over an embedded canvas app?"
+      ],
+      "related": [
+        "business-logic-placement-dataverse"
+      ]
+    },
+    {
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "slug": "business-logic-placement-dataverse",
+      "title": "Where to put business logic: business rules, calculated and rollup columns, plug-ins or client scripts",
+      "topic": "Architecture",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "business-rules",
+        "calculated-columns",
+        "rollup",
+        "plugins",
+        "architecture"
+      ],
+      "quick": "I decide by who must be bound and when. If the rule must hold for every writer, including APIs and integrations, it goes server-side: a plug-in, or a table-scope business rule if simple. Derived values use calculated columns for same-row maths and rollup columns for aggregates over related rows, knowing rollups are asynchronous. Client scripts and form-scoped rules only improve user experience.",
+      "revision": "Must hold for every writer: server-side (plug-in or table rule). Derived values: calculated or rollup. Form UX: client scripts and form rules.",
+      "diagrams": [
+        {
+          "id": "place",
+          "title": "Choosing a logic location",
+          "alt": "A decision path asks whether the rule must apply to every writer, whether it is a simple derived value, or only a form experience improvement, leading to a plug-in or table rule, a calculated or rollup column, or a client script or form business rule.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "q",
+              "label": "Business rule needed"
+            },
+            {
+              "id": "all",
+              "label": "Must apply to all writers"
+            },
+            {
+              "id": "srv",
+              "label": "Plug-in or table-scope rule"
+            },
+            {
+              "id": "der",
+              "label": "Derived value"
+            },
+            {
+              "id": "col",
+              "label": "Calculated or rollup column"
+            },
+            {
+              "id": "ux",
+              "label": "Form experience only"
+            },
+            {
+              "id": "cli",
+              "label": "Form rule or client script"
+            }
+          ],
+          "edges": [
+            {
+              "from": "q",
+              "to": "all"
+            },
+            {
+              "from": "q",
+              "to": "der"
+            },
+            {
+              "from": "q",
+              "to": "ux"
+            },
+            {
+              "from": "all",
+              "to": "srv"
+            },
+            {
+              "from": "der",
+              "to": "col"
+            },
+            {
+              "from": "ux",
+              "to": "cli"
+            }
+          ]
+        }
+      ],
+      "detailed": "Placing logic well keeps behaviour consistent and cheap to maintain.\n\n{{diagram:place}}\n\n## Comparison\n\n| Option | Runs where | Applies to API and flows | Notes |\n|---|---|---|---|\n| Client script | Browser form | No | UX only, bypassable |\n| Business rule (form scope) | Form | No | Simple conditions |\n| Business rule (table scope) | Server and forms | Yes for supported actions (verify) | Limited conditions and actions |\n| Calculated column | Computed on read | Yes | Same-row or parent values; limits on functions (verify) |\n| Rollup column | Scheduled async job | Yes | Aggregates children; not instant; limits on frequency and count (verify) |\n| Plug-in | Server pipeline | Yes | Full code, tests, deployment overhead |\n| Power Automate flow | Async, after the event | Yes | Good for orchestration; not for blocking saves |\n\n## Heuristics\n\n1. **Integrity and security rules:** server-side only.\n2. **Simple derivations:** calculated column keeps data consistent without code.\n3. **Aggregates:** rollup columns, but design the UI for eventual consistency, or use a plug-in or analytics for precise real-time totals.\n4. **Cross-system orchestration:** flow or Azure service.\n5. **Convenience on the form:** business rule or script.\n\n## Example\n\nRule: an order total must equal the sum of lines and the customer must be active to place an order. Total shown on the order is a rollup or a plug-in-maintained column; the active-customer check is a plug-in on order create, because integrations also create orders.\n\n## Common mistakes\n\n- Putting validation only in JavaScript.\n- Using rollups where users expect instant totals.\n- Plug-ins for what a calculated column does.\n- Duplicating the same rule in three places with drift.",
+      "followUps": [
+        "What are the downsides of a plug-in-maintained total versus a rollup?",
+        "Can a table-scope business rule replace a plug-in?",
+        "How would you document where each rule lives?"
+      ],
+      "related": [
+        "model-driven-customisation-xrm-vs-pcf"
+      ]
+    },
+    {
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "slug": "testing-dataverse-solutions-plugins-ci",
+      "title": "Testing Dataverse solutions: plug-in unit tests, integration tests and CI",
+      "topic": "Testing",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "testing",
+        "plugins",
+        "ci-cd",
+        "mocking",
+        "alm"
+      ],
+      "quick": "I layer tests. Business logic is separated from the IPlugin shell so it can be unit-tested with plain objects, or with a mocking framework that fakes the organisation service and context such as FakeXrmEasy or similar, where I verify the current licence and version. Then integration tests run against a dedicated dev or test environment with seeded data, and the pipeline imports the solution, runs tests and reports before promotion.",
+      "revision": "Keep logic out of the plug-in shell; unit-test with a fake context; integration-test in a dedicated environment with seeded data; run in CI before promotion.",
+      "diagrams": [
+        {
+          "id": "testpipe",
+          "title": "Test pipeline",
+          "alt": "A commit triggers build and unit tests with mocked services, then solution export checks, import into a test environment, integration tests with seeded data, and promotion to later environments only if all pass.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "c",
+              "label": "Commit"
+            },
+            {
+              "id": "b",
+              "label": "Build and unit tests"
+            },
+            {
+              "id": "s",
+              "label": "Solution checks"
+            },
+            {
+              "id": "i",
+              "label": "Import to test environment"
+            },
+            {
+              "id": "it",
+              "label": "Integration tests"
+            },
+            {
+              "id": "p",
+              "label": "Promote"
+            }
+          ],
+          "edges": [
+            {
+              "from": "c",
+              "to": "b"
+            },
+            {
+              "from": "b",
+              "to": "s"
+            },
+            {
+              "from": "s",
+              "to": "i"
+            },
+            {
+              "from": "i",
+              "to": "it"
+            },
+            {
+              "from": "it",
+              "to": "p",
+              "label": "pass"
+            }
+          ]
+        }
+      ],
+      "detailed": "Dataverse code is hard to test only if it is written as one big Execute method.\n\n{{diagram:testpipe}}\n\n## Unit tests\n\n- Move rules into plain classes that take values or small interfaces, with the plug-in only translating context to those calls.\n- For plug-in-level tests, use a mocking library that simulates IOrganizationService, the plug-in context and in-memory data. Examples include FakeXrmEasy and community alternatives; **verify current licensing, version support and maintenance** before choosing.\n- Assert: valid input passes, invalid input throws InvalidPluginExecutionException with the expected message, images missing are handled, Depth guard works.\n- Keep tests fast and deterministic, with no network.\n\n## Integration tests\n\n| Aspect | Approach |\n|---|---|\n| Environment | Dedicated developer or test environment, not shared with manual testing |\n| Identity | Application user with a test role |\n| Data | Create test rows with a unique run prefix, clean up afterwards |\n| Scope | Real pipeline behaviour: plug-in order, flows triggered, security role effects |\n| Flows | Verify outputs through the table state; cloud flows are hard to unit-test, so keep logic in code or Custom APIs where possible |\n\n## CI\n\n1. Build and run unit tests on every pull request.\n2. Export the solution from source control, run solution checks (static analysis) and fail on high-severity issues.\n3. Import into a test environment through pipelines (Power Platform CLI or build tools; verify current tooling names).\n4. Run integration tests, publish results.\n5. Promote managed solutions to later environments with approvals.\n\n## Test data\n\nPrefer scripted seed data in the repository over copied production data. Mask any personal data when production-like volumes are needed.\n\n## Common mistakes\n\n- Testing only through the user interface.\n- Shared test environments where tests interfere.\n- Mocks that accept anything, hiding real behaviour differences such as missing columns.\n- No test for security role behaviour.",
+      "followUps": [
+        "What would you not trust a mock to prove?",
+        "How would you test a plug-in that runs under a different user?",
+        "How do you test a cloud flow that reacts to Dataverse changes?"
+      ],
+      "related": [
+        "plugin-execution-context-in-depth"
+      ]
+    },
+    {
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "slug": "virtual-elastic-tables-external-data",
+      "title": "Virtual tables, elastic tables and external data: when not to copy data into Dataverse",
+      "topic": "Data architecture",
+      "difficulty": "advanced",
+      "type": "comparison",
+      "tags": [
+        "virtual-tables",
+        "elastic-tables",
+        "external-data",
+        "data-architecture"
+      ],
+      "quick": "Copying data into Dataverse is not always right. Virtual tables show data from an external source in apps as if it were a table, without storing it, which suits large or system-of-record data owned elsewhere. Elastic tables are a Dataverse table type aimed at very high volume and horizontal scale. I choose based on ownership, freshness, volume, relationships and security, and I verify current capabilities and limits in Microsoft Learn.",
+      "revision": "Virtual tables: data stays external, read in place, with feature limits. Elastic tables: high-volume Dataverse storage. Copy only when you need Dataverse features on the data.",
+      "detailed": "The question is whether Dataverse needs to own the data or merely show it.\n\n## Options\n\n| Approach | Data lives | Strengths | Trade-offs |\n|---|---|---|---|\n| Standard table | Dataverse | Full platform features: security, relationships, auditing, plug-ins, flows | Storage cost, sync effort |\n| Virtual table | External system, fetched at query time | No copy, always current, one source of truth | Depends on source availability and latency; feature support is narrower (verify what works with security, relationships, offline, plug-ins) |\n| Elastic table | Dataverse, designed for large scale and high write throughput | Horizontal scale for high-volume workloads | Different consistency and feature behaviour from standard tables; verify supported features |\n| Integration with copy (dataflow, pipeline) | Both | Local features on a subset | Staleness, reconciliation |\n| Connector at runtime | External | Simple for apps | No model-driven table experience, per-call limits |\n\n## Decision questions\n\n1. **Who owns the data?** If another system is the source of truth and edits happen there, avoid copying.\n2. **How fresh must it be?** Real time leans virtual; hourly may allow a copy.\n3. **Volume and write rate?** Telemetry or logs may suit an elastic table or a different store entirely.\n4. **Do you need relationships, rollups or row-level security?** Standard tables handle these best.\n5. **Does the app need to work offline or in reports?** Often requires local data.\n6. **What if the source is down?** A virtual table inherits that outage.\n\n## Practical guidance\n\n- Use virtual tables for reference data in a large ERP, where you need lookups and display, not business processing.\n- Keep only the identifiers and the few columns needed to relate to Dataverse processes, and fetch the rest on demand.\n- Document ownership, retention and refresh in a data catalogue.\n\n## Common mistakes\n\n- Copying everything because it is easier to build the app.\n- Choosing virtual tables then expecting every platform feature to work.\n- Using Dataverse for telemetry-scale event storage.\n- No reconciliation job when copying.",
+      "followUps": [
+        "How would you decide between a virtual table and a nightly sync?",
+        "What happens to a model-driven view when the source system is slow?",
+        "What belongs in an elastic table and what does not?"
+      ],
+      "related": [
+        "dataverse-integration-m365-azure-events"
+      ]
+    },
+    {
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "slug": "dynamics-365-dataverse-extensibility",
+      "title": "Dynamics 365 on Dataverse: extending versus customising and staying upgrade-safe",
+      "topic": "Dynamics 365",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "dynamics-365",
+        "extensibility",
+        "upgrades",
+        "solutions",
+        "dataverse"
+      ],
+      "quick": "Dynamics 365 customer engagement apps are applications built on the same Dataverse platform: their tables, forms, security roles and processes are solution components. So extending them uses the same tools as any app. For upgrade safety I add my own components in my own solution, avoid editing the first-party ones in place, prefer supported extension points, and test updates in a sandbox environment before production.",
+      "revision": "D365 apps are solutions on Dataverse; extend in your own solution layer, avoid in-place edits and unsupported hacks, test release waves in a sandbox.",
+      "diagrams": [
+        {
+          "id": "d365",
+          "title": "Layering on Dataverse",
+          "alt": "Dataverse platform sits at the bottom, with first-party Dynamics 365 application solutions above it, then the organisation's own managed solutions that extend them, and finally unmanaged changes only in development environments.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "dv",
+              "label": "Dataverse platform"
+            },
+            {
+              "id": "d3",
+              "label": "Dynamics 365 app solutions"
+            },
+            {
+              "id": "own",
+              "label": "Own managed solutions"
+            },
+            {
+              "id": "dev",
+              "label": "Unmanaged changes in dev only"
+            }
+          ],
+          "edges": [
+            {
+              "from": "dv",
+              "to": "d3"
+            },
+            {
+              "from": "d3",
+              "to": "own"
+            },
+            {
+              "from": "own",
+              "to": "dev"
+            }
+          ]
+        }
+      ],
+      "detailed": "Dynamics 365 is not a separate database; it is a set of first-party applications whose metadata and data live on Dataverse.\n\n{{diagram:d365}}\n\n## Customising versus extending\n\n| Approach | Example | Upgrade risk |\n|---|---|---|\n| Configure | Add a column, form tab or view in your solution | Low |\n| Extend | Plug-in on a standard table, Custom API, PCF control, new related custom tables | Low to medium |\n| Modify in place | Edit a managed first-party form or process directly | Medium to high; creates layers that can conflict |\n| Unsupported | Direct DOM edits, undocumented endpoints | High |\n\n## Upgrade safety practices\n\n1. **Own solution and publisher:** keep all changes in a custom managed solution with your publisher prefix.\n2. **Understand solution layering:** managed layers are applied in order; check the layers view when behaviour changes after an update.\n3. **Prefer new components over altering standard ones**, for example a custom form for your role instead of rewriting the main form.\n4. **Use supported extension points** documented by Microsoft; verify before depending on any internal schema.\n5. **Plug-in discipline:** register on specific messages and filtering attributes, so a changed standard process does not unexpectedly trigger them.\n6. **Release waves:** Microsoft ships planned releases; use a sandbox to preview, run regression tests, and read release notes (verify current policy and timelines).\n7. **Dependencies:** keep an inventory of customisations and dependent components.\n\n## Design stance\n\nUse standard processes as far as they fit. Every customisation carries a test and upgrade cost, so the burden of proof is on deviation.\n\n## Common mistakes\n\n- Working directly in the default solution.\n- Heavy customisation of standard tables when a custom table would be cleaner.\n- No regression suite before release waves.\n- Treating managed solution layers as invisible.",
+      "followUps": [
+        "How do you inspect solution layers when a form changed unexpectedly?",
+        "When would you create a custom table rather than extend a standard one?",
+        "How do release waves fit into your test plan?"
+      ],
+      "related": [
+        "business-logic-placement-dataverse"
+      ]
+    },
+    {
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "slug": "dataverse-integration-m365-azure-events",
+      "title": "Integrating Dataverse with SharePoint, Microsoft 365 and Azure: event-driven patterns",
+      "topic": "Integration",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "integration",
+        "service-bus",
+        "webhooks",
+        "synapse-link",
+        "event-driven"
+      ],
+      "quick": "I pick the integration by direction and latency. For documents, SharePoint integration keeps files next to records. For events, Dataverse can publish to Azure Service Bus or Event Hubs through service endpoints, call webhooks, or trigger flows. For analytics, replicate with Synapse Link or Fabric link; product names change, so I verify them. I make consumers idempotent and keep heavy work out of the sync pipeline.",
+      "revision": "Documents: SharePoint integration. Events: service endpoints to Service Bus or Event Hubs, webhooks, flows. Analytics: Synapse or Fabric link. Idempotent consumers; verify product names.",
+      "diagrams": [
+        {
+          "id": "ev",
+          "title": "Event-driven integration",
+          "alt": "A change in Dataverse is published through a service endpoint or webhook to Azure Service Bus. Consumers such as an Azure Function process messages idempotently and call downstream systems, with failed messages sent to a dead-letter queue. A separate link replicates data to an analytics store.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "dv",
+              "label": "Dataverse change"
+            },
+            {
+              "id": "ep",
+              "label": "Service endpoint or webhook"
+            },
+            {
+              "id": "sb",
+              "label": "Service Bus"
+            },
+            {
+              "id": "fn",
+              "label": "Idempotent consumer"
+            },
+            {
+              "id": "ds",
+              "label": "Downstream systems"
+            },
+            {
+              "id": "dlq",
+              "label": "Dead-letter queue"
+            },
+            {
+              "id": "an",
+              "label": "Analytics link"
+            }
+          ],
+          "edges": [
+            {
+              "from": "dv",
+              "to": "ep"
+            },
+            {
+              "from": "ep",
+              "to": "sb"
+            },
+            {
+              "from": "sb",
+              "to": "fn"
+            },
+            {
+              "from": "fn",
+              "to": "ds"
+            },
+            {
+              "from": "sb",
+              "to": "dlq",
+              "label": "failed"
+            },
+            {
+              "from": "dv",
+              "to": "an",
+              "label": "replicate"
+            }
+          ]
+        }
+      ],
+      "detailed": "Choose the pattern by need, and keep the Dataverse transaction small.\n\n{{diagram:ev}}\n\n## Patterns\n\n| Need | Option | Notes |\n|---|---|---|\n| Documents on records | SharePoint document management integration | Folder structure and permissions need design; SharePoint permissions are separate from Dataverse roles |\n| Notify other systems of changes | Service endpoint to Azure Service Bus or Event Hubs | Message includes the execution context; registered as a step on a message |\n| Simple HTTP notification | Webhook registration | Needs a reliable receiving endpoint and authentication |\n| Low-code reaction | Power Automate Dataverse trigger | Good for orchestration with connectors; mind throttling and run limits |\n| Microsoft 365 | Teams, Outlook and Excel integration through apps and connectors | Governed through data policies |\n| Analytics and AI | Synapse Link or Fabric link to a lake or warehouse | Names and capabilities have evolved; verify current options |\n| Custom processing | Azure Function consuming the queue | Retries, scaling, observability |\n\n## Event-driven design rules\n\n1. **Asynchronous by default:** register endpoints on asynchronous steps where possible, so a slow broker does not block users.\n2. **Idempotent consumers:** deliveries can repeat; use the row id plus version, or an alternate key, to deduplicate.\n3. **Ordering:** do not assume strict ordering; carry a version or modified timestamp.\n4. **Poison messages:** use dead-letter queues and alerts.\n5. **Payload size:** send ids and fetch details if needed, to avoid large messages and stale data (verify message size limits).\n6. **Security:** managed identity or shared access keys in a vault; least privilege on the queue.\n7. **Observability:** correlation id across Dataverse, queue and function.\n\n## Common mistakes\n\n- Using synchronous steps for external messaging.\n- Assuming exactly-once delivery.\n- Using Power Automate for very high event volumes without capacity planning.\n- Letting SharePoint folders inherit unintended permissions.",
+      "followUps": [
+        "How would you guarantee a downstream system never misses a change?",
+        "Service endpoint versus webhook: how do you choose?",
+        "How would you feed Dataverse data into a data lake for reporting?"
+      ],
+      "related": [
+        "plugin-transaction-rollback-sync-async",
+        "virtual-elastic-tables-external-data"
+      ]
+    }
+  ]
+}

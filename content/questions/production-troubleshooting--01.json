@@ -1,0 +1,625 @@
+{
+  "category": "production-troubleshooting",
+  "questions": [
+    {
+      "slug": "flow-intermittent-timeouts",
+      "title": "A cloud flow intermittently times out in production",
+      "topic": "Cloud flow reliability",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "power-automate",
+        "timeouts",
+        "incident",
+        "run-history"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I start with run history, not guesses. I compare failed and successful runs of the same flow, looking at which action ran longest and what status code or error it returned. Intermittent usually means a downstream dependency, throttling, a large payload or a concurrency spike. I capture the client request id and run id, check the connector's response headers, apply a bounded retry or asynchronous pattern as mitigation, then fix the design so long work does not sit inside one synchronous step.",
+      "revision": "Compare failed and successful runs action by action, find the slow step and its status code, then redesign long work as asynchronous with bounded retries.",
+      "detailed": "## Symptoms and impact\n\nUsers report that an approval or an order flow occasionally ends as **Failed** or **TimedOut**, roughly one run in twenty, mostly in the afternoon. Downstream records are left half-updated, and the support team is retrying by hand. The key word is *intermittent*: the logic is correct, so the cause is timing, volume, data size or a dependency.\n\n## Likely causes, ranked by probability\n\n| Rank and cause | Why it fits | Signal that confirms it |\n|---|---|---|\n| 1. Downstream API slow or throttled | Failures cluster at peak hours and sit on one HTTP or connector action | Action duration spikes; status 429 or 504; Retry-After header present |\n| 2. Synchronous request-response flow exceeding its limit | Caller waits while the flow does long work | Caller sees a gateway timeout while the flow run itself later succeeds |\n| 3. Large payloads or very large loops | Failures correlate with big batches | Apply to each with thousands of items; action inputs near size limits |\n| 4. Concurrency or queueing delay | Trigger fires in bursts and runs queue | Gap between trigger time and first action start; many runs started within seconds |\n| 5. Expired connection or throttled service account | Fails only after a quiet period or for one identity | Connection status in the environment shows an error; 401 or 403 in outputs |\n\n## Evidence to collect\n\n- Flow **run history**: for the failed run, the trigger start time, each action's start time, end time and duration, status and the outputs `statusCode` and error `message`.\n- Response headers in the action outputs: `Retry-After`, `x-ms-request-id`, and the `x-ms-client-request-id` the platform sent, so the owner of the downstream API can find the same call.\n- Run ids and the trigger's `x-ms-workflow-run-id`, saved in the incident ticket; a count of failed versus successful runs per hour.\n- Flow diagnostics from the Power Platform admin centre and, if exported, the Application Insights or Log Analytics tables for the downstream API (`requests`, `dependencies`) filtered by the same client request id.\n- The flow's **retry policy** setting on each HTTP action, its **concurrency control** setting, and the **connection status** of the owning identity.\n\n## Diagnostic steps\n\n1. Export five failed and five successful runs. Line up action durations and find the single action whose duration differs.\n2. Open that action's outputs: a 429 or 5xx points at the dependency, a long duration with no error points at payload size or a slow query.\n3. Take the client request id to the dependency's telemetry and confirm what it saw: queueing, a slow database call or a rejected request.\n4. Check whether failures align with the schedule of batch jobs, deployments or other flows sharing the same service account.\n5. Reproduce with the largest recorded payload in a test environment before changing anything.\n\n## Immediate mitigation\n\nEnable a retry policy with exponential back-off on the failing action (honouring `Retry-After`), lower the trigger concurrency so bursts are smoothed, and re-run the failed instances after confirming the actions are idempotent.\n\n## Permanent fix\n\nMake long work **asynchronous**: the flow acknowledges quickly, hands the job to a queue or a child flow and reports completion by callback or status record. Page or chunk big collections, use a service principal or dedicated connection with its own quota, and make every action idempotent using a business key so a retry cannot duplicate work.\n\n## Prevention\n\nAlert on run duration percentiles and failure rate per flow, keep a load test with realistic batch sizes, and document the per-connector limits (verify current Microsoft docs) in the design record.\n\n## Common mistakes\n\n- Raising the timeout instead of removing the long synchronous wait.\n- Retrying without idempotency, creating duplicate records.\n- Looking only at the failed run and never comparing it with a healthy one.\n- Blaming the platform before checking the downstream API.\n\n## Interview-ready summary\n\nIntermittent timeouts are diagnosed by contrasting good and bad runs. I find the slow action, collect the status code, Retry-After and client request id, confirm on the dependency side, mitigate with bounded retries, then move long work to an asynchronous, idempotent pattern.",
+      "followUps": [
+        "How would you make the retry safe if the action creates a record?",
+        "When would you choose a child flow over a queue?",
+        "How do you prove the dependency, not the flow, was slow?"
+      ]
+    },
+    {
+      "slug": "dataverse-service-protection-throttling",
+      "title": "Dataverse API requests are throttled by service protection limits",
+      "topic": "Dataverse throttling",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "dataverse",
+        "throttling",
+        "429",
+        "service-protection"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "A burst of integration or flow traffic returns HTTP 429 with a Retry-After header. Service protection limits are applied per user per time window and cover request count, combined execution time and concurrent requests. I identify which identity and which limit was hit from the error code, honour Retry-After, reduce parallelism, switch to batch or bulk operations, and spread load across application users. Retrying immediately makes it worse, so back-off must be built in.",
+      "revision": "429 plus Retry-After means a service protection limit; identify identity and limit, honour back-off, batch operations, reduce parallelism, distribute load.",
+      "detailed": "## Symptoms and impact\n\nA nightly synchronisation or a bulk flow starts failing with **429 Too Many Requests**. Some records are updated, others are not, and retries by the same job make the failures worse. Interactive users on the same service account also see slow screens.\n\n{{diagram:throttle}}\n\n## Likely causes, ranked by probability\n\n| Rank and cause | Why it fits | Signal that confirms it |\n|---|---|---|\n| 1. Too many parallel threads from one identity | Concurrency set high on Apply to each or an integration with many workers | Error about concurrent requests; many simultaneous calls from one user id |\n| 2. Request volume in a short window | One-row-at-a-time calls in a loop | Error about number of requests exceeded; calls per five minutes high |\n| 3. Expensive requests consuming execution time | Wide queries, plug-in chains or cascading updates | Error about combined execution time; plug-in trace durations high |\n| 4. Retry storm | Client retries immediately on 429 | Retry attempts without gaps in the client logs |\n| 5. Shared service account | Several jobs use the same user | Calls from multiple integrations under one user id in audit |\n\n## Evidence to collect\n\n- The response body error code and message (service protection errors carry specific codes; verify current Microsoft docs for the exact values) and the **`Retry-After`** header value.\n- `x-ms-client-request-id` and `x-ms-service-request-id` from the response headers, to correlate with Microsoft support if needed.\n- The caller identity: application user id or flow connection owner, and the number of concurrent workers or flow concurrency setting.\n- Application Insights `dependencies` for the integration, grouped by minute and `resultCode`, to see the shape of the burst.\n- **Plug-in trace log** durations for the messages involved, because they add to combined execution time.\n\n## Diagnostic steps\n\n1. Read the error code to decide which limit fired: count, execution time or concurrency.\n2. Chart calls per minute per identity; find the loop or worker pool responsible.\n3. Check the client's retry logic: it must wait at least the `Retry-After` value.\n4. Look for avoidable cost: retrieving columns you do not need, single-row creates, plug-ins that query inside loops.\n5. Confirm the fix with a controlled load test in a non-production environment.\n\n## Immediate mitigation\n\nPause or slow the job, set concurrency lower, make the client wait for `Retry-After` before retrying, and rerun only the failed records.\n\n## Permanent fix\n\nUse **batch requests**, `ExecuteMultiple` or the bulk create, update and delete messages (verify current docs for limits), reduce columns and rows retrieved, move work off peak, and spread distinct workloads across separate application users. Add a queue with a controlled consumer rate.\n\n## Prevention\n\nAlert on 429 count and on `Retry-After` values, load test every bulk path, and give each integration its own identity so one noisy job cannot starve others.\n\n## Common mistakes\n\n- Retrying immediately or with a fixed short delay.\n- Raising concurrency to finish faster, which causes more throttling.\n- Using one shared account for every integration.\n- Ignoring plug-in cost when only counting requests.\n\n## Interview-ready summary\n\nA 429 with Retry-After is a service protection limit. I read which limit fired, identify the identity and concurrency behind it, honour the back-off, batch and reduce parallelism, and give integrations separate identities.",
+      "followUps": [
+        "How would a queue help here?",
+        "How do you separate interactive users from batch load?",
+        "What is the difference between throttling and an API entitlement limit?"
+      ],
+      "diagrams": [
+        {
+          "id": "throttle",
+          "title": "Throttling diagnosis flow",
+          "alt": "A bulk job calls Dataverse through an application user. Dataverse returns 429 with Retry-After. The client back-off logic waits, and a batch queue controls the rate. Telemetry records the identity and limit that was hit.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "job",
+              "label": "Bulk job or flow"
+            },
+            {
+              "id": "id",
+              "label": "Application user"
+            },
+            {
+              "id": "dv",
+              "label": "Dataverse"
+            },
+            {
+              "id": "r429",
+              "label": "429 and Retry-After"
+            },
+            {
+              "id": "bo",
+              "label": "Client back-off"
+            },
+            {
+              "id": "qu",
+              "label": "Batch queue with rate control"
+            },
+            {
+              "id": "ai",
+              "label": "Application Insights"
+            }
+          ],
+          "edges": [
+            {
+              "from": "job",
+              "to": "qu",
+              "label": "enqueue"
+            },
+            {
+              "from": "qu",
+              "to": "id",
+              "label": "controlled rate"
+            },
+            {
+              "from": "id",
+              "to": "dv"
+            },
+            {
+              "from": "dv",
+              "to": "r429",
+              "label": "limit hit"
+            },
+            {
+              "from": "r429",
+              "to": "bo"
+            },
+            {
+              "from": "bo",
+              "to": "qu",
+              "label": "wait then resume"
+            },
+            {
+              "from": "dv",
+              "to": "ai",
+              "label": "dependency telemetry"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "plugin-slow-performance",
+      "title": "A Dataverse plug-in performs slowly",
+      "topic": "Plug-in performance",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "plugin",
+        "dataverse",
+        "performance",
+        "trace-log"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Slow saves usually trace back to a plug-in doing too much synchronously. I enable plug-in trace logging, read the performance execution duration for the message and entity, and check the depth and correlation id to see cascades. Typical causes are queries inside loops, unfiltered retrieves, external calls in a synchronous step and recursive updates. I move slow work to asynchronous processing, tighten queries and filter attributes, and add timing traces.",
+      "revision": "Use the plug-in trace log durations, depth and correlation id to find the slow step; remove queries in loops, filter attributes, move external calls async.",
+      "detailed": "## Symptoms and impact\n\nUsers report that saving an account or an order takes many seconds, sometimes ending with a timeout or a business process error. Flows triggered by the same table are late. The platform enforces a time limit on synchronous plug-ins (verify current docs), so slow code eventually becomes an outright failure.\n\n## Likely causes, ranked by probability\n\n| Rank and cause | Why it fits | Signal that confirms it |\n|---|---|---|\n| 1. Queries or retrieves inside a loop | Duration scales with child record count | Trace shows the same query repeated; duration grows with rows |\n| 2. Synchronous external call | Slow dependency delays the save | Dependency telemetry shows long calls with the same correlation id |\n| 3. Recursive or cascading plug-ins | One save triggers many updates | Depth value above one; many trace entries sharing a correlation id |\n| 4. Unfiltered step registration | Plug-in runs on every update of every column | Step has no filtering attributes; many invocations per user action |\n| 5. Retrieving all columns or using heavy FetchXML | Large rows and joins | Query duration high; column sets wide |\n\n## Evidence to collect\n\n- **PluginTraceLog** rows (enable trace logging temporarily; verify current docs for settings): `typename`, `messagename`, `primaryentity`, `performanceexecutionduration`, `performanceconstructorduration`, `depth`, `correlationid`, `requestid`, `exceptiondetails`, `messageblock`.\n- The plug-in **step registration**: stage, mode (sync or async), filtering attributes, and images used.\n- Application Insights `dependencies` and `requests` for the same `correlationid`, if the plug-in or API writes telemetry.\n- The solution version and the assembly version deployed, from solution history, to link the slowdown with a release.\n- A record count of child rows for the slow examples versus fast ones.\n\n## Diagnostic steps\n\n1. Query PluginTraceLog ordered by `performanceexecutionduration` descending for the last hour.\n2. Group by `correlationid` and look at `depth` to see whether a single save triggers a chain.\n3. Add `Stopwatch` timings around each section and write them with the tracing service, then repeat the scenario in a test environment.\n4. Check step registration for missing filtering attributes and for synchronous mode where asynchronous would do.\n5. Compare with the previous assembly version to find what changed.\n\n## Immediate mitigation\n\nDisable or switch the offending step to asynchronous if the business process allows, add filtering attributes, or roll back to the previous solution version after confirming the data is compatible.\n\n## Permanent fix\n\nRetrieve once with only needed columns, process in memory, use bulk messages, keep synchronous steps to validation and short, local work, and push external calls to asynchronous plug-ins, a flow or a queue. Guard against recursion using depth and a context flag.\n\n## Prevention\n\nAdd timing to trace output as standard, include a performance test with realistic child record counts in the pipeline, and review step registration in code review.\n\n## Common mistakes\n\n- Leaving trace logging on at full level permanently.\n- Calling external APIs in synchronous steps.\n- Registering a step without filtering attributes.\n- Testing with ten rows when production has ten thousand.\n\n## Interview-ready summary\n\nI read the plug-in trace log: duration, depth and correlation id. That tells me whether it is one slow step, repeated queries or a cascade. I fix the query pattern, filter the step, and move external or heavy work to asynchronous processing.",
+      "followUps": [
+        "When is a synchronous plug-in the right choice?",
+        "How do you stop a plug-in from triggering itself?",
+        "What would you log inside the plug-in itself?"
+      ]
+    },
+    {
+      "slug": "solution-import-fails",
+      "title": "A solution import fails in the target environment",
+      "topic": "Solution deployment",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "alm",
+        "solutions",
+        "pipelines",
+        "deployment"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I read the solution history for the failed import, which gives the component and the exact error rather than a generic failure. Common causes are missing dependencies, a version or managed-layer conflict, unresolved connection references or environment variables, and missing security roles or licences. I fix the cause in source, rebuild the solution through the pipeline and re-import, rather than patching the target by hand.",
+      "revision": "Read solution history for the failing component and message; usual causes are missing dependencies, layer conflicts, connection references, environment variables or permissions.",
+      "detailed": "## Symptoms and impact\n\nA release to test or production stops with an import error. The pipeline run is red, the release window is at risk, and the team is tempted to edit the target environment directly.\n\n## Likely causes, ranked by probability\n\n| Rank and cause | Why it fits | Signal that confirms it |\n|---|---|---|\n| 1. Missing dependency | A component references something not in the target | Error naming a missing component or solution; dependency list |\n| 2. Connection reference or environment variable not set | Flows and connectors need values per environment | Import warns of missing connection; flows left off |\n| 3. Version or layer conflict | Target has an unmanaged layer or a newer version | Solution layers view shows an unmanaged customisation; version lower than installed |\n| 4. Permissions or licensing | Importer lacks roles or the user lacks a required licence | Access denied errors; privilege name in the message |\n| 5. Platform or schema problem | Column type change or deleted-component conflict | Error on a table or column; data-dependent upgrade failure |\n\n## Evidence to collect\n\n- **Solution history** in the target environment: the import job id, the failing component, the error message and the downloadable log (XML) with its result details.\n- Pipeline run logs, including the exact `pac solution import` arguments and the `pac` version, and the solution zip's `Solution.xml` version and publisher.\n- The **dependency** report for the solution in the source and the target, and the list of installed solutions with versions.\n- **Solution layers** for the failing component in the target environment.\n- The deployment settings file used for connection references and environment variables.\n\n## Diagnostic steps\n\n1. Open the import log and find the first failing component, not the last error.\n2. Compare the installed solution list and versions with those the package expects.\n3. Check dependencies: missing solution, deleted column still used by a view, form or flow.\n4. Review the settings file for every connection reference and variable.\n5. Retry in a clean sandbox copy of the target to confirm the fix before the release window.\n\n## Immediate mitigation\n\nStop further attempts that could leave a partial upgrade, read the log, and if a failed upgrade left the target inconsistent, restore from a backup or redeploy the last good managed version through the pipeline.\n\n## Permanent fix\n\nFix the cause in source control: add the missing dependency solution to the release order, correct the deployment settings, remove unmanaged layers by process, and run the import again from the same artefact flow.\n\n## Prevention\n\nRun solution checker and a dry-run import in a staging environment that mirrors production, pin solution versions, keep dependency order in the pipeline, and block manual edits in production.\n\n## Common mistakes\n\n- Making manual changes in production to get past the error.\n- Reading only the final error and not the first failing component.\n- Having no deployment settings for connection references.\n- Testing imports only into a clean environment.\n\n## Interview-ready summary\n\nI read solution history for the exact failing component, compare dependencies, layers and deployment settings, and fix the source and pipeline, not the target by hand. Staging imports catch the same failures before release.",
+      "followUps": [
+        "What is the difference between an update and an upgrade import?",
+        "How do you roll back a managed solution?",
+        "Why use a staging environment that mirrors production?"
+      ]
+    },
+    {
+      "slug": "connector-works-in-dev-not-prod",
+      "title": "A connector works in development but fails in production",
+      "topic": "Connectors and environments",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "connectors",
+        "dlp",
+        "connections",
+        "environments"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "The usual suspects are environment differences, not code. I check whether the production connection exists and is healthy, whether a connection reference is bound, whether a data loss prevention policy blocks the connector, whether the identity has access to the target, and whether network rules or endpoints differ. I read the action's error and status code first. Then I fix configuration through deployment settings so it cannot drift again.",
+      "revision": "Compare connection, connection reference, DLP policy, identity permissions and network or endpoint settings between environments; read the action error first.",
+      "detailed": "## Symptoms and impact\n\nA flow or an app that works in development shows 401, 403, a DLP violation or a connection error in production. The code is identical, so the difference is in the environment.\n\n## Likely causes, ranked by probability\n\n| Rank and cause | Why it fits | Signal that confirms it |\n|---|---|---|\n| 1. Connection or connection reference unbound or broken | Connections are not shared between environments | Connection status shows an error; flow is off or action shows invalid connection |\n| 2. DLP policy blocks the connector or mixes categories | Production has stricter policies | Flow shows a policy violation; admin centre policy lists the connector in a different group |\n| 3. Identity lacks access to the target | Dev account is an owner, production account is not | 403 in outputs; target audit shows denied access |\n| 4. Different endpoint, certificate or firewall | IP allow-list or private endpoint in production | Timeouts or TLS errors; target firewall logs show no request |\n| 5. Environment variable not set or wrong value | Value is missing in production | Variable's current value empty in the environment |\n\n## Evidence to collect\n\n- Failed action **outputs**: `statusCode`, `body.error` and the `x-ms-client-request-id` header.\n- **Connections** page and **connection references** in the production solution, with owner and status.\n- DLP policy evaluation for the environment in the Power Platform admin centre.\n- Target system's audit or gateway logs for the caller identity and request id.\n- Environment variable definitions and current values, and the deployment settings file used.\n\n## Diagnostic steps\n\n1. Read the status code: 401 means authentication, 403 means authorisation, timeout means network.\n2. Open the flow's connection references and confirm each is bound to a healthy connection owned by the intended identity.\n3. Check the DLP policy for the environment and the connector group.\n4. Test the call outside Power Platform using the same identity and endpoint.\n5. Diff environment variables and endpoint values between development and production.\n\n## Immediate mitigation\n\nRebind the connection reference to a valid connection, turn the flow on, and resubmit failed runs once the call succeeds.\n\n## Permanent fix\n\nMove per-environment values into environment variables and connection references populated by the pipeline, use a service identity not a person, and agree DLP classification of required connectors before design.\n\n## Prevention\n\nRun a connectivity smoke test after each deployment, alert on connection errors, and keep a checklist of environment prerequisites in the runbook.\n\n## Common mistakes\n\n- Assuming the same connection exists in both environments.\n- Using a personal account for production connections.\n- Discovering DLP rules at go-live.\n- Hard-coding endpoints in the flow.\n\n## Interview-ready summary\n\nWhen a connector works in development but not production I compare environment, not code: connection state, DLP, identity permissions, endpoints and variables. The status code points to the layer, and the fix lives in deployment settings.",
+      "followUps": [
+        "How do you handle a connection owner leaving the company?",
+        "What is a connection reference for?",
+        "How do you test connectors after deployment?"
+      ]
+    },
+    {
+      "slug": "flow-processes-same-event-repeatedly",
+      "title": "A flow processes the same event repeatedly",
+      "topic": "Flow triggers and idempotency",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "power-automate",
+        "triggers",
+        "idempotency",
+        "duplicates"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Duplicate processing usually has a mechanical cause: the flow updates the row that triggers it, the trigger has no filter, a webhook is delivered more than once, or retries re-run a non-idempotent action. I compare trigger inputs across runs, look at the changed columns, and check for a loop. The fix is trigger filtering plus idempotency using a business key, not suppressing duplicates by hand.",
+      "revision": "Find why the trigger fires again: self-update loop, missing filters, at-least-once delivery or retries; fix with filter columns, conditions and an idempotency key.",
+      "detailed": "## Symptoms and impact\n\nCustomers receive the same email several times, or a downstream record is created twice or more. Run history shows many runs started within seconds for one business record, and the volume may escalate into throttling.\n\n{{diagram:loop}}\n\n## Likely causes, ranked by probability\n\n| Rank and cause | Why it fits | Signal that confirms it |\n|---|---|---|\n| 1. Flow updates the row that triggers it | No filter columns or trigger condition | Each run's trigger shows modified columns that the flow itself wrote |\n| 2. Several flows or plug-ins update the same row | Cross-triggering | Audit history shows alternating modifiers |\n| 3. At-least-once delivery from source | Webhooks or queues redeliver | Same event id in two runs; identical payload |\n| 4. Retry re-executes a non-idempotent action | Timeout then retry created a second record | Run shows retry with an earlier attempt that actually succeeded |\n| 5. Overlapping schedule or polling windows | Trigger polls on a changing watermark | Run start times overlap; same row id in consecutive polls |\n\n## Evidence to collect\n\n- Run history list for one record: trigger start times and the **trigger outputs** (`modifiedon`, changed columns, `x-ms-workflow-run-id`).\n- Dataverse **audit history** for the row, showing which user or app changed which column and when.\n- Source event id or message id, and its delivery count if the source exposes one.\n- Action outputs for creates: status code and whether a retry appears in the attempt history.\n- Flow definition: trigger filter columns, trigger conditions, and concurrency settings.\n\n## Diagnostic steps\n\n1. Pick one duplicated record and list every run for it, in order.\n2. Compare the trigger payload of consecutive runs: if the only change is a column the flow wrote, it is a self-loop.\n3. Check audit history for other writers.\n4. Check whether the source id repeats, which means redelivery.\n5. Inspect failed or retried actions for hidden successes.\n\n## Immediate mitigation\n\nTurn the flow off or add a trigger condition that excludes the flow's own writes, then clean up duplicates with a reviewed script.\n\n## Permanent fix\n\nSet **filter columns**, add a trigger condition on a status column, use a dedicated processed marker or a **business idempotency key** checked before create (or use alternate keys with upsert), and separate the identity used by automation so its updates can be excluded.\n\n## Prevention\n\nUnit test flows with repeated events, include duplicate-delivery cases in test plans, alert on more than N runs per record per hour, and document trigger design.\n\n## Common mistakes\n\n- Adding a delay and hoping duplicates disappear.\n- Deleting duplicates without fixing the trigger.\n- Assuming the source delivers exactly once.\n- Using the same user for automation and for people.\n\n## Interview-ready summary\n\nI find why the trigger fires again, whether self-update, redelivery or retry, using trigger outputs and audit history. Then I filter the trigger and make the action idempotent with a business key, so duplicates are impossible rather than rare.",
+      "followUps": [
+        "How do alternate keys help with idempotency?",
+        "How would you detect a loop automatically?",
+        "How do you clean duplicates safely?"
+      ],
+      "diagrams": [
+        {
+          "id": "loop",
+          "title": "Self-triggering flow loop",
+          "alt": "A user change fires the Dataverse trigger. The flow updates the same row, which fires the trigger again. Filter columns and a trigger condition stop the second run.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "u",
+              "label": "User change"
+            },
+            {
+              "id": "t",
+              "label": "Dataverse trigger"
+            },
+            {
+              "id": "f",
+              "label": "Flow actions"
+            },
+            {
+              "id": "up",
+              "label": "Update same row"
+            },
+            {
+              "id": "g",
+              "label": "Filter columns and trigger condition"
+            }
+          ],
+          "edges": [
+            {
+              "from": "u",
+              "to": "t"
+            },
+            {
+              "from": "t",
+              "to": "f"
+            },
+            {
+              "from": "f",
+              "to": "up"
+            },
+            {
+              "from": "up",
+              "to": "t",
+              "label": "fires again"
+            },
+            {
+              "from": "g",
+              "to": "t",
+              "label": "blocks own writes"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "agent-ungrounded-answers",
+      "title": "An AI agent produces unsupported answers",
+      "topic": "Agent grounding and quality",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "ai-agents",
+        "grounding",
+        "rag",
+        "evaluation"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I treat an ungrounded answer as a pipeline failure and trace which stage broke: was the right content retrieved, was it passed to the model, and did the instructions require citing it? I pull the conversation transcript and the retrieval results, compare with the source, and check permissions, stale indexes and prompt wording. The fix is retrieval and instruction changes plus a regression evaluation set, not a bigger model.",
+      "revision": "Trace stage by stage: retrieval, context passed, instructions, citation checks; fix content, permissions or prompt, and add regression evaluations.",
+      "detailed": "## Symptoms and impact\n\nUsers receive confident answers that cite no source or contradict policy. Trust drops, and in regulated topics an answer may mislead someone. The model sounds fluent, which hides the problem.\n\n## Likely causes, ranked by probability\n\n| Rank and cause | Why it fits | Signal that confirms it |\n|---|---|---|\n| 1. Relevant content not retrieved | Knowledge source missing, stale, or chunked poorly | Retrieved passages lack the answer; index last-refresh date old |\n| 2. Instructions allow answering without evidence | No rule to refuse when context is absent | Prompt has no 'answer only from sources' rule; transcript shows no citations |\n| 3. Permissions filter removes the right document | Security trimming hides content from this user | Same question works for an admin and fails for the user |\n| 4. Conflicting or outdated sources | Two policy versions in the index | Retrieved passages disagree; answer mixes them |\n| 5. Model behaviour on long or noisy context | Too many passages dilute attention | Right passage retrieved but ignored; shortened context fixes it |\n\n## Evidence to collect\n\n- The **conversation transcript** and the agent's execution trace for the failing turn: user message, retrieved passages with source ids, the final prompt (where the platform exposes it) and the response with citations. Verify current Microsoft docs for what Copilot Studio and Azure AI services log.\n- Knowledge source configuration and **index refresh time** per source; document version and owner.\n- The user's identity and the permission filter applied during retrieval.\n- Application Insights or platform telemetry keyed by the **conversation id**, plus the model deployment and version used.\n- The evaluation set result for the same question before and after the last change.\n\n## Diagnostic steps\n\n1. Reproduce with the exact question, same user, same environment.\n2. Check retrieved passages first. If the answer is not there, fix content, chunking or filters.\n3. If retrieved but ignored, review instructions and passage count.\n4. If sources conflict, remove or retire the stale item.\n5. Add the case to an evaluation set with expected citation and refusal behaviour.\n\n## Immediate mitigation\n\nAdd a temporary guard: require citations and return a safe fallback ('I could not find this in approved sources') when none exist, and remove or fix the bad source.\n\n## Permanent fix\n\nImprove ingestion and chunking, refresh schedules, metadata for version and owner, hybrid retrieval, and instructions that force grounding and refusal. Add automated groundedness and citation checks to release gates.\n\n## Prevention\n\nMaintain a golden question set, run it on every prompt, model or content change, sample production conversations weekly, and give users a feedback control that opens a review item.\n\n## Common mistakes\n\n- Switching to a larger model as the first step.\n- Judging quality from fluency.\n- Ignoring stale or duplicated documents.\n- No refusal behaviour when evidence is missing.\n\n## Interview-ready summary\n\nI trace the pipeline: retrieval, context, instructions, then model. Most ungrounded answers are retrieval or instruction problems. I fix content and prompts, require citations with a refusal path, and guard with a regression evaluation set.",
+      "followUps": [
+        "How do you measure groundedness?",
+        "How do you handle conflicting source versions?",
+        "What would you show the user when no evidence is found?"
+      ]
+    },
+    {
+      "slug": "agent-calls-wrong-tool",
+      "title": "An AI agent calls the wrong tool",
+      "topic": "Agent tool selection",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "ai-agents",
+        "tools",
+        "orchestration",
+        "mcp"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Wrong tool selection is usually ambiguity I created: overlapping tool names, vague descriptions, too many tools or unclear parameter schemas. I read the execution trace to see the candidate tools, the chosen one and its arguments, then compare descriptions. I sharpen names and descriptions, reduce the tool set per task, add input validation and confirmation for risky actions, and add the failing prompt to a tool-selection evaluation suite.",
+      "revision": "Read the trace of candidates, choice and arguments; fix overlapping descriptions, reduce tool set, validate inputs, confirm risky actions, add evaluations.",
+      "detailed": "## Symptoms and impact\n\nAn agent asked to 'close the ticket' calls a tool that deletes it, or asks for a customer lookup and calls the order search. Impact ranges from wrong answers to unintended changes in a system of record.\n\n## Likely causes, ranked by probability\n\n| Rank and cause | Why it fits | Signal that confirms it |\n|---|---|---|\n| 1. Overlapping or vague tool descriptions | Two tools sound alike to the model | Trace shows both candidates; descriptions share keywords |\n| 2. Too many tools in scope | Large tool lists reduce selection accuracy | Tool count high; error disappears with a smaller set |\n| 3. Ambiguous parameter schema | Model fills optional fields wrongly | Arguments valid but semantically wrong; missing enums or examples |\n| 4. Instructions conflict with tool use | Prompt encourages an action the tool should not take | Instruction text mentions the wrong tool by name |\n| 5. Model or version change | Behaviour shifted after an update | Same prompt passes on the previous deployment |\n\n## Evidence to collect\n\n- The **execution trace** for the turn: the tools offered, the tool chosen, the arguments and the tool result (verify current docs for what Copilot Studio, Azure AI Foundry or your framework records).\n- The tool definitions: name, description, JSON schema and any enum values, with their version.\n- The **conversation id** and request id propagated to the tool's backend logs, so the called API shows the same correlation id.\n- The model deployment name and version at the time of failure.\n- The set of identity permissions the tool ran with.\n\n## Diagnostic steps\n\n1. Reproduce the prompt with tracing on and record candidate tools.\n2. Diff the descriptions of the chosen and expected tools for ambiguity.\n3. Try with only the expected tool available; if it works, the problem is selection, not execution.\n4. Check argument values against the schema and the business meaning.\n5. Compare against the previous model version.\n\n## Immediate mitigation\n\nDisable the dangerous tool or require explicit user confirmation before write actions, and apply a server-side guard that rejects the unsafe call regardless of what the model asked for.\n\n## Permanent fix\n\nRewrite names and descriptions to state purpose and when not to use the tool, split read and write tools, constrain parameters with enums, scope tool sets per agent or topic, and use least-privilege identities.\n\n## Prevention\n\nMaintain a tool-selection evaluation set with expected tool and arguments, run it on every change, and require approval steps for destructive actions.\n\n## Common mistakes\n\n- Trusting the model to enforce permissions.\n- Adding more tools without pruning.\n- Writing descriptions that describe what, not when.\n- Testing only the happy path.\n\n## Interview-ready summary\n\nI read the trace to see candidates, choice and arguments, then fix ambiguity: sharper descriptions, fewer tools, constrained schemas, confirmation for writes and server-side authorisation. Evaluations stop regressions.",
+      "followUps": [
+        "How do you separate read and write tools?",
+        "What would a tool-selection evaluation include?",
+        "How do you enforce least privilege for tool calls?"
+      ]
+    },
+    {
+      "slug": "deployment-breaks-existing-application",
+      "title": "A deployment breaks an existing application",
+      "topic": "Release regression",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "alm",
+        "deployment",
+        "rollback",
+        "solutions"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "First I stabilise, then I diagnose. I confirm what changed using solution history and the release's component list, and look at solution layers for unexpected overrides. Typical causes are a removed or renamed component, an upgrade that deleted a column, flows turned off after import, security role changes or environment variables left unset. I roll back or roll forward through the pipeline, then add regression tests and a smoke test to the release.",
+      "revision": "Stabilise first, then use solution history and layers to find the changed component; roll back or forward via pipeline and add smoke and regression tests.",
+      "detailed": "## Symptoms and impact\n\nAfter a release, a model-driven app shows missing forms, a flow stopped running or users lose access. Support tickets arrive within minutes, and the release owner must decide quickly between rollback and forward fix.\n\n## Likely causes, ranked by probability\n\n| Rank and cause | Why it fits | Signal that confirms it |\n|---|---|---|\n| 1. Component removed or overridden by upgrade | Upgrade import deletes components not in the new version | Solution history shows upgrade; layers show different top layer |\n| 2. Flows or processes off after import | Connection references unset, flows imported off | Flow status off; connection reference unbound |\n| 3. Security roles or field security changed | Role included in the managed solution overwrote local changes | Role privileges differ from the previous version |\n| 4. Environment variable or configuration data missing | Value not provided in target | Variable current value empty; behaviour differs |\n| 5. Plug-in or schema change incompatible with data | New validation rejects existing records | Plug-in trace exceptions after release time |\n\n## Evidence to collect\n\n- **Solution history** for the release time window: import job, version before and after, and the log.\n- The release **artefact** component list and a diff from the previous solution version (export unpacked XML and compare).\n- **Solution layers** for the broken component, showing which solution and version is the active layer.\n- Plug-in trace log exceptions and flow run failures starting at the release timestamp, using Application Insights `exceptions` grouped by operation name.\n- Pipeline change record: commit ids, approvals, and deployment settings used.\n\n## Diagnostic steps\n\n1. Pin the exact time the first complaint occurred and match it to the import job.\n2. Diff component lists to find removals or modifications.\n3. Check layers for an unmanaged or conflicting layer.\n4. Review flow and process status and connection references.\n5. Replay the user scenario in a staging copy built from the same artefact.\n\n## Immediate mitigation\n\nChoose rollback if a previous managed version can be reimported safely and no data migration occurred. Otherwise deploy a small forward fix through the pipeline. Re-enable flows and communicate the status.\n\n## Permanent fix\n\nFix the underlying release defect in source, add a regression test for the failed scenario, use holding solution upgrades deliberately, and include security roles and environment variables in the release definition.\n\n## Prevention\n\nSmoke tests after deploy (open app, run key flow, check role), release notes with a component diff, staged rollout, backup before production import, and a rollback plan rehearsed beforehand.\n\n## Common mistakes\n\n- Hotfixing in production, creating layers that block the next release.\n- Having no rollback plan.\n- Skipping post-deploy smoke tests.\n- Not diffing the component list against the previous version.\n\n## Interview-ready summary\n\nI stabilise through rollback or a small forward fix, then use solution history, layers and component diffs to find what the release changed. Prevention is smoke tests, staged releases and a rehearsed rollback.",
+      "followUps": [
+        "When is rollback unsafe for Dataverse solutions?",
+        "What does a holding solution do?",
+        "How would you design a staged rollout?"
+      ]
+    },
+    {
+      "slug": "json-transformation-silently-drops-records",
+      "title": "A JSON transformation silently drops records",
+      "topic": "Data transformation integrity",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "json",
+        "data-quality",
+        "power-automate",
+        "integration"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Silent loss means a step succeeded while discarding data. I reconcile counts at each stage: records in, records after parsing, after filtering, after mapping, and records written. The usual culprits are pagination limits, schema-driven parsing that ignores unexpected shapes, filters on case-sensitive or null values, key collisions in a map and race conditions in parallel loops. I add count checks that fail loudly.",
+      "revision": "Reconcile record counts at every stage to find where data disappears: pagination, parse schema, filter, key collision or parallel-loop races; then add count assertions.",
+      "detailed": "## Symptoms and impact\n\nA nightly integration reports success but the target holds fewer records than the source. Nobody noticed for days, because no step failed. Reports are wrong and customers are missing from downstream systems.\n\n{{diagram:recon}}\n\n## Likely causes, ranked by probability\n\n| Rank and cause | Why it fits | Signal that confirms it |\n|---|---|---|\n| 1. Pagination or item limits truncate input | Connector returns the first page only | Input count equals a round number such as a default page size; next link ignored |\n| 2. Filter or condition excludes valid records | Case, whitespace, null or type mismatch | Filtered-out sample shows records that should match |\n| 3. Key collision when building maps or deduplicating | Two records share a key and one overwrites | Output count equals distinct key count |\n| 4. Parse schema too strict or lenient | Missing properties dropped, type mismatches nulled | Parse output has nulls where input has values |\n| 5. Parallel loop writes to a shared variable | Race condition loses appends | Count varies between runs of the same input |\n\n## Evidence to collect\n\n- Run history outputs for each action: `length()` of the input array, the filter result, the mapped array and the write results, including `body/@odata.nextLink` presence.\n- A **sample of missing records**: their business ids, source timestamps and raw payloads.\n- Action settings: pagination threshold, concurrency control on loops, retry policy.\n- The JSON schema used by Parse JSON and any `coalesce`, `toLower` or `string()` conversions in expressions.\n- Telemetry counters emitted by the flow or job under a **correlation id**: received, accepted, rejected, written.\n\nIllustrative expression to log stage counts in a flow (adapt names):\n\n```\nconcat('in=', length(body('Get_items')?['value']), ' out=', length(body('Filter_array')))\n```\n\n## Diagnostic steps\n\n1. Pick three missing ids and follow each through every stage's outputs.\n2. Compare counts before and after each stage in the same run.\n3. Test the filter expression with the missing records as input.\n4. Check whether keys are unique before dedupe or mapping.\n5. Rerun with concurrency set to one; if counts stabilise, it was a race.\n\n## Immediate mitigation\n\nReplay the affected window from the source into a reconciliation run that writes only missing records, using idempotent upserts keyed by business id.\n\n## Permanent fix\n\nEnable pagination, fix expressions to handle case and nulls, use unique composite keys, avoid shared variables in parallel loops (use Select or Filter array instead), and send rejected records to an exceptions table with a reason.\n\n## Prevention\n\nAdd a reconciliation step comparing source and target counts, alert when they differ, test with edge-case data such as nulls, duplicates and mixed case, and include record counts in the run summary.\n\n## Common mistakes\n\n- Trusting a green run as proof of completeness.\n- Using a shared variable inside a parallel loop.\n- Deduplicating on a key that is not unique.\n- Dropping invalid records without recording them.\n\n## Interview-ready summary\n\nSilent drops are found by reconciling counts at every stage. I check pagination, filters, key collisions, schema parsing and loop races, then add count assertions and an exceptions path so loss can never be silent.",
+      "followUps": [
+        "How would you design a reconciliation report?",
+        "Why use Select instead of Apply to each?",
+        "How do you replay safely?"
+      ],
+      "diagrams": [
+        {
+          "id": "recon",
+          "title": "Stage-by-stage reconciliation",
+          "alt": "Source records enter the pipeline and are counted. They pass parse, filter and map stages, each emitting a count. Writes are counted at the target. Rejected records go to an exceptions table and a reconciliation check compares counts.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "src",
+              "label": "Source records"
+            },
+            {
+              "id": "par",
+              "label": "Parse"
+            },
+            {
+              "id": "fil",
+              "label": "Filter"
+            },
+            {
+              "id": "map",
+              "label": "Map"
+            },
+            {
+              "id": "tgt",
+              "label": "Target write"
+            },
+            {
+              "id": "exc",
+              "label": "Exceptions table"
+            },
+            {
+              "id": "rec",
+              "label": "Reconciliation check"
+            }
+          ],
+          "edges": [
+            {
+              "from": "src",
+              "to": "par",
+              "label": "count in"
+            },
+            {
+              "from": "par",
+              "to": "fil"
+            },
+            {
+              "from": "fil",
+              "to": "map"
+            },
+            {
+              "from": "map",
+              "to": "tgt",
+              "label": "count written"
+            },
+            {
+              "from": "fil",
+              "to": "exc",
+              "label": "rejected"
+            },
+            {
+              "from": "tgt",
+              "to": "rec"
+            },
+            {
+              "from": "src",
+              "to": "rec",
+              "label": "source count"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "xpath-fails-xml-namespaces",
+      "title": "XPath fails because of XML namespaces",
+      "topic": "XML processing",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "xml",
+        "xpath",
+        "namespaces",
+        "integration"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "XPath returns nothing when the document uses a namespace and the expression does not account for it. A default namespace has no prefix, so a plain path like /Order/Id matches nothing. I print the root element and namespace declarations, then either bind a prefix to the namespace URI in a namespace manager, or use local-name() for a quick, less strict match. I prefer binding prefixes because it is precise.",
+      "revision": "A default namespace has no prefix, so plain XPath matches nothing; bind a prefix to the namespace URI or, as a fallback, use local-name().",
+      "detailed": "## Symptoms and impact\n\nA parser step returns empty results or null for fields that clearly exist in the payload. It worked with the sample file but fails with a partner's real messages, which declare an `xmlns` the sample lacked.\n\n## Likely causes, ranked by probability\n\n| Rank and cause | Why it fits | Signal that confirms it |\n|---|---|---|\n| 1. Default namespace not bound in the expression | Payload has xmlns on the root | XPath returns empty; same path with local-name() returns data |\n| 2. Different prefix or URI than assumed | Partner version changed the namespace URI | Namespace URI in the payload differs from the code constant |\n| 3. Multiple namespaces mixed | Envelope and body use different namespaces | Child elements need distinct prefixes |\n| 4. Attribute versus element or case mismatch | XPath is case-sensitive | Element name differs by case |\n| 5. Encoding or BOM problems | Parser fails before XPath | Parse error rather than empty result |\n\n## Evidence to collect\n\n- The **raw payload** captured at the integration boundary (redacted), the root element and every `xmlns` declaration.\n- The exact XPath expression and the namespace manager or function used (for example the Power Automate `xpath()` expression or .NET `XmlNamespaceManager` setup).\n- The partner's schema or WSDL and its version, and the message id header.\n- Application Insights `traces` or logs with the **correlation id** for failing messages, and parse exception text.\n- A passing and a failing payload for diffing.\n\nIllustrative expressions:\n\n```\n/*[local-name()='Order']/*[local-name()='Id']\n```\n\n```csharp\nvar ns = new XmlNamespaceManager(doc.NameTable);\nns.AddNamespace(\"o\", \"urn:example:order:v2\"); // use the URI from the payload\nvar id = doc.SelectSingleNode(\"/o:Order/o:Id\", ns);\n```\n\n## Diagnostic steps\n\n1. Pretty-print the failing payload and read the root element.\n2. Test `//*[local-name()='Id']` to prove namespace is the issue.\n3. Bind the prefix to the URI in code and retest.\n4. Verify with both payload versions.\n5. Log the namespace URI when a message has zero matches.\n\n## Immediate mitigation\n\nDeploy a quick expression using `local-name()` and `namespace-uri()` for the affected fields while the proper fix is built.\n\n## Permanent fix\n\nRegister namespace prefixes explicitly, validate messages against the XSD before extracting, and configure the namespace URIs rather than hard-coding them. Fail with a clear error when a mandatory node is not found.\n\n## Prevention\n\nKeep contract samples for every partner version, add a unit test with namespaced and non-namespaced documents, and alert on zero-match extractions.\n\n## Common mistakes\n\n- Using local-name() everywhere and losing strictness.\n- Testing only with a sample without namespaces.\n- Treating zero matches as valid.\n- Hard-coding the URI.\n\n## Interview-ready summary\n\nEmpty XPath results with data present usually mean an unbound namespace. I read the root declarations, bind a prefix to the URI, validate against the schema and fail loudly on missing mandatory nodes.",
+      "followUps": [
+        "When is local-name() acceptable?",
+        "How do you validate against an XSD?",
+        "How do you version partner contracts?"
+      ]
+    },
+    {
+      "slug": "sudden-ai-token-cost-increase",
+      "title": "AI token costs suddenly increase",
+      "topic": "AI cost operations",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "ai",
+        "cost",
+        "tokens",
+        "observability"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I break the bill down before touching anything: tokens by deployment, by feature, by user or tenant and by day, split into prompt and completion tokens. Then I look for what changed: a prompt or retrieval change adding context, a retry loop, an agent looping tool calls, a new traffic source or a more expensive model. I cap spend with limits, fix the cause, and add budgets and alerts.",
+      "revision": "Break tokens down by deployment, feature, tenant and day, prompt versus completion; find the change, such as bigger context, loops, retries or model switch; cap and alert.",
+      "detailed": "## Symptoms and impact\n\nThe monthly forecast jumps, or a budget alert fires mid-week. Finance asks why, and rate-limit errors may begin because consumption approaches quota.\n\n## Likely causes, ranked by probability\n\n| Rank and cause | Why it fits | Signal that confirms it |\n|---|---|---|\n| 1. Prompt or retrieval change increased context | More chunks or longer instructions per request | Average prompt tokens per request up after a release |\n| 2. Agent loop or excessive tool calls | Agent repeats steps until a limit | Many model calls per conversation; same tool repeated in trace |\n| 3. Retry storm | Client retries on timeouts or 429 | Requests per user message greater than one; error rates high |\n| 4. Traffic growth or new caller | Batch job or unauthorised key use | New caller id or key; traffic outside business hours |\n| 5. Model or deployment change | Switch to a larger model, or long-output setting | Deployment name changed; completion tokens per request up |\n\n## Evidence to collect\n\n- Token usage and request metrics from the model resource in Azure Monitor and the cost analysis view, grouped by deployment and day (verify current Microsoft docs for exact metric names).\n- Application Insights custom dimensions logged per call: `feature`, `tenant`, `conversationId`, `promptTokens`, `completionTokens`, `model`, `retryCount`.\n- Release and prompt version history to correlate with the first day of the rise.\n- Gateway or API management logs showing caller identity and subscription key.\n- The agent execution trace for the most expensive conversations.\n\nIllustrative KQL for custom telemetry (adapt table and field names):\n\n```kusto\ncustomEvents\n| where name == \"llm_call\"\n| extend prompt=toint(customDimensions.promptTokens), completion=toint(customDimensions.completionTokens)\n| summarize requests=count(), promptTokens=sum(prompt), completionTokens=sum(completion) by bin(timestamp, 1d), tostring(customDimensions.feature)\n```\n\n## Diagnostic steps\n\n1. Find the day the slope changed and list deployments with the biggest change.\n2. Compute prompt tokens per request and requests per conversation before and after.\n3. Open the top ten costliest conversations and read their traces.\n4. Check for new callers or unusual hours.\n5. Confirm the root cause in a test environment.\n\n## Immediate mitigation\n\nApply a token or spend limit per tenant or feature, reduce maximum output tokens, cap agent iterations, and block the rogue caller or rotate its key.\n\n## Permanent fix\n\nTrim retrieval to the needed chunks, cache stable results, use a smaller model where quality allows, set loop and retry caps with back-off, and route simple tasks to cheaper models.\n\n## Prevention\n\nLog token counts per call, set budgets and anomaly alerts, add a cost line to the release checklist, and include token-per-request in evaluation reports.\n\n## Common mistakes\n\n- Reducing model quality without measuring impact.\n- Having no per-feature attribution.\n- Ignoring retries as a cost source.\n- Waiting for the monthly invoice to notice.\n\n## Interview-ready summary\n\nI decompose spend by deployment, feature and tenant, split prompt from completion tokens, and match the inflection to a change: context size, loops, retries, traffic or model. Then I cap, fix and alert.",
+      "followUps": [
+        "How would you attribute cost to a tenant?",
+        "What limits would you put on an agent loop?",
+        "How do you balance cost against answer quality?"
+      ]
+    },
+    {
+      "slug": "ai-generated-change-security-flaw",
+      "title": "An AI-generated code change passes tests but introduces a security flaw",
+      "topic": "AI-assisted development risk",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "ai-assisted-development",
+        "security",
+        "code-review",
+        "sast"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Passing tests only proves the behaviour somebody thought to test. AI-generated code often misses authorisation checks, builds queries from strings, logs secrets or widens permissions. I assess exposure, revert or patch, and rotate anything leaked. Then I fix the process: security-focused review for AI changes, static analysis and secret scanning in the pipeline, and negative tests that assert what must not be allowed.",
+      "revision": "Tests prove expected behaviour only. Contain the exposure, patch, rotate secrets, then add SAST, secret scanning, negative tests and mandatory review for AI changes.",
+      "detailed": "## Symptoms and impact\n\nA reviewer or scanner finds that a new endpoint returns another tenant's data when an id is changed, or that a secret was committed. The pipeline was green and the change shipped.\n\n## Likely causes, ranked by probability\n\n| Rank and cause | Why it fits | Signal that confirms it |\n|---|---|---|\n| 1. Missing authorisation check (broken access control) | Generated code handled the happy path | Request with another user's id succeeds; no ownership check in the handler |\n| 2. Injection from string-built queries or expressions | Concatenated input | Query built with input; scanner flags it |\n| 3. Secret or token in code or logs | Pasted sample credentials | Secret scan hit; log lines contain tokens |\n| 4. Over-permissive configuration | Wide CORS, broad roles, public endpoint | Config diff shows loosened settings |\n| 5. Vulnerable or invented dependency | Suggested package is outdated or does not exist | Dependency audit flags it; unknown package name |\n\n## Evidence to collect\n\n- The **commit and pull request** that introduced the change, who prompted it, and what the review covered.\n- **SAST** and dependency scan results (CodeQL or equivalent), and secret scanning output for the repository history.\n- Application and gateway logs for the affected endpoint: caller identity, requested ids, response codes, over the exposure window, keyed by correlation id.\n- Dataverse audit or database access logs showing which records were read.\n- The test suite's coverage of negative and cross-tenant cases.\n\n## Diagnostic steps\n\n1. Reproduce the flaw in a test environment with a second user.\n2. Determine the exposure window from the release time and query logs for abnormal access.\n3. Check whether any secret appeared in code, logs or build output.\n4. Review the whole diff, not only the flagged line, for similar patterns.\n5. Assess data-breach reporting duties with the security and legal teams.\n\n## Immediate mitigation\n\nRevert or hotfix, disable the endpoint if needed, rotate exposed secrets, and start the security incident process with a defined owner and timeline.\n\n## Permanent fix\n\nAdd the authorisation check server-side, use parameterised queries and framework authorisation, remove secrets to a vault, and write negative tests. Add threat-model prompts to the generation instructions.\n\n## Prevention\n\nRequire human review with a security checklist for AI-generated code, run SAST, secret scanning and dependency audit as blocking gates, and train developers to treat generated code as untrusted input.\n\n## Common mistakes\n\n- Believing tests cover security.\n- Reviewing only the lines the tool highlights.\n- Not checking logs for prior exploitation.\n- Banning AI instead of improving gates.\n\n## Interview-ready summary\n\nGreen tests prove expected behaviour only. I contain and patch, assess exposure from logs, rotate secrets, then add negative tests, SAST, secret scanning and security-focused review so AI-written code is held to the same bar as any other.",
+      "followUps": [
+        "What negative tests would you add?",
+        "How do you review AI-written code differently?",
+        "What belongs in the incident report?"
+      ]
+    },
+    {
+      "slug": "issue-cannot-be-reproduced-locally",
+      "title": "A production issue cannot be reproduced locally",
+      "topic": "Debugging production",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "debugging",
+        "observability",
+        "production",
+        "root-cause"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "If it does not reproduce locally, something differs: data, configuration, identity, timing, scale or dependency version. I list those differences systematically, gather a correlated trace of a real failing request, and rebuild the conditions in a safe environment using sanitised production-like data. I avoid changing production blindly, and I improve telemetry so the next occurrence explains itself.",
+      "revision": "List differences in data, config, identity, timing, scale and dependencies; capture a correlated trace; rebuild conditions with sanitised data; improve telemetry.",
+      "detailed": "## Symptoms and impact\n\nA defect affects some users in production, yet developers cannot make it happen. Tickets stay open and the team starts guessing, which risks risky changes made only to see what happens.\n\n{{diagram:repro}}\n\n## Likely causes, ranked by probability\n\n| Rank and cause | Why it fits | Signal that confirms it |\n|---|---|---|\n| 1. Data-dependent edge case | Production holds shapes tests never had | Failures share an attribute: language, size, null, legacy value |\n| 2. Configuration or environment variable difference | Values differ per environment | Diff of settings shows a variation |\n| 3. Identity, role or tenant difference | Developers run as an admin | Works for admins; fails with the user's security role |\n| 4. Timing, concurrency or scale | Race conditions need load | Failures cluster at peaks; retries succeed |\n| 5. Dependency or version drift | Different service version or region | Dependency telemetry shows different versions or endpoints |\n\n## Evidence to collect\n\n- A **failing request's correlation id** and its full trace across flow run, plug-in trace log, API and agent execution trace.\n- Application Insights `requests`, `dependencies`, `exceptions` and `traces` joined by `operation_Id`.\n- Request headers: `x-ms-client-request-id`, `x-ms-correlation-request-id` where present, and any tenant or user claim.\n- Solution history and deployed versions per environment, environment variable values, feature flag state.\n- Common attributes of failing users: role, region, data volume, browser or client.\n\n## Diagnostic steps\n\n1. Take three failing and three passing requests and diff every attribute.\n2. Reproduce as the failing user's role in a test environment.\n3. Load a sanitised copy of the failing record.\n4. Apply concurrency or load if timing is suspected.\n5. If still stuck, add targeted telemetry behind a feature flag and wait.\n\n## Immediate mitigation\n\nOffer a workaround to affected users, apply a safe feature flag or a rollback if the issue started with a release, and monitor.\n\n## Permanent fix\n\nFix the root cause once reproduced, add a regression test using the failing data shape, and add the missing telemetry permanently.\n\n## Prevention\n\nKeep environments close to production, maintain sanitised data samples, use correlation ids everywhere, and record a post-incident review with new test cases.\n\n## Common mistakes\n\n- Guessing and deploying speculative fixes.\n- Debugging as an administrator.\n- Copying production data without sanitising.\n- Closing the ticket without adding telemetry.\n\n## Interview-ready summary\n\nIf I cannot reproduce it, I treat the difference between environments as the finding. I diff data, configuration, identity, timing and versions, use a correlated trace of a real failure, rebuild the conditions with sanitised data and improve telemetry afterwards.",
+      "followUps": [
+        "How do you debug safely in production?",
+        "What belongs in a post-incident review?",
+        "How would a feature flag help?"
+      ],
+      "diagrams": [
+        {
+          "id": "repro",
+          "title": "Reproduction by differences",
+          "alt": "A failing production request carries a correlation id. Its trace is compared with a passing request across data, configuration, identity, timing and version. The differences are rebuilt in a safe environment with sanitised data and verified by a regression test.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "f",
+              "label": "Failing request and correlation id"
+            },
+            {
+              "id": "p",
+              "label": "Passing request"
+            },
+            {
+              "id": "d",
+              "label": "Differences: data, config, identity, timing, version"
+            },
+            {
+              "id": "e",
+              "label": "Safe environment with sanitised data"
+            },
+            {
+              "id": "t",
+              "label": "Regression test"
+            },
+            {
+              "id": "m",
+              "label": "Added telemetry"
+            }
+          ],
+          "edges": [
+            {
+              "from": "f",
+              "to": "d"
+            },
+            {
+              "from": "p",
+              "to": "d"
+            },
+            {
+              "from": "d",
+              "to": "e",
+              "label": "rebuild"
+            },
+            {
+              "from": "e",
+              "to": "t"
+            },
+            {
+              "from": "t",
+              "to": "m"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

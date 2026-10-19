@@ -1,0 +1,503 @@
+{
+  "category": "agentic-ai-engineering",
+  "questions": [
+    {
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "slug": "m365-copilot-vs-copilot-studio-vs-custom-agent",
+      "title": "How do Microsoft 365 Copilot, Copilot Studio, Power Apps Copilot features and a custom agent application differ?",
+      "topic": "Microsoft AI product landscape",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "microsoft-365-copilot",
+        "copilot-studio",
+        "power-platform",
+        "governance"
+      ],
+      "quick": "I separate them by who owns the experience and what data and controls apply. Microsoft 365 Copilot is a licensed assistant inside Microsoft 365 apps grounded in a user's tenant data. Copilot Studio is a low-code tool for building our own agents. Copilot features inside Power Apps help makers build or use apps. A custom agent application is code we host, for example with an agent framework, where we own orchestration, tools, hosting and evaluation. Product names change often, so I verify current naming in Microsoft documentation, and I never apply one governance model to all four.",
+      "revision": "Four different things: a licensed assistant, a low-code agent builder, maker assistance in apps, and code we own. Each has its own owner, data boundary, controls and audit trail.",
+      "detailed": "Interviewers often test whether you can stop a business stakeholder saying \"we will just use Copilot\" about four quite different things. **Product names and packaging change frequently, so verify current naming and licensing in Microsoft documentation.** The principles below stay stable.\n\n## The four things\n\n| Item | What it is conceptually | Who builds or owns it | Typical governance lever |\n|---|---|---|---|\n| Microsoft 365 Copilot | Assistant embedded in Microsoft 365 apps, grounded in what the signed-in user can access | Microsoft provides it; admins configure | Licensing, data permissions, sensitivity labels, tenant settings |\n| Copilot Studio | Low-code environment to build custom agents and topics | Makers and citizen developers, with IT guardrails | Environments, data policies, connector controls, publishing approval |\n| Copilot features in Power Apps | AI help for makers (generating apps, tables, formulas) and sometimes AI in the running app | Makers | Environment and tenant feature switches, data policies |\n| Custom agent application | Code we host (Python or .NET agent framework, model endpoint, tools) | Engineering team | Our own SDLC: identity, secrets, evaluation, logging, cost limits |\n\n## Why governance must not be conflated\n\n- **Data boundary differs.** An assistant grounded in user permissions inherits oversharing problems in SharePoint; a custom agent with a service identity may see far more than any one user should.\n- **Identity differs.** Delegated user permissions, maker connections and application identities have very different blast radii.\n- **Change control differs.** A prompt edited in a low-code tool can reach users without a code review unless ALM exists.\n- **Audit and retention differ.** Know where conversations and tool calls are logged for each.\n- **Cost model differs.** Per-user licences versus consumption versus our own model spend.\n\n## A simple decision flow\n\n{{diagram:landscape}}\n\n## Common mistakes\n\n- Assuming a policy written for one product automatically covers the others.\n- Treating a low-code agent as \"not real software\" and skipping testing.\n- Quoting product names or limits from memory instead of checking current documentation.\n- Ignoring that a custom agent needs its own responsible-AI review and monitoring.",
+      "diagrams": [
+        {
+          "id": "landscape",
+          "title": "Choosing between Copilot options",
+          "alt": "A request first asks whether an existing assistant inside Microsoft 365 meets the need. If not, it asks whether a low-code agent with standard connectors is enough. If not, it asks whether the need requires custom orchestration, so a custom agent application is built. All routes pass through a governance review.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "n",
+              "label": "Business need"
+            },
+            {
+              "id": "m",
+              "label": "Use Microsoft 365 Copilot as is"
+            },
+            {
+              "id": "s",
+              "label": "Build a Copilot Studio agent"
+            },
+            {
+              "id": "c",
+              "label": "Build a custom agent application"
+            },
+            {
+              "id": "g",
+              "label": "Governance review: data, identity, audit, cost"
+            }
+          ],
+          "edges": [
+            {
+              "from": "n",
+              "to": "m",
+              "label": "existing assistant fits"
+            },
+            {
+              "from": "n",
+              "to": "s",
+              "label": "needs own agent, simple tools"
+            },
+            {
+              "from": "n",
+              "to": "c",
+              "label": "needs custom orchestration"
+            },
+            {
+              "from": "m",
+              "to": "g"
+            },
+            {
+              "from": "s",
+              "to": "g"
+            },
+            {
+              "from": "c",
+              "to": "g"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Which of these would you let citizen developers publish without review, and why?",
+        "How would you explain oversharing risk to a non-technical sponsor?",
+        "What would make you move an agent from low-code to custom code?"
+      ],
+      "related": [
+        "agent-extending-m365-copilot",
+        "agent-alm-for-copilot-components"
+      ]
+    },
+    {
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "slug": "agent-extending-m365-copilot",
+      "title": "How do you extend Microsoft 365 Copilot safely: declarative agents, custom engine agents, plugins and Graph grounding?",
+      "topic": "Extending Microsoft 365 Copilot",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "microsoft-365-copilot",
+        "declarative-agents",
+        "microsoft-graph",
+        "permissions"
+      ],
+      "quick": "I start with the lightest extension that works. A declarative agent customises instructions, knowledge and actions on top of Microsoft's own orchestrator, while a custom engine agent brings our own orchestration and model, so we own more risk. Actions or plugins call our APIs. Grounding through Microsoft Graph is trimmed to what the signed-in user can already access, which also exposes oversharing. I prefer delegated permissions for user-specific data and use application permissions sparingly. Exact names and maturity change, so I verify current Microsoft documentation.",
+      "revision": "Prefer declarative extension over custom engines; actions call our APIs; Graph grounding respects user permissions and exposes oversharing; delegated over application permissions; verify current docs.",
+      "detailed": "**Hedge up front:** extensibility options, names and maturity in the Microsoft 365 Copilot ecosystem have changed several times. Treat the categories below as a mental model and confirm current terms and limits in Microsoft Learn.\n\n## Extension options\n\n| Option | What you control | What Microsoft controls | Typical use |\n|---|---|---|---|\n| Declarative agent | Instructions, selected knowledge sources, declared actions | Orchestration, model, safety layers | Focused assistant for one team or process |\n| Actions or plugins | API descriptions and the backend they call | Deciding when to call them | Look up a ticket, create a record |\n| Custom engine agent | Orchestration, model choice, prompts, hosting | Channel surface | Complex flows, own model, non-Microsoft data logic |\n\nRule of thumb: the more of the stack you own, the more evaluation, security and operations you own.\n\n## Grounding and permission trimming\n\nGrounding through Microsoft Graph returns content **the signed-in user is already allowed to see**. That is good, but it means:\n\n- Poorly labelled or overshared SharePoint sites surface in answers immediately.\n- Fixing oversharing (access reviews, sensitivity labels, site clean-up) is a prerequisite, not a follow-up.\n- Test with several personas to confirm users do not see content they should not.\n\n## Delegated versus application permissions\n\n| Type | Acts as | Use when | Risk |\n|---|---|---|---|\n| Delegated | The signed-in user | Data should respect the user's own access | Limited to that user's rights |\n| Application | The app itself | Background jobs with no user | Often tenant-wide; a prompt injection could misuse it |\n\nFor agent actions, prefer delegated access, narrow scopes and server-side authorisation in your own API; never rely on the model to decide what is permitted.\n\n{{diagram:extend}}\n\n## Common mistakes\n\n- Granting broad application permissions \"to make it work\".\n- Believing the model's instructions enforce access control.\n- Launching before a content oversharing review.\n- Not logging which tool calls an agent made for which user.",
+      "diagrams": [
+        {
+          "id": "extend",
+          "title": "Extending Microsoft 365 Copilot with actions",
+          "alt": "A user asks the Copilot experience a question. The orchestrator grounds on Microsoft Graph content trimmed to the user permissions and may call a declared action. The action calls a company API, which authorises the request with the user token and writes an audit record before returning a result.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "u",
+              "label": "User question"
+            },
+            {
+              "id": "o",
+              "label": "Copilot orchestrator"
+            },
+            {
+              "id": "g",
+              "label": "Graph grounding, trimmed to user permissions"
+            },
+            {
+              "id": "a",
+              "label": "Declared action"
+            },
+            {
+              "id": "api",
+              "label": "Company API: authorise user token"
+            },
+            {
+              "id": "au",
+              "label": "Audit record"
+            }
+          ],
+          "edges": [
+            {
+              "from": "u",
+              "to": "o"
+            },
+            {
+              "from": "o",
+              "to": "g"
+            },
+            {
+              "from": "o",
+              "to": "a"
+            },
+            {
+              "from": "a",
+              "to": "api",
+              "label": "delegated token"
+            },
+            {
+              "from": "api",
+              "to": "au"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you test that an agent does not leak content between personas?",
+        "When would you accept application permissions, and with what compensating controls?",
+        "How do you review an action definition before publishing it to users?"
+      ],
+      "related": [
+        "m365-copilot-vs-copilot-studio-vs-custom-agent",
+        "agent-alm-for-copilot-components"
+      ]
+    },
+    {
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "slug": "agent-alm-for-copilot-components",
+      "title": "What is ALM for Copilot and agent components: what do you version, test and promote?",
+      "topic": "ALM for AI agents",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "alm",
+        "power-platform-pipelines",
+        "pac-cli",
+        "agent-testing"
+      ],
+      "quick": "I treat instructions, tool definitions, knowledge sources, connection references and permissions as code. They go into solutions or source control, built and promoted through dev, test and production with Power Platform Pipelines or scripted PAC CLI steps. Because outputs are non-deterministic, I add an evaluation set of representative prompts with expected behaviours and run it on every change, including permission and tool tests. Environment variables and connection references keep secrets and endpoints out of the artefact. I verify current tooling support in Microsoft documentation.",
+      "revision": "Version instructions, tools, knowledge, connection references and permissions; run an evaluation set on each change; promote through environments with pipelines or PAC CLI; keep secrets in environment variables.",
+      "detailed": "Agents change behaviour when **text** changes, so instructions deserve the same discipline as code. **Tooling support for agent components inside solutions varies by product and changes quickly; verify in Microsoft documentation which components are solution-aware.**\n\n## What to version\n\n| Artefact | Why it matters |\n|---|---|\n| System instructions and topics | A single sentence can change tone, refusals or tool use |\n| Tool or action definitions and API schemas | Wrong descriptions cause wrong tool calls |\n| Knowledge source configuration | Changes what the agent can cite |\n| Connection references and environment variables | Per-environment endpoints without editing the artefact |\n| Permissions and data policies | Security posture, reviewed like code |\n| Evaluation set | The regression suite for behaviour |\n\n## Testing changes\n\n- **Golden prompts:** representative questions with expected outcomes (answer contains X, calls tool Y, refuses Z).\n- **Tool tests:** call each tool with valid and invalid arguments, including a mocked backend.\n- **Permission tests:** run as different personas, confirm trimmed access.\n- **Safety tests:** prompt injection attempts, off-topic requests.\n- **Threshold gate:** block promotion if pass rate drops below the agreed level; review diffs of transcripts, not only scores.\n\n## Promotion\n\n{{diagram:alm}}\n\nUse managed solutions in test and production, a service principal for pipeline runs, approvals before production, and a rollback plan (previous solution version plus previous prompt version).\n\n## Common mistakes\n\n- Editing instructions directly in production.\n- Testing only the happy path with one prompt.\n- Hard-coding endpoints or keys inside the agent.\n- Treating evaluation as one-off instead of per change.",
+      "diagrams": [
+        {
+          "id": "alm",
+          "title": "Promotion of an agent change",
+          "alt": "A maker or engineer changes agent components in development and exports them to source control. A build runs the evaluation set and tool tests. A pipeline deploys the solution to test, then after approval to production using environment variables and connection references. Monitoring feeds new test cases back to the evaluation set.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "dev",
+              "label": "Development environment"
+            },
+            {
+              "id": "src",
+              "label": "Source control"
+            },
+            {
+              "id": "ev",
+              "label": "Evaluation and tool tests"
+            },
+            {
+              "id": "te",
+              "label": "Test environment"
+            },
+            {
+              "id": "ap",
+              "label": "Approval"
+            },
+            {
+              "id": "pr",
+              "label": "Production"
+            },
+            {
+              "id": "mo",
+              "label": "Monitoring and feedback"
+            }
+          ],
+          "edges": [
+            {
+              "from": "dev",
+              "to": "src",
+              "label": "export"
+            },
+            {
+              "from": "src",
+              "to": "ev"
+            },
+            {
+              "from": "ev",
+              "to": "te",
+              "label": "pass"
+            },
+            {
+              "from": "te",
+              "to": "ap"
+            },
+            {
+              "from": "ap",
+              "to": "pr"
+            },
+            {
+              "from": "pr",
+              "to": "mo"
+            },
+            {
+              "from": "mo",
+              "to": "ev",
+              "label": "new cases"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you set a pass threshold for non-deterministic output?",
+        "What is the difference between a connection reference and an environment variable?",
+        "How do you roll back a bad instruction change quickly?"
+      ],
+      "related": [
+        "m365-copilot-vs-copilot-studio-vs-custom-agent",
+        "agent-action-idempotency-and-approval"
+      ]
+    },
+    {
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "slug": "power-platform-code-apps-vs-model-driven-canvas-react",
+      "title": "Power Apps Code Apps vs model-driven vs canvas vs a custom React web app: how do you choose?",
+      "topic": "Power Platform app type selection",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "power-apps",
+        "code-apps",
+        "model-driven",
+        "canvas",
+        "react"
+      ],
+      "quick": "I choose by data shape, user experience needs, team skills and governance. Model-driven apps suit data-centric, process-heavy work on Dataverse. Canvas apps suit task-focused, custom layouts built quickly by makers. Code Apps are a newer capability that lets developers build with code such as React while running inside Power Platform, with its connectors and governance. A custom web app gives full control but means owning hosting, identity and operations. Code Apps are new, so I verify current status and limits in Microsoft Learn first.",
+      "revision": "Model-driven for Dataverse process apps, canvas for quick custom tasks, Code Apps for developer-built UI inside Power Platform governance (verify status), custom React for full control and full responsibility.",
+      "detailed": "**Caveat:** Power Apps Code Apps are a newer capability. Check Microsoft Learn for current status, supported frameworks, connector support, licensing and limits before committing.\n\n## Decision matrix\n\n| Criterion | Model-driven | Canvas | Code App | Custom React app |\n|---|---|---|---|---|\n| Best for | Data-centric, process-heavy apps on Dataverse | Task-focused apps with custom layout | Rich custom UI built by developers with platform governance | Public, high-scale or highly bespoke products |\n| UI control | Low, metadata-driven | Medium | High, code-level | Full |\n| Speed to first version | Fast | Fast | Medium | Slowest |\n| Skills | Makers, consultants | Makers | Front-end developers | Full-stack team |\n| Data access | Dataverse first | Many connectors | Platform connectors (verify supported set) | Any API, you build auth |\n| Governance | Environments, DLP, security roles | Same | Same platform controls (verify) | Your own SDLC and security |\n| Hosting and operations | Microsoft | Microsoft | Microsoft platform | You |\n| Licensing | Per-user or per-app licences | Same | Verify | Hosting plus identity costs |\n\n## How to decide\n\n{{diagram:choose}}\n\n## Judgement points\n\n- If the requirement is mostly forms, views and business rules over Dataverse, building anything custom is waste.\n- Choose Code Apps when a developer-grade UI is needed but you still want platform connectors, environments and data policies. Confirm they handle your specific connectors and ALM.\n- Choose a custom React app when users are external, scale is unusual, or you need portability away from the platform.\n- Mixed estates are normal: a model-driven back office with an embedded custom component.\n\n## Common mistakes\n\n- Picking by team enthusiasm rather than requirements.\n- Assuming a new capability supports every feature of older app types.\n- Ignoring licence cost for large user populations.\n- Forgetting ALM: all options need a promotion path.",
+      "diagrams": [
+        {
+          "id": "choose",
+          "title": "App type decision",
+          "alt": "A requirement is first checked for external or very high scale users which points to a custom web app. Otherwise if it is data and process centric on Dataverse it points to model-driven. Otherwise if a quick task layout suffices it points to canvas. Otherwise a developer built interface inside platform governance points to Code Apps after verifying status.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "r",
+              "label": "Requirement"
+            },
+            {
+              "id": "x",
+              "label": "External users or unusual scale?"
+            },
+            {
+              "id": "cu",
+              "label": "Custom React web app"
+            },
+            {
+              "id": "d",
+              "label": "Data and process centric on Dataverse?"
+            },
+            {
+              "id": "md",
+              "label": "Model-driven app"
+            },
+            {
+              "id": "q",
+              "label": "Quick task-focused layout enough?"
+            },
+            {
+              "id": "ca",
+              "label": "Canvas app"
+            },
+            {
+              "id": "co",
+              "label": "Code App, verify status and limits"
+            }
+          ],
+          "edges": [
+            {
+              "from": "r",
+              "to": "x"
+            },
+            {
+              "from": "x",
+              "to": "cu",
+              "label": "yes"
+            },
+            {
+              "from": "x",
+              "to": "d",
+              "label": "no"
+            },
+            {
+              "from": "d",
+              "to": "md",
+              "label": "yes"
+            },
+            {
+              "from": "d",
+              "to": "q",
+              "label": "no"
+            },
+            {
+              "from": "q",
+              "to": "ca",
+              "label": "yes"
+            },
+            {
+              "from": "q",
+              "to": "co",
+              "label": "no"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you embed a custom component in a model-driven app?",
+        "What would make you walk back from a Code App to a custom app?",
+        "How do licensing costs change your choice for ten thousand users?"
+      ],
+      "related": [
+        "agent-alm-for-copilot-components",
+        "m365-copilot-vs-copilot-studio-vs-custom-agent"
+      ]
+    },
+    {
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "slug": "agent-action-idempotency-and-approval",
+      "title": "How do you design an AI agent that triggers business actions, such as creating an order or approving a refund, so retries cannot repeat the action?",
+      "topic": "Safe agent actions",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "idempotency",
+        "outbox",
+        "human-approval",
+        "audit",
+        "agents"
+      ],
+      "quick": "I never let the model call the system of record directly. The agent proposes an action; a deterministic service validates it, checks policy, and for risky actions waits for human approval. Every request carries an idempotency key derived from the business intent, so retries return the stored result instead of repeating it. State changes and outgoing messages are written together using an outbox. Every step is logged with who, what, why and the model version. Timeouts lead to a status check, never a blind retry.",
+      "revision": "Agent proposes, a deterministic service executes. Idempotency keys make retries safe, an outbox keeps state and messages consistent, approval gates risky actions, and audit records everything.",
+      "detailed": "Language models retry, rephrase and sometimes call a tool twice. Networks time out. The design must make **the action** safe, not rely on the model behaving.\n\n## Principles\n\n1. **Separate proposal from execution.** The model outputs a structured proposal; ordinary code validates schema, limits and authorisation.\n2. **Idempotency keys.** The key identifies the intent (for example conversation id plus step plus business reference), not the attempt. The execution service stores key and result; a repeat returns the same result.\n3. **Outbox pattern.** Write the business change and an outbox event in one transaction; a relay publishes the event. This avoids the state-saved-but-message-lost problem.\n4. **Approval gate.** Policy decides: auto-approve small refunds, route larger ones to a human with the proposal, evidence and a clear approve or reject action.\n5. **Audit.** Record requester, agent identity, inputs, decision, approver, key, outcome and model or prompt version.\n\n## Failure handling\n\n| Situation | Behaviour |\n|---|---|\n| Timeout with unknown outcome | Query status by idempotency key; do not resubmit blindly |\n| Same key, different payload | Reject as conflict |\n| Approval pending | Return pending state; resume on decision |\n| Downstream outage | Queue via outbox, retry with backoff, alert after threshold |\n\n{{diagram:action}}\n\n## Common mistakes\n\n- Generating a fresh key on every retry, defeating idempotency.\n- Letting the agent hold credentials with broad write access.\n- Using approval only in the prompt text rather than in enforced code.\n- Logging only the final answer, not the tool calls.\n- Keys with no expiry policy or no uniqueness constraint in storage.",
+      "diagrams": [
+        {
+          "id": "action",
+          "title": "Safe agent action flow",
+          "alt": "The agent proposes an action to an action service that validates the proposal and checks the idempotency key. A repeated key returns the stored result. A new key passes the policy check, which may require human approval. On approval the service commits the change and an outbox event in one transaction and writes an audit record.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "ag",
+              "label": "Agent proposal"
+            },
+            {
+              "id": "sv",
+              "label": "Action service: validate"
+            },
+            {
+              "id": "ik",
+              "label": "Idempotency key check"
+            },
+            {
+              "id": "st",
+              "label": "Return stored result"
+            },
+            {
+              "id": "po",
+              "label": "Policy check"
+            },
+            {
+              "id": "hu",
+              "label": "Human approval"
+            },
+            {
+              "id": "tx",
+              "label": "Commit change and outbox event"
+            },
+            {
+              "id": "au",
+              "label": "Audit record"
+            }
+          ],
+          "edges": [
+            {
+              "from": "ag",
+              "to": "sv"
+            },
+            {
+              "from": "sv",
+              "to": "ik"
+            },
+            {
+              "from": "ik",
+              "to": "st",
+              "label": "key seen"
+            },
+            {
+              "from": "ik",
+              "to": "po",
+              "label": "new key"
+            },
+            {
+              "from": "po",
+              "to": "hu",
+              "label": "risky"
+            },
+            {
+              "from": "po",
+              "to": "tx",
+              "label": "low risk"
+            },
+            {
+              "from": "hu",
+              "to": "tx",
+              "label": "approved"
+            },
+            {
+              "from": "tx",
+              "to": "au"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How long should idempotency keys be retained, and why?",
+        "What do you do when the downstream system does not support idempotency keys?",
+        "How would you test that duplicate retries are harmless?"
+      ],
+      "related": [
+        "agent-alm-for-copilot-components",
+        "agent-extending-m365-copilot"
+      ]
+    }
+  ]
+}

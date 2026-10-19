@@ -1,0 +1,494 @@
+{
+  "category": "power-platform-alm",
+  "questions": [
+    {
+      "slug": "managed-vs-unmanaged-solutions",
+      "title": "What is the difference between managed and unmanaged solutions in Power Platform?",
+      "topic": "Solutions and ALM",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "power-platform",
+        "alm",
+        "solutions",
+        "managed-solutions"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "An unmanaged solution is the editable source form, which I keep only in development environments. A managed solution is the sealed, deployable form that I import into test, UAT and production. Managed components sit in layers, so removing the solution removes its components, and upgrades can delete things cleanly. I never edit managed components directly in production, because that creates an unmanaged customisation layer on top that silently overrides later deployments and causes drift.",
+      "revision": "Unmanaged in dev for authoring; managed everywhere downstream. Managed solutions layer, upgrade and uninstall cleanly; edits in production create drift.",
+      "detailed": "A **solution** is the container Power Platform uses to package apps, flows, tables, environment variables, connection references and other components so they can move between environments.\n\n## The two forms\n\n| Aspect | Unmanaged | Managed |\n|---|---|---|\n| Purpose | Authoring and source control | Deployment to downstream environments |\n| Editable | Yes | Restricted, depending on managed properties |\n| Where used | Development only | Test, UAT, production |\n| Removing it | Deletes only the container; components stay | Removes the components it brought in |\n| Upgrade support | None (changes merge in) | Patches and upgrades with delete-on-upgrade |\n\n## Layers\n\nDataverse stacks component definitions in **layers**: the system layer at the bottom, then managed solutions in import order, and an **unmanaged layer** at the top that holds direct edits. The topmost layer wins. If someone edits a managed app in production, that change lands in the unmanaged layer and **overrides** every future managed deployment of that component until the layer is removed. This is the classic cause of \"it works in dev but not in prod\".\n\n## Publishers, patches and upgrades\n\n- The **publisher** supplies the prefix for custom tables and columns. Use one agreed publisher per product so names stay consistent and dependencies are traceable.\n- A **patch** carries a small subset of changes to a parent solution; an **upgrade** replaces the whole solution and can remove components that were deleted in the new version. Check current Microsoft documentation for how patch cloning and upgrade staging behave today.\n\n## Why not edit managed in production\n\nEdits bypass source control, review and testing, create layer drift, and make the next release unpredictable. The rule: change in dev, deploy managed, and treat production as read-only for customisation.\n\n## Common mistakes\n\n- Exporting unmanaged and importing it into production.\n- Building in the default solution, so changes cannot be packaged.\n- Using several publishers with different prefixes for one product.\n- Fixing production \"just once\" and forgetting the unmanaged layer.",
+      "followUps": [
+        "How would you find and remove an unmanaged layer on a component in production?",
+        "When would you use a patch instead of a full upgrade?",
+        "Are there cases where you export a managed solution from dev?"
+      ],
+      "related": [
+        "solution-layering-dependency-management",
+        "source-control-for-solutions"
+      ]
+    },
+    {
+      "slug": "power-platform-deployment-pipeline-design",
+      "title": "Design an end-to-end deployment pipeline for Power Platform solutions",
+      "topic": "Pipelines and CI/CD",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "power-platform",
+        "alm",
+        "ci-cd",
+        "azure-devops",
+        "pac-cli"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Makers build in an unmanaged dev environment. A change is exported and unpacked into source control, and a pull request triggers validation, including solution checker. After merge, the build packs a managed artefact once. That same artefact is imported to test, then UAT, then production, with an approval before production and a smoke test after each stage. Authentication uses a service principal, and environment-specific values come from deployment settings, never from edits in the target.",
+      "revision": "Dev unmanaged, export to git, PR with checker, build one managed artefact, promote through test and UAT with approval, smoke test, service principal auth.",
+      "detailed": "The goal is a **repeatable, auditable path** where the same built artefact is promoted unchanged, and production is only touched by automation.\n\n## Stages\n\n1. **Develop** in an unmanaged solution in a dev environment.\n2. **Export and unpack** to source control on a feature branch.\n3. **Pull request validation**: pack the solution, run **solution checker**, run any unit or lint steps, require review.\n4. **Build**: on merge, pack a **managed** artefact once and publish it.\n5. **Deploy to test** with deployment settings, then automated and manual tests.\n6. **UAT** with business users.\n7. **Approval gate** by the release owner.\n8. **Production** import, then a **smoke test** (key flow runs, app opens, connections healthy).\n\n{{diagram:pipeline}}\n\n## Tooling options\n\n| Option | Notes |\n|---|---|\n| Power Platform Pipelines | In-product, simpler for maker-led teams, with host environment and approvals; verify current capabilities in Microsoft documentation |\n| Azure DevOps or GitHub Actions with Power Platform Build Tools / actions or PAC CLI | Full control, source-control-driven, better for pro-code and multi-solution releases |\n\nA common pattern is the in-product pipeline for citizen-developer solutions and Git-based pipelines for core products.\n\n## Authentication\n\nUse a **service principal** (application user in each environment) with least privilege, secrets in the pipeline's secret store or Key Vault, not a personal account that expires or leaves.\n\n## Illustrative YAML\n\n```yaml\n# Illustrative only: verify task names and versions in current docs\nsteps:\n  - task: PowerPlatformToolInstaller@2\n  - task: PowerPlatformPackSolution@2\n    inputs:\n      SolutionSourceFolder: solutions/core/src\n      SolutionOutputFile: out/core_managed.zip\n      SolutionType: Managed\n  - task: PowerPlatformImportSolution@2\n    inputs:\n      authenticationType: PowerPlatformSPN\n      PowerPlatformSPN: test-env-connection\n      SolutionInputFile: out/core_managed.zip\n      UseDeploymentSettingsFile: true\n      DeploymentSettingsFile: settings/test.json\n```\n\n## Common mistakes\n\n- Rebuilding a different artefact per environment, so what was tested is not what ships.\n- Running pipelines under a named person's account.\n- No smoke test, so failure is found by users.\n- Putting environment values in the solution instead of deployment settings.",
+      "diagrams": [
+        {
+          "id": "pipeline",
+          "title": "Power Platform deployment pipeline",
+          "alt": "A maker works in an unmanaged dev solution, which is exported and unpacked to source control. A pull request runs validation including solution checker. After merge a managed artefact is built once, deployed to test, then UAT, then an approval gate, then production, followed by a smoke test.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "dev",
+              "label": "Dev: unmanaged solution"
+            },
+            {
+              "id": "git",
+              "label": "Source control"
+            },
+            {
+              "id": "pr",
+              "label": "PR validation and solution checker"
+            },
+            {
+              "id": "build",
+              "label": "Build managed artefact"
+            },
+            {
+              "id": "test",
+              "label": "Test environment"
+            },
+            {
+              "id": "uat",
+              "label": "UAT environment"
+            },
+            {
+              "id": "appr",
+              "label": "Approval gate"
+            },
+            {
+              "id": "prod",
+              "label": "Production"
+            },
+            {
+              "id": "smoke",
+              "label": "Smoke test"
+            }
+          ],
+          "edges": [
+            {
+              "from": "dev",
+              "to": "git",
+              "label": "export and unpack"
+            },
+            {
+              "from": "git",
+              "to": "pr"
+            },
+            {
+              "from": "pr",
+              "to": "build",
+              "label": "merge"
+            },
+            {
+              "from": "build",
+              "to": "test"
+            },
+            {
+              "from": "test",
+              "to": "uat"
+            },
+            {
+              "from": "uat",
+              "to": "appr"
+            },
+            {
+              "from": "appr",
+              "to": "prod"
+            },
+            {
+              "from": "prod",
+              "to": "smoke"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "When would you pick Power Platform Pipelines over Azure DevOps?",
+        "How do you handle a release that spans several dependent solutions?",
+        "How do you rotate service principal secrets without breaking pipelines?"
+      ],
+      "related": [
+        "pac-cli-usage",
+        "production-deployment-failure-handling",
+        "environment-variables-connection-references"
+      ]
+    },
+    {
+      "slug": "pac-cli-usage",
+      "title": "What is PAC CLI and how would you use it?",
+      "topic": "Tooling",
+      "difficulty": "intermediate",
+      "type": "coding",
+      "tags": [
+        "power-platform",
+        "pac-cli",
+        "alm",
+        "automation"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "PAC CLI is Microsoft's Power Platform command-line tool. I use it to authenticate to environments, then export, unpack, pack and import solutions, list what is installed, and apply a deployment settings file. It is the building block I script locally and in pipelines, so the same commands that a developer runs also run in automation. Because flags change between versions, I check pac help for the installed version before relying on them.",
+      "revision": "PAC CLI scripts auth, solution export, unpack, pack and import with deployment settings; the same commands run locally and in pipelines. Verify flags per version.",
+      "detailed": "**PAC CLI** (Power Platform CLI) lets you manage environments and solutions from a terminal or pipeline, which makes ALM scriptable and reviewable.\n\n## Typical workflow\n\n```bash\n# Illustrative only: verify flags with \"pac <command> --help\" for your installed version\npac auth create --environment https://yourdev.crm.dynamics.com\npac org select --environment <environment-id-or-url>\npac solution list\n\npac solution export --name CoreSolution --path ./out/CoreSolution.zip\npac solution unpack --zipfile ./out/CoreSolution.zip --folder ./src/CoreSolution\n\npac solution pack --zipfile ./out/CoreSolution_managed.zip --folder ./src/CoreSolution --packagetype Managed\npac solution import --path ./out/CoreSolution_managed.zip --settings-file ./settings/test.json\n```\n\n## What each step does\n\n| Command | Purpose |\n|---|---|\n| pac auth create | Create an authentication profile (interactive user or service principal) |\n| pac org select | Choose the target environment for later commands |\n| pac solution list | See installed solutions and versions |\n| pac solution export | Download a solution from an environment |\n| pac solution unpack / pack | Convert between the zip and a diff-friendly folder |\n| pac solution import | Deploy, optionally with a deployment settings file |\n\n## Deployment settings\n\nA settings file holds **environment variable values and connection reference mappings** per target. Generate a template from a solution, commit one file per environment, and keep secrets out of it.\n\n## Using it well\n\n- Use service principal auth in pipelines, interactive auth locally.\n- Pin the CLI version in pipelines so behaviour does not change unexpectedly.\n- **Verify command names and flags against the installed version** and current Microsoft documentation, as the tool evolves quickly.\n\n## Common mistakes\n\n- Copying commands from old blog posts without checking flags.\n- Importing to the wrong environment because the active profile was not checked.\n- Committing secrets in settings files.",
+      "followUps": [
+        "How do you authenticate PAC CLI non-interactively in a pipeline?",
+        "How do you generate a deployment settings template?",
+        "What is the difference between PAC CLI and the Build Tools tasks?"
+      ],
+      "related": [
+        "power-platform-deployment-pipeline-design",
+        "environment-variables-connection-references"
+      ]
+    },
+    {
+      "slug": "production-deployment-failure-handling",
+      "title": "How do you handle a failed production deployment of a solution?",
+      "topic": "Release management",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "power-platform",
+        "alm",
+        "incident",
+        "rollback"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "First I stop the rollout and assess impact: which apps, flows and users are affected and whether the import partially applied. Then I decide between a forward fix, which is usually faster when the cause is small, and restoring from a backup. I would not uninstall a managed solution to roll back, because that can delete tables and their data. Afterwards I find the root cause and add a regression check to the pipeline.",
+      "revision": "Stop rollout, assess impact and partial apply, choose forward fix or restore, never uninstall a managed solution with data, then root cause and regression test.",
+      "detailed": "A failed import is an **incident**, so respond in order: contain, assess, recover, learn.\n\n## 1. Contain and assess\n\n- **Stop the pipeline** so no further stages or environments receive the change.\n- Establish **impact**: which users, apps and flows are broken or turned off, and is data being written incorrectly?\n- Check whether the import **partially applied**. Solution import is generally transactional per solution, but multi-solution releases, post-import steps and flow activation can leave a mixed state. Read the import log rather than assuming.\n\n## 2. Choose a recovery path\n\n| Option | Use when | Risk |\n|---|---|---|\n| **Forward fix** | Cause is understood and small (missing variable value, connection) | Needs a fast, tested change |\n| **Re-import previous managed version** | Prior version is compatible with current data and schema | Schema changes may not reverse cleanly |\n| **Restore environment from backup** | Data or schema corruption | Loses data written since the backup; check retention in current documentation |\n\n## Why not uninstall\n\nDeleting a managed solution **removes the components it owns**, including custom tables and columns, and the **data in them**. It can also break dependent solutions. Treat uninstall as destructive, never as a rollback step.\n\n## 3. Communicate\n\nTell stakeholders status, impact and next update time. Record a timeline.\n\n## 4. Root cause and prevention\n\nFind why test did not catch it: environment differences, missing dependency, untested data volume. Add a **regression check** (solution checker rule, dependency validation, post-deploy smoke test, deployment settings validation) and update the runbook.\n\n## Common mistakes\n\n- Retrying the import repeatedly without reading the log.\n- Rolling back by uninstalling, losing data.\n- Hot-fixing production by hand, creating an unmanaged layer.\n- Closing the incident without a pipeline change.",
+      "followUps": [
+        "How would you design backups and restore rehearsals for production?",
+        "When is a re-import of the previous version safe?",
+        "How do you reduce the blast radius of a bad release?"
+      ],
+      "related": [
+        "power-platform-deployment-pipeline-design",
+        "flow-works-in-test-fails-in-production"
+      ]
+    },
+    {
+      "slug": "environment-variables-connection-references",
+      "title": "What are environment variables and connection references, and how do you deploy them?",
+      "topic": "Solutions and ALM",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "power-platform",
+        "environment-variables",
+        "connection-references",
+        "key-vault"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "An environment variable stores a value that differs per environment, such as a URL or a site ID, so the solution contains no hard-coded settings. A connection reference is an indirection to a connection, so a flow points to the reference and each environment supplies its own connection. In deployment I use a settings file to set both per environment, keep secrets in Azure Key Vault-backed variables, and validate connections after import.",
+      "revision": "Environment variables hold per-environment values; connection references decouple flows from connections. Supply both via deployment settings, keep secrets in Key Vault, verify after import.",
+      "detailed": "Both features exist so the **same managed artefact** works in every environment.\n\n## Definitions\n\n| Item | What it is | Per-environment value |\n|---|---|---|\n| **Environment variable** | A definition (type, default value) plus a current value | URLs, IDs, feature switches, thresholds |\n| **Connection reference** | A solution component that points to a connection | Which connection (and account) to use |\n\nFlows, apps and other components point to the reference, not to a specific user's connection.\n\n## Deployment settings\n\nA settings file maps each connection reference to a connection ID and each environment variable to a value, one file per target:\n\n```json\n{\n  \"EnvironmentVariables\": [\n    { \"SchemaName\": \"abc_ApiBaseUrl\", \"Value\": \"https://api.example.com\" }\n  ],\n  \"ConnectionReferences\": [\n    { \"LogicalName\": \"abc_sharedoffice365_1a2b3\", \"ConnectionId\": \"<connection-id>\", \"ConnectorId\": \"/providers/Microsoft.PowerApps/apis/shared_office365\" }\n  ]\n}\n```\n\nIllustrative only; generate the real template from your solution and verify the schema in current documentation.\n\n## Secrets\n\nDo not store secrets as plain text variables. Use the **secret-type environment variable backed by Azure Key Vault**, so the solution holds a reference and the vault holds the value. Grant access with least privilege and verify the current setup steps in Microsoft documentation.\n\n## After import\n\n- Confirm each connection reference is **bound to a valid connection** owned by a suitable service account.\n- Confirm environment variable values are the target values, not dev defaults.\n- Turn on flows and run a smoke test.\n\n## Common mistakes\n\n- Leaving the dev value as the current value in production.\n- Binding connections to a maker's personal account.\n- Hard-coding URLs inside flow actions.\n- Putting secrets in the settings file committed to git.",
+      "followUps": [
+        "Who should own production connections and why?",
+        "How do you rotate a secret held in Key Vault?",
+        "How do you detect a missing environment variable value before deploying?"
+      ],
+      "related": [
+        "pac-cli-usage",
+        "flow-works-in-test-fails-in-production"
+      ]
+    },
+    {
+      "slug": "solution-layering-dependency-management",
+      "title": "How do you manage solution layering and dependencies?",
+      "topic": "Solution architecture",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "power-platform",
+        "solutions",
+        "layers",
+        "dependencies",
+        "segmentation"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I split work into a base solution holding shared tables, and extension solutions that depend on it, so teams release independently and dependencies point one way. Each component should live in one owning solution, under one publisher prefix. I avoid one giant solution because imports are slow and risky, and avoid too many tiny ones because dependency order becomes fragile. I check for missing dependencies before deployment and inspect layers when behaviour looks wrong.",
+      "revision": "Base plus extension solutions with one-way dependencies, one owner per component, a single publisher prefix; check dependencies pre-deploy and inspect layers on drift.",
+      "detailed": "Good solution design keeps releases **small, ordered and independent**.\n\n{{diagram:layers}}\n\n## Base and extension split\n\n- **Base (core) solution**: shared tables, security roles, environment variables, common flows.\n- **Extension solutions**: feature apps and flows that depend on base, never the reverse.\n- Dependencies should form a **directed graph with no cycles**; deploy in dependency order.\n\n## One big solution or several?\n\n| Approach | Pros | Cons |\n|---|---|---|\n| One large solution | Simple ordering | Slow imports, large blast radius, merge conflicts, one team blocks others |\n| Several segmented solutions | Independent releases, clear ownership | Needs dependency discipline and ordered pipelines |\n| Many tiny solutions | Fine-grained | Fragile ordering, overhead |\n\nSegment by **business capability or team**, not by component type alone.\n\n## Segmentation and publisher\n\nAdd only the components you changed to a solution (segmentation) rather than the whole table, unless you own all of it. Use **one publisher and prefix** per product so schema names are consistent.\n\n## Missing dependencies\n\nAn import fails if a required component is absent in the target. Prevent it by:\n\n- Reviewing the solution's dependency report in dev.\n- Importing base before extensions in the pipeline.\n- Not referencing components from unrelated solutions.\n\n## Diagnosing layers\n\nIf a component behaves unexpectedly, view its **layers** to see which solution or unmanaged edit is on top. Remove stray unmanaged layers deliberately.\n\n## Common mistakes\n\n- Same component in two solutions owned by different teams.\n- Circular dependencies between base and extension.\n- Adding whole tables when only one column changed.\n- Using the default solution as a container.",
+      "diagrams": [
+        {
+          "id": "layers",
+          "title": "Base and extension solution layering",
+          "alt": "Two extension solutions, a sales app and a service app, each depend on a shared base solution, which depends on the platform system layer. Direct edits in an environment would add an unmanaged layer at the top that overrides them.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "un",
+              "label": "Unmanaged edits (avoid in prod)"
+            },
+            {
+              "id": "ext1",
+              "label": "Extension: Sales app"
+            },
+            {
+              "id": "ext2",
+              "label": "Extension: Service app"
+            },
+            {
+              "id": "base",
+              "label": "Base: shared tables and roles"
+            },
+            {
+              "id": "sys",
+              "label": "Platform system layer"
+            }
+          ],
+          "edges": [
+            {
+              "from": "un",
+              "to": "ext1",
+              "label": "overrides"
+            },
+            {
+              "from": "un",
+              "to": "ext2",
+              "label": "overrides"
+            },
+            {
+              "from": "ext1",
+              "to": "base",
+              "label": "depends on"
+            },
+            {
+              "from": "ext2",
+              "to": "base",
+              "label": "depends on"
+            },
+            {
+              "from": "base",
+              "to": "sys"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you refactor a component from one solution to another safely?",
+        "How would you enforce publisher and naming standards?",
+        "How do you version base and extension solutions together?"
+      ],
+      "related": [
+        "managed-vs-unmanaged-solutions",
+        "source-control-for-solutions"
+      ]
+    },
+    {
+      "slug": "power-platform-environment-strategy-governance",
+      "title": "What environment strategy and governance would you set up for Power Platform?",
+      "topic": "Governance",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "power-platform",
+        "governance",
+        "dlp",
+        "managed-environments",
+        "coe"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I keep the default environment for personal productivity only and give makers their own developer or sandbox environments. Shared products go through dev, test, UAT and production environments, with production as a Managed Environment. DLP policies classify connectors into business, non-business and blocked groups, scoped at tenant and environment level. A Centre of Excellence approach adds inventory, ownership and review. I verify product names and limits in current documentation.",
+      "revision": "Default for personal use, isolated maker environments, dev-test-UAT-prod for products, managed prod, DLP connector classification, tenant controls, CoE inventory and review.",
+      "detailed": "Governance should **enable safe self-service** while protecting data and keeping production stable.\n\n{{diagram:envs}}\n\n## Environment strategy\n\n| Environment | Use |\n|---|---|\n| **Default** | Everyone in the tenant lands here; limit to personal productivity, apply strict DLP |\n| **Developer / sandbox** | Individual or team experimentation, isolated from business data |\n| **Dev, Test, UAT** | Shared product lifecycle; dev unmanaged, others managed |\n| **Production** | Managed solutions only, restricted maker access, service principal deployment |\n\nGroup environments by **purpose and data sensitivity**, and consider regional and compliance needs.\n\n## Controls\n\n- **Managed Environments**: a premium governance layer offering things like sharing limits, usage insights and policy enforcement; verify the current feature list and licensing in Microsoft documentation.\n- **DLP policies**: classify connectors as **business**, **non-business** or **blocked**; connectors in different groups cannot be used together in one app or flow. Apply tenant-wide baselines plus stricter environment policies. Consider custom connector and endpoint patterns.\n- **Tenant settings and admin roles**: who can create environments, trial environments, and who is an environment admin.\n- **Security**: security groups for environment access, Dataverse roles, least privilege.\n\n## Centre of Excellence (CoE) concepts\n\nInventory what exists, identify owners and orphaned assets, review high-risk apps, run onboarding and training, and measure adoption. Microsoft publishes a CoE Starter Kit; check what it currently includes before adopting it, and decide what to build yourself.\n\n## For an AI COE\n\nAdd review gates for AI-enabled apps and agents: approved models and connectors, data classification, and logging.\n\n## Common mistakes\n\n- Letting production solutions live in the default environment.\n- One broad DLP policy that blocks everything and drives shadow IT.\n- No ownership for orphaned apps when makers leave.\n- Governance as a gate with no self-service route.",
+      "diagrams": [
+        {
+          "id": "envs",
+          "title": "Environment promotion and governance",
+          "alt": "Makers build in personal developer environments. Shared products move from a dev environment through test and UAT to a managed production environment. DLP policies and tenant controls apply across all environments, and the default environment is restricted to personal productivity.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "mk",
+              "label": "Developer environments"
+            },
+            {
+              "id": "dev",
+              "label": "Shared dev (unmanaged)"
+            },
+            {
+              "id": "tst",
+              "label": "Test (managed)"
+            },
+            {
+              "id": "uat",
+              "label": "UAT (managed)"
+            },
+            {
+              "id": "prd",
+              "label": "Production (Managed Environment)"
+            },
+            {
+              "id": "dlp",
+              "label": "DLP and tenant controls"
+            },
+            {
+              "id": "def",
+              "label": "Default environment: personal use only"
+            }
+          ],
+          "edges": [
+            {
+              "from": "mk",
+              "to": "dev",
+              "label": "prototype graduates"
+            },
+            {
+              "from": "dev",
+              "to": "tst",
+              "label": "pipeline"
+            },
+            {
+              "from": "tst",
+              "to": "uat"
+            },
+            {
+              "from": "uat",
+              "to": "prd"
+            },
+            {
+              "from": "dlp",
+              "to": "dev",
+              "label": "applies"
+            },
+            {
+              "from": "dlp",
+              "to": "prd",
+              "label": "applies"
+            },
+            {
+              "from": "dlp",
+              "to": "def",
+              "label": "strict"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you design DLP groups for an AI-enabled flow that calls an external API?",
+        "How do you handle makers who need a connector the policy blocks?",
+        "What would you measure to show governance is working?"
+      ],
+      "related": [
+        "power-platform-deployment-pipeline-design",
+        "flow-works-in-test-fails-in-production"
+      ]
+    },
+    {
+      "slug": "source-control-for-solutions",
+      "title": "How do you put Power Platform solutions under source control?",
+      "topic": "Source control",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "power-platform",
+        "git",
+        "source-control",
+        "branching",
+        "canvas-apps"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I export the unmanaged solution and unpack it into a folder of files, then commit that to Git on a feature branch. Reviewers diff the readable parts, such as flow definitions, table metadata and canvas app source, while generated files are noise. Makers and pro developers share one trunk-based flow: short-lived branches, pull request validation, and merge to main. Production is never edited, and each component has a clear owner to avoid conflicts.",
+      "revision": "Export unmanaged, unpack to files, commit on short-lived branches, review diffs in PRs, one trunk flow for makers and developers, clear ownership to avoid conflicts.",
+      "detailed": "Source control gives **history, review and rollback** for low-code assets, but solution XML needs care.\n\n## Unpack format\n\nUnpacking a solution zip turns it into folders per component type (tables, workflows, canvas apps, web resources, environment variables and more). Commit the unpacked folder, not the zip, so Git can diff and merge.\n\n## What gets diffed\n\n| Diffs well | Diffs poorly |\n|---|---|\n| Table and column definitions | Large single-line XML or JSON blobs |\n| Cloud flow definitions (JSON) | Ordering changes after re-export |\n| Environment variables, web resources, plugin code | Binary assets, packaged msapp files |\n| Canvas app source when unpacked to YAML | Auto-generated IDs and timestamps |\n\nCanvas apps can be unpacked into readable source (for example with the canvas unpack tooling in PAC CLI); verify current support and format in documentation.\n\n## Merge conflicts\n\nSolution XML (for example the customizations file and form XML) conflicts when two people edit the same component. Reduce them by:\n\n- **Component ownership**: one person or team edits a given app or table at a time.\n- **Small, frequent merges** and short-lived branches.\n- Re-exporting from dev after merge rather than hand-merging complex XML; treat the dev environment as the truth for conflicting components.\n\n## One branching strategy\n\nUse **trunk-based development** with short feature branches for makers and pro developers alike:\n\n1. Branch, build in dev, export and unpack, commit.\n2. Pull request runs pack and solution checker, with review.\n3. Merge to main triggers the build and deployment pipeline.\n\nEach developer or small team uses **their own dev environment** to avoid overwriting each other.\n\n## Who edits what\n\nMakers own apps and flows; pro developers own plugins, PCF controls and tables; platform team owns pipelines and base solution. Nobody edits in test or production.\n\n## Common mistakes\n\n- Committing only the zip.\n- Many people editing one solution in a shared dev environment.\n- Long-lived branches that diverge.\n- Not reviewing flow or app diffs because they look unreadable.",
+      "followUps": [
+        "How would you review a canvas app change in a pull request?",
+        "How do you handle a conflict in solution XML you cannot merge by hand?",
+        "How do you version solutions in source control?"
+      ],
+      "related": [
+        "managed-vs-unmanaged-solutions",
+        "solution-layering-dependency-management",
+        "power-platform-deployment-pipeline-design"
+      ]
+    },
+    {
+      "slug": "flow-works-in-test-fails-in-production",
+      "title": "A cloud flow works in test but fails after import to production. How do you investigate?",
+      "topic": "Troubleshooting",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "power-platform",
+        "troubleshooting",
+        "flows",
+        "connection-references",
+        "dlp"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I treat it as an environment difference and check the likely causes in order. Are the connection references bound to valid connections in production? Do the environment variables hold production values? Who owns the connections and are they still valid? Are licences adequate for the connector? Does a DLP policy block or group the connector differently? And was the flow actually turned on after import? The run history error usually points to the cause.",
+      "revision": "Check run history, then connection references, environment variable values, connection ownership, licences, DLP blocking, and whether the flow was turned on after import.",
+      "detailed": "Same artefact, different result means **something environmental differs**. Start from evidence, not guesses.\n\n## Triage\n\n1. Open the flow's **run history** in production. Is it failing, or not triggering at all?\n2. Read the **error message and failing action**: authentication, forbidden, not found, or policy.\n\n## Checklist\n\n| Check | Symptom |\n|---|---|\n| **Flow state** | Flows often import turned off; no runs at all. Turn on and test |\n| **Connection references** | Unbound or invalid, so actions fail with connection errors |\n| **Environment variables** | Dev or empty values, so calls go to the wrong URL or fail |\n| **Connection ownership** | Owner left, password changed, MFA or consent expired, or connection lacks access to the target resource |\n| **Licences** | Premium connector or per-flow licensing missing for the owner or users; verify current licensing rules |\n| **DLP policy** | Connector blocked or in a different group than another connector in the flow |\n| **Permissions and data** | Service account lacks site, mailbox or table access; different data shape |\n| **Network and endpoints** | Firewall or allow-lists differ for the production endpoint |\n\n## Fix and prevent\n\n- Fix through the pipeline: correct the deployment settings, rather than editing production by hand.\n- Use a **service account** for production connections, not a maker's account.\n- Add a **post-deploy validation**: check connection references are bound, variables are set, flows are on, and trigger a smoke test run.\n- Compare test and production DLP policies in advance, since they often differ.\n\n## Common mistakes\n\n- Editing the flow directly in production, creating an unmanaged layer.\n- Assuming the import succeeded means the flow is healthy.\n- Testing only under the maker's own permissions.\n- Ignoring licence checks until go-live.",
+      "followUps": [
+        "How would you automate post-import checks in the pipeline?",
+        "What if the flow runs but produces wrong data only in production?",
+        "How do you monitor flow failures in production?"
+      ],
+      "related": [
+        "environment-variables-connection-references",
+        "production-deployment-failure-handling",
+        "power-platform-environment-strategy-governance"
+      ]
+    }
+  ]
+}

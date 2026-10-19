@@ -1,0 +1,628 @@
+{
+  "category": "power-automate-integration",
+  "questions": [
+    {
+      "slug": "design-reliable-cloud-flow",
+      "title": "How do you design a reliable Power Automate cloud flow?",
+      "topic": "Flow reliability",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "power-automate",
+        "reliability",
+        "error-handling",
+        "scopes"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I treat a flow like a small production service. I filter the trigger so it only fires when needed, wrap the main work in a Try scope, and add Catch and Finally scopes using run-after settings so failures are logged and handled. I move reusable logic into child flows, set retry policies deliberately, bound concurrency, handle pagination, and secure inputs and outputs for sensitive data. Then I test the failure paths on purpose, not just the happy path.",
+      "revision": "Filter triggers, Try/Catch/Finally scopes with run-after, child flows, deliberate retries and concurrency, pagination, secure inputs/outputs, and deliberately tested failure paths.",
+      "detailed": "A reliable flow is designed around what happens when things go wrong.\n\n{{diagram:scopes}}\n\n## Building blocks\n\n| Concern | Technique |\n|---|---|\n| Wasted runs | Trigger filtering (filter columns, OData filter, **trigger conditions**) |\n| Error handling | **Scopes** as Try, Catch and Finally, with run-after set to failed, skipped or timed out |\n| Reuse | **Child flows** with a clear input and output contract |\n| Transient faults | Retry policy per action (fixed or exponential), only where the call is safe to repeat |\n| Throughput | Concurrency control on triggers and Apply to each, kept bounded |\n| Large results | Pagination settings on list actions, with a threshold you have confirmed against current documentation |\n| Sensitive data | Secure inputs and secure outputs so values do not appear in run history |\n\n## Try, Catch, Finally\n\nPut the business actions inside a Try scope. A Catch scope runs only when Try fails or times out, and uses `result('Try')` to capture which action failed and the error message. Write that to a log table, post an alert, and then decide whether the flow should end as failed using a Terminate action. Without Terminate, a handled error can leave the run showing success, which hides problems from monitoring. A Finally scope runs whatever the outcome, for cleanup or releasing a lock.\n\n## Other points\n\n- **Child flows** keep logic in one place, but they must live in a solution and their own failures need handling by the parent.\n- **Retry policies** are helpful for 429 and 5xx responses, but a retry on a non-idempotent call can duplicate work. Add an idempotency key or check first.\n- **Environment variables and connection references** keep the flow portable across dev, test and production.\n- **Testing failure paths:** point a call at a bad URL, send a malformed payload, revoke a test connection, and confirm the Catch scope logs and alerts.\n\n## Common mistakes\n\n- Catch scope that swallows the error and lets the run show as succeeded.\n- Default retries on a call that creates records.\n- Apply to each with high concurrency and no thought for downstream limits.\n- Leaving tokens and personal data visible in run history.\n- Only testing the happy path.",
+      "followUps": [
+        "How do you make a Catch scope report which action failed?",
+        "When would you choose a child flow over a scope?",
+        "What do secure inputs and outputs protect, and what do they not protect?"
+      ],
+      "related": [
+        "flow-processing-same-record-repeatedly",
+        "handling-429-503-in-flows"
+      ],
+      "diagrams": [
+        {
+          "id": "scopes",
+          "title": "Try, Catch, Finally pattern",
+          "alt": "A trigger passes through a trigger condition into a Try scope containing the business actions. On success the flow continues to Finally. On failure, a Catch scope logs the error and sends an alert, then a Terminate action marks the run failed. Finally always runs for cleanup.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "tr",
+              "label": "Trigger with condition"
+            },
+            {
+              "id": "try",
+              "label": "Try scope"
+            },
+            {
+              "id": "ca",
+              "label": "Catch scope: log and alert"
+            },
+            {
+              "id": "te",
+              "label": "Terminate as failed"
+            },
+            {
+              "id": "fi",
+              "label": "Finally scope: cleanup"
+            }
+          ],
+          "edges": [
+            {
+              "from": "tr",
+              "to": "try"
+            },
+            {
+              "from": "try",
+              "to": "fi",
+              "label": "success"
+            },
+            {
+              "from": "try",
+              "to": "ca",
+              "label": "failed or timed out"
+            },
+            {
+              "from": "ca",
+              "to": "te"
+            },
+            {
+              "from": "te",
+              "to": "fi",
+              "label": "run-after any"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "flow-processing-same-record-repeatedly",
+      "title": "A flow keeps processing the same record over and over. How do you fix it?",
+      "topic": "Duplicate triggers",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "power-automate",
+        "dataverse",
+        "idempotency",
+        "triggers"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "This is usually a self-triggering loop: the flow updates the record that triggers it. I first stop the bleeding by turning the flow off, then restrict the trigger with filter columns so only relevant fields start it, and add a trigger condition that excludes the flow's own updates. For durability I add a state flag or an idempotency record so a repeat run exits early. I avoid relying on concurrency of one to hide the problem.",
+      "revision": "Self-triggering update loop: pause, use filter columns and trigger conditions, add a state flag or idempotency record, and do not treat concurrency of one as the fix.",
+      "detailed": "Repeated processing almost always means the flow's own write retriggers it, or the trigger fires on more changes than intended.\n\n{{diagram:loop}}\n\n## Diagnose\n\n1. Open run history and compare timestamps and the **modified by** and changed columns across runs.\n2. Check whether the flow updates the same table it triggers on, directly or through another flow, plugin or rollup.\n3. Look for other automations that touch the same record and bounce changes back and forth.\n\n## Fix in layers\n\n| Layer | Action |\n|---|---|\n| Trigger filter columns | On Dataverse update triggers, list only the columns whose change matters, so unrelated updates do not start a run |\n| Trigger condition | An expression such as checking a status column is the expected value and the flag is not yet set |\n| State flag | A column like `ProcessedOn` or `SyncStatus` written as the last step, checked first |\n| Idempotency record | A separate row keyed by record id and version, created first, so a duplicate run finds it and stops |\n| Design | Write to a different table or column that is excluded from the trigger |\n\nTrigger conditions are evaluated before the run starts, so skipped events do not consume a run. Setting concurrency to one only serialises runs. It does not stop the loop, and it can build a long backlog.\n\n## Idempotent by design\n\nAssume at-least-once delivery. Triggers can fire more than once, and retries can replay actions. Make the outcome the same if the flow runs twice: upsert on an alternate key rather than create, and check the flag before sending emails or other side effects.\n\n## Common mistakes\n\n- Updating the triggering record with no filter columns.\n- Setting the flag at the start and then failing, which silently skips work. Set it on completion, or use states such as Started and Done.\n- Using concurrency of one as a cure.\n- Fixing one flow while a second flow bounces the same record.",
+      "followUps": [
+        "How would you detect an infinite loop in production before it burns through limits?",
+        "Why set the processed flag at the end rather than the start?",
+        "How do alternate keys help with idempotency?"
+      ],
+      "related": [
+        "design-reliable-cloud-flow",
+        "process-100k-records-reliably"
+      ],
+      "diagrams": [
+        {
+          "id": "loop",
+          "title": "Self-triggering update loop",
+          "alt": "A record update fires the flow trigger. The trigger filter columns and trigger condition decide whether a run starts. If it starts, the flow checks a state flag and then updates the record. Without the filter or flag, that update fires the trigger again, creating a loop. With the guards, the flow exits early.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "up",
+              "label": "Record updated"
+            },
+            {
+              "id": "tf",
+              "label": "Filter columns and trigger condition"
+            },
+            {
+              "id": "fl",
+              "label": "Flow run"
+            },
+            {
+              "id": "ck",
+              "label": "Check state flag"
+            },
+            {
+              "id": "wr",
+              "label": "Write result and set flag"
+            },
+            {
+              "id": "ex",
+              "label": "Exit early"
+            }
+          ],
+          "edges": [
+            {
+              "from": "up",
+              "to": "tf"
+            },
+            {
+              "from": "tf",
+              "to": "fl",
+              "label": "passes"
+            },
+            {
+              "from": "fl",
+              "to": "ck"
+            },
+            {
+              "from": "ck",
+              "to": "wr",
+              "label": "not done"
+            },
+            {
+              "from": "ck",
+              "to": "ex",
+              "label": "already done"
+            },
+            {
+              "from": "wr",
+              "to": "up",
+              "label": "retrigger if unguarded"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "process-100k-records-reliably",
+      "title": "How would you process 100,000 records reliably with Power Automate?",
+      "topic": "Bulk processing",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "power-automate",
+        "dataverse",
+        "queue",
+        "bulk",
+        "throughput"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I would not run one giant Apply to each loop. I load work items into a queue or staging table, then run worker flows that take bounded batches with limited concurrency, checkpoint progress, and make each record operation idempotent. Failures go to a failure queue for retry or review. Where Dataverse is the target I would consider bulk operations such as ExecuteMultiple or CreateMultiple, checking current documentation. I benchmark a sample first.",
+      "revision": "Stage into a queue, bounded batch workers, checkpoints, idempotent per-record work, failure queue, Dataverse bulk operations where suitable, and benchmark before scaling.",
+      "detailed": "A single flow looping over 100,000 items is fragile: it can hit run duration and action limits, a failure part-way loses state, and retries repeat work.\n\n{{diagram:bulk}}\n\n## Queue plus workers\n\n| Piece | Role |\n|---|---|\n| Staging table or queue | One row per work item with status (Pending, Processing, Done, Failed), attempt count and batch id |\n| Dispatcher flow | Loads items and starts or schedules workers |\n| Worker flow | Claims a bounded batch, processes it, updates status as it goes |\n| Failure queue | Items that exceed attempts, with the error, for review and replay |\n| Checkpoint | Status column or last processed key, so a restarted worker resumes rather than starts over |\n\n## Principles\n\n- **Bounded concurrency.** Choose concurrency from what the target tolerates, not the maximum allowed. Raise it step by step while watching for throttling.\n- **Idempotent operations.** Upsert on a key, so replay after a crash causes no duplicates.\n- **Batch where the platform supports it.** For Dataverse, bulk messages such as ExecuteMultiple or CreateMultiple, UpdateMultiple and UpsertMultiple can cut round trips compared with one call per row. Availability and behaviour depend on version and table, so verify in current Microsoft documentation. Other connectors may offer batch actions as well.\n- **Consider another tool.** For very large or complex volumes, a dataflow, Azure Data Factory, or code in an Azure Function may be more suitable than a flow. Be honest that Power Automate is not a bulk ETL engine.\n- **Licensing and limits.** Request and action limits depend on licence and change over time. Check current documentation.\n\n## Benchmark first\n\nProcess a representative 1,000 items, measure items per minute, error rate and throttling, extrapolate, and agree a time window with the business. Include a plan for stopping and resuming.\n\n## Common mistakes\n\n- One flow, one loop, no state.\n- Maximum concurrency that triggers throttling and slows everything.\n- No failure queue, so bad rows vanish or block the run.\n- Create actions that duplicate rows on retry.",
+      "followUps": [
+        "How would you pick the batch size and concurrency for the workers?",
+        "When would you move the job out of Power Automate entirely?",
+        "How do you report progress to the business during a long run?"
+      ],
+      "related": [
+        "handling-429-503-in-flows",
+        "flow-processing-same-record-repeatedly"
+      ],
+      "diagrams": [
+        {
+          "id": "bulk",
+          "title": "Queue-based bulk processing",
+          "alt": "Source records are loaded by a dispatcher flow into a staging queue with status. Worker flows claim bounded batches and call the target, using bulk operations where supported. Successful items are marked done with a checkpoint. Items that fail after limited attempts move to a failure queue for review and replay.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "src",
+              "label": "Source records"
+            },
+            {
+              "id": "dp",
+              "label": "Dispatcher flow"
+            },
+            {
+              "id": "qu",
+              "label": "Staging queue with status"
+            },
+            {
+              "id": "wk",
+              "label": "Worker flows: bounded batches"
+            },
+            {
+              "id": "tg",
+              "label": "Target, e.g. Dataverse"
+            },
+            {
+              "id": "ck",
+              "label": "Mark done and checkpoint"
+            },
+            {
+              "id": "fq",
+              "label": "Failure queue"
+            }
+          ],
+          "edges": [
+            {
+              "from": "src",
+              "to": "dp"
+            },
+            {
+              "from": "dp",
+              "to": "qu"
+            },
+            {
+              "from": "qu",
+              "to": "wk",
+              "label": "claim batch"
+            },
+            {
+              "from": "wk",
+              "to": "tg",
+              "label": "idempotent calls"
+            },
+            {
+              "from": "tg",
+              "to": "ck",
+              "label": "success"
+            },
+            {
+              "from": "tg",
+              "to": "fq",
+              "label": "failed after retries"
+            },
+            {
+              "from": "fq",
+              "to": "qu",
+              "label": "replay after fix"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "handling-429-503-in-flows",
+      "title": "How do you handle 429 and 503 responses from Dataverse and external APIs in flows?",
+      "topic": "Throttling and retries",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "power-automate",
+        "retry",
+        "throttling",
+        "429",
+        "dataverse"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "429 means I am being throttled and 503 means the service is temporarily unavailable, so both are retryable. I honour the Retry-After header where present, otherwise use exponential backoff with jitter, and reduce concurrency so I stay under service protection limits. I do not retry other 4xx errors, because they will fail again. For durability I put the work on a queue so a long outage delays processing instead of losing it.",
+      "revision": "Retry 429 and 503 using Retry-After or exponential backoff with jitter, lower concurrency, never retry other 4xx, and queue the work for durability.",
+      "detailed": "Throttling is a signal to slow down, not just an error to retry.\n\n{{diagram:retry}}\n\n## Which errors to retry\n\n| Status | Meaning | Action |\n|---|---|---|\n| 429 | Too many requests, or service protection limit hit | Wait, honour **Retry-After**, then retry with lower pressure |\n| 503, 502, 504, 408 | Temporary server or network trouble | Retry with backoff |\n| 500 | May be transient or a genuine bug | Limited retries, then park for review |\n| 400, 401, 403, 404, 409, 422 | Client, auth or data problems | **Do not retry blindly**. Fix the cause or send to failure queue |\n\n## Techniques\n\n- **Retry policy on the action.** Flow actions support none, fixed interval or exponential interval policies with a count. Check current documentation for defaults and maximums. Where the response has Retry-After, the platform may honour it, but verify behaviour for the connector in question.\n- **Exponential backoff with jitter.** If you build your own loop with Do until and Delay, increase the wait each attempt and add a random offset, so many parallel runs do not retry in step.\n- **Reduce the cause.** Dataverse applies service protection limits per user over short windows, covering request count, execution time and concurrent requests. Lower concurrency, use batch operations, and spread work across time. Specific numbers change, so consult Microsoft documentation. Using several service accounts to dodge limits is not a design.\n- **Idempotency.** A retried create may have succeeded the first time. Use keys or check first.\n- **Durability.** Write work to a queue, so retries survive a flow failure and long outages simply delay processing.\n- **Observe.** Log status codes and retry counts, and alert on a rising 429 rate.\n\n## Common mistakes\n\n- Retrying 400 or 401 five times.\n- Immediate retries with no backoff, which deepen throttling.\n- High concurrency plus retries, which multiplies load.\n- Assuming a timeout means the operation did not happen.",
+      "followUps": [
+        "How does jitter prevent a thundering herd?",
+        "How would you make a retried POST safe?",
+        "What would you alert on to spot throttling early?"
+      ],
+      "related": [
+        "process-100k-records-reliably",
+        "design-reliable-cloud-flow"
+      ],
+      "diagrams": [
+        {
+          "id": "retry",
+          "title": "Retry decision flow",
+          "alt": "An action call returns a response. A 429 or 503 leads to waiting using Retry-After or exponential backoff with jitter and then a retry, up to an attempt limit. Other 4xx responses go straight to the failure queue without retry. Exhausted retries also go to the failure queue. Success continues the flow.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "ca",
+              "label": "Call API or Dataverse"
+            },
+            {
+              "id": "rs",
+              "label": "Check response"
+            },
+            {
+              "id": "ok",
+              "label": "Continue flow"
+            },
+            {
+              "id": "bo",
+              "label": "Wait: Retry-After or backoff with jitter"
+            },
+            {
+              "id": "fq",
+              "label": "Failure queue for review"
+            }
+          ],
+          "edges": [
+            {
+              "from": "ca",
+              "to": "rs"
+            },
+            {
+              "from": "rs",
+              "to": "ok",
+              "label": "2xx"
+            },
+            {
+              "from": "rs",
+              "to": "bo",
+              "label": "429 or 503"
+            },
+            {
+              "from": "bo",
+              "to": "ca",
+              "label": "retry within limit"
+            },
+            {
+              "from": "bo",
+              "to": "fq",
+              "label": "attempts exhausted"
+            },
+            {
+              "from": "rs",
+              "to": "fq",
+              "label": "other 4xx, no retry"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "json-schema-xpath-integration-design",
+      "title": "How do JSON Schema and XPath fit into integration design in flows?",
+      "topic": "Data contracts",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "json-schema",
+        "xpath",
+        "xml",
+        "validation",
+        "integration"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I validate at the boundary: incoming payloads are checked against a schema before any business logic runs. In flows the Parse JSON action uses a schema, though I keep it strict enough to catch bad data. For XML I use XPath, and I watch namespaces, using local-name() when needed. Invalid records are quarantined with the error rather than dropped, and contracts are versioned so producers and consumers can change safely.",
+      "revision": "Validate at the boundary with schemas, mind XML namespaces and local-name(), quarantine invalid records, and version contracts.",
+      "detailed": "Integrations break at the edges, so check data where it enters.\n\n## JSON Schema and Parse JSON\n\nThe **Parse JSON** action takes a schema and gives typed dynamic content. Generating a schema from a sample is quick but loose: it often marks every property required and types fields from one example. A null or missing field then fails the action, or a field you meant to allow as optional is rejected. Edit the generated schema deliberately: set required fields, allow null with a type list where valid, and add enumerations or formats if you want them checked.\n\nRemember that Parse JSON validation covers the structure it understands. It does not replace business rules, so add explicit checks for ranges, references and duplicates.\n\n## XPath and XML\n\n| Gotcha | Detail |\n|---|---|\n| Namespaces | An element in a default namespace is not matched by a plain path such as `/order/id`. |\n| Workaround | Use `local-name()`, for example `//*[local-name()='id']`, or handle the namespace properly |\n| Functions | Flow expressions offer `xpath()` and `xml()`, and support is a subset, so test with real samples |\n| Single vs many | `xpath()` returns arrays or values depending on the expression. Use `first()` or `string()` carefully |\n\n```\nxpath(xml(body('Get_file')), 'string(//*[local-name()=\"orderId\"])')\n```\n\n## Handling invalid records\n\n- **Quarantine, do not drop.** Store the raw payload, the validation error and the source, so support can fix and replay.\n- **Fail one, not all.** In a batch, route bad records aside and process the good ones.\n- **Alert on rates.** A sudden rise in rejects usually means the producer changed.\n\n## Contract versioning\n\nInclude a version in the payload or path. Prefer additive changes such as new optional fields. Keep old versions running during migration, and publish the schema, ideally as an OpenAPI or JSON Schema file in source control, so both sides test against it.\n\n## Common mistakes\n\n- Trusting the auto-generated schema as the contract.\n- Plain XPath on namespaced XML that returns nothing silently.\n- Throwing away invalid records.\n- Breaking changes with no version.",
+      "followUps": [
+        "How would you stop a producer's schema change breaking the flow?",
+        "What are the downsides of local-name() in XPath?",
+        "How do you replay quarantined records after a fix?"
+      ],
+      "related": [
+        "custom-connector-vs-http-vs-function",
+        "handling-429-503-in-flows"
+      ]
+    },
+    {
+      "slug": "custom-connector-vs-http-vs-function",
+      "title": "Custom connector, HTTP action or Azure Function with API Management: how do you choose?",
+      "topic": "Connectivity options",
+      "difficulty": "advanced",
+      "type": "comparison",
+      "tags": [
+        "custom-connector",
+        "http",
+        "azure-functions",
+        "apim",
+        "dlp",
+        "governance"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "For a one-off call in one flow, the HTTP action is quick but credentials and logic are scattered. If many makers will reuse an API, I publish it with an OpenAPI definition as a custom connector, so auth and schema are consistent. When logic is complex, I put it in an Azure Function, and front it with API Management for auth, throttling and versioning. DLP policies and ownership are part of the decision.",
+      "revision": "HTTP for one-offs, custom connector for reusable governed APIs described by OpenAPI, Azure Function plus API Management for logic, throttling and versioning, always with DLP and ownership.",
+      "detailed": "The right choice depends on reuse, complexity and governance.\n\n## Comparison\n\n| Option | Best for | Weaknesses |\n|---|---|---|\n| HTTP action | Single call, prototype, internal one-off | Premium licensing in many setups, credentials in the flow, no shared schema, duplicated across flows |\n| Custom connector | Reusable API for many makers and apps | Needs an OpenAPI definition, maintenance, and ownership. Logic stays in the API |\n| Azure Function | Transformation, orchestration, heavy logic, anything awkward in expressions | Separate code, deployment and monitoring |\n| API Management in front | Auth, throttling, quotas, versioning, analytics for shared APIs | Extra service to run and pay for |\n\n## Custom connector practicalities\n\n- **OpenAPI definition.** Describe operations, parameters, responses and errors. Good summaries and examples make the connector usable.\n- **Authentication.** Prefer OAuth 2.0 with Microsoft Entra ID or the API's identity provider over API keys, and avoid embedding secrets in flows. Store secrets in a vault via environment variables where supported, and verify current options.\n- **Throttling.** Protect the backend with rate limits at the gateway, and let flows retry on 429.\n- **Reuse and ALM.** Ship the connector inside a solution, use connection references, and version the OpenAPI file in source control.\n- **Governance.** Data loss prevention policies classify connectors as business, non-business or blocked, and custom connectors can be classified by host pattern. Decide the classification deliberately, and keep an owner and a support route.\n\n## Decision sketch\n\n1. One flow, simple call: HTTP.\n2. Several flows or makers: custom connector.\n3. Non-trivial logic or secrets handling: Azure Function behind the connector.\n4. External or many consumers: API Management in front.\n\n## Common mistakes\n\n- Pasting API keys into HTTP actions across many flows.\n- Custom connector with no owner or version policy.\n- Putting business logic in flow expressions that belongs in tested code.\n- Ignoring DLP, so the connector is blocked or misclassified later.",
+      "followUps": [
+        "How do you version a custom connector without breaking existing flows?",
+        "Why put API Management in front of a Function?",
+        "How does DLP treat HTTP actions and custom connectors?"
+      ],
+      "related": [
+        "json-schema-xpath-integration-design",
+        "cloud-vs-desktop-flows-vs-code"
+      ]
+    },
+    {
+      "slug": "choosing-triggers-and-approvals",
+      "title": "How do you choose between instant, scheduled and automated flows, and use approvals well?",
+      "topic": "Triggers and approvals",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "power-automate",
+        "triggers",
+        "approvals",
+        "polling"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I pick the trigger by what starts the work. Instant flows are for a user or app pressing a button, scheduled flows for time-based jobs, and automated flows for events. I prefer event or webhook triggers over frequent polling because polling wastes runs and adds delay. Approvals are a stage in the process, so I design for timeouts, reassignment and an audit trail, and I do not leave a flow waiting forever.",
+      "revision": "Instant for user actions, scheduled for time-based work, automated for events. Prefer webhooks over polling. Design approvals with timeouts, reassignment and audit.",
+      "detailed": "Trigger choice decides cost, latency and reliability.\n\n## The three types\n\n| Type | Starts when | Use for |\n|---|---|---|\n| Instant | A person or app invokes it, e.g. button, Power Apps, Teams, HTTP request | On-demand actions, called from an app |\n| Scheduled | A recurrence fires | Reports, nightly sync, reminders, clean-up |\n| Automated | An event happens, e.g. row created, file added, email arrives | Reacting to change |\n\n## Polling versus push\n\nMany automated triggers **poll** the source at an interval. Each poll that finds nothing still counts towards limits in some cases, and the delay depends on the polling interval, which varies by licence. Webhook-style triggers, such as the Dataverse row triggers and HTTP request triggers, respond to the event itself. Check the trigger documentation to see which kind it is.\n\nTo avoid waste:\n\n- Use trigger filters and conditions so uninteresting events never start runs.\n- Replace a frequent schedule that checks for work with an event trigger.\n- Batch non-urgent work into one scheduled run.\n- Use an HTTP request trigger or a queue message for system-to-system calls.\n\n## Approvals\n\n- **Choose the pattern.** First to respond, everyone must approve, or custom responses.\n- **Handle time.** Set a timeout and an escalation or reassignment path, since an unanswered approval can hold a run open until it expires. Check current documentation for run duration limits.\n- **Audit.** Record who approved, when and the comment in a table, not only in the run history.\n- **Authorisation.** Make sure the approver cannot be the requester, and that deactivated users are handled.\n- **Keep approver-facing text clear**, with a link to the record.\n\n## Common mistakes\n\n- Polling every minute for something that rarely changes.\n- Approval flows with no timeout or fallback.\n- Scheduled flows that overlap because a run takes longer than the interval.\n- Using instant flows from apps with no error message back to the user.",
+      "followUps": [
+        "How do you stop a scheduled flow overlapping with itself?",
+        "What happens to an approval when the approver leaves the company?",
+        "When would you use the HTTP request trigger rather than a connector trigger?"
+      ],
+      "related": [
+        "design-reliable-cloud-flow",
+        "troubleshoot-flow-failing-in-production"
+      ]
+    },
+    {
+      "slug": "troubleshoot-flow-failing-in-production",
+      "title": "A flow worked yesterday and is failing in production. How do you troubleshoot it?",
+      "topic": "Troubleshooting",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "power-automate",
+        "troubleshooting",
+        "monitoring",
+        "connections",
+        "alm"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I start with run history to find the first failing action and its error, then ask what changed. The usual suspects are an expired or changed connection owner, a connector or API schema change, throttling, drift in environment variables or connection references after a deployment, and licence changes. I confirm with timestamps and the audit trail, fix the cause, resubmit failed runs where safe, and add monitoring so I hear about it first next time.",
+      "revision": "Read run history for the first failure, then check connections, schema changes, throttling, environment variable or connection reference drift and licensing, then add monitoring.",
+      "detailed": "Work from evidence to the change that caused it.\n\n{{diagram:triage}}\n\n## Triage steps\n\n1. **Run history.** Find the first failed action, the error code and message, and the time of the last success. Check whether all runs fail or only some inputs.\n2. **What changed?** Ask the team, check solution deployments, and look at the connector and target system.\n3. **Match the symptom.**\n\n| Symptom | Likely cause | Check |\n|---|---|---|\n| 401, 403, connection errors | Connection owner left, password change, MFA or token expiry, consent revoked | Connections page, owner account status |\n| Missing property or type errors | Connector or API response changed, a column renamed or removed | Compare a good and bad run output, re-validate schema |\n| 429 or timeouts | Throttling, higher volume, concurrency change | Status codes, volume trend |\n| Blank values or wrong target after release | Environment variable or connection reference not set in this environment | Solution contents and current values |\n| Flow suspended or off | Licence change, policy change, flow turned off after prolonged failures | Flow status, licence, DLP policy |\n| Works for some users only | Permissions or data security roles | Run as account and sharing |\n\n4. **Fix and recover.** Correct the cause, then resubmit failed runs only if actions are idempotent. Otherwise replay from a queue.\n5. **Prevent.** Move to service principal or a dedicated service account where policy allows, with an owner and co-owners.\n\n## Monitoring\n\nUse the Power Platform admin centre and Power Automate analytics for failure counts and trends, and consider the flow run data in Dataverse or telemetry export to Azure Monitor or Application Insights where available. Verify current capabilities in Microsoft documentation. Add your own alerting from the Catch scope to a channel, and keep a health dashboard of failures by flow.\n\n## Common mistakes\n\n- Fixing the visible error without finding the first failing action.\n- Flows owned by one person's account.\n- Resubmitting runs that create duplicates.\n- No alert, so users report the failure first.",
+      "followUps": [
+        "How would you stop a flow depending on one person's connection?",
+        "How do you find a schema change when the connector gives no warning?",
+        "What would a flow health dashboard show?"
+      ],
+      "related": [
+        "design-reliable-cloud-flow",
+        "handling-429-503-in-flows"
+      ],
+      "diagrams": [
+        {
+          "id": "triage",
+          "title": "Production failure triage",
+          "alt": "Start from run history to find the first failing action and error. Branch by symptom to checks on connections and credentials, schema change, throttling, environment variable or connection reference drift, and licence or policy. Then fix the cause, recover failed runs safely, and add monitoring.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "rh",
+              "label": "Run history: first failing action"
+            },
+            {
+              "id": "cn",
+              "label": "Connection owner and credentials"
+            },
+            {
+              "id": "sc",
+              "label": "Connector or API schema change"
+            },
+            {
+              "id": "th",
+              "label": "Throttling and volume"
+            },
+            {
+              "id": "dr",
+              "label": "Env variable and connection reference drift"
+            },
+            {
+              "id": "lc",
+              "label": "Licence and policy change"
+            },
+            {
+              "id": "fx",
+              "label": "Fix, recover safely"
+            },
+            {
+              "id": "mo",
+              "label": "Add monitoring and alerts"
+            }
+          ],
+          "edges": [
+            {
+              "from": "rh",
+              "to": "cn",
+              "label": "401 or 403"
+            },
+            {
+              "from": "rh",
+              "to": "sc",
+              "label": "missing property"
+            },
+            {
+              "from": "rh",
+              "to": "th",
+              "label": "429 or timeout"
+            },
+            {
+              "from": "rh",
+              "to": "dr",
+              "label": "after deployment"
+            },
+            {
+              "from": "rh",
+              "to": "lc",
+              "label": "flow off or blocked"
+            },
+            {
+              "from": "cn",
+              "to": "fx"
+            },
+            {
+              "from": "sc",
+              "to": "fx"
+            },
+            {
+              "from": "th",
+              "to": "fx"
+            },
+            {
+              "from": "dr",
+              "to": "fx"
+            },
+            {
+              "from": "lc",
+              "to": "fx"
+            },
+            {
+              "from": "fx",
+              "to": "mo"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "cloud-vs-desktop-flows-vs-code",
+      "title": "Cloud flows, desktop flows (RPA) or custom code: when would you automate through the UI at all?",
+      "topic": "Automation approach",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "rpa",
+        "desktop-flows",
+        "cloud-flows",
+        "maintenance",
+        "architecture"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I prefer APIs and connectors every time, because they are faster, testable and stable. Desktop flows, which drive a user interface, are for systems with no API and no realistic way to get one, such as legacy desktop apps. They are fragile: UI changes break them, they need machines, credentials and unattended licensing, and they are slow. I treat them as a tactical bridge with owners, monitoring and a plan to replace them.",
+      "revision": "Prefer APIs and connectors. Use desktop flows only when no API exists, accept UI fragility and machine overhead, monitor them, and plan to replace them.",
+      "detailed": "UI automation is a last resort that can still be the right one.\n\n## Comparison\n\n| Approach | Strengths | Risks |\n|---|---|---|\n| Cloud flow with connectors | Managed, scalable, testable, no machine to run | Limited to what connectors and APIs expose |\n| Custom code or API integration | Full control, version control, tests, performance | Needs developers and hosting |\n| Desktop flow (RPA) | Reaches systems with no API, quick to prototype | Breaks when screens change, needs machines and sessions, slower, harder to test, more licensing and credential handling |\n\n## When UI automation is justified\n\n- A legacy or vendor system with no API, and no budget or vendor roadmap to add one.\n- A short-lived bridge during a migration.\n- A task that really is a human desktop task and is high volume.\n\nFirst ask whether a **database, file drop, email interface or vendor API** could replace the UI route. Also check if the system has a hidden integration option, since this is cheaper over time.\n\n## Maintenance risks\n\n- **UI drift.** Updates to the target app, resolution, language or theme break selectors.\n- **Infrastructure.** Unattended runs need machines or hosted machines, patching, locked sessions handled, and capacity for queues.\n- **Credentials.** Store in a vault, use a dedicated robot account, and respect the target system's terms of use.\n- **Observability.** Capture screenshots and logs on failure, and alert from the calling cloud flow.\n- **Ownership.** Name an owner, document the process, and track it as technical debt with a retirement date.\n\nCheck current licensing for attended and unattended modes in Microsoft documentation.\n\n## Design tips\n\nKeep the desktop flow thin: the cloud flow orchestrates, passes input, handles retries and records outcomes, while the desktop flow only performs the UI steps. Prefer stable selectors, add waits for state not fixed delays, and make each run idempotent.\n\n## Common mistakes\n\n- Choosing RPA because it is quick, then owning it for years.\n- No monitoring on unattended runs.\n- Shared human credentials in the robot.\n- Putting business logic inside the UI script.",
+      "followUps": [
+        "How would you make a desktop flow resilient to a UI change?",
+        "What would you look for before approving a new RPA process?",
+        "How do you plan the retirement of an RPA bridge?"
+      ],
+      "related": [
+        "custom-connector-vs-http-vs-function",
+        "design-reliable-cloud-flow"
+      ]
+    }
+  ]
+}

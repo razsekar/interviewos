@@ -1,0 +1,657 @@
+{
+  "category": "azure-cloud-architecture",
+  "questions": [
+    {
+      "slug": "azure-services-map-enterprise-ai",
+      "title": "Give me a map of Azure services for an enterprise AI and integration platform",
+      "topic": "Azure services map",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "azure",
+        "architecture",
+        "ai",
+        "integration",
+        "services-map"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I group services by job. Identity: Microsoft Entra ID. Secrets: Key Vault. Compute: Functions for event-driven code, Container Apps for containerised services. Messaging: Service Bus for commands, Event Grid for events. Workflows: Logic Apps. API front door: API Management. Observability: Azure Monitor with Application Insights. Models: Azure OpenAI within Microsoft Foundry. Product names change, so I verify current names and features on Microsoft Learn before committing a design.",
+      "revision": "Map by job: Entra for identity, Key Vault for secrets, Functions or Container Apps for compute, Service Bus or Event Grid for messaging, API Management at the edge, Monitor for telemetry.",
+      "detailed": "## The map by responsibility\n\n{{diagram:map}}\n\n| Job | Service (verify current naming) | Notes |\n|---|---|---|\n| Identity and access | Microsoft Entra ID | Users, groups, app registrations, managed identities |\n| Secrets and keys | Azure Key Vault | Prefer managed identity access, rotation |\n| Event-driven code | Azure Functions | Triggers, bindings, consumption or premium plans |\n| Containerised services | Azure Container Apps | Scale-to-zero, revisions, Dapr options |\n| Reliable messaging | Azure Service Bus | Queues, topics, sessions, dead-lettering |\n| Event notification | Azure Event Grid | Reactive routing of events |\n| Workflow and connectors | Azure Logic Apps | Many connectors, low-code orchestration |\n| API gateway | Azure API Management | Auth, quotas, transformation, analytics |\n| Telemetry | Azure Monitor, Application Insights | Logs, metrics, traces, alerts |\n| Models | Azure OpenAI in Microsoft Foundry | Deployments, content filters, quotas |\n\n## How they fit\n\nClients authenticate with Entra ID and call **API Management**. It routes to compute (Functions or Container Apps), which uses **managed identities** to reach Key Vault, data stores and model endpoints. Asynchronous work flows through Service Bus; state changes are announced through Event Grid. Everything emits telemetry to Azure Monitor.\n\n## Verify before you commit\n\nMicrosoft renames and repackages AI services regularly (for example Azure AI Foundry became Microsoft Foundry in the AI-102 study guide wording). **Check current names, regional availability, quotas and pricing** on official pages.\n\n## Common mistakes\n\n- Listing services without saying what job each does.\n- Using keys and connection strings when managed identity is available.\n- Forgetting observability until the first incident.\n- Assuming every model and feature is available in every region.",
+      "followUps": [
+        "Where would you place a private network boundary in this map?",
+        "Which two services would you cut for a very small proof of concept?",
+        "How would you confirm a service is available in your region?"
+      ],
+      "diagrams": [
+        {
+          "id": "map",
+          "title": "Azure services map",
+          "alt": "Clients authenticate with Entra ID and call API Management, which routes to Functions or Container Apps. Compute uses Key Vault, Service Bus, Event Grid and Azure OpenAI, and everything sends telemetry to Azure Monitor.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "cl",
+              "label": "Clients"
+            },
+            {
+              "id": "id",
+              "label": "Entra ID"
+            },
+            {
+              "id": "apim",
+              "label": "API Management"
+            },
+            {
+              "id": "cmp",
+              "label": "Functions or Container Apps"
+            },
+            {
+              "id": "kv",
+              "label": "Key Vault"
+            },
+            {
+              "id": "bus",
+              "label": "Service Bus and Event Grid"
+            },
+            {
+              "id": "oai",
+              "label": "Azure OpenAI in Foundry"
+            },
+            {
+              "id": "mon",
+              "label": "Azure Monitor"
+            }
+          ],
+          "edges": [
+            {
+              "from": "cl",
+              "to": "id",
+              "label": "sign in"
+            },
+            {
+              "from": "cl",
+              "to": "apim",
+              "label": "call"
+            },
+            {
+              "from": "apim",
+              "to": "cmp"
+            },
+            {
+              "from": "cmp",
+              "to": "kv",
+              "label": "secrets"
+            },
+            {
+              "from": "cmp",
+              "to": "bus",
+              "label": "async work"
+            },
+            {
+              "from": "cmp",
+              "to": "oai",
+              "label": "model calls"
+            },
+            {
+              "from": "cmp",
+              "to": "mon",
+              "label": "telemetry"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "azure-managed-identity-vs-service-principal",
+      "title": "Managed identity vs service principal: which do you use and why?",
+      "topic": "Identity",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "azure",
+        "entra-id",
+        "managed-identity",
+        "service-principal",
+        "security"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "For Azure resources calling other Azure resources, I use managed identity, because Azure handles the credential lifecycle and there is no secret to store or leak. I use a service principal, via an app registration, when the caller runs outside Azure, such as a build pipeline or another cloud, ideally with federated credentials instead of a long-lived secret. Either way I grant least-privilege roles at the narrowest scope.",
+      "revision": "Managed identity for Azure-hosted workloads, since there is no secret. Service principal for callers outside Azure, preferably with federated credentials. Least privilege either way.",
+      "detailed": "## Definitions\n\nA **service principal** is the identity of an application in a Microsoft Entra tenant, created from an app registration. A **managed identity** is a service principal whose credentials are managed by Azure for a resource, either **system-assigned** (tied to one resource) or **user-assigned** (reusable across resources).\n\n## Comparison\n\n| Aspect | Managed identity | Service principal (app registration) |\n|---|---|---|\n| Credential handling | Automatic, no secret in code | You create and rotate secret or certificate |\n| Where it works | Azure resources that support it | Anywhere that can authenticate |\n| Typical use | Function reading Key Vault or storage | CI/CD, on-premises service, multi-cloud |\n| Leak risk | Low | Higher if secrets are stored |\n| Setup | Enable identity, assign role | Register app, assign role, manage credential |\n\n## Decision guide\n\n1. Is the caller an Azure resource that supports managed identity? Use it.\n2. Is it a pipeline? Prefer **workload identity federation** over stored secrets (verify support for your tooling).\n3. Must several resources share one identity? Choose user-assigned.\n4. Otherwise, a service principal with a certificate, short expiry and an owner.\n\n## Role assignment\n\nUse Azure role-based access control at the smallest scope that works, for example a single Key Vault secret reader role, not subscription contributor.\n\n## Common mistakes\n\n- Putting client secrets in app settings or source control.\n- Over-broad roles \"to make it work\".\n- Forgetting expiry dates on secrets, causing outages.\n- Sharing one identity across unrelated workloads, so one compromise reaches everything.\n- Not removing identities when services are retired.",
+      "followUps": [
+        "How does a managed identity get a token?",
+        "When would you choose user-assigned over system-assigned?",
+        "How would you audit what an identity can access?"
+      ]
+    },
+    {
+      "slug": "azure-functions-logic-apps-power-automate-durable",
+      "title": "Azure Functions vs Logic Apps vs Power Automate vs Durable Functions: how do you choose?",
+      "topic": "Workflow and compute choice",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "azure",
+        "functions",
+        "logic-apps",
+        "power-automate",
+        "durable-functions"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I choose by owner, complexity and control. Power Automate suits business-owned automation close to Microsoft 365 and Dataverse. Logic Apps suits IT-owned integration with many connectors and visual workflows. Azure Functions suits custom code, performance tuning and fine control. Durable Functions suits long-running, stateful orchestration in code, such as fan-out, human approval with timeouts or sagas. I combine them, with flows calling well-governed Azure APIs for heavy lifting.",
+      "revision": "Power Automate for business-owned flows, Logic Apps for IT-owned connector workflows, Functions for custom code, Durable Functions for stateful long-running orchestration.",
+      "detailed": "## Comparison\n\n| Option | Strength | Limits and cautions |\n|---|---|---|\n| Power Automate | Business-owned, M365 and Dataverse proximity, fast to build | Governance, plan and throttling limits, complex logic hard to test |\n| Logic Apps | Connectors, visual designer, IT-managed, ARM or Bicep deployment | Cost per action, complex branching gets unwieldy |\n| Azure Functions | Full code, unit tests, custom performance | You own code quality and operations |\n| Durable Functions | Stateful orchestration, retries, timers, fan-out and fan-in | Orchestrator code constraints (deterministic), learning curve |\n\n## Decision questions\n\n1. **Who owns it?** Citizen makers or engineering?\n2. **How complex is the logic?** Straight-through mapping or branching, loops, compensation?\n3. **How long does it run?** Seconds, or days waiting for approval?\n4. **What are the volume and reliability needs?**\n5. **What are the testing and deployment needs?** Code gets unit tests and pipelines; low-code needs deliberate ALM.\n\n## Typical combinations\n\n- Power Automate approval flow calls an Azure Function that performs a calculation.\n- Logic Apps receives a partner file, then hands processing to Durable Functions.\n- Durable Functions orchestrates a multi-step agent task with an approval and a timeout.\n\n## Verify\n\nPricing, limits and feature names change. Check current Microsoft documentation for throttling, execution time and plan details before sizing.\n\n## Common mistakes\n\n- Using Power Automate for high-volume integration and hitting limits.\n- Writing everything in code when a connector would do.\n- Putting business logic in several places with no owner.\n- Forgetting that low-code workflows still need source control and monitoring.",
+      "followUps": [
+        "What makes an orchestrator function deterministic?",
+        "When would you move a flow into Logic Apps or Functions?",
+        "How do you monitor a mix of these tools?"
+      ]
+    },
+    {
+      "slug": "azure-service-bus-event-grid-event-hubs",
+      "title": "Service Bus vs Event Grid vs Event Hubs: which one for which job?",
+      "topic": "Messaging",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "azure",
+        "service-bus",
+        "event-grid",
+        "event-hubs",
+        "messaging"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "They solve different problems. Service Bus is an enterprise message broker for commands and business messages that must be processed reliably, with queues, topics, sessions, dead-lettering and delivery guarantees. Event Grid routes discrete events about something that happened, to many subscribers, reactively. Event Hubs ingests very high-volume streams of telemetry or logs for analytics, with partitions and replay. I choose by intent: command, notification, or stream.",
+      "revision": "Service Bus for reliable commands and business messages, Event Grid for reactive event notifications, Event Hubs for high-volume streaming ingestion.",
+      "detailed": "## Intent decides\n\n{{diagram:msg}}\n\n| Question | Service Bus | Event Grid | Event Hubs |\n|---|---|---|---|\n| Typical payload | Command or business message | \"Something happened\" event | Telemetry or log stream |\n| Pattern | Broker with queues and topics | Event routing, push | Partitioned log, consumer reads |\n| Ordering | Sessions for ordered groups | Not the focus | Per partition |\n| Dead-lettering and retries | Built in | Retry and dead-letter options | Consumer manages checkpoints |\n| Volume | Moderate to high | High fan-out | Very high throughput |\n\n## Examples\n\n- **Order to fulfilment, must not be lost:** Service Bus queue.\n- **A file landed in storage, notify several handlers:** Event Grid.\n- **Millions of device readings per minute:** Event Hubs, then stream processing.\n\n## Combinations\n\nEvent Grid can signal that data is available, while Service Bus carries the work item that must be processed exactly under retry rules. Do not use Event Hubs as a work queue; do not use Service Bus for raw telemetry at massive scale.\n\n## Delivery semantics\n\nPlan for **at-least-once** delivery and make consumers idempotent. Verify tier limits (message size, throughput units, retention) on official pages.\n\n## Common mistakes\n\n- Using one service for everything because it is familiar.\n- Ignoring dead-letter queues until a backlog appears.\n- Assuming ordering where it is not guaranteed.\n- Treating events and commands as the same thing: a command expects an action, an event reports a fact.",
+      "followUps": [
+        "How do Service Bus sessions help ordering?",
+        "What would you do with the dead-letter queue?",
+        "Where would the outbox pattern fit?"
+      ],
+      "diagrams": [
+        {
+          "id": "msg",
+          "title": "Choosing a messaging service",
+          "alt": "Decision tree: if the message is a command or business message that must be processed reliably choose Service Bus; if it is a notification of something that happened choose Event Grid; if it is a high volume stream choose Event Hubs.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "q",
+              "label": "What is the intent?"
+            },
+            {
+              "id": "cmd",
+              "label": "Command or business message"
+            },
+            {
+              "id": "evt",
+              "label": "Notification of a fact"
+            },
+            {
+              "id": "str",
+              "label": "High-volume stream"
+            },
+            {
+              "id": "sb",
+              "label": "Service Bus"
+            },
+            {
+              "id": "eg",
+              "label": "Event Grid"
+            },
+            {
+              "id": "eh",
+              "label": "Event Hubs"
+            }
+          ],
+          "edges": [
+            {
+              "from": "q",
+              "to": "cmd"
+            },
+            {
+              "from": "q",
+              "to": "evt"
+            },
+            {
+              "from": "q",
+              "to": "str"
+            },
+            {
+              "from": "cmd",
+              "to": "sb"
+            },
+            {
+              "from": "evt",
+              "to": "eg"
+            },
+            {
+              "from": "str",
+              "to": "eh"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "azure-api-management-in-front-of-agents",
+      "title": "Why put API Management in front of agents and internal APIs?",
+      "topic": "API gateway",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "azure",
+        "api-management",
+        "agents",
+        "security",
+        "governance"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "An agent is a new kind of API consumer that can call things quickly and unpredictably, so I want one governed front door. API Management gives authentication and token validation, per-caller quotas and rate limits, request and response policies, logging, versioning and a single catalogue. It also lets me hide backends, cap cost for model endpoints and revoke a misbehaving caller without changing the services. I verify which gateway features my chosen tier offers.",
+      "revision": "One governed front door: validate tokens, rate-limit per caller, transform, log, version and hide backends, so agents cannot overwhelm or bypass controls.",
+      "detailed": "## Why a gateway\n\nAgents call tools in loops, retry on failure and may be prompted to call things they should not. Putting **Azure API Management (APIM)** between agents and backends centralises controls that otherwise get reimplemented, inconsistently, in every service.\n\n## What APIM adds\n\n| Capability | Benefit for agent traffic |\n|---|---|\n| Token validation (Entra ID) | Only authenticated callers; identity per agent |\n| Rate limits and quotas | Stops runaway loops from flooding backends |\n| Policies | Header checks, schema validation, response trimming |\n| Logging and analytics | Who called what, how often, failures |\n| Versioning and revisions | Change tools without breaking agents |\n| Backend abstraction | Swap or hide implementations |\n| Model endpoint governance | Token limits and usage tracking for model calls, where the tier and features support it |\n\n## Design notes\n\n1. Give each agent its own identity or subscription, so quotas and revocation are targeted.\n2. Describe tools with OpenAPI specs so descriptions and schemas stay accurate.\n3. Return clear errors, because agents react to error text.\n4. Keep sensitive operations behind additional approval, not only rate limits.\n5. Consider network placement (private endpoints, virtual network integration) per tier.\n\n## Trade-offs\n\nAn extra hop adds latency, cost and an operational component. For a single internal service with one consumer, it may be overkill. Verify tier features, since capabilities differ between tiers.\n\n## Common mistakes\n\n- Treating the gateway as the only security layer; backends must still authorise.\n- One shared key for all agents.\n- No quota, then discovering the cost after a loop.\n- Skipping schema validation, so malformed agent calls reach the backend.",
+      "followUps": [
+        "How would you rate-limit an agent differently from a human app?",
+        "What would you log, and what would you avoid logging?",
+        "When is APIM unnecessary?"
+      ]
+    },
+    {
+      "slug": "azure-vs-aws-service-mapping",
+      "title": "Coming from AWS: how do the main Azure services map across?",
+      "topic": "Azure and AWS mapping",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "azure",
+        "aws",
+        "migration",
+        "mapping",
+        "comparison"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I map by role, then check the differences. IAM maps to Entra ID plus Azure RBAC, Lambda to Azure Functions, ECS or EKS to Container Apps or AKS, SQS and SNS to Service Bus and Event Grid, Kinesis to Event Hubs, API Gateway to API Management, Secrets Manager to Key Vault, CloudWatch to Azure Monitor. The mapping is a starting point only. Identity, networking, resource organisation and pricing differ enough that I read Azure's own guidance.",
+      "revision": "Map by role: IAM to Entra and RBAC, Lambda to Functions, SQS and SNS to Service Bus and Event Grid, API Gateway to APIM, CloudWatch to Monitor. Then study the differences.",
+      "detailed": "## Approximate mapping\n\n| Role | AWS | Azure (verify current names) |\n|---|---|---|\n| Identity | IAM, Cognito | Entra ID, Azure RBAC, Entra External ID |\n| Functions | Lambda | Azure Functions |\n| Containers | ECS, EKS, Fargate | Container Apps, AKS, Container Instances |\n| Queue | SQS | Service Bus queues, Storage Queues |\n| Pub/sub and routing | SNS, EventBridge | Service Bus topics, Event Grid |\n| Streaming | Kinesis | Event Hubs |\n| Workflow | Step Functions | Logic Apps, Durable Functions |\n| API front door | API Gateway | API Management |\n| Secrets and keys | Secrets Manager, KMS | Key Vault |\n| Object storage | S3 | Blob Storage |\n| NoSQL | DynamoDB | Cosmos DB |\n| Relational | RDS, Aurora | Azure SQL, PostgreSQL and MySQL flexible servers |\n| Monitoring | CloudWatch, X-Ray | Azure Monitor, Application Insights |\n| Models | Bedrock | Azure OpenAI in Foundry (and other Foundry model options) |\n\n## Differences that matter\n\n- **Identity is tenant-centred.** Entra ID tenants and subscriptions replace the account model; resource groups organise lifecycle.\n- **Networking vocabulary differs:** virtual networks, network security groups, private endpoints.\n- **Managed identities** replace many instance-role patterns.\n- **Pricing and quotas** differ, so re-estimate rather than translate.\n- **Feature parity is not one-to-one**; check each service's limits.\n\n## Learning approach\n\nBuild the same small reference app (API, queue, function, secret, telemetry) on Azure and note where concepts diverge.\n\n## Common mistakes\n\n- Lift-and-shift of designs without adopting Azure idioms.\n- Assuming equal limits or semantics for queues and event services.\n- Ignoring Entra ID concepts, which underpin almost everything.",
+      "followUps": [
+        "Which AWS concept was hardest to translate to Azure?",
+        "How do resource groups and subscriptions affect governance?",
+        "What would you rebuild first as a learning exercise?"
+      ]
+    },
+    {
+      "slug": "azure-multi-tenant-architecture",
+      "title": "How do you design a multi-tenant SaaS architecture on Azure?",
+      "topic": "Multi-tenancy",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "azure",
+        "multi-tenant",
+        "saas",
+        "isolation",
+        "architecture"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I start by deciding the isolation level each tenant tier needs, then pick the tenancy model: shared everything, shared compute with separate databases, or dedicated stacks for sensitive customers. Tenant identity flows from Entra ID or an external identity provider into every request, and data access enforces the tenant id. I add per-tenant throttling, metering and observability, plus a deployment approach that onboards tenants automatically.",
+      "revision": "Choose isolation per tier, carry tenant identity through every request, enforce it in data access, throttle and meter per tenant, and automate onboarding.",
+      "detailed": "## Start from requirements\n\nAsk: what isolation do customers demand (security, compliance, performance)? How many tenants and how uneven are they? What are the cost targets per tenant?\n\n## Tenancy models\n\n| Model | Isolation | Cost | Operational load |\n|---|---|---|---|\n| Shared app and shared database (tenant id column) | Lowest | Lowest | Lowest, but noisy-neighbour risk |\n| Shared app, database per tenant | Medium | Medium | Moderate; many databases |\n| Dedicated stack per tenant | Highest | Highest | High; needs automation |\n| Hybrid by tier | Varies | Balanced | Complex but common |\n\n## Key design points\n\n1. **Tenant context** is resolved once (token claim, subdomain) and passed through every layer.\n2. **Data isolation:** enforce tenant filters centrally (row-level security, repository layer), never rely on each query author.\n3. **Noisy neighbours:** per-tenant rate limits, queues and quotas; consider separate capacity for large tenants.\n4. **Identity:** Entra ID for workforce tenants, an external identity option for customers (verify current product naming).\n5. **Metering and cost allocation:** tag and measure usage per tenant.\n6. **Onboarding and deployment:** infrastructure as code, automated provisioning, tested upgrade path.\n7. **Data residency:** place tenants in required regions.\n\nMicrosoft's Azure Architecture Center has multitenancy guidance worth reading; verify the current pages.\n\n## Common mistakes\n\n- Forgetting tenant id in one query, leaking data.\n- Caching without tenant in the key.\n- One shared secret or encryption key for all tenants when contracts require separation.\n- No plan to move a tenant between models as they grow.",
+      "followUps": [
+        "How would you migrate a tenant from shared to dedicated?",
+        "How do you test tenant isolation?",
+        "How would you allocate cost per tenant?"
+      ]
+    },
+    {
+      "slug": "azure-outbox-saga-idempotent-consumer",
+      "title": "How do you apply outbox, saga and idempotent consumer patterns with Azure Service Bus?",
+      "topic": "Reliable messaging patterns",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "azure",
+        "service-bus",
+        "outbox",
+        "saga",
+        "idempotency"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "Service Bus gives at-least-once delivery, so I design for duplicates and failures. The outbox pattern writes the business change and the outgoing message in one database transaction, and a relay publishes it afterwards. Consumers are idempotent: they record processed message ids or use natural keys, so a redelivery has no extra effect. For multi-step processes I use a saga, coordinating steps with messages and compensating actions, often implemented with Durable Functions or a state machine.",
+      "revision": "Outbox: commit data and message together. Idempotent consumer: dedupe by message id. Saga: coordinate steps with compensating actions. Expect at-least-once delivery.",
+      "detailed": "## The problem\n\nA service saves an order and then publishes a message. If it crashes in between, the database and the bus disagree. Also, delivery can repeat, so handlers may run twice.\n\n{{diagram:outbox}}\n\n## Patterns\n\n| Pattern | What it does | Azure implementation notes |\n|---|---|---|\n| Outbox | Store outgoing messages in the same transaction as the data | Outbox table, a relay or change feed sends to Service Bus |\n| Idempotent consumer | Repeated message has no extra effect | Store message id or business key with a unique constraint; Service Bus duplicate detection can help on send, but verify its window |\n| Saga | Long-running process across services | Orchestration (Durable Functions) or choreography (events); define compensations |\n| Dead-letter handling | Park poison messages | Alert, inspect, fix, resubmit |\n\n## Saga example\n\nOrder saga: reserve stock, charge payment, confirm shipment. If payment fails, **compensate** by releasing stock. Each step is idempotent and has a timeout.\n\n## Design checklist\n\n1. Each message carries a unique id and correlation id.\n2. Handlers commit state and record the id atomically.\n3. Retries use back-off; poison messages go to the dead-letter queue.\n4. Compensation actions are defined, tested and themselves idempotent.\n5. Monitor queue depth, age of oldest message and dead-letter count.\n\n## Common mistakes\n\n- Assuming exactly-once delivery.\n- Dual write (database then publish) without an outbox.\n- Sagas without timeouts, leaving processes stuck.\n- Compensations that cannot be retried safely.",
+      "followUps": [
+        "How would you build the relay for the outbox?",
+        "Orchestrated or choreographed saga: how do you choose?",
+        "How do you handle a poison message?"
+      ],
+      "diagrams": [
+        {
+          "id": "outbox",
+          "title": "Outbox with idempotent consumer",
+          "alt": "A service writes business data and an outbox row in one transaction. A relay publishes the outbox message to Service Bus. The consumer checks a processed-id store, applies the change once, and sends failures to the dead-letter queue.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "svc",
+              "label": "Service"
+            },
+            {
+              "id": "db",
+              "label": "Database with outbox table"
+            },
+            {
+              "id": "rel",
+              "label": "Outbox relay"
+            },
+            {
+              "id": "sb",
+              "label": "Service Bus"
+            },
+            {
+              "id": "con",
+              "label": "Idempotent consumer"
+            },
+            {
+              "id": "ids",
+              "label": "Processed-id store"
+            },
+            {
+              "id": "dlq",
+              "label": "Dead-letter queue"
+            }
+          ],
+          "edges": [
+            {
+              "from": "svc",
+              "to": "db",
+              "label": "one transaction"
+            },
+            {
+              "from": "db",
+              "to": "rel",
+              "label": "read outbox"
+            },
+            {
+              "from": "rel",
+              "to": "sb",
+              "label": "publish"
+            },
+            {
+              "from": "sb",
+              "to": "con",
+              "label": "deliver"
+            },
+            {
+              "from": "con",
+              "to": "ids",
+              "label": "check and record"
+            },
+            {
+              "from": "sb",
+              "to": "dlq",
+              "label": "poison messages"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "azure-caching-rate-limiting-backpressure",
+      "title": "How do you handle caching, rate limiting and backpressure in an Azure AI workload?",
+      "topic": "Resilience and traffic control",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "azure",
+        "caching",
+        "rate-limiting",
+        "backpressure",
+        "openai"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I protect the model endpoint and the user experience. Cache what is safe to reuse, such as embeddings, retrieval results and some deterministic answers, with careful keys and expiry. Rate-limit at the gateway per caller, and handle model throttling responses with retry and exponential back-off. Put a queue in front of non-interactive work so bursts are absorbed, apply backpressure by limiting concurrency, and tell users clearly when the system is busy.",
+      "revision": "Cache safe results, rate-limit per caller at the gateway, retry throttled calls with back-off, queue bursty work and limit concurrency to create backpressure.",
+      "detailed": "## Why this matters for AI workloads\n\nModel deployments have **quotas** (for example tokens or requests per minute, verify current limits for your deployment type). Bursts cause throttling responses, which cascade into retries and worse overload.\n\n## Layers of control\n\n| Layer | Technique | Notes |\n|---|---|---|\n| Edge | Rate limits and quotas per caller in API Management | Fair share, protect cost |\n| Application | Retry with exponential back-off and jitter on throttling | Respect retry-after hints |\n| Work intake | Queue (Service Bus) for batch or background tasks | Absorbs bursts |\n| Consumers | Bounded concurrency | Backpressure: slow intake when downstream is saturated |\n| Caching | Azure Cache for Redis or in-process | Embeddings, retrieval results, static prompts |\n| Protection | Circuit breaker | Stop calling a failing dependency briefly |\n\n## Caching cautions\n\n- Include **tenant, user permissions and model version** in cache keys, so nobody receives another user's content.\n- Cache semantic answers only where staleness and personalisation are acceptable.\n- Define expiry and invalidation when source documents change.\n\n## User experience\n\nShow progress, allow cancel, degrade gracefully (shorter answer, smaller model, queued result) instead of failing hard.\n\n## Observability\n\nTrack throttling rate, queue age, token usage per caller and latency percentiles.\n\n## Common mistakes\n\n- Immediate retry loops that amplify throttling.\n- Caching personalised answers under a shared key.\n- Unlimited concurrency in consumers.\n- No per-caller budget, so one agent loop consumes the quota.",
+      "followUps": [
+        "How would you pick a retry policy for model calls?",
+        "What would you never cache?",
+        "How would you design graceful degradation?"
+      ]
+    },
+    {
+      "slug": "azure-ha-dr-rto-rpo-multi-region",
+      "title": "How do you design high availability and disaster recovery across Azure regions with RTO and RPO targets?",
+      "topic": "Availability and disaster recovery",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "azure",
+        "high-availability",
+        "disaster-recovery",
+        "rto",
+        "rpo"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I start from business targets: how long can we be down (RTO) and how much data can we lose (RPO). Within a region I use availability zones and redundancy. For regional failure I choose a pattern by cost: backup and restore, warm standby, or active-active, with data replication matched to the RPO. Traffic steering, such as Front Door, redirects users, and I rehearse failover regularly because an untested plan is only a hope.",
+      "revision": "Set RTO and RPO from business impact, use zones in-region, choose backup, warm standby or active-active across regions, replicate data to match RPO and rehearse failover.",
+      "detailed": "## Define targets first\n\n**RTO** is the maximum acceptable time to restore service. **RPO** is the maximum acceptable data loss, measured in time. Different components can have different targets: a payment path may need minutes, a reporting job hours.\n\n{{diagram:dr}}\n\n## Patterns\n\n| Pattern | RTO | RPO | Cost |\n|---|---|---|---|\n| Backup and restore | Hours or more | Since last backup | Low |\n| Pilot light or warm standby | Minutes to an hour | Replication lag | Medium |\n| Active-active | Near zero (if designed) | Near zero (conflict handling needed) | High |\n\n## Building blocks (verify current features)\n\n- **Availability zones** for in-region resilience.\n- **Global traffic routing** with Azure Front Door or Traffic Manager.\n- **Data replication:** geo-replication or failover groups for databases, multi-region writes for Cosmos DB with consistency trade-offs, geo-redundant storage.\n- **Messaging:** Service Bus geo-disaster recovery covers metadata, not necessarily in-flight messages, so check what it protects.\n- **Infrastructure as code** to rebuild consistently.\n- **Secrets and identities** available in the secondary region.\n- **AI dependencies:** model deployments and quotas must exist in the secondary region.\n\n## Practise\n\nRun game days: fail over, measure real RTO and RPO, fix gaps, document the runbook, and test failback.\n\n## Common mistakes\n\n- Quoting RTO and RPO without testing.\n- Forgetting dependencies (identity, DNS, model quota, third-party APIs).\n- Replicating corrupted data faster than you can notice.\n- Active-active without a conflict resolution plan.",
+      "followUps": [
+        "How would you test failover safely?",
+        "What would you tier first: data or compute?",
+        "How does model quota affect disaster recovery?"
+      ],
+      "diagrams": [
+        {
+          "id": "dr",
+          "title": "Warm standby across regions",
+          "alt": "Users reach Front Door, which routes to the primary region. The primary database replicates to a secondary region that holds warm standby compute. On failure, Front Door shifts traffic to the secondary region.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "usr",
+              "label": "Users"
+            },
+            {
+              "id": "fd",
+              "label": "Front Door"
+            },
+            {
+              "id": "pri",
+              "label": "Primary region app"
+            },
+            {
+              "id": "sec",
+              "label": "Secondary region app (warm)"
+            },
+            {
+              "id": "dbp",
+              "label": "Primary database"
+            },
+            {
+              "id": "dbs",
+              "label": "Secondary database replica"
+            }
+          ],
+          "edges": [
+            {
+              "from": "usr",
+              "to": "fd"
+            },
+            {
+              "from": "fd",
+              "to": "pri",
+              "label": "normal traffic"
+            },
+            {
+              "from": "fd",
+              "to": "sec",
+              "label": "on failover"
+            },
+            {
+              "from": "pri",
+              "to": "dbp"
+            },
+            {
+              "from": "dbp",
+              "to": "dbs",
+              "label": "replication"
+            },
+            {
+              "from": "sec",
+              "to": "dbs"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "azure-cost-optimisation-ai-workloads",
+      "title": "How do you control and optimise cost for AI workloads on Azure?",
+      "topic": "Cost management",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "azure",
+        "cost",
+        "finops",
+        "openai",
+        "optimisation"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I treat tokens and idle capacity as the two big levers. Pick the smallest model that meets quality, measured with an evaluation set. Shorten prompts, cap output length, cache repeat work and retrieve fewer, better passages. Choose the deployment type that matches the traffic pattern, and use budgets, alerts and tagging so cost is attributable per team or tenant. I review usage regularly, because cost drifts quietly.",
+      "revision": "Right-size the model, trim prompts and outputs, cache, match deployment type to traffic, and use tags, budgets and alerts for attribution.",
+      "detailed": "## Where the money goes\n\n| Driver | Optimisation |\n|---|---|\n| Model choice | Use the smallest model passing your evaluation set; route simple tasks to cheaper models |\n| Prompt and context size | Retrieve fewer, better chunks; trim history; reuse stable prompt prefixes where supported |\n| Output length | Set sensible limits; ask for concise formats |\n| Repeat requests | Cache embeddings and deterministic results |\n| Deployment type | Pay-as-you-go for spiky traffic; reserved or provisioned capacity for steady high volume (verify current options and pricing) |\n| Idle infrastructure | Scale-to-zero (Container Apps, Functions), shut down non-production |\n| Supporting services | Right-size search tiers, databases, retention periods |\n| Logging volume | Sample verbose traces, set retention |\n\n## Governance\n\n1. **Tag** resources by team, product and tenant.\n2. **Budgets and alerts** in Azure Cost Management.\n3. **Per-caller quotas** through API Management to stop runaway loops.\n4. **Unit economics:** cost per answer or per resolved case, not only the monthly bill.\n5. **Review cadence** with engineering and finance.\n\n## Evaluate before cutting\n\nQuality regressions cost more than tokens saved. Use an offline evaluation set and compare models and prompts on accuracy, latency and cost together.\n\n## Common mistakes\n\n- Optimising cost without measuring quality.\n- Leaving test deployments running.\n- Sending whole documents when a few passages suffice.\n- Assuming current prices; always check the official pricing pages.",
+      "followUps": [
+        "How would you build a model-routing approach?",
+        "What is a sensible unit-cost metric for an internal agent?",
+        "How would you find a sudden cost spike?"
+      ]
+    },
+    {
+      "slug": "azure-data-residency-regional-deployment",
+      "title": "How do you handle data residency and regional deployment for an AI solution on Azure?",
+      "topic": "Data residency",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "azure",
+        "data-residency",
+        "compliance",
+        "regions",
+        "openai"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "I begin with the legal and contractual requirement: where may data be stored and processed, and by whom. Then I map every data location: databases, storage, search indexes, logs, backups, and the model endpoint including processing region. I deploy resources in permitted regions, restrict others with Azure Policy, and confirm regional availability and data-processing terms for the model service from Microsoft documentation, since these vary by deployment type.",
+      "revision": "Start from the legal rule, map every place data lives and is processed, deploy in allowed regions, enforce with Azure Policy, and verify model-service processing terms.",
+      "detailed": "## Residency versus processing\n\n**Residency** concerns where data is stored. **Processing location** concerns where it is computed on, including model inference. Some deployment types may process data outside the resource region; **verify current Microsoft documentation** for the specific model deployment type before promising anything.\n\n## Data inventory\n\n| Data location | Questions to ask |\n|---|---|\n| Databases and storage | Region, replication pairs, backups |\n| Search indexes and vector stores | Region, replicas |\n| Logs and telemetry | Do prompts or personal data enter logs? Where is the workspace? |\n| Caches | Region and contents |\n| Model endpoint | Processing region, data retention and abuse monitoring options |\n| Identity | Tenant location and sign-in logs |\n| Support access | Who at the provider can access data |\n\n## Controls\n\n1. **Azure Policy** to limit allowed regions.\n2. **Region-specific deployments** per jurisdiction, with tenant-to-region routing.\n3. **Private networking** and customer-managed keys where required.\n4. **Data minimisation** and redaction before prompts or logs.\n5. **Documented data flow diagrams** reviewed by compliance.\n\n## Trade-offs\n\nRegional silos raise cost, complicate disaster recovery (pair regions inside the same jurisdiction) and may limit model availability or quotas.\n\n## Common mistakes\n\n- Locking down the database but forgetting logs, caches or backups.\n- Assuming the model processes data in the resource region without checking.\n- Disaster recovery region outside the permitted jurisdiction.\n- Treating this as purely technical without legal input.",
+      "followUps": [
+        "How would you route tenants to regions?",
+        "What would you do if the model is unavailable in the required region?",
+        "How do you stop prompts containing personal data entering logs?"
+      ]
+    },
+    {
+      "slug": "azure-ai-102-scope-and-study-plan",
+      "title": "AI-102 (Azure AI Engineer): what did it cover and how would you prioritise study for enterprise agents?",
+      "topic": "AI-102 certification",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "ai-102",
+        "certification",
+        "study-plan",
+        "azure-ai",
+        "foundry"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "When I checked the Microsoft Learn study guide, AI-102 was shown as retired on 30 June 2026, with the suggested replacement reported as AI-103, which I would verify on the official page. Its last outline covered planning and managing an AI solution, generative AI, agentic solutions, vision, language and knowledge mining. For enterprise agents I would prioritise planning and security, generative AI and retrieval, search, and the agent material. Exam preparation is not production experience.",
+      "revision": "AI-102 was shown as retired 30 June 2026; verify any successor. For enterprise agents prioritise planning and security, generative AI, search and agents.",
+      "detailed": "## What was verified\n\nThe official Microsoft Learn study guide for **AI-102** carried a warning that the exam **retired on 30 June 2026**. Its last skills outline (dated 23 December 2025) listed six areas, with the weightings shown in that guide:\n\n| Area | Weighting in that guide |\n|---|---|\n| Plan and manage an Azure AI solution | 20-25% |\n| Implement generative AI solutions | 15-20% |\n| Implement an agentic solution | 5-10% |\n| Implement computer vision solutions | 10-15% |\n| Implement natural language processing solutions | 15-20% |\n| Implement knowledge mining and information extraction solutions | 15-20% |\n\nWeb commentary suggests a successor such as AI-103, but sources are third-party. **Check the official certification page** for current status, successor, prerequisites and renewal.\n\n## Relevance to enterprise agents\n\n| Priority | Topic | Why |\n|---|---|---|\n| High | Planning, deployment, keys and authentication, monitoring, responsible AI | Every production agent needs these |\n| High | Generative AI, RAG, evaluation | Core of agent quality |\n| High | AI Search, vector and semantic search | Grounding in company data |\n| Medium | Agent services and orchestration | Smaller weighting, high relevance |\n| Lower for this role | Computer vision, speech, custom language models | Valuable but situational |\n\n## Six-week plan template\n\n| Week | Focus | Output |\n|---|---|---|\n| 1 | Read the current skills outline; gap rating | Gap list |\n| 2 | Planning, security, responsible AI | Notes and a small lab |\n| 3 | Generative AI and prompt flows | Working sample |\n| 4 | AI Search and RAG with evaluation | Retrieval demo with tests |\n| 5 | Agents and orchestration | Agent with tool and logging |\n| 6 | Practice assessment, weak areas, [exam date] | Review sheet |\n\n## Honest framing\n\n**Exam preparation is not production experience.** A study plan builds vocabulary and coverage; operating, securing and paying for a live system builds judgement. Say which you have.\n\n## Common mistakes\n\n- Studying every service equally regardless of role.\n- Memorising portal steps that change.\n- Quoting weightings you did not read on the official page.",
+      "followUps": [
+        "Which areas would you cut if you had only three weeks?",
+        "How would you test your own retrieval quality while studying?",
+        "How do you show practical evidence alongside a certificate?"
+      ]
+    },
+    {
+      "slug": "azure-az-204-scope-and-study-plan",
+      "title": "AZ-204 (Azure Developer): what did it cover and how would you plan study for integration and agent work?",
+      "topic": "AZ-204 certification",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "az-204",
+        "certification",
+        "study-plan",
+        "azure-developer"
+      ],
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "quick": "When I checked the Microsoft Learn study guide, AZ-204 was shown as retired on 31 July 2026, with a suggested replacement reported as AI-200 that I would verify officially. The last outline covered compute, storage, security, monitoring, and connecting to services such as API Management, Event Grid, Event Hubs and Service Bus. For integration and agent work I would emphasise security, messaging, API Management and Functions or containers. Study is not production experience, so I would pair it with a small real project.",
+      "revision": "AZ-204 was shown as retired 31 July 2026; verify the successor. For integration and agent work prioritise security, messaging, API Management, Functions and containers.",
+      "detailed": "## What was verified\n\nThe official Microsoft Learn study guide for **AZ-204** carried a warning that the exam **retired on 31 July 2026**. Its last outline (dated 14 January 2026) showed:\n\n| Area | Weighting in that guide |\n|---|---|\n| Develop Azure compute solutions | 25-30% |\n| Develop for Azure storage | 15-20% |\n| Implement Azure security | 15-20% |\n| Monitor, troubleshoot and optimise Azure solutions | 5-10% |\n| Connect to and consume Azure services and third-party services | 20-25% |\n\nThird-party sources suggest a successor (AI-200), but this is unverified here. **Re-check the official page** for status, successor and renewal.\n\n## Priorities for integration and agent work\n\n| Priority | Topic | Reason |\n|---|---|---|\n| High | Entra ID, managed identities, Key Vault | Secure access without secrets |\n| High | Service Bus, Event Grid, Event Hubs | Reliable integration |\n| High | API Management | Governed APIs and agent tools |\n| High | Functions and Container Apps | Typical compute |\n| Medium | Cosmos DB and Blob Storage | State and documents |\n| Medium | Application Insights | Diagnosing production |\n| Lower | App Service slots and scaling details | Useful, less central here |\n\n## Six-week plan template\n\n| Week | Focus | Output |\n|---|---|---|\n| 1 | Current outline, gap rating, set up subscription with budget alert | Gap list |\n| 2 | Compute: Functions, containers | Deployed sample |\n| 3 | Security: identity, Key Vault, managed identity | Secretless app |\n| 4 | Messaging and events | Queue consumer with dead-letter handling |\n| 5 | API Management, storage, monitoring | Gateway policy, dashboards |\n| 6 | Practice assessment, revision, [exam date] | Review notes |\n\n## Honest framing\n\n**Exam preparation is not production experience.** Building a lab teaches the service; running it under load, cost and incidents teaches design.\n\n## Common mistakes\n\n- Treating a certificate as evidence of operating a system.\n- Skipping the monitoring topics because they weigh less.\n- Leaving lab resources running and incurring cost.",
+      "followUps": [
+        "Which lab would best prove you can integrate services securely?",
+        "How would you adapt this plan with a full-time job?",
+        "How do you decide between AZ-204 style knowledge and a successor?"
+      ]
+    }
+  ]
+}

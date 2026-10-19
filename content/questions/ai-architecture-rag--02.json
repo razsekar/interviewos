@@ -1,0 +1,373 @@
+{
+  "category": "ai-architecture-rag",
+  "questions": [
+    {
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "slug": "databricks-genie-overview-and-evaluation",
+      "title": "What is Databricks Genie and how would you evaluate it before rolling it out?",
+      "topic": "Analytics AI",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "databricks",
+        "genie",
+        "text-to-sql",
+        "unity-catalog"
+      ],
+      "quick": "As I understand it, Genie lets business users ask questions in natural language over governed data. Someone curates a Genie space with chosen tables, instructions, example SQL and sometimes certified answers; Genie generates SQL, runs it under the user's Unity Catalog permissions and shows the result. Before rollout I would test it with a benchmark of real questions and known correct SQL, check permissions and cost, and review ambiguous terms. Features change, so I would verify details in current Databricks documentation.",
+      "revision": "Genie answers natural-language questions over curated, governed tables using generated SQL under Unity Catalog permissions; evaluate with gold questions, access tests, cost limits and user feedback.",
+      "detailed": "**Hedge:** this reflects the general concept; confirm feature names, limits and behaviour in current Databricks documentation, as the product evolves.\n\n## What it is\n\nGenie is Databricks' natural-language interface to data. A team creates a **Genie space** scoped to a business domain and curates what it knows:\n\n- A small set of relevant **tables and views**, with clear column descriptions.\n- **Instructions** that define business terms, default filters and fiscal calendars.\n- **Example SQL** for common or tricky questions.\n- Optionally **certified or trusted answers** for key metrics.\n\nGenie generates SQL, executes it on a compute resource, and returns tables or charts. Access runs through **Unity Catalog**, so users only see data they are permitted to query (verify exactly how permissions are applied in your setup).\n\n## How to evaluate\n\n| Dimension | Method |\n|---|---|\n| Correctness | Benchmark questions with gold SQL; compare results |\n| Ambiguity handling | Questions with vague terms; does it ask or guess sensibly? |\n| Access control | Run as different users; confirm restricted columns and rows stay hidden |\n| Metric consistency | Compare answers with the certified dashboard numbers |\n| Cost and latency | Measure compute use per question; set warehouse limits |\n| User adoption | Thumbs feedback, repeated questions, escalation rate |\n\n## Rollout approach\n\n{{diagram:genie}}\n\nStart with one domain and a pilot group, review questions users actually ask, add instructions and examples, and expand only when benchmark scores hold.\n\n## Common mistakes\n\n- Pointing it at hundreds of raw tables and expecting accuracy.\n- Skipping column descriptions and business glossary.\n- Measuring only demo questions chosen by the builder.\n- Ignoring compute cost when usage grows.",
+      "diagrams": [
+        {
+          "id": "genie",
+          "title": "Genie space curation loop",
+          "alt": "Data owners curate a Genie space with tables, instructions and example queries. Users ask questions and Genie generates SQL that runs under their permissions. Feedback and a benchmark review find wrong answers, which lead to improved instructions and examples.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "cu",
+              "label": "Curate space: tables, instructions, examples"
+            },
+            {
+              "id": "qs",
+              "label": "User question"
+            },
+            {
+              "id": "sq",
+              "label": "Generated SQL under user permissions"
+            },
+            {
+              "id": "rs",
+              "label": "Result"
+            },
+            {
+              "id": "fb",
+              "label": "Feedback and benchmark review"
+            }
+          ],
+          "edges": [
+            {
+              "from": "cu",
+              "to": "qs"
+            },
+            {
+              "from": "qs",
+              "to": "sq"
+            },
+            {
+              "from": "sq",
+              "to": "rs"
+            },
+            {
+              "from": "rs",
+              "to": "fb"
+            },
+            {
+              "from": "fb",
+              "to": "cu",
+              "label": "improve"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "What would you put in the instructions for a fiscal-year metric?",
+        "How would you stop one expensive question from consuming a whole warehouse?",
+        "Who should own a Genie space?"
+      ],
+      "related": [
+        "genie-vs-text-to-sql-vs-rag-vs-bi",
+        "evaluating-nl-to-sql-correctness"
+      ]
+    },
+    {
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "slug": "genie-vs-text-to-sql-vs-rag-vs-bi",
+      "title": "Genie vs custom text-to-SQL vs RAG vs a conventional BI dashboard: how do you choose?",
+      "topic": "Analytics AI options",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "text-to-sql",
+        "rag",
+        "bi",
+        "genie",
+        "decision"
+      ],
+      "quick": "I choose by question type. Known, repeated questions that leadership must trust belong on a governed dashboard. Exploratory questions over structured data suit a managed natural-language tool such as Genie. A custom text-to-SQL service makes sense when I need embedding in my own product, special control or unusual logic, at the cost of owning evaluation and security. RAG fits unstructured documents, not aggregations. Often the answer is a combination, with the semantic layer shared by all.",
+      "revision": "Dashboard for fixed trusted KPIs, managed NL tool for exploration, custom text-to-SQL for embedded or special needs, RAG for documents. Share one semantic layer.",
+      "detailed": "There is no single winner; the question type decides.\n\n## Comparison\n\n| Option | Best for | Strengths | Weaknesses |\n|---|---|---|---|\n| Conventional BI dashboard | Fixed KPIs, regular reviews | Reviewed, consistent, fast, cheap per view | Cannot answer new questions without a developer |\n| Managed natural-language tool such as Genie | Exploratory questions by business users over curated data | Fast to start, governed access, vendor maintained | Limited customisation; needs curation and evaluation |\n| Custom text-to-SQL service | Embedding in a product, bespoke logic, multi-source | Full control of prompts, guardrails, UX | You own accuracy testing, security, cost and upkeep |\n| RAG over documents | Policies, contracts, reports, knowledge articles | Handles unstructured text with citations | Poor at precise numbers and aggregation |\n\n## Selection questions\n\n1. Is the question **repeated and executive-facing**? Use a dashboard with certified metrics.\n2. Is it **new and structured**? Use a managed natural-language tool on a curated space.\n3. Does it need to live **inside our own application** or combine unusual sources? Consider custom.\n4. Is the answer in **text**? Use RAG.\n5. Does the question mix both (\"why did revenue drop, according to the quarterly report\")? Orchestrate: SQL for numbers, retrieval for narrative.\n\n{{diagram:pick}}\n\n## Common mistakes\n\n- Building custom text-to-SQL when a managed tool meets 80 per cent of needs.\n- Using RAG to answer numeric questions.\n- Replacing a trusted dashboard with a chat tool that nobody validated.\n- Having each option compute metrics independently.\n\nAll of these should draw on the **same governed metric definitions**. Verify the capabilities of the specific products in current vendor documentation.",
+      "diagrams": [
+        {
+          "id": "pick",
+          "title": "Choosing an analytics AI approach",
+          "alt": "A question is classified. Repeated executive questions go to a certified dashboard. New structured questions go to a managed natural language tool. Questions embedded in a product go to a custom text to SQL service. Questions about documents go to retrieval augmented generation. All structured routes use a shared semantic layer.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "q",
+              "label": "Question type"
+            },
+            {
+              "id": "d",
+              "label": "Certified dashboard"
+            },
+            {
+              "id": "m",
+              "label": "Managed natural-language tool"
+            },
+            {
+              "id": "c",
+              "label": "Custom text-to-SQL service"
+            },
+            {
+              "id": "r",
+              "label": "RAG over documents"
+            },
+            {
+              "id": "s",
+              "label": "Shared semantic layer and governed data"
+            }
+          ],
+          "edges": [
+            {
+              "from": "q",
+              "to": "d",
+              "label": "repeated, executive"
+            },
+            {
+              "from": "q",
+              "to": "m",
+              "label": "new, structured"
+            },
+            {
+              "from": "q",
+              "to": "c",
+              "label": "embedded or bespoke"
+            },
+            {
+              "from": "q",
+              "to": "r",
+              "label": "unstructured text"
+            },
+            {
+              "from": "d",
+              "to": "s"
+            },
+            {
+              "from": "m",
+              "to": "s"
+            },
+            {
+              "from": "c",
+              "to": "s"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you combine SQL results and document retrieval in one answer?",
+        "When is a custom build justified over a managed tool?",
+        "How do you stop users bypassing the trusted dashboard?"
+      ],
+      "related": [
+        "databricks-genie-overview-and-evaluation",
+        "executive-kpi-mismatch-ai-vs-dashboard"
+      ]
+    },
+    {
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "slug": "evaluating-nl-to-sql-correctness",
+      "title": "How do you evaluate the correctness of a natural-language-to-SQL system?",
+      "topic": "Text-to-SQL evaluation",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "text-to-sql",
+        "evaluation",
+        "execution-accuracy",
+        "access-control"
+      ],
+      "quick": "I build a benchmark of real business questions with gold SQL and expected results, reviewed by data owners. I measure execution accuracy, meaning the result matches, not whether the SQL text matches. I include ambiguous questions, metric-definition traps, time-window edge cases and permission tests across user personas, and I track cost and latency. The benchmark runs on every change to instructions, schema or model, and failures feed back into curation. Passing a demo is not evidence.",
+      "revision": "Gold question set, execution accuracy on results, ambiguity and metric-definition cases, per-persona access tests, cost guardrails, and a regression run on every change.",
+      "detailed": "Comparing SQL strings is misleading: many queries are equivalent. Compare **results**, then investigate the difference.\n\n## Building the benchmark\n\n- Collect real questions from stakeholders and support logs, not just ones the builder invents.\n- Write **gold SQL** with data owners and store the expected result on a frozen snapshot, or compute both at the same time.\n- Cover easy, medium and hard: joins, filters, time windows, ratios, rankings, null handling.\n- Tag each case by risk (executive metric, finance, personal data).\n\n## Metrics\n\n| Metric | Meaning |\n|---|---|\n| Execution accuracy | Generated query returns the same result as gold |\n| Metric-definition accuracy | Uses the certified definition (net revenue, active customer) |\n| Ambiguity handling | Asks a clarifying question or states its assumption |\n| Refusal quality | Declines unanswerable or unauthorised questions |\n| Cost and latency | Rows scanned, runtime, compute spent per question |\n\n## Special test groups\n\n- **Ambiguity:** \"last quarter\" (fiscal or calendar?), \"customers\" (accounts or contacts?).\n- **Metric traps:** gross versus net, refunds, duplicates, time zones.\n- **Access control:** run the same question as users with different roles; confirm masked columns and filtered rows.\n- **Safety:** write or destructive statements must be impossible by permission, not by prompt.\n- **Cost:** enforce row limits, timeouts and query budgets.\n\n{{diagram:eval}}\n\n## Common mistakes\n\n- Reporting a single overall accuracy that hides failures on the key metrics.\n- Evaluating once, then changing instructions without re-running.\n- Letting the model's own judgement approve its SQL.\n- Treating a wrong confident answer as acceptable because a human \"can check\".",
+      "diagrams": [
+        {
+          "id": "eval",
+          "title": "NL to SQL evaluation loop",
+          "alt": "A benchmark of questions with gold SQL is run against the system. Generated queries are executed and results are compared with gold results. Access control and cost tests run in parallel. Failures are analysed and fixed in instructions or schema and the benchmark is run again.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "b",
+              "label": "Benchmark: questions and gold SQL"
+            },
+            {
+              "id": "s",
+              "label": "System generates SQL"
+            },
+            {
+              "id": "x",
+              "label": "Execute and compare results"
+            },
+            {
+              "id": "a",
+              "label": "Access and cost tests"
+            },
+            {
+              "id": "f",
+              "label": "Analyse failures"
+            },
+            {
+              "id": "i",
+              "label": "Fix instructions or schema"
+            }
+          ],
+          "edges": [
+            {
+              "from": "b",
+              "to": "s"
+            },
+            {
+              "from": "s",
+              "to": "x"
+            },
+            {
+              "from": "s",
+              "to": "a"
+            },
+            {
+              "from": "x",
+              "to": "f"
+            },
+            {
+              "from": "a",
+              "to": "f"
+            },
+            {
+              "from": "f",
+              "to": "i"
+            },
+            {
+              "from": "i",
+              "to": "s",
+              "label": "re-run"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you handle questions with more than one valid answer?",
+        "How large should the benchmark be?",
+        "How would you monitor accuracy after launch?"
+      ],
+      "related": [
+        "databricks-genie-overview-and-evaluation",
+        "executive-kpi-mismatch-ai-vs-dashboard"
+      ]
+    },
+    {
+      "companies": [
+        "wpp"
+      ],
+      "sourceType": "new",
+      "sources": [],
+      "slug": "executive-kpi-mismatch-ai-vs-dashboard",
+      "title": "Executives get two different numbers for the same KPI from the AI assistant and the dashboard. How do you resolve it?",
+      "topic": "Metric trust",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "semantic-layer",
+        "kpi",
+        "lineage",
+        "trust",
+        "governance"
+      ],
+      "quick": "First I contain trust damage by telling executives the dashboard is the reference while I investigate. Then I reproduce both numbers, compare the generated SQL with the dashboard query, and find the difference: definition, filter, time window, join duplication or stale data. The durable fix is one governed semantic layer with certified metric definitions used by both, plus lineage, a named owner and a regression test. Then I communicate what changed and add the case to the benchmark.",
+      "revision": "Contain, reproduce, diff the queries, find the cause, then fix at the source with one certified semantic layer, lineage, an owner and a regression test.",
+      "detailed": "Treat it as an incident about **trust**, not just a bug.\n\n## Step 1: contain\n\n- Tell stakeholders which source is authoritative today (usually the reviewed dashboard) and that you are investigating.\n- Consider adding a visible caveat to the assistant answer for that KPI.\n\n## Step 2: reproduce and diff\n\nCapture the exact question, user, time and generated SQL. Compare with the dashboard query. Typical causes:\n\n| Cause | Example |\n|---|---|\n| Different definition | Gross versus net revenue, active versus registered |\n| Different filters | Excluded test accounts or cancelled orders |\n| Time window | Fiscal versus calendar, time zone, partial period |\n| Join duplication | One-to-many join inflating sums |\n| Data freshness | Cached extract versus live table |\n| Different tables | Raw table versus modelled mart |\n\n## Step 3: fix at the source\n\n- Define the KPI **once** in a semantic or metrics layer with an owner, description and version.\n- Point both the dashboard and the assistant at it; the assistant should use certified definitions or example queries, not improvise.\n- Document **lineage** so you can trace a number to its source tables and transformations.\n- Add reconciliation checks between the layer and the dashboard.\n\n{{diagram:kpi}}\n\n## Step 4: prevent recurrence\n\n- Add the case to the benchmark and run it on every change.\n- Show metric definitions and last refresh time next to answers.\n- Route unknown or uncertified metrics to \"not certified\" rather than a confident guess.\n\n## Common mistakes\n\n- Patching the assistant prompt for one number without fixing the definition.\n- Declaring the AI wrong without checking whether the dashboard is.\n- Leaving two definitions alive because both teams \"own\" them.\n- Not telling executives what changed.",
+      "diagrams": [
+        {
+          "id": "kpi",
+          "title": "One metric definition feeding both surfaces",
+          "alt": "Source data flows through transformations into a semantic layer holding a certified metric definition with an owner. Both the dashboard and the AI assistant read the metric from the semantic layer. A reconciliation check compares their outputs and alerts the owner when they differ.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "src",
+              "label": "Source tables"
+            },
+            {
+              "id": "tr",
+              "label": "Transformations with lineage"
+            },
+            {
+              "id": "sl",
+              "label": "Semantic layer: certified metric and owner"
+            },
+            {
+              "id": "db",
+              "label": "Dashboard"
+            },
+            {
+              "id": "ai",
+              "label": "AI assistant"
+            },
+            {
+              "id": "rc",
+              "label": "Reconciliation check"
+            }
+          ],
+          "edges": [
+            {
+              "from": "src",
+              "to": "tr"
+            },
+            {
+              "from": "tr",
+              "to": "sl"
+            },
+            {
+              "from": "sl",
+              "to": "db"
+            },
+            {
+              "from": "sl",
+              "to": "ai"
+            },
+            {
+              "from": "db",
+              "to": "rc"
+            },
+            {
+              "from": "ai",
+              "to": "rc"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you decide which definition of the KPI is the correct one?",
+        "What do you show executives to rebuild trust?",
+        "How would you detect a mismatch before executives do?"
+      ],
+      "related": [
+        "genie-vs-text-to-sql-vs-rag-vs-bi",
+        "evaluating-nl-to-sql-correctness"
+      ]
+    }
+  ]
+}
