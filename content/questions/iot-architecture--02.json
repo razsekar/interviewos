@@ -1,0 +1,630 @@
+{
+  "category": "iot-architecture",
+  "questions": [
+    {
+      "slug": "size-iot-platform-for-100k-devices",
+      "title": "How would you size an IoT platform for 100,000 devices that send data every 10 seconds?",
+      "topic": "Sizing and daily message volume",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "sizing",
+        "throughput",
+        "capacity",
+        "volume",
+        "storage"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            16,
+            17
+          ]
+        }
+      ],
+      "quick": "I would start with the arithmetic. One hundred thousand devices, each sending one message every ten seconds, is an average of 10,000 messages per second. Over a day of 86,400 seconds, that is 864 million messages. Those numbers are averages, so I would size for peaks and for alignment: if every device reports on the same schedule, the traffic arrives in bursts. I would spread device schedules with jitter. Then I would multiply the message count by payload size, metadata, indexing, replication and retention to size storage. Finally I would confirm service limits in current documentation and validate capacity with a load test rather than trusting the estimate.",
+      "revision": "100,000 devices every 10 seconds is 10,000 messages per second, or 864 million per day; size for peaks, not just averages.",
+      "detailed": "Sizing an IoT platform starts with a few multiplications, then turns into a design question about peaks, storage and limits. The arithmetic is simple, and it is worth stating each assumption out loud.\n\n## The arithmetic\n\n- Devices times messages per device per second gives the average rate: 100,000 divided by 10 is 10,000 messages per second.\n- Average rate times seconds per day gives the daily volume: 10,000 multiplied by 86,400 is 864,000,000 messages per day.\n- Over a year that is about 315 billion messages, because 864 million multiplied by 365 is 315.36 billion.\n\nThese figures assume exactly one message per device per interval. Retries, acknowledgements, firmware reports and commands add to the count, so measure the real rate.\n\n## Storage follows volume times size\n\nStorage depends on bytes per message, not message count alone. As an illustrative example only, a 200-byte stored record across 864 million messages is about 172.8 GB per day before indexing, replication, compression and retention policy. Those factors can change the total substantially, so the estimate is a starting point, not a budget.\n\n## Peaks, not averages\n\nThe average is the wrong number for capacity. Devices that start together, such as after a power restoration or on a shared timer, produce bursts far above the average. Add random offsets to device schedules so reports spread across the interval, and size ingestion, consumers and storage writes for the peak the design must absorb, with headroom.\n\n## Limits and validation\n\nManaged services have quotas for connections, publish rates and throughput. Check current documentation for those limits and request increases early if needed. The estimate is only credible after a load test that reproduces realistic payloads, connection churn and burst patterns.\n\n## Common mistakes\n\n- Multiplying by 86,400 without noting the average-versus-peak gap.\n- Ignoring payload growth, indexes and replication when estimating storage.\n- Sizing for the steady state and forgetting the reconnect storm after an outage.\n\n## Practical example\n\nA smart-meter fleet of 100,000 meters reports every ten seconds. The team estimates 10,000 messages per second on average, plans for a peak several times higher after scheduling jitter is applied, and tests consumers at that peak before launch.",
+      "followUps": [
+        "How would you adjust the estimate if half the devices reported every minute?",
+        "What changes when you add firmware reports and command acknowledgements?",
+        "How would you test the peak behaviour before launch?"
+      ],
+      "related": [
+        "high-volume-ingestion-design",
+        "ingestion-spikes-and-reconnect-storms"
+      ]
+    },
+    {
+      "slug": "high-volume-ingestion-design",
+      "title": "How would you design a high-volume IoT ingestion system?",
+      "topic": "High-volume ingestion architecture",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "ingestion",
+        "streaming",
+        "idempotency",
+        "dead-letter",
+        "architecture",
+        "scaling"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            23
+          ]
+        }
+      ],
+      "diagrams": [
+        {
+          "id": "ingest",
+          "title": "High-volume IoT ingestion pipeline",
+          "alt": "Devices publish to IoT Core, which authenticates them and passes messages to a rules engine. The rules engine writes to a durable stream, and autoscaled consumers write to hot and cold stores. Failed messages go to a dead-letter queue, and metrics feed alerts.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "dev",
+              "label": "Devices"
+            },
+            {
+              "id": "core",
+              "label": "IoT Core broker"
+            },
+            {
+              "id": "rules",
+              "label": "Rules engine"
+            },
+            {
+              "id": "stream",
+              "label": "Durable stream"
+            },
+            {
+              "id": "cons",
+              "label": "Autoscaled consumers"
+            },
+            {
+              "id": "hot",
+              "label": "Hot store (latest state)"
+            },
+            {
+              "id": "cold",
+              "label": "Archive (raw history)"
+            },
+            {
+              "id": "dlq",
+              "label": "Dead-letter queue"
+            },
+            {
+              "id": "alerts",
+              "label": "Metrics and alerts"
+            }
+          ],
+          "edges": [
+            {
+              "from": "dev",
+              "to": "core",
+              "label": "MQTT, authenticated"
+            },
+            {
+              "from": "core",
+              "to": "rules",
+              "label": "matching messages"
+            },
+            {
+              "from": "rules",
+              "to": "stream",
+              "label": "routed events"
+            },
+            {
+              "from": "stream",
+              "to": "cons",
+              "label": "partitioned by device"
+            },
+            {
+              "from": "cons",
+              "to": "hot",
+              "label": "upsert if newer"
+            },
+            {
+              "from": "cons",
+              "to": "cold",
+              "label": "append"
+            },
+            {
+              "from": "cons",
+              "to": "dlq",
+              "label": "poison or exhausted retries"
+            },
+            {
+              "from": "cons",
+              "to": "alerts",
+              "label": "lag, errors, throttles"
+            }
+          ]
+        }
+      ],
+      "quick": "I would authenticate devices at the broker, route messages through a rules engine, and write them to a durable stream before any slow processing. That buffer absorbs spikes and decouples devices from databases. Consumers scale on backlog and lag, partitioned by device so each device's events stay ordered. Each event has a stable identifier, so retried writes are idempotent. Storage follows access pattern: a keyed store for latest state, object storage for raw history. Failed messages go to a dead-letter queue with alerts, not an endless retry loop.",
+      "revision": "Authenticate at the broker, buffer in a durable stream, scale consumers on lag, write idempotently, and divert poison messages to a dead-letter queue.",
+      "detailed": "A high-volume IoT ingestion system has one job: accept a very large, bursty stream of device messages without losing data, without overloading downstream stores, and without letting one bad message stop the pipeline. The architecture below separates those concerns so each part can scale and fail on its own.\n\n{{diagram:ingest}}\n\n## Stages\n\n1. **Authenticate and accept.** The broker verifies each device's identity and enforces per-device topic policies. Devices never write directly to a database.\n2. **Route.** A rules engine selects and forwards messages by topic and content. Keep this stage light.\n3. **Buffer.** A durable stream or queue absorbs bursts. Its retention must cover the time a consumer might be down or a replay might be needed.\n4. **Process.** Consumers validate, enrich and write. They scale on backlog and lag, not just CPU.\n5. **Store by access pattern.** A keyed store holds latest state for dashboards and commands. Raw history goes to cheaper object storage. Time-series or analytics stores serve specific query needs.\n6. **Fail safely.** Messages that cannot be processed after bounded retries go to a dead-letter queue, with enough context to inspect and replay them.\n\n## Key decisions\n\n- **Partition key.** Partitioning by device identifier keeps each device's events in order within a partition, but a few very busy devices can create hot partitions. Choose the key with the query and ordering needs in mind.\n- **Idempotent writes.** Each event carries a stable identifier. Consumers write conditionally, so a retried message does not create duplicates.\n- **Backpressure.** The stream absorbs spikes, but consumers must still be bounded. Rate limits and concurrency caps protect the stores.\n\n## Common mistakes\n\n- Writing from the rules engine straight into a database, so every spike becomes a database spike.\n- Retrying a poison message forever, which blocks its partition.\n- Scaling consumers on CPU when the real constraint is downstream write capacity.\n- Monitoring only throughput, not lag, queue age and dead-letter depth.\n\n## Practical example\n\nTelemetry from a fleet of environmental sensors flows into a stream partitioned by sensor identifier. One consumer group updates each sensor's latest value only when the incoming sequence number is newer, and another appends raw events to archive storage. A malformed payload is moved to the dead-letter queue after three attempts, and the operations team is alerted on its count.",
+      "followUps": [
+        "How would you choose the partition key, and what goes wrong if it is too coarse?",
+        "How do you replay the dead-letter queue safely after fixing a bug?",
+        "Where would you put backpressure if the hot store slows down?"
+      ],
+      "related": [
+        "size-iot-platform-for-100k-devices",
+        "duplicate-telemetry-and-billing",
+        "ingestion-spikes-and-reconnect-storms"
+      ]
+    },
+    {
+      "slug": "ingestion-spikes-and-reconnect-storms",
+      "title": "How do you handle ingestion spikes and mass device reconnects?",
+      "topic": "Ingestion resilience",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "spikes",
+        "backpressure",
+        "reconnect",
+        "backoff",
+        "jitter",
+        "quotas"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            17
+          ]
+        }
+      ],
+      "quick": "For a traffic spike, I would buffer messages in a durable stream and scale consumers on backlog and lag, so the pipeline catches up. I would cap retries, defer non-critical telemetry if needed, and watch queue age and throttling. For mass reconnects, such as tens of thousands of devices returning after a network event, the risk is that they all retry together. I would require exponential backoff with random jitter on every device, add server-side admission control, and check current quotas. Then I would load-test the whole reconnect path.",
+      "revision": "Buffer spikes in a durable stream, scale on backlog, and make devices reconnect with jittered exponential backoff so they never retry in lockstep.",
+      "detailed": "Two failures look alike from the outside but need different answers. An ingestion spike is more messages than the pipeline can process at once. A reconnect storm is many devices trying to re-establish connections at the same moment, which hits the connection layer and then the pipeline behind it. Both need bounded behaviour, not heroic scaling.\n\n## Absorbing a spike\n\nThe durable stream is the shock absorber. Accepting a message into the buffer is cheap compared with processing it, so the buffer lets consumers catch up after the spike. Scale consumers on backlog and lag, not only on CPU. Watch queue age, because a growing age means the system is falling behind even when throughput looks healthy.\n\nSet limits deliberately. Retries should be capped, and non-critical telemetry such as verbose diagnostics can be sampled or deferred during an incident, while safety or alarm messages keep priority.\n\n## Reconnect storms\n\nWhen a regional network event ends, every device may try to reconnect within the same second. Devices that retry on a fixed schedule synchronise and make the storm worse. Each device should use exponential backoff with random jitter. A widely used form is \"full jitter\": pick a random delay between zero and the capped exponential value.\n\n```python\nimport random\n\ndef reconnect_delay(attempt: int, base: float = 1.0, cap: float = 300.0) -> float:\n    \"\"\"Full-jitter exponential backoff: random delay up to the capped exponential.\"\"\"\n    return random.uniform(0, min(cap, base * (2 ** attempt)))\n```\n\nOn the server side, apply admission control so the connection layer and the pipeline accept only what they can handle. Connection and publish rates are governed by service quotas, so check current limits and plan headroom or quota increases before you need them.\n\n## Trade-offs\n\nJitter spreads load but makes recovery slower for an individual device. Dropping telemetry protects the system but loses information, so decide in advance which data classes may be dropped. Scaling capacity ahead of an expected event costs money, so use it for known events only.\n\n## Common mistakes\n\n- Using fixed retry intervals, which create synchronised waves.\n- Retrying without a cap, so a long outage generates unbounded retry traffic.\n- Scaling consumers without checking downstream write limits.\n- Never load-testing the reconnect path.\n\n## Practical example\n\nAfter a network fault, thirty thousand devices reconnect over several minutes. Each one uses jittered backoff, the broker admits connections within its limits, and buffered telemetry drains from the stream as consumers scale on lag. The team watches queue age and drops to zero after the backlog clears.",
+      "followUps": [
+        "How would you size the buffer for a spike that lasts an hour?",
+        "What is the difference between full jitter and equal jitter?",
+        "How would you prioritise alarm messages during a backlog?"
+      ],
+      "related": [
+        "size-iot-platform-for-100k-devices",
+        "intermittent-connectivity-design"
+      ]
+    },
+    {
+      "slug": "duplicate-telemetry-and-billing",
+      "title": "How do you prevent duplicate telemetry and duplicate billing from IoT events?",
+      "topic": "Idempotent telemetry and billing",
+      "difficulty": "advanced",
+      "type": "conceptual",
+      "tags": [
+        "idempotency",
+        "deduplication",
+        "qos",
+        "billing",
+        "event-id",
+        "retries"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            17
+          ]
+        }
+      ],
+      "quick": "Duplicates come from many places: QoS 1 retransmissions, a device that resends after a lost acknowledgement, replays of buffered data after an outage, and consumer retries. I would give every event a stable identifier created at the source, such as device identifier plus sequence number, and store it inside the payload. The consumer then enforces uniqueness with a conditional write, so the second copy changes nothing. The deduplication window has to cover the longest replay a device can perform. For billing, I would key each charge line on the event identifier and enforce uniqueness at the ledger, then reconcile billing against source events, because deduplication cannot repair missing or wrong source data.",
+      "revision": "Stable source event IDs plus conditional writes at the durable boundary make duplicates harmless, including for billing.",
+      "detailed": "Devices and networks deliver messages at least once in practice, so every consumer must assume it can see the same event again. The goal is not to stop duplicates from arriving, which is not realistic, but to make a duplicate harmless when it does.\n\n## Where duplicates come from\n\n- **Protocol retransmission.** A QoS 1 publish is retransmitted until acknowledged, so the broker can deliver it more than once.\n- **Lost acknowledgements.** The broker stored the message, but the device never saw the acknowledgement and resends.\n- **Replay after an outage.** Buffered data is uploaded again, possibly with a new connection and a new delivery attempt.\n- **Consumer retries.** A consumer that times out after writing will retry and write again.\n\nQoS 2 removes duplicates on one link only, as covered in the QoS question. It does not protect the consumer's write.\n\n## Stable identifiers\n\nGenerate the identifier on the device or at the first trusted ingestion point, not at the consumer. A common shape is device identifier plus a monotonic sequence number, or a UUID created when the reading is taken. Put it in the payload so that every copy carries the same value.\n\n## Enforcing uniqueness\n\nMake the write conditional on the identifier not existing. A relational database can use a unique constraint on the key, and a key-value store can use a conditional put. The check must happen in durable storage shared by all consumers. An in-memory cache alone fails when consumers restart or scale out.\n\nThe deduplication window must be at least as long as the longest replay a device can perform. If a device can buffer for a week and upload later, a one-hour dedup window will miss real duplicates.\n\n## Billing specifics\n\nBilling is more sensitive than telemetry. Key each charge line on the source event identifier and enforce uniqueness at the ledger boundary, so the same usage event cannot produce two charges. Reconcile periodically: compare billed lines with source events, investigate gaps and missing data, and keep a correction process that is itself auditable.\n\n## Common mistakes\n\n- Generating IDs in the consumer, so retries get fresh identifiers and dedup never matches.\n- Deduplicating only in memory.\n- Setting the window shorter than the replay horizon.\n- Treating deduplication as a fix for wrong source data.\n\n## Practical example\n\nA meter sends a usage record with its device identifier and a sequence number. The consumer inserts the record keyed on that pair, and the ledger line for billing is keyed on the same pair. A replayed record fails the insert and is acknowledged as already processed.",
+      "followUps": [
+        "How long should the deduplication window be, and how would you choose it?",
+        "How would you reconcile billing if a device's sequence numbers reset after a firmware update?",
+        "Why is an in-memory cache not enough for deduplication?"
+      ],
+      "related": [
+        "mqtt-qos-levels",
+        "out-of-order-telemetry",
+        "high-volume-ingestion-design"
+      ]
+    },
+    {
+      "slug": "out-of-order-telemetry",
+      "title": "How do you handle out-of-order IoT telemetry?",
+      "topic": "Event time and ordering",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "ordering",
+        "event-time",
+        "sequence",
+        "state",
+        "timestamps"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            17
+          ]
+        }
+      ],
+      "quick": "Telemetry can arrive out of order because devices buffer, retry, or reconnect through different network paths. I would keep event time, the moment the reading was taken, separate from receipt time, the moment the platform saw it. For the latest-state view, I would use a per-device sequence number or event time as a version and write only when the incoming value is newer than what is stored, so a late, stale message cannot overwrite fresher state. For history, I would keep every event append-only and order it by event time when reading. I would also be cautious about device clocks, which drift, and apply domain rules where ordering actually matters, such as state transitions.",
+      "revision": "Keep event time and receipt time apart, guard latest state with a sequence or version, and keep history append-only.",
+      "detailed": "Out-of-order delivery is normal in IoT. A device that buffers readings during an outage uploads them later, and a retry can overtake a fresh message on another path. The system has to decide which order matters for each use and enforce it deliberately.\n\n## Two clocks\n\nEvery message has at least two times. The event time is when the device sampled the value, and the receipt time is when the platform accepted it. Storing both lets you answer \"what happened\" and \"what did we know, and when.\" Device clocks drift and may be wrong after a reset, so treat event time as a claim, not a fact. Where the domain allows, use the device's sequence number for ordering and keep the timestamp for display and analysis.\n\n## Guard latest state\n\nFor a \"current value\" view, write only when the incoming sequence number is greater than the stored one. This is an optimistic guard, and the check should be atomic with the write, such as a conditional update.\n\n```python\ndef apply_reading(state: dict, reading: dict) -> dict:\n    # A stale or duplicate reading must not overwrite a newer value.\n    if reading[\"seq\"] <= state.get(\"last_seq\", -1):\n        return state\n    return {\"last_seq\": reading[\"seq\"], \"value\": reading[\"value\"]}\n```\n\nThe function is pure, so the real protection comes from applying the same rule atomically in storage.\n\n## Keep history append-only\n\nDo not try to make history ordered at write time. Append every event with its identifiers and both timestamps, and order by event time when you query. Late events then join the history at their correct position, and nothing is lost.\n\n## Domain rules\n\nOrdering matters differently for different signals. A counter that accumulates is order-independent if you sum it, but a state machine such as \"door opened, then closed\" is not. For those, decide whether to reject illegal transitions, hold events briefly in a window until late data arrives, or record them and flag the inconsistency. Stream processors support windows with a bounded allowed lateness, and that bound is a product decision.\n\n## Common mistakes\n\n- Overwriting latest state on every message, so a late reading reverts the dashboard.\n- Trusting device clocks without validation.\n- Dropping late messages silently.\n\n## Practical example\n\nA soil sensor uploads six hours of buffered readings after reconnecting. The history table receives them all, ordered by event time at query time, and the dashboard's current value is unchanged because the sequence guard rejects the older readings.",
+      "followUps": [
+        "How would you handle a device whose clock is wrong by several minutes?",
+        "What is allowed lateness in a stream processor, and how would you set it?",
+        "Which signals can tolerate reordering and which cannot?"
+      ],
+      "related": [
+        "duplicate-telemetry-and-billing",
+        "intermittent-connectivity-design"
+      ]
+    },
+    {
+      "slug": "intermittent-connectivity-design",
+      "title": "How would you design a system for devices with intermittent connectivity?",
+      "topic": "Offline-tolerant device design",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "offline",
+        "edge",
+        "store-and-forward",
+        "buffering",
+        "idempotency",
+        "sync",
+        "greengrass"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            16,
+            17,
+            24
+          ]
+        }
+      ],
+      "diagrams": [
+        {
+          "id": "offline",
+          "title": "Store-and-forward path for an intermittently connected device",
+          "alt": "A sensor writes readings to a local buffer. An optional edge runtime can act locally. When the link is up, the device sends batches to IoT Core, where idempotent ingestion writes events keyed by identifier, and a status view shows last sync and buffer depth.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "sensor",
+              "label": "Sensor loop"
+            },
+            {
+              "id": "buf",
+              "label": "Local buffer"
+            },
+            {
+              "id": "edge",
+              "label": "Edge runtime (optional)"
+            },
+            {
+              "id": "core",
+              "label": "IoT Core connection"
+            },
+            {
+              "id": "ingest",
+              "label": "Idempotent ingestion"
+            },
+            {
+              "id": "store",
+              "label": "Event store (event and receipt time)"
+            },
+            {
+              "id": "status",
+              "label": "Sync status view"
+            }
+          ],
+          "edges": [
+            {
+              "from": "sensor",
+              "to": "buf",
+              "label": "write with event ID"
+            },
+            {
+              "from": "edge",
+              "to": "buf",
+              "label": "local decisions"
+            },
+            {
+              "from": "buf",
+              "to": "core",
+              "label": "batch when online"
+            },
+            {
+              "from": "core",
+              "to": "ingest",
+              "label": "messages"
+            },
+            {
+              "from": "ingest",
+              "to": "store",
+              "label": "insert if new"
+            },
+            {
+              "from": "store",
+              "to": "status",
+              "label": "last synced sequence"
+            }
+          ]
+        }
+      ],
+      "quick": "I would design the device to assume the network may be down. Critical readings go into a bounded local buffer with a stable identifier and sequence number, and the device uploads in batches with jittered backoff when it reconnects. If decisions are needed offline, an edge runtime such as Greengrass can run them locally. On the backend, ingestion is idempotent, so replayed batches change nothing, and each event keeps event and receipt time. I would expose last synced sequence and buffer depth to operators, and give commands an expiry so they do not run late.",
+      "revision": "Buffer locally with stable IDs, upload in batches with backoff, make ingestion idempotent, and expose sync status.",
+      "detailed": "A device with intermittent connectivity must keep doing its job when the link is down, and the backend must reconcile everything when the link returns. The design is a store-and-forward loop on the device, plus idempotent, time-aware ingestion and visible sync status on the backend.\n\n{{diagram:offline}}\n\n## Device side\n\n- **Buffer critical data locally.** Use a bounded, persistent buffer. Decide in advance what to drop when the buffer fills, such as oldest routine readings first, and keep alarms longer. Flash storage wears and fills, so the bound is a design requirement.\n- **Stamp every reading.** Assign a stable event identifier and a per-device sequence number when the reading is taken, not when it is uploaded.\n- **Act locally when needed.** An edge runtime such as AWS IoT Greengrass can run components on the device or a gateway, so decisions such as shutting a valve during a fault do not wait for the cloud. Check current supported platforms and component models before you design around them.\n- **Reconnect with backoff.** Retry with exponential backoff and jitter, and upload in batches to reduce overhead.\n\n## Backend side\n\nIngestion must be idempotent, because a batch may be uploaded twice after a lost acknowledgement. Insert on the event identifier, as described in the duplicates question. Keep the event time from the device and the receipt time from the platform, so late data appears where it belongs in history and the platform can still report when it arrived.\n\n## Visibility\n\nOperators need to know which devices are behind. Track last-seen time, last synced sequence and buffer depth, reported by the device when it can. A device that has not synced for longer than its expected pattern should appear in a \"behind\" list, not in a generic error count.\n\n## Trade-offs\n\nLarger buffers survive longer outages but cost storage and may replay a large backlog at once. Batching cuts overhead but delays data. Local processing lowers latency and dependency on the cloud but moves logic onto devices that are harder to update.\n\n## Common mistakes\n\n- An unbounded buffer that fills the device's storage.\n- Re-sending buffered data with new identifiers, which defeats deduplication.\n- Assuming the device is online when it writes a command's result.\n- Sending commands with no expiry, so a stale command runs hours later.\n\n## Practical example\n\nA soil sensor in a remote field writes readings to flash with sequence numbers. When the cellular link returns, it uploads in batches, and the backend records the last synced sequence. The dashboard shows the sensor as behind until the sequence catches up.",
+      "followUps": [
+        "How big should the buffer be, and how would you derive that size?",
+        "What do you do with commands issued during a long outage?",
+        "When would you move a decision onto the edge rather than the cloud?"
+      ],
+      "related": [
+        "detect-failed-devices",
+        "command-and-control-design",
+        "out-of-order-telemetry"
+      ]
+    },
+    {
+      "slug": "detect-failed-devices",
+      "title": "How do you detect a failed device without raising false alarms?",
+      "topic": "Device health and failure detection",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "health",
+        "heartbeat",
+        "last-seen",
+        "alerting",
+        "false-positives",
+        "connectivity"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            17,
+            18
+          ]
+        }
+      ],
+      "quick": "I would track last-seen time for every device and compare it with that device's expected reporting pattern, rather than one global timeout. A missed heartbeat is not yet a failure, so I would alert only after several consecutive missed intervals. I would also separate two conditions. A device that is offline has lost its connection, which may be a network problem, while a failed device may still connect but report errors, bad values or failed self-checks. Combining connection lifecycle events, telemetry timestamps and the device's own health fields gives a much better signal than any one of them. A solar device that is normally silent at night should have a profile that expects that pattern.",
+      "revision": "Compare last-seen against each device's own expected interval, require several misses, and separate offline from failed using health fields.",
+      "detailed": "Failure detection is a classification problem. A silent device could be offline, asleep, out of coverage, or genuinely broken. A single timeout treats all of these the same, which floods operators with false alarms and still misses real faults that keep sending data.\n\n## Use per-device expectations\n\nEach device class has its own reporting pattern. A sensor that reports every ten seconds and a solar monitor that sleeps at night should not share one threshold. Store the expected interval in the device's profile or metadata, and set the alert threshold as a multiple of that interval, plus a grace period for normal jitter.\n\n## Require several misses\n\nAlert after several consecutive missed intervals, not one. This filters short network gaps and brief reboots. The right count depends on cost of a false alarm and the cost of a missed failure, so make it configurable and review it against real incidents.\n\n## Separate offline from failed\n\nThese conditions need different responses:\n\n| Signal | Likely meaning | Response |\n|---|---|---|\n| No connection lifecycle event and no telemetry | Offline, possibly network | Watch, then notify the connectivity owner |\n| Connected, but health fields report errors | Device fault | Raise a device-fault alert |\n| Telemetry with out-of-range or stuck values | Sensor or firmware fault | Raise a data-quality alert |\n| Repeated reboots reported | Crash loop | Escalate with firmware context |\n\nConnection lifecycle events from the broker, where enabled, tell you when a device connected or disconnected. Check the current documentation for which events are available and how to subscribe to them.\n\n## Common mistakes\n\n- One global timeout for every device type.\n- Alerting on the first missed heartbeat.\n- Treating a quiet device as broken when it is designed to sleep.\n- Trusting \"connected\" as proof of health. A device can be connected and still faulty.\n\n## Practical example\n\nSolar monitors are expected to report every five minutes during daylight and every few hours at night. The platform compares each monitor's last-seen time against its daylight or night profile. A monitor that is silent during the day for several intervals, and whose last health report shows a sensor error, raises a fault alert. A monitor that is silent at night raises nothing.",
+      "followUps": [
+        "How would you tune the number of missed intervals before alerting?",
+        "How would you tell a network outage from many device failures at once?",
+        "What signals would you add to detect a device that is connected but silently wrong?"
+      ],
+      "related": [
+        "intermittent-connectivity-design",
+        "monitor-iot-platform"
+      ]
+    },
+    {
+      "slug": "command-and-control-design",
+      "title": "How would you design command and control for a device fleet?",
+      "topic": "Command and control",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "commands",
+        "authorization",
+        "acknowledgement",
+        "idempotency",
+        "expiry",
+        "shadow",
+        "mqtt"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            17
+          ]
+        }
+      ],
+      "diagrams": [
+        {
+          "id": "cmd",
+          "title": "Command lifecycle from operator to device and back",
+          "alt": "An operator submits a command to a command API, which authenticates and authorizes it and records it as pending with an expiry. The API publishes to the device's command topic through IoT Core. The device returns a result on an acknowledgement topic, and an ack handler updates the command record status.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "op",
+              "label": "Operator console"
+            },
+            {
+              "id": "api",
+              "label": "Command API (authn, authz)"
+            },
+            {
+              "id": "log",
+              "label": "Command record (ID, status, expiry)"
+            },
+            {
+              "id": "core",
+              "label": "IoT Core publish"
+            },
+            {
+              "id": "dev",
+              "label": "Device"
+            },
+            {
+              "id": "ack",
+              "label": "Ack handler"
+            }
+          ],
+          "edges": [
+            {
+              "from": "op",
+              "to": "api",
+              "label": "submit command"
+            },
+            {
+              "from": "api",
+              "to": "log",
+              "label": "record pending"
+            },
+            {
+              "from": "api",
+              "to": "core",
+              "label": "publish to device topic"
+            },
+            {
+              "from": "core",
+              "to": "dev",
+              "label": "deliver"
+            },
+            {
+              "from": "dev",
+              "to": "ack",
+              "label": "result on ack topic"
+            },
+            {
+              "from": "ack",
+              "to": "log",
+              "label": "update status"
+            }
+          ]
+        }
+      ],
+      "quick": "I would authenticate every command issuer and authorize each command against the device or tenant it targets, with least privilege for each command type. Each command gets a unique identifier, an expiry time and a recorded status, so the platform knows whether it is pending, delivered, acknowledged, failed or expired. I would deliver it through a per-device command topic, or through a desired-state update for configuration. The device must treat command identifiers as idempotent and refuse commands past their expiry. Publishing a message is not success, so the status changes only when the device sends a result. For dangerous actions I would also require the device to verify a signature on the command.",
+      "revision": "Authorize every command, give it an ID and expiry, deliver to a per-device topic, and treat only the device's acknowledgement as success.",
+      "detailed": "Command and control is the path from an operator or system to a specific device, with a reliable record of what was requested, what was delivered and what the device actually did. The main risk is confusing \"sent\" with \"done,\" so the design centres on tracking each command to a final state.\n\n{{diagram:cmd}}\n\n## Authorization first\n\nAuthenticate the issuer, then authorize the command against the target. An operator may be allowed to restart devices in one site but not to change their firmware. Keep the rules explicit by command type, and log every issued command with the issuer's identity.\n\n## Command records\n\nCreate a record before delivery: a unique command identifier, the target, the command type, parameters, the issuer, an expiry time and a status. Update the status as results arrive. The states usually include pending, delivered, acknowledged, succeeded, failed and expired. A command that reaches its expiry without a result becomes expired and is reported, not silently retried forever.\n\n## Delivery\n\nPublish to a per-device command topic that only that device may subscribe to. For configuration that should converge to a value, a Device Shadow desired-state update is often a better fit, because the device applies the latest value and reports back. For one-off actions, use a command with an identifier and an acknowledgement.\n\n## Device behaviour\n\nThe device should record which command identifiers it has already applied and ignore repeats. It should check the expiry against its own clock, with a tolerance, and refuse stale commands. For high-risk actions, verify a signature on the command body, so a forged message on the transport is rejected even if the topic policy is bypassed.\n\n## Trade-offs\n\nExpiry prevents stale actions but can drop a command that was valid when issued. Retries improve delivery but must be paired with idempotent execution on the device. Acknowledgements add traffic and a status-tracking job, which is worth the cost for anything that changes device behaviour.\n\n## Common mistakes\n\n- Marking a command successful when it was published.\n- Omitting expiry, so a command issued before an outage runs hours later.\n- Using broadcast topics that many devices can read or write.\n- Letting the device execute the same command identifier twice.\n\n## Practical example\n\nAn operator asks for a recalibration on one meter. The API checks the operator's permission for that region, records the command with a one-hour expiry and publishes it to the meter's command topic. The meter applies it, publishes a result with the same identifier, and the ack handler marks the command succeeded. If the meter is offline past the expiry, the record shows expired for the operator to review.",
+      "followUps": [
+        "How would you handle a device that acknowledges a command but fails to apply it?",
+        "When do you choose a Device Shadow update over a command?",
+        "How would you prevent one operator from commanding devices outside their tenant?"
+      ],
+      "related": [
+        "device-shadow-desired-state",
+        "intermittent-connectivity-design",
+        "regional-outage-planning"
+      ]
+    },
+    {
+      "slug": "regional-outage-planning",
+      "title": "How would you plan for an AWS IoT regional outage?",
+      "topic": "Regional resilience and disaster recovery",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "disaster-recovery",
+        "multi-region",
+        "rto",
+        "rpo",
+        "failover",
+        "endpoints",
+        "commands"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            18
+          ]
+        }
+      ],
+      "quick": "I would start with recovery objectives: RTO, how long each function can be unavailable, and RPO, how much data each class can lose. Telemetry can tolerate some loss because devices buffer, while commands and firmware rollouts need stricter handling. Device endpoints are regional, so failover needs a designed device-side switch to a second region, and credentials must work there too. I would replicate data asynchronously, prevent stale or duplicate commands with expiry and idempotency, and rehearse failover and failback before relying on them.",
+      "revision": "Set RTO and RPO per data class, design device-side regional failover and credentials, and rehearse failover and failback.",
+      "detailed": "A regional outage is a planning exercise before it is an incident. The real questions are which functions must keep working, how much data loss each function can tolerate, and whether devices can actually reach a second region when the first is down. Current regional features and any cross-region options should be checked in the provider's documentation, since they change over time.\n\n## Start with objectives\n\nDefine recovery time objective and recovery point objective per function. Telemetry ingestion may tolerate a short gap if devices buffer, so its RPO can be measured in minutes or hours depending on buffer size. Commands and firmware rollouts need stricter treatment because a lost command or a half-finished rollout has direct effects.\n\n## Device-side failover\n\nDevice endpoints are regional, so a device in one region cannot silently start talking to another without a plan. Options include configuring a secondary endpoint on the device, using a DNS-based approach, or having the device try a list of endpoints in order. Whichever you choose must be tested on real firmware, with real credentials, because it is the step most likely to fail.\n\nCredentials must also work in the secondary region. If device certificates are registered per region, that registration must be prepared in advance, and its cost and key handling must be part of the design.\n\n## Data and commands\n\nReplicate ingested data and device state asynchronously to the second region. Accept that some telemetry in flight may be lost, and let device buffers cover the gap where possible. Commands need special care. A command issued just before the outage may be delivered after failover, so it needs an identifier for idempotent execution and an expiry, so it does not run late. Do not replay a backlog of commands blindly.\n\n## Failback\n\nPlan the return path as carefully as the failover. Decide when the primary is healthy, how devices return, how data written in the secondary region is reconciled, and how to avoid two regions accepting the same commands at once.\n\n## Common mistakes\n\n- Writing an RTO and RPO but never testing the device-side switch.\n- Assuming credentials exist in the second region.\n- Replaying queued commands after failover without expiry.\n- Planning failover without failback.\n\n## Practical example\n\nA fleet of gateways has a secondary endpoint configured in firmware. During a rehearsal, a subset of gateways is switched to the secondary region, data is verified for consistency, and an expired command test confirms that stale commands are rejected. The rehearsal result sets the stated recovery targets.",
+      "followUps": [
+        "How would you test the device-side failover without causing a real outage?",
+        "Which data would you accept losing, and which would you never lose?",
+        "How would you prevent a command from running in both regions after failback?"
+      ],
+      "related": [
+        "command-and-control-design",
+        "intermittent-connectivity-design"
+      ]
+    },
+    {
+      "slug": "monitor-iot-platform",
+      "title": "How would you monitor an IoT platform, including its security posture?",
+      "topic": "Observability and security posture",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "monitoring",
+        "metrics",
+        "alerts",
+        "device-defender",
+        "observability",
+        "security"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            16,
+            18
+          ]
+        }
+      ],
+      "quick": "I would monitor in layers. Connections: connected devices, connect and disconnect rates, authentication failures. Ingestion: received messages, throttling, rule errors. Processing: consumer lag, queue age, dead-letter depth. Storage: write errors and latency. Devices: last-seen distribution and missing telemetry per site. Commands and rollouts: outcomes and success rates. For security, I would run Device Defender audits for configuration drift and use behaviour detection for unexpected topics or message rates. I would alert on customer-visible symptoms and avoid per-device metric labels.",
+      "revision": "Monitor connections, ingestion, lag, storage, device health, commands and rollouts, plus configuration and behaviour audits for security.",
+      "detailed": "An IoT platform has more moving parts than a typical service: devices, a broker, a rules layer, processing, storage and fleet operations, many of them on unreliable networks. Good monitoring separates platform health from device health and adds a security view on top.\n\n## Layers and key signals\n\n- **Connections.** Connected device count, connect and disconnect rates, and authentication failures. A sudden drop in connections may indicate an outage, while a spike in authentication failures may indicate a credential problem or an attack.\n- **Ingestion.** Messages received, throttling events, rule action errors and dead-letter routing.\n- **Processing.** Consumer lag, queue age, error rates and retry counts.\n- **Storage.** Write errors, latency and capacity headroom.\n- **Device health.** Distribution of last-seen times, the share of devices behind their expected interval, and missing telemetry per site.\n- **Commands.** Issued, acknowledged, failed and expired counts, with time to acknowledge.\n- **Rollouts.** Job success, failure and timeout rates per cohort.\n\nBusiness-facing metrics matter as much as infrastructure metrics. Missing telemetry for a customer's sites or failed commands for a region tell you more about impact than CPU does.\n\n## Security posture\n\nDevice Defender helps audit configuration, such as policies that are broader than intended, and monitor behaviour against defined expectations. Use audits on a schedule and detection on behaviour, such as unexpected topics, unusual connection sources or message rates that deviate from a device's profile. Check current documentation for the exact audit checks and detection options.\n\n## Alerting and dashboards\n\nAlert on symptoms with a clear owner, not on every metric. Break dashboards down by region and tenant, but avoid putting an identifier for every device into metric labels, because the number of time series grows with the fleet. Use logs and traces for per-device investigation instead.\n\n## Common mistakes\n\n- Monitoring only infrastructure and not device availability or missing data.\n- Using per-device labels on metrics, which overwhelms the monitoring system.\n- Treating a clean security audit as a continuous control, when it is a point-in-time check.\n\n## Practical example\n\nA dashboard shows connected devices by region, consumer lag and dead-letter depth. An alert fires when the share of devices behind their expected interval rises in one region. A Device Defender finding flags a policy that allows wider publish access than intended, and a ticket is raised to narrow it.",
+      "followUps": [
+        "Which three metrics would you put on a single top-level dashboard, and why?",
+        "How would you detect that a device fleet is being impersonated?",
+        "How do you keep metric cardinality under control as the fleet grows?"
+      ],
+      "related": [
+        "detect-failed-devices",
+        "firmware-rollouts-with-iot-jobs",
+        "high-volume-ingestion-design"
+      ]
+    }
+  ]
+}

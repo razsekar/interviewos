@@ -1,0 +1,198 @@
+{
+  "category": "nodejs-nestjs",
+  "questions": [
+    {
+      "slug": "what-is-nodejs",
+      "title": "What is Node.js, and what kind of workload is it good at?",
+      "topic": "Node.js runtime",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "nodejs",
+        "runtime",
+        "v8",
+        "libuv",
+        "event-loop"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            9
+          ]
+        }
+      ],
+      "quick": "Node.js is a JavaScript runtime built on Google's V8 engine, so JavaScript can run on servers, in command-line tools and in build systems, not only in a browser. Its core design is an event-driven, non-blocking model. JavaScript executes on one main thread, while libuv provides the event loop and asynchronous I/O for networking and file access, using operating system facilities and a small thread pool where needed. I would describe Node as a strong fit for I/O-heavy services such as JSON APIs, gateways, real-time messaging and streaming. It is a weaker fit for long CPU-bound work on the main thread, which should go to worker threads or a separate service.",
+      "revision": "Node.js runs JavaScript outside the browser on V8, with an event loop and non-blocking I/O. It excels at I/O-bound services; CPU-heavy code must be offloaded.",
+      "detailed": "Node.js is a runtime that executes JavaScript outside the browser. It combines three main parts: the V8 engine, which compiles and runs the JavaScript; libuv, a C library that provides the event loop and cross-platform asynchronous I/O; and built-in modules such as `http`, `fs`, `net`, `crypto` and `stream`.\n\n## How it works\n\nApplication code runs on one main thread. When code requests I/O, such as reading from a socket or waiting on a database driver, Node hands the operation to the operating system or to libuv and the main thread continues with other work. When the result is ready, its callback or promise continuation is queued and runs on the main thread. This is why one process can keep many connections open with few threads.\n\n## Where it fits\n\n| Workload | Fit |\n|---|---|\n| JSON APIs, gateways, backend-for-frontend layers | Strong |\n| Real-time messaging and streaming | Strong |\n| Heavy image, video or hashing work on the main thread | Weak |\n| Long synchronous loops | Harmful, because they block every request |\n\n## Common mistakes\n\n- Assuming Node is multi-threaded by default. JavaScript runs on one thread unless you use worker threads, child processes or several replicas.\n- Putting CPU-heavy work inside request handlers.\n- Treating async as parallel. Asynchronous I/O overlaps waiting, not computation.\n\n## Example\n\nA checkout API waiting on a payment provider and an inventory database can serve many requests at once in one process. If the same process synchronously compressed a large file inside a handler, every other request would stall. That work belongs in a worker thread or a separate job service.",
+      "diagrams": [],
+      "followUps": [
+        "How does one Node.js process handle thousands of open connections?",
+        "When would you prefer a different runtime, and what would you give up?"
+      ],
+      "related": [
+        "what-is-libuv",
+        "what-blocks-the-event-loop",
+        "async-io-vs-parallel-execution"
+      ]
+    },
+    {
+      "slug": "async-io-vs-parallel-execution",
+      "title": "What is the difference between asynchronous I/O and parallel execution?",
+      "topic": "Node.js runtime",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "nodejs",
+        "concurrency",
+        "parallelism",
+        "event-loop"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            11
+          ]
+        }
+      ],
+      "quick": "Asynchronous I/O and parallel execution solve different problems. Async I/O lets one thread start an operation, such as a database query or an HTTP call, and continue with other work while the operating system waits for the result. Parallel execution means two pieces of work run at the same instant on different cores, which requires threads, processes or separate machines. In Node, a hundred concurrent HTTP calls on one thread are efficient because they mostly wait. A hundred CPU-heavy hashing tasks on that same thread are not, because they run one after another on the main thread. I would use async I/O for waiting-bound work and workers or more processes for computation-bound work.",
+      "revision": "Async I/O overlaps waiting on one thread; parallelism runs computation on several cores at once. Waiting work scales with async; CPU work needs workers or processes.",
+      "detailed": "Asynchronous I/O and parallel execution are often confused, but they are different mechanisms with different limits.\n\n## Asynchronous I/O (concurrency)\n\nAsynchronous I/O lets a program start an operation and keep running while it is pending. Node submits a network or file operation, and the event loop runs the code again when the result arrives. Only one piece of JavaScript runs at a time, but many operations can be in flight together. This is concurrency: many tasks make progress over the same period.\n\n## Parallel execution\n\nParallel execution means multiple pieces of work run at the same instant on separate CPU cores. In Node this requires worker threads, child processes, cluster workers or separate containers.\n\n## Choosing the approach\n\n| Situation | Suitable approach |\n|---|---|\n| Calling several external APIs and waiting for replies | Async I/O with a concurrency limit |\n| Hashing or compressing large payloads | Worker threads or a job service |\n| More requests than one core can compute | Several processes or replicas |\n\n## Common mistakes\n\n- Expecting `Promise.all` to speed up CPU work. It starts the promises together, but synchronous CPU work inside them still runs sequentially on the main thread.\n- Starting unlimited I/O, which exhausts sockets, connection pools or a downstream rate limit.\n\n## Example\n\nAn aggregation endpoint needs data from three independent services. Starting all three requests together lets the waits overlap, so total latency is close to the slowest call rather than the sum of all three.\n\n```ts\nconst [profile, orders, prefs] = await Promise.all([\n  profileClient.get(userId),\n  orderClient.recent(userId),\n  prefsClient.get(userId),\n]);\n```\n\nThe same endpoint parsing three large documents synchronously would stay slow, because that work cannot overlap on one thread.",
+      "diagrams": [],
+      "followUps": [
+        "Does Promise.all run the three requests in parallel?",
+        "How would you limit how many of these concurrent calls run at once?"
+      ],
+      "related": [
+        "limit-concurrent-operations-in-node",
+        "worker-threads-vs-child-processes",
+        "what-is-nodejs"
+      ]
+    },
+    {
+      "slug": "monitor-event-loop-lag",
+      "title": "How do you monitor event-loop lag in a Node.js service?",
+      "topic": "Performance diagnostics",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "nodejs",
+        "event-loop",
+        "observability",
+        "perf-hooks"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            10
+          ]
+        }
+      ],
+      "quick": "I monitor event-loop lag with the perf_hooks module, using monitorEventLoopDelay(), which returns a histogram of how late the loop runs timers. I enable it at startup, export percentiles such as p99 to the metrics system on a fixed interval, and reset the histogram after each export. I read lag alongside CPU usage, request latency and downstream latency. High lag with high CPU points to synchronous or CPU-heavy work in the process. High lag with moderate CPU often points to long garbage-collection pauses or thread-pool saturation. Low lag with slow requests usually means the time is spent waiting on a database or another service.",
+      "revision": "Use perf_hooks monitorEventLoopDelay to track loop-delay percentiles, then correlate with CPU and latency to separate local blocking from slow dependencies.",
+      "detailed": "Event-loop lag is the delay between when a timer should fire and when Node actually runs it. A sustained delay means the main thread is busy or blocked, so every request waiting in the queue is delayed too. Measuring lag directly is more reliable than inferring it from response times alone.\n\n## Measuring it\n\nThe built-in `perf_hooks` module provides `monitorEventLoopDelay()`. It returns a histogram that records delay samples, and the recorded values are in nanoseconds.\n\n```ts\nimport { monitorEventLoopDelay } from \"node:perf_hooks\";\n\nconst lag = monitorEventLoopDelay({ resolution: 20 });\nlag.enable();\n\nsetInterval(() => {\n  const p99Ms = lag.percentile(99) / 1e6; // nanoseconds to milliseconds\n  metrics.gauge(\"eventloop.lag.p99_ms\", p99Ms); // metrics: your metrics client\n  lag.reset();\n}, 10_000).unref();\n```\n\n## Interpreting the signal\n\n- High lag and high CPU: synchronous or CPU-heavy code is running in the process.\n- High lag with moderate CPU: long garbage-collection pauses, thread-pool saturation or too much synchronous I/O.\n- Low lag but slow requests: the time is most likely spent waiting on a database, cache or another service.\n\n## Trade-offs and mistakes\n\nA very fine sampling resolution adds overhead, so a moderate value is usually enough. Alert on sustained percentiles rather than a single spike. Reset or window the histogram, otherwise old samples hide recent behaviour.\n\n## Illustrative example\n\nSuppose a product API's p99 latency doubles after a release, while lag rises from a few milliseconds to hundreds and CPU stays high. That pattern points to a new synchronous transformation on the request path. A CPU profile would confirm the function, and the fix would move the work into a worker or simplify it.",
+      "diagrams": [],
+      "followUps": [
+        "Why is the histogram value in nanoseconds, and how do you convert it?",
+        "How would you tell event-loop lag apart from slow downstream calls?"
+      ],
+      "related": [
+        "what-blocks-the-event-loop",
+        "diagnose-high-cpu-node-flame-graphs",
+        "heap-rss-and-garbage-collection"
+      ]
+    },
+    {
+      "slug": "heap-rss-and-garbage-collection",
+      "title": "What is the difference between heap and RSS in Node.js, and how does garbage collection affect them?",
+      "topic": "Memory and garbage collection",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "nodejs",
+        "memory",
+        "v8",
+        "garbage-collection"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            10,
+            11
+          ]
+        }
+      ],
+      "quick": "The heap is the memory V8 manages for JavaScript objects, strings and closures; it is reported as heapUsed and heapTotal. RSS, resident set size, is the total physical memory the process occupies. It also includes native allocations, Buffers, loaded code, stacks and memory the allocator has not returned to the operating system. RSS is therefore usually larger than the heap, and container limits are enforced on total process memory, which tracks RSS. V8's garbage collector reclaims objects that are no longer reachable. Heavy allocation or long-lived retained objects increase collection work and cause latency spikes, so I watch heap, RSS and GC metrics together.",
+      "revision": "Heap is V8-managed JavaScript memory; RSS is all physical memory the process uses. Containers are limited by RSS, and GC reclaims only unreachable objects, so retained objects drive pauses.",
+      "detailed": "The two numbers answer different questions. Heap usage tells you how much JavaScript-managed memory is live. RSS tells you how much physical memory the operating system attributes to the process, which is what a container runtime uses when it decides whether to kill it.\n\n## Reading the numbers\n\n```ts\nconst { rss, heapTotal, heapUsed, external, arrayBuffers } = process.memoryUsage();\nconsole.log({ rssMb: rss / 1_048_576, heapUsedMb: heapUsed / 1_048_576 });\n```\n\n| Metric | Meaning |\n|---|---|\n| heapUsed | Live JavaScript objects in the V8 heap |\n| heapTotal | Heap memory V8 has reserved from the system |\n| external | Memory held by C++ objects bound to JavaScript |\n| arrayBuffers | Memory for ArrayBuffers and Buffers |\n| rss | Total resident memory of the process |\n\n## How garbage collection fits in\n\nV8 uses generations. Most objects die young and are reclaimed by frequent, cheap minor collections. Objects that survive move to the old generation, which is collected by less frequent, more expensive major collections. Heavy allocation or large retained structures make both more frequent. Exact behaviour varies by Node and V8 version, so verify with current metrics rather than assumptions.\n\n## Common mistakes\n\n- Treating RSS as the heap. Buffers and native memory can grow RSS while heapUsed looks flat.\n- Setting `--max-old-space-size` equal to the container limit. Leave headroom for native memory, or the process is killed before V8 reclaims anything.\n- Unbounded caches or listeners, which retain objects until the process dies.\n\n## Example\n\nA service in a container with a fixed memory limit shows stable heapUsed but steadily rising RSS. The investigation focuses on Buffers from an upload path that are never released, not on JavaScript objects. A heap snapshot would not show the leak, but external and arrayBuffers would.",
+      "diagrams": [],
+      "followUps": [
+        "Why can RSS keep rising while heapUsed looks flat?",
+        "How would you choose the heap limit for a container with a fixed memory limit?"
+      ],
+      "related": [
+        "find-node-memory-leaks",
+        "heap-snapshots-gc-diagnosis",
+        "monitor-event-loop-lag"
+      ]
+    },
+    {
+      "slug": "improve-node-api-performance",
+      "title": "How do you improve the performance of a Node.js API?",
+      "topic": "Performance",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "nodejs",
+        "performance",
+        "api",
+        "profiling",
+        "caching"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            11
+          ]
+        }
+      ],
+      "quick": "I would start by measuring, not guessing. I capture latency percentiles per route, event-loop lag and a CPU profile under a realistic load test, then fix the largest measured cost. Typical wins are removing N+1 database queries, batching lookups, adding or fixing indexes, reusing connection pools and running independent downstream calls concurrently with a bound. I would cap payload sizes, add pagination and cache stable reads with clear expiry and invalidation. I would also review timeouts and retries so slow dependencies do not hold requests open. After each change I compare percentiles against the baseline to confirm the improvement.",
+      "revision": "Profile first, then fix the biggest measured cost: query count, missing indexes, serial downstream calls, large payloads or a blocked event loop. Verify against the baseline.",
+      "detailed": "Performance work on a Node.js API should follow measurement. Without a baseline, it is easy to optimise code that is not on the critical path.\n\n## Measure first\n\nRecord p50, p95 and p99 latency per route, request throughput, error rate, database query counts and event-loop lag. Then profile the slow route under a load that resembles production. The profile shows where time goes: waiting on I/O, serialising JSON, or running synchronous code.\n\n## Common causes and fixes\n\n| Symptom | Likely fix |\n|---|---|\n| One query per item in a list | Batch with `IN` clauses, joins or a dataloader |\n| Slow filtered queries | Add or correct indexes; check the query plan |\n| Several independent downstream calls in sequence | Run them concurrently with a bounded limit |\n| Large responses | Paginate, select only needed fields, compress where useful |\n| The same expensive read repeated | Cache with a TTL and an explicit invalidation path |\n| Requests piling up behind a slow dependency | Set timeouts and shed load |\n\nIndependent calls should overlap rather than wait in turn:\n\n```ts\n// Instead of two sequential awaits, start both lookups together\nconst [user, orders] = await Promise.all([\n  userRepo.findById(id),\n  orderRepo.recentFor(id),\n]);\n```\n\n## Common mistakes\n\n- Optimising without a baseline, then claiming an improvement that cannot be reproduced.\n- Caching without an invalidation rule, which serves stale data.\n- Calling `Promise.all` over an unbounded list, which creates the very overload you wanted to avoid.\n- Adding indexes without measuring their write cost.\n\n## Example\n\nAn order-history endpoint issues one query per order to load line items. Profiling shows about a hundred round trips per request. Replacing them with one batched query and an index on the foreign key brings p95 down to a level the team can measure and track. The specific numbers depend on the workload, so the team confirms them with its own load test.",
+      "diagrams": [],
+      "followUps": [
+        "How do you find N+1 query problems in a Node.js API?",
+        "When would you add a cache, and how do you keep it correct?"
+      ],
+      "related": [
+        "limit-concurrent-operations-in-node",
+        "what-blocks-the-event-loop",
+        "monitor-event-loop-lag"
+      ]
+    }
+  ]
+}

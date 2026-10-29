@@ -1,0 +1,457 @@
+{
+  "category": "aws-cdk-iac",
+  "questions": [
+    {
+      "slug": "cross-stack-dependencies",
+      "title": "How do you manage dependencies between CDK stacks?",
+      "topic": "Cross-stack references",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "aws-cdk",
+        "stacks",
+        "dependencies",
+        "exports",
+        "coupling"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            8
+          ]
+        }
+      ],
+      "quick": "Passing a construct from one stack to another is the simplest way to share a resource. CDK records the dependency, creates CloudFormation exports and imports behind the scenes, and deploys the producing stack first. The catch is that CloudFormation will not let an exported value be removed or changed while another stack imports it, so direct references couple the lifecycles of the stacks. Inside one deployment unit I accept that. Across teams or independent release cycles I publish a stable interface, such as a parameter or identifier, and keep the stacks loosely coupled.",
+      "revision": "Passing references creates CloudFormation exports and ordering, which couples lifecycles; use stable published interfaces across ownership boundaries.",
+      "detailed": "Stacks depend on each other when one uses another's resources. CDK must record that dependency and deploy in the right order.\n\nThe simplest approach passes a construct across stacks:\n\n```ts\nconst network = new NetworkStack(app, 'Network');\nconst appStack = new AppStack(app, 'App', { vpc: network.vpc });\n```\n\nCDK turns that reference into a CloudFormation export in the producing stack and an import in the consuming stack, and orders the deployment accordingly. This convenience has a cost. CloudFormation does not allow an exported value to be removed or changed while another stack imports it. If you later remove the consumer, or change the exported value, a deployment can fail with an error that looks unrelated to the change. Renaming a resource that is exported is especially risky.\n\nOptions, from tightest to loosest coupling:\n\n1. **Direct references within one app**: simple, and CDK manages ordering. Suitable for stacks deployed together by one owner.\n2. **Explicit `addDependency`**: for a dependency that has no resource reference, such as a resource that must exist before another deploys.\n3. **Published stable identifiers**: the producing stack writes a value, such as a VPC id or queue ARN, to Parameter Store, and the consumer reads it. The stacks can then deploy independently, and the interface is explicit.\n\nTrade-offs: direct references keep wiring short but tie lifecycles together. Parameter-based integration decouples teams and releases, but a missing parameter becomes a runtime failure, and someone must own each published value.\n\nCommon mistakes\n- Creating a cycle between stacks, where A uses B and B uses A. CDK rejects it.\n- Removing the producer and consumer in the same deployment without checking the order.\n- Sharing values across independently owned systems through exports, so a rename in one team breaks another.\n\nRule of thumb: pass references within one deployment unit, and use stable published interfaces across ownership boundaries.",
+      "followUps": [
+        "What fails when you remove a consumer stack that imports an export?",
+        "When would you add an explicit addDependency?",
+        "How do you avoid a cycle between stacks?"
+      ],
+      "related": [
+        "cdk-app-stack-construct",
+        "organize-large-cdk-app",
+        "multi-account-cdk"
+      ]
+    },
+    {
+      "slug": "deploy-lambda-api-with-cdk",
+      "title": "How would you deploy a Lambda API with CDK, including its code asset and IAM permissions?",
+      "topic": "Lambda with CDK",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "aws-cdk",
+        "lambda",
+        "api-gateway",
+        "assets",
+        "iam"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            8
+          ]
+        }
+      ],
+      "quick": "I would define the handler with NodejsFunction, which bundles the source and uploads it as an asset, then grant the function only the table access it needs with grantReadWriteData. I would set memory, timeout and reserved concurrency from the workload, give the log group a retention period, and add alarms for errors and throttles. Exposing the function through LambdaRestApi keeps the wiring in one stack. In review I read the diff for new IAM permissions before deploying, and I keep an alias-based rollback ready.",
+      "revision": "Lambda via CDK: bundle code as an asset, grant the table only what the handler needs, set concurrency, logs and alarms, and review IAM in the diff.",
+      "detailed": "A Lambda API in CDK has four parts: the function and its code asset, the permissions it needs, the way requests reach it, and the operational settings that keep it safe.\n\n```ts\nconst table = new dynamodb.Table(this, 'Orders', {\n  partitionKey: { name: 'id', type: dynamodb.AttributeType.STRING },\n  billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,\n});\n\nconst handler = new NodejsFunction(this, 'OrdersHandler', {\n  entry: 'src/orders/handler.ts',       // bundled, then uploaded as an asset\n  runtime: lambda.Runtime.NODEJS_22_X,  // choose a runtime that is currently supported\n  memorySize: 512,\n  timeout: Duration.seconds(10),\n  environment: { TABLE_NAME: table.tableName },\n  reservedConcurrentExecutions: 50,\n});\ntable.grantReadWriteData(handler);\n\nnew apigw.LambdaRestApi(this, 'OrdersApi', { handler });\n```\n\nWhat CDK does with this: `NodejsFunction` bundles the entry file, commonly with esbuild, and CDK uploads the output as an asset to the bootstrap staging bucket. The template references that asset by a hash of its content, so a code change produces a new asset and a function update.\n\nSettings to justify in review:\n- **Execution role**: CDK creates one. Add only the grants the handler needs, here read and write on one table.\n- **Memory and timeout**: set them from measured workload, not from defaults.\n- **Reserved concurrency**: caps how many instances the function can use, which protects shared downstream systems. Confirm the value against your account's limits.\n- **Logs and alarms**: set a log retention period, since the default keeps logs indefinitely, and alarm on errors and throttles.\n\nTrade-offs: Lambda suits spiky, event-style or short requests. A long-running or latency-sensitive workload may fit a container better. API Gateway adds features such as authorisers and usage plans, with its own cost and latency.\n\nCommon mistakes\n- Granting `dynamodb:*` on `*` so the handler can do anything.\n- Forgetting that a code-only change still updates the function, so a bad release needs a rollback path such as aliases or versions.\n- Leaving log retention at the default and accumulating logs indefinitely.\n\nExample: the stack is reviewed for new permissions in the diff, then deployed. An alarm on 5xx responses is the signal to shift the alias back to the previous version.",
+      "followUps": [
+        "How would you roll back a bad Lambda deployment?",
+        "What does NodejsFunction do that a plain Function does not?",
+        "When would you choose an ECS service over Lambda for this API?"
+      ],
+      "related": [
+        "least-privilege-in-cdk",
+        "deploy-nestjs-on-ecs-fargate-with-cdk",
+        "safe-production-cdk-deployments"
+      ]
+    },
+    {
+      "slug": "deploy-nestjs-on-ecs-fargate-with-cdk",
+      "title": "How would you deploy a NestJS service on ECS Fargate with CDK?",
+      "topic": "ECS Fargate with CDK",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "aws-cdk",
+        "ecs",
+        "fargate",
+        "alb",
+        "nestjs",
+        "ecr",
+        "secrets"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            8
+          ]
+        }
+      ],
+      "quick": "I would package the NestJS app as a container, let CDK build and push the image to ECR, and deploy it as an ApplicationLoadBalancedFargateService. Tasks run in private subnets behind a public Application Load Balancer, and the database is reachable only from the service's security group. Secrets are injected from Secrets Manager at start-up. CDK generates the execution and task roles, which I review in the diff. I would set a dedicated health check path, run at least two tasks in production, and make sure the app shuts down gracefully on SIGTERM.",
+      "revision": "NestJS on Fargate via CDK: container image to ECR, private tasks behind an ALB, secrets injected at start-up, and the generated roles reviewed in the diff.",
+      "detailed": "The service is a container, and CDK defines the image build, the network path, the task's permissions, and the scaling and deployment settings. A common shape is an internet-facing Application Load Balancer, a Fargate service in private subnets, an image in ECR, and secrets injected at start-up.\n\n{{diagram:nestjs-fargate}}\n\n```ts\nconst service = new ecsPatterns.ApplicationLoadBalancedFargateService(this, 'Api', {\n  cluster,\n  cpu: 512,\n  memoryLimitMiB: 1024,\n  desiredCount: 2,\n  publicLoadBalancer: true,\n  taskSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },\n  taskImageOptions: {\n    image: ecs.ContainerImage.fromAsset('../api'), // builds the Dockerfile and pushes to ECR\n    containerPort: 3000,\n    environment: { NODE_ENV: 'production' },\n    secrets: { DB_PASSWORD: ecs.Secret.fromSecretsManager(dbSecret, 'password') },\n  },\n});\nservice.targetGroup.configureHealthCheck({ path: '/health' });\n```\n\nCDK generates the supporting resources: a task definition, an execution role that pulls the image and reads injected secrets, a task role for the application's own AWS calls, security groups and listener rules. Review them in the diff, because they are where access is granted. For container secrets, CDK typically grants the execution role read access to the referenced secret.\n\nKey decisions:\n- **Health checks**: the `/health` endpoint should check only what the process needs to serve traffic. A deep check that queries the database can mark every task unhealthy during a database outage.\n- **Scaling**: add target-tracking scaling on CPU or request count, with explicit minimum and maximum task counts.\n- **Graceful shutdown**: NestJS should close its server on SIGTERM, so in-flight requests finish during deployments.\n- **Private networking**: tasks in private subnets with egress, and the database reachable only from the service's security group.\n\nTrade-offs: Fargate removes host management, with its own cost profile compared with EC2-backed capacity. An L3 pattern is quick but hides detail. For a complex service, building from L2 constructs gives more control.\n\nCommon mistakes\n- Putting tasks in public subnets because the first deployment needed internet access.\n- Running one task in production, which leaves no spare capacity during a deployment.\n- Forgetting to set the health check path, so the load balancer marks healthy tasks as failing.",
+      "diagrams": [
+        {
+          "id": "nestjs-fargate",
+          "title": "NestJS on Fargate behind an ALB",
+          "alt": "Left to right: a client sends HTTPS to an Application Load Balancer, which forwards to NestJS tasks in a private Fargate service. The service reads secrets from Secrets Manager and data from a database, and its image comes from ECR.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "client",
+              "label": "Client"
+            },
+            {
+              "id": "alb",
+              "label": "Application Load Balancer"
+            },
+            {
+              "id": "svc",
+              "label": "Fargate service (NestJS tasks)"
+            },
+            {
+              "id": "sm",
+              "label": "Secrets Manager"
+            },
+            {
+              "id": "db",
+              "label": "Database"
+            },
+            {
+              "id": "ecr",
+              "label": "ECR image"
+            }
+          ],
+          "edges": [
+            {
+              "from": "client",
+              "to": "alb",
+              "label": "HTTPS"
+            },
+            {
+              "from": "alb",
+              "to": "svc",
+              "label": "health-checked targets"
+            },
+            {
+              "from": "sm",
+              "to": "svc",
+              "label": "secrets at start-up"
+            },
+            {
+              "from": "svc",
+              "to": "db",
+              "label": "private network"
+            },
+            {
+              "from": "ecr",
+              "to": "svc",
+              "label": "image pull"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Why put the tasks in private subnets?",
+        "What should a /health endpoint check, and what should it not check?",
+        "How would you roll back a bad ECS deployment?"
+      ],
+      "related": [
+        "secrets-in-cdk",
+        "deploy-lambda-api-with-cdk",
+        "safe-production-cdk-deployments"
+      ]
+    },
+    {
+      "slug": "protect-production-database",
+      "title": "How do you prevent accidental deletion of a production database with CDK?",
+      "topic": "Stateful resource protection",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "aws-cdk",
+        "rds",
+        "deletion-protection",
+        "removal-policy",
+        "backups"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            8
+          ]
+        }
+      ],
+      "quick": "I protect a production database in layers. Deletion protection on the RDS instance blocks a direct delete until the setting is turned off. A snapshot or retain removal policy stops CloudFormation from deleting the data when the resource leaves the template. Stack termination protection blocks a whole-stack delete. None of that replaces backups and tested restores. In review I treat any diff line that replaces or removes the database as a blocking finding, because a change to an immutable property can recreate the database.",
+      "revision": "Stack the protections: deletion protection, a retain or snapshot removal policy, termination protection and backups; treat replacement in diffs as blocking.",
+      "detailed": "Protect stateful resources in layers, so that one mistake, whether a code change, a console action or a bad deployment, cannot remove the data.\n\n1. **Deletion protection on the database**: RDS and Aurora support a deletion-protection setting, which CDK exposes as a property on the L2 database constructs. Enable it for production.\n2. **Removal policy**: set `RemovalPolicy.RETAIN` or `RemovalPolicy.SNAPSHOT` on stateful resources, so that removing them from the template does not delete the data. CDK maps this to CloudFormation's deletion behaviour.\n3. **Stack termination protection**: the `terminationProtection` stack option blocks a whole-stack delete until the flag is turned off.\n4. **Backups and restore tests**: automated backups, plus copies to another account or Region for critical data. Protection is not a backup.\n\n```ts\nconst db = new rds.DatabaseInstance(this, 'OrdersDb', {\n  engine: rds.DatabaseInstanceEngine.postgres({ version: rds.PostgresEngineVersion.VER_16 }),\n  vpc,\n  deletionProtection: true,\n  removalPolicy: RemovalPolicy.SNAPSHOT,\n});\n```\n\nCheck the engine version constant available in your CDK release. `SNAPSHOT` keeps a final snapshot when the resource is removed; `RETAIN` keeps the resource itself. Choose based on your recovery requirements.\n\nProcess controls: restrict who can run deployments that touch the database stack, require approval for its diff, and treat replacement or removal as a blocking finding. Replacement is the subtle case: a change to an immutable property, such as the engine or the instance identifier, can create a new database and remove the old one. Test those changes in a non-production environment first.\n\nTrade-offs: deletion protection makes intentional teardown slower, which is the point. Retained resources leave cost and orphaned data to clean up later.\n\nCommon mistakes\n- Relying on deletion protection without backups.\n- Changing an immutable property during a routine refactor.\n- Assuming a stack-level delete and a resource-level replacement follow the same path. They do not, and each needs its own protection.",
+      "followUps": [
+        "What is the difference between deletion protection and a retain removal policy?",
+        "Which property changes would replace a database?",
+        "How do you test that backups can actually be restored?"
+      ],
+      "related": [
+        "cdk-synth-diff-deploy",
+        "cfn-deployment-failure-rollback",
+        "safe-production-cdk-deployments"
+      ]
+    },
+    {
+      "slug": "cfn-deployment-failure-rollback",
+      "title": "What happens when a CloudFormation deployment fails, and how do you recover?",
+      "topic": "CloudFormation rollback",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "cloudformation",
+        "rollback",
+        "stack-events",
+        "recovery"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            8
+          ]
+        }
+      ],
+      "quick": "CloudFormation rolls a failed update back to the last stable state by default, and a failed create is usually cleaned up. My first step is the stack events: I look for the first CREATE_FAILED or UPDATE_FAILED, because later failures are often rollback noise. UPDATE_ROLLBACK_COMPLETE means the stack is back where it started. UPDATE_ROLLBACK_FAILED means a resource could not be restored and needs manual work. I fix the cause in code and redeploy, and I check that no stateful resource was replaced or lost along the way.",
+      "revision": "Rollback restores the last stable state; find the first failed event, fix the code, and treat UPDATE_ROLLBACK_FAILED as manual recovery.",
+      "detailed": "When a create or update fails, CloudFormation by default tries to return the stack to its last stable state. A stack that fails on creation is usually cleaned up. Depending on the operation and the resources involved, a rollback can itself fail, so read the status instead of assuming the outcome.\n\nRecovery steps:\n\n1. **Read the events**: `aws cloudformation describe-stack-events --stack-name <name>` or the console lists what happened. The first `CREATE_FAILED` or `UPDATE_FAILED` is usually the cause; later entries are often rollback noise.\n2. **Check the stack status**: `UPDATE_ROLLBACK_COMPLETE` means the stack is back to its previous state. `UPDATE_ROLLBACK_FAILED` means a resource could not be restored and needs manual action, typically by continuing the rollback while skipping the stuck resource.\n3. **Fix the cause in code**, then redeploy. Avoid hand-editing resources to unblock a deploy, unless you also bring the code back in line.\n4. **Verify the data**: for stateful resources, confirm that nothing was replaced or lost during the attempt.\n\nTrade-offs: automatic rollback is usually what you want, because it limits damage. The CDK CLI offers an option to disable rollback for debugging. That keeps failed resources for inspection, but you then own the cleanup, so reserve it for non-production environments.\n\nReplacement changes the risk. If an update replaces a database, the rollback may restore the old resource while the new one is removed, depending on the removal policy. A retain policy on the new resource prevents loss of data written during the failed attempt.\n\nCommon mistakes\n- Reading the last event instead of the first failing one.\n- Deleting resources manually during `UPDATE_ROLLBACK_FAILED` without checking their dependencies.\n- Assuming a rollback means the data layer is unchanged.\n\nPractical rule: alarm on deployment failures, keep a runbook for `UPDATE_ROLLBACK_FAILED`, and rehearse it in a non-production account.",
+      "followUps": [
+        "What does UPDATE_ROLLBACK_FAILED mean, and how do you resolve it?",
+        "Why might a rollback still lose data?",
+        "When is it reasonable to disable rollback?"
+      ],
+      "related": [
+        "protect-production-database",
+        "cdk-synth-diff-deploy",
+        "safe-production-cdk-deployments"
+      ]
+    },
+    {
+      "slug": "schema-migrations-with-cdk-deployments",
+      "title": "How do you handle database schema migrations in CDK deployments?",
+      "topic": "Schema migrations",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "aws-cdk",
+        "migrations",
+        "expand-contract",
+        "backward-compatibility",
+        "deployments"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            8
+          ]
+        }
+      ],
+      "quick": "I keep infrastructure and schema changes separate. CDK provisions the database and its surroundings, and the schema change is a versioned migration that runs as its own pipeline step, not inside a CloudFormation rollback path. I use expand and contract: add the new shape compatibly, backfill the data, switch the application, and remove the old shape in a later release. That keeps the previous application version working, so a failed release can be rolled back without leaving the data unreadable.",
+      "revision": "Provision infrastructure with CDK, run migrations as separate steps, and expand then contract so old and new app versions both work during rollout.",
+      "detailed": "Keep infrastructure provisioning and schema changes separate. CloudFormation should create the database, networking and roles. The schema change is a versioned, reviewed step in the release. Coupling the two makes infrastructure rollback dangerous, because the data shape may already have changed.\n\nRun the migration as its own step, for example:\n- a one-off ECS task or a Lambda invoked by the pipeline, before the new application version rolls out.\n- a migration job whose success gates the deployment.\n\nAvoid running migrations inside a CloudFormation custom resource unless its create, update and delete lifecycle is tested thoroughly. Custom resources run on every lifecycle event and can be retried, which is a poor fit for schema changes.\n\nUse **expand and contract**:\n1. **Expand**: add the new column or table, nullable or with a default. Deploy code that tolerates both shapes.\n2. **Migrate**: backfill existing rows in batches, and verify the result.\n3. **Switch**: the application reads and writes the new shape.\n4. **Contract**: remove the old column in a later release, once no running version needs it.\n\nEach step must be compatible with the previous and next application version. That is what makes rollback safe: if the new code fails, the old code still works against the expanded schema.\n\nTrade-offs: expand and contract takes several releases and more code, even for a simple rename. It is slower, but it avoids downtime and long locks. Destructive changes such as dropping a column are the riskiest, so gate them behind a separate approval.\n\nCommon mistakes\n- Renaming a column in one deployment, so the previous application version fails immediately.\n- Running a long, locking migration during peak traffic.\n- Treating infrastructure rollback as if it were data rollback.\n\nExample: adding a `currency` column to an orders table is done as an expand step with a default, a batched backfill, a read switch, and a later removal of the old field.",
+      "followUps": [
+        "Why not run migrations inside a CloudFormation custom resource?",
+        "How do you backfill a large table safely?",
+        "When would you require extra approval for a migration?"
+      ],
+      "related": [
+        "safe-production-cdk-deployments",
+        "cdk-ci-cd-pipeline",
+        "protect-production-database"
+      ]
+    },
+    {
+      "slug": "cdk-ci-cd-pipeline",
+      "title": "How do you build a CI/CD pipeline for a CDK application?",
+      "topic": "CI/CD for CDK",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "aws-cdk",
+        "ci-cd",
+        "pipelines",
+        "github-actions",
+        "approvals"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            9
+          ]
+        }
+      ],
+      "quick": "I treat CDK code like application code. The pipeline installs dependencies from a lockfile, runs lint and assertion tests, synthesizes the templates, runs cdk-nag, and attaches the cdk diff to the change. Non-production deploys run first, followed by integration or smoke tests. Production deploys the same reviewed artifact behind an approval gate, then checks health endpoints and alarms. I would use short-lived OIDC credentials and a separate deploy role per environment, rather than long-lived access keys.",
+      "revision": "Lock dependencies, test, synth, scan, diff, deploy non-production, then promote the same reviewed artifact through an approval gate to production.",
+      "detailed": "A CDK pipeline treats infrastructure like application code: every change is built, tested, reviewed and promoted through environments. You can use CDK Pipelines (`aws-cdk-lib/pipelines`), which provisions a pipeline in AWS that can update itself, or a general CI system such as GitHub Actions calling the CDK CLI. The stages are broadly the same either way.\n\nA typical sequence:\n1. **Install from a lockfile**, so the synthesized output is reproducible.\n2. **Lint and unit-test**, including assertion tests.\n3. **Synthesize**, producing the templates and assets.\n4. **Scan**, running cdk-nag or equivalent policy checks on the synthesized output.\n5. **Diff**, attaching the output to the change for review.\n6. **Deploy to non-production**, then run integration or smoke tests.\n7. **Approve and deploy to production**, promoting the same artifact behind a manual gate.\n8. **Verify**, checking health endpoints and alarms after the deploy.\n\n```yaml\n- run: npm ci\n- run: npm test\n- run: npx cdk synth\n- run: npx cdk diff\n```\n\nCredential setup and approval configuration are omitted here. Use OIDC-based roles rather than long-lived keys.\n\nTrade-offs: CDK Pipelines integrates closely with AWS and manages its own updates, but it adds bootstrap-heavy setup and its own conventions. A general CI system is familiar and portable, but you must build the credential, approval and promotion logic yourself.\n\nCommon mistakes\n- Running `cdk deploy` on every branch to every environment.\n- Re-synthesizing in the deploy step, so the deployed template differs from the reviewed one.\n- Storing long-lived AWS keys in CI secrets.\n\nKeep pipeline permissions narrow: one deploy role per environment, with the production role used only after approval.",
+      "followUps": [
+        "Why promote the same artifact rather than re-synthesizing it?",
+        "What does CDK Pipelines offer over a general CI system?",
+        "How do you give the pipeline least-privilege deploy roles?"
+      ],
+      "related": [
+        "cdk-synth-diff-deploy",
+        "cdk-aspects-and-cdk-nag",
+        "safe-production-cdk-deployments"
+      ]
+    },
+    {
+      "slug": "cdk-drift",
+      "title": "What is CloudFormation drift in a CDK stack, and how do you handle it?",
+      "topic": "Drift",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "cloudformation",
+        "drift",
+        "reconciliation",
+        "cdk"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            9
+          ]
+        }
+      ],
+      "quick": "Drift is a difference between the configuration CloudFormation recorded at the last deploy and the live configuration of a resource. It usually comes from manual console or CLI changes. I run detect-stack-drift, then find out who changed the resource and why. If the change was intended, I put it into the CDK code and deploy it. If it was not, I redeploy so the declared configuration returns. I do not fix drift by hand in the console, because the next deploy either silently reverts it or surprises someone. Drift detection does not cover every resource type, so a clean result is not a guarantee.",
+      "revision": "Drift means live config differs from the deployed template; investigate it, then either codify the change or redeploy, and stop manual production edits.",
+      "detailed": "Drift is a difference between a resource's live configuration and what CloudFormation last deployed. It usually comes from a manual change in the console, a CLI call or another tool that edits the same resource.\n\nDetect it:\n\n```bash\naws cloudformation detect-stack-drift --stack-name AppStack\naws cloudformation describe-stack-drifts --stack-name AppStack\n```\n\nDrift detection runs asynchronously and does not support every resource type. A clean result on an unsupported resource proves nothing about that resource, so check the support list in the current documentation.\n\nHandle drift in this order:\n1. **Investigate**: find who changed it and why. A change made to stop an incident may be correct.\n2. **Decide the source of truth**: if the change is intended, update the CDK code to match and deploy it. If it is not, redeploy so the declared configuration is restored.\n3. **Reconcile through code**: avoid fixing drift by hand in the console, because the next deploy will either revert the fix or hit an unexpected difference.\n4. **Prevent recurrence**: restrict console write access in production, and alert on changes through CloudTrail and AWS Config.\n\nTrade-offs: redeploying to revert drift can break a workaround someone depended on, so communicate first. Accepting a manual change into code keeps the history clean but still needs review. Some attributes are managed by the service itself, so expect some noise.\n\nCommon mistakes\n- Treating a clean drift report as proof that the stack is secure.\n- Running a deploy that silently reverts an emergency fix.\n- Ignoring drift on stateful resources until a later replacement exposes it.\n\nThe principle is that code is the record. Changes that do not appear in code should be rare, visible and deliberately resolved.",
+      "followUps": [
+        "Which resource types might not support drift detection?",
+        "How would you detect manual changes as they happen?",
+        "What do you do when a manual fix during an incident is still needed?"
+      ],
+      "related": [
+        "cdk-synth-diff-deploy",
+        "safe-production-cdk-deployments",
+        "cdk-aspects-and-cdk-nag"
+      ]
+    },
+    {
+      "slug": "multi-account-cdk",
+      "title": "How do you deploy CDK to multiple AWS accounts safely?",
+      "topic": "Multi-account deployment",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "aws-cdk",
+        "multi-account",
+        "organizations",
+        "bootstrap",
+        "iam"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            9
+          ]
+        }
+      ],
+      "quick": "I use one AWS account per environment, because accounts are the strongest isolation boundary for blast radius, quotas and access. Every stack pins its target with an explicit env. Each target account is bootstrapped, and for a central pipeline I use a narrow cdk bootstrap --trust so the pipeline assumes a deploy role there, with no long-lived keys. Organization service control policies set outer limits, such as blocking certain actions in production. Shared values cross accounts through published interfaces, because CloudFormation exports do not cross accounts.",
+      "revision": "One account per environment, explicit environments, narrow bootstrap trust for a central pipeline, scoped deploy roles, and SCPs as outer guardrails.",
+      "detailed": "Use separate accounts as the main isolation boundary. Development, test, production and shared-services workloads commonly each get an account. This limits blast radius, keeps quotas and billing separate, and makes production access easier to control.\n\nThe CDK pieces:\n- **Explicit environments**: each stack targets one account and Region through `env`.\n- **Bootstrap each target**: every account and Region that receives deployments needs bootstrap. For a central pipeline, `cdk bootstrap --trust <pipeline-account-id>` lets the pipeline account's roles deploy into the target. Keep the trust list narrow and documented.\n- **Deployment roles**: prefer roles assumed by the pipeline over long-lived credentials, and scope each role to its own account.\n- **Organization guardrails**: service control policies (SCPs) in AWS Organizations set the outer limits, for example blocking unused Regions or certain actions in production. An SCP does not grant permissions; it only limits them.\n\n```bash\nnpx cdk bootstrap aws://210987654321/eu-west-1 --trust 123456789012\n```\n\nTrade-offs: many accounts improve isolation but add setup, cross-account networking and governance work. Centralising shared resources, such as a common network or a logging bucket, reduces duplication but creates a shared dependency whose change affects every account.\n\nCommon mistakes\n- Giving the pipeline account administrator access to every target account.\n- Adding broad bootstrap trust and forgetting it is there.\n- Trying to use cross-stack exports across accounts. Exports are scoped to one account and Region, so share values through stable published interfaces instead.\n\nChecklist: an account per environment, narrow bootstrap trust, environment-specific deploy roles, SCPs as guardrails, and a production approval gate.",
+      "followUps": [
+        "What exactly does cdk bootstrap --trust grant?",
+        "How do SCPs differ from IAM policies?",
+        "How would you share a VPC from a central network account?"
+      ],
+      "related": [
+        "cdk-bootstrap-and-environments",
+        "multi-environment-and-context",
+        "cross-stack-dependencies"
+      ]
+    },
+    {
+      "slug": "safe-production-cdk-deployments",
+      "title": "How do you make CDK deployments safe for production?",
+      "topic": "Safe production deployments",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "aws-cdk",
+        "production",
+        "deployments",
+        "rollback",
+        "approvals",
+        "least-privilege"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            9
+          ]
+        }
+      ],
+      "quick": "I combine several controls, because no single check catches everything. First I read the cdk diff and require approval for replacements, stateful deletions or widened IAM and network rules. Then I run assertion tests, cdk-nag and a non-production deploy. For an application with a Lambda API and an ECS Fargate service, I confirm each role is scoped and that databases are protected. For rollout I keep changes backward compatible, deploy in dependency order, and verify health and alarms at each stage. A rollback path, such as a previous Lambda alias or ECS task definition revision, must exist and be tested before the release.",
+      "revision": "Safe CDK production: read the diff, gate risky changes, test in non-prod, keep changes compatible, verify each stage, and rehearse rollback.",
+      "detailed": "Safety comes from several controls working together. The sequence below is one way to combine them for an application with a Lambda API and an ECS Fargate service in separate stacks.\n\n1. **Review what will change**: read `cdk diff` for each stack involved. Look for replacements, deletions of stateful resources, and widened IAM or security group rules. Require approval for any of those.\n2. **Test the code**: run assertion tests and cdk-nag, then deploy to a non-production account with the same configuration shape.\n3. **Check least privilege**: the Lambda role should only reach its table and queue, and the ECS task role only the secrets and buckets it reads. Confirm this in the synthesized policies, not only in the source.\n4. **Protect stateful resources**: deletion protection, retain or snapshot policies, and termination protection, as covered in the database question.\n5. **Deploy in dependency order**: foundational stacks first, then compute. Keep changes backward compatible so the old application version keeps running during rollout.\n6. **Verify**: check the health endpoint, error-rate and latency alarms, and run a smoke test after each stage.\n7. **Recover**: know the rollback path. For the Lambda API that may be an alias pointing at the previous version. For the ECS service, it is the previous task definition revision. Stateful data is restored from backup, not from a stack rollback.\n\nTrade-offs: each gate adds time, so make them proportional. A change to a log message does not need the process a database change needs. Automate the low-risk checks and keep human approval for high-risk ones.\n\nCommon mistakes\n- Treating a green pipeline as proof of safety when nobody read the diff.\n- Changing data shape and application code in the same release without a compatibility plan.\n- Having no tested rollback, so the first attempt happens during an incident.\n\nA short written plan for each release, covering the diff review, the rollback step and the approver, keeps production changes predictable.",
+      "followUps": [
+        "Which changes in a diff would you block without explicit approval?",
+        "How do you roll back a change that touched a database schema?",
+        "How would you stage a rollout across two stacks?"
+      ],
+      "related": [
+        "cdk-synth-diff-deploy",
+        "protect-production-database",
+        "cdk-ci-cd-pipeline"
+      ]
+    }
+  ]
+}

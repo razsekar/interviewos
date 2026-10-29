@@ -1,0 +1,119 @@
+{
+  "category": "micro-frontends",
+  "questions": [
+    {
+      "slug": "backend-for-frontend-in-micro-frontends",
+      "title": "How does a Backend-for-Frontend fit into a micro-frontend architecture?",
+      "topic": "Backend-for-Frontend",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "bff",
+        "micro-frontends",
+        "api-aggregation",
+        "ownership",
+        "api-design"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            23
+          ]
+        }
+      ],
+      "quick": "A Backend-for-Frontend is a thin server layer built for one frontend. In a micro-frontend system I would give each micro-frontend, or the team that owns it, its own BFF so the UI and the data shape it needs evolve together. The BFF aggregates several domain calls into one response, handles session or token forwarding, and keeps the browser away from internal service details. It must not hold business rules or be the only place authorization is enforced, because domain services still own those. A single shared BFF for every micro-frontend would become a bottleneck and a monolith in disguise.",
+      "revision": "One BFF per micro-frontend team: aggregate and shape data for the UI, keep business rules and authorization in domain services.",
+      "detailed": "A Backend-for-Frontend (BFF) is a server-side layer that sits between one frontend and the domain services it depends on. In a micro-frontend system the useful rule is that each BFF belongs to the same team as the micro-frontend it serves, so the UI and its data contract change together.\n\n## How it fits\n\nA micro-frontend usually needs data from several backend services. A listing page, for example, may need availability, pricing and media. If the browser calls each service directly, the page makes many round trips, exposes backend boundaries to the UI, and couples the frontend to service details. A BFF aggregates and reshapes that data into the response one micro-frontend needs.\n\n{{diagram:mfe-bff}}\n\n## What the BFF should do\n\n- Aggregate and reshape responses for one UI, which reduces waterfall requests.\n- Handle session or token forwarding for the browser, for example by holding a cookie-based session.\n- Translate between the UI's contract and the domain services' contracts, so backend changes do not ripple into components.\n\n## What it should not do\n\n- Hold domain rules such as pricing or eligibility. Those stay in domain services, so other channels get the same behaviour.\n- Become one shared gateway for every micro-frontend. A single BFF recreates the monolith in a new place and turns into a release bottleneck.\n- Replace authorization. Downstream services still enforce access to their own data, because a BFF can be bypassed or misconfigured.\n\n## Trade-offs\n\nA BFF adds a deployable unit, an extra network hop and an operational owner. It pays off when a screen needs several calls to render, or when backend contracts are too fine-grained for the UI. For a small application, a general API gateway or direct calls may be enough.\n\n## Example\n\nSuppose (as an illustrative example) a vehicle marketplace has a search micro-frontend and a checkout micro-frontend. The search team owns a search BFF that combines listing, availability and image services. The checkout team owns a checkout BFF that calls cart and payment services. Each team can change its BFF without coordinating a release with the other.",
+      "diagrams": [
+        {
+          "id": "mfe-bff",
+          "title": "One BFF per micro-frontend",
+          "alt": "A browser shell loads a search micro-frontend and a checkout micro-frontend. Each micro-frontend calls its own BFF, and the search BFF aggregates listing and availability services while the checkout BFF calls the payment service.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "shell",
+              "label": "Browser shell"
+            },
+            {
+              "id": "search",
+              "label": "Search micro-frontend"
+            },
+            {
+              "id": "checkout",
+              "label": "Checkout micro-frontend"
+            },
+            {
+              "id": "bff-s",
+              "label": "Search BFF"
+            },
+            {
+              "id": "bff-c",
+              "label": "Checkout BFF"
+            },
+            {
+              "id": "listing",
+              "label": "Listing service"
+            },
+            {
+              "id": "avail",
+              "label": "Availability service"
+            },
+            {
+              "id": "pay",
+              "label": "Payment service"
+            }
+          ],
+          "edges": [
+            {
+              "from": "shell",
+              "to": "search",
+              "label": "loads"
+            },
+            {
+              "from": "shell",
+              "to": "checkout",
+              "label": "loads"
+            },
+            {
+              "from": "search",
+              "to": "bff-s"
+            },
+            {
+              "from": "checkout",
+              "to": "bff-c"
+            },
+            {
+              "from": "bff-s",
+              "to": "listing"
+            },
+            {
+              "from": "bff-s",
+              "to": "avail"
+            },
+            {
+              "from": "bff-c",
+              "to": "pay"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How is a BFF different from a general-purpose API gateway?",
+        "How would you stop a BFF from slowly becoming a monolith?",
+        "Where should authorization checks live when a BFF aggregates data from several services?"
+      ],
+      "related": [
+        "what-are-micro-frontends",
+        "communication-between-micro-frontends",
+        "authentication-in-micro-frontends",
+        "designing-a-micro-frontend-architecture"
+      ]
+    }
+  ]
+}

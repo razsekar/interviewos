@@ -1,0 +1,389 @@
+{
+  "category": "iot-architecture",
+  "questions": [
+    {
+      "slug": "what-is-iot-architecture",
+      "title": "What is IoT architecture?",
+      "topic": "IoT architecture overview",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "iot",
+        "architecture",
+        "ingestion",
+        "fleet"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            15
+          ]
+        }
+      ],
+      "quick": "IoT architecture connects physical devices to a backend. Devices publish telemetry through a gateway or managed broker, an ingestion layer absorbs that traffic, processing and storage turn it into records, and applications expose insights or send commands back down. Three constraints set it apart from a typical web backend: every device needs its own identity, devices lose connectivity and must buffer and reconcile, and the fleet needs ongoing provisioning, configuration and firmware management. I would describe it as telemetry flowing up and commands flowing down, with identity and offline tolerance designed in from the start.",
+      "revision": "Devices in, telemetry up, commands down, with per-device identity, offline tolerance and fleet lifecycle designed in from the start.",
+      "detailed": "IoT architecture is the structure that moves data between a large population of physical devices and the cloud applications that use that data. A strong answer names the layers first, then the constraints that make IoT different from a typical web backend.\n\n## The main layers\n\n- **Devices and gateways** sample sensors, run local logic and publish messages. Constrained devices often use a lightweight protocol such as MQTT.\n- **Connectivity and identity** authenticate each device and accept its messages through a managed broker or endpoint.\n- **Ingestion and processing** absorb bursts, validate payloads, enrich them with device metadata and route them by message type.\n- **Storage** keeps raw events, current device state and aggregates, each in a store chosen for its access pattern.\n- **Applications and commands** read insights for users and send commands or configuration back to devices.\n\n## What makes it different\n\nThree constraints shape most decisions. Identity matters because each device needs its own credential that can be revoked without affecting the rest of the fleet. Connectivity is unreliable, so devices buffer, retry and reconcile state rather than assuming a live link. Lifecycle is ongoing: devices are provisioned, configured, updated and retired over years, often in large batches.\n\n## Trade-offs and common mistakes\n\nCommon mistakes include sharing one credential across a fleet, treating every device as always online, writing telemetry straight into an operational database without buffering, and leaving firmware and fleet management until late. Separate the device-facing layer from downstream processing so each can scale, fail and change independently.\n\n## Practical example\n\nConsider a fleet of connected environmental sensors. Each sensor has its own certificate and publishes readings on a topic that contains its identifier. The ingestion layer writes raw events to a durable stream, a stream processor updates a per-sensor latest-value record, and an archive keeps history. When an operator needs a recalibration, the command travels down through the same platform and the device confirms when it has applied it.",
+      "followUps": [
+        "Which parts of this architecture would you design differently for battery-powered devices?",
+        "Where would you put buffering, and why there?",
+        "How does the command path differ from the telemetry path?"
+      ],
+      "related": [
+        "mqtt-vs-http",
+        "aws-iot-core-and-things"
+      ]
+    },
+    {
+      "slug": "mqtt-vs-http",
+      "title": "What is MQTT, and how does it differ from HTTP?",
+      "topic": "MQTT vs HTTP",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "mqtt",
+        "http",
+        "protocols",
+        "iot",
+        "pub-sub"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            15
+          ]
+        }
+      ],
+      "quick": "MQTT is a lightweight publish-subscribe protocol. Clients keep a long-lived connection to a broker, publish to topics and subscribe to the topics they need, and the broker routes each message to matching subscribers. HTTP is request-response: a client asks, the server answers, and the exchange ends. For constrained devices that send frequent telemetry and must also receive commands, I would choose MQTT, since the connection stays open and each message carries a very small header. HTTP still fits occasional uploads, browser-facing APIs and devices that already have HTTP tooling. I would decide on message frequency, bidirectional needs and device resources.",
+      "revision": "MQTT pushes small messages through a persistent broker in both directions; HTTP suits occasional request-response exchanges.",
+      "detailed": "MQTT is a publish-subscribe messaging protocol designed for constrained devices and unreliable networks. HTTP is a request-response protocol designed for documents and APIs. Both run over TCP, so the real difference lies in the communication model and the cost of keeping a conversation alive.\n\n## Comparison\n\n| Aspect | MQTT | HTTP |\n|---|---|---|\n| Model | Publish-subscribe through a broker | Client request, server response |\n| Connection | Long-lived, reused for many messages | Typically one exchange per request, or pooled connections |\n| Message overhead | Very small fixed header (two bytes minimum) | Headers are text and usually much larger |\n| Server push to device | Native, via subscriptions | Needs polling, long-polling or a second channel |\n| Delivery guarantees | QoS levels per message | Depends on the application's retries |\n| Best fit | Frequent telemetry, commands, intermittent links | Occasional uploads, web and partner APIs |\n\n## How to decide\n\nMQTT is efficient when a device sends many small readings and must also receive commands without polling. Because the broker decouples producers from consumers, you can add a new consumer without touching firmware. HTTP is simpler to reason about, cache and debug, and every language and gateway supports it. A device that uploads a daily summary is usually better served by HTTPS.\n\n## Common mistakes\n\n- Choosing MQTT for a one-off, request-response workflow, then rebuilding request matching on top of topics.\n- Ignoring the broker as a dependency and its capacity, authentication and monitoring.\n- Assuming that a persistent connection removes the need for reconnect logic. Networks still drop, so devices must reconnect with backoff.\n\n## Practical example\n\nA fleet of environmental sensors publishes a reading every ten seconds on a per-device topic and listens on a command topic for recalibration requests. MQTT fits this pattern. A nightly firmware manifest download from a file store can still use HTTPS, which keeps each protocol doing the job it suits.",
+      "followUps": [
+        "When would you still choose HTTP for a device?",
+        "How does the small MQTT header matter in practice, and when does it not?",
+        "How would you handle server push if a device could only use HTTP?"
+      ],
+      "related": [
+        "mqtt-qos-levels",
+        "what-is-iot-architecture"
+      ]
+    },
+    {
+      "slug": "mqtt-qos-levels",
+      "title": "What are the MQTT QoS levels, and what do they guarantee?",
+      "topic": "MQTT delivery guarantees",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "mqtt",
+        "qos",
+        "delivery",
+        "idempotency",
+        "exactly-once"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            15
+          ]
+        }
+      ],
+      "quick": "MQTT has three QoS levels per message. QoS 0 is at most once, so a message can be lost, which may suit a reading the next sample replaces. QoS 1 is at least once, so the receiver can see duplicates. QoS 2 is exactly once within the client-to-broker exchange. It does not make the business effect exactly once, because a consumer can crash after acknowledging or a device can reboot before recording success. I would make processing idempotent, keyed by a stable event ID, whatever QoS I use. I would also check current AWS IoT Core documentation, which describes QoS 0 and 1 for device messages.",
+      "revision": "QoS 0 may lose, QoS 1 may duplicate, QoS 2 is exactly once only on the wire; business exactly-once needs idempotency.",
+      "detailed": "The QoS level is a per-message setting that controls how hard the client and broker work to deliver a message. It only describes one hop of the path, the link between a client and the broker, and it says nothing about what the application does after the message is delivered.\n\n## The three levels\n\n| Level | Guarantee | Typical use |\n|---|---|---|\n| QoS 0 | At most once. No acknowledgement, so loss is possible | Frequent readings where the next value replaces the last |\n| QoS 1 | At least once. The sender retransmits until a PUBACK arrives, so duplicates are possible | Events and commands that must arrive, handled idempotently |\n| QoS 2 | Exactly once on the client-broker exchange, using PUBLISH, PUBREC, PUBREL and PUBCOMP | Cases where the protocol guarantee is needed and the cost is acceptable |\n\nA subscriber never receives a message at a higher level than its subscription requested, so the subscription's QoS also caps delivery.\n\n## What QoS 2 does not cover\n\nQoS 2 removes duplicates on that one link. It cannot see what happens after the broker hands over the message. Three failures break the business guarantee: the consumer crashes after acknowledging but before writing; the write succeeds but the acknowledgement is lost, so the upstream system retries; or the device publishes, reboots and republishes a reading it already sent. Each needs an application-level answer.\n\n## The fix: idempotent processing\n\nGive each event a stable identifier generated at the source, such as device identifier plus a monotonic sequence number. Store processed identifiers, or enforce uniqueness in the database, so that applying the same event twice has the same effect as applying it once. This works with QoS 0, 1 or 2.\n\n## Common mistakes\n\n- Using QoS 0 for commands or billing-relevant events.\n- Assuming QoS 2 means the consumer will never see a duplicate.\n- Designing around a QoS level that the managed service does not support. Check current docs before you commit to a level.\n\n## Practical example\n\nA temperature reading goes out at QoS 0, because the next reading replaces it. A firmware-install result goes out at QoS 1 with a unique job-execution identifier, and the backend records that identifier once. A duplicate result changes nothing.",
+      "followUps": [
+        "Why does QoS 2 not give end-to-end exactly-once processing?",
+        "How would you choose QoS for telemetry versus commands?",
+        "What would you put in a message to make duplicate detection possible?"
+      ],
+      "related": [
+        "duplicate-telemetry-and-billing",
+        "mqtt-vs-http"
+      ]
+    },
+    {
+      "slug": "aws-iot-core-and-things",
+      "title": "What is AWS IoT Core, and how do Things fit in?",
+      "topic": "AWS IoT Core and the device registry",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "aws",
+        "iot-core",
+        "things",
+        "registry",
+        "mqtt"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            15
+          ]
+        }
+      ],
+      "quick": "AWS IoT Core is a managed service that connects devices to the cloud. It provides a broker that speaks MQTT, device authentication, authorization through IoT policies, and a rules engine that routes messages to other AWS services. A Thing is a registry entry for a device or logical entity. It holds a name, attributes such as model or site, group membership, and the certificates and policies tied to its identity, so an operator can find or group devices. I keep two ideas separate: the Thing describes the device, while the live connection proves at runtime who is connecting.",
+      "revision": "Core is the managed broker and identity layer; a Thing is the registry record that groups a device's metadata, certificates and policies.",
+      "detailed": "AWS IoT Core is the managed layer that lets devices connect to AWS securely and exchange messages. It handles the broker, device identity and message routing, so the team does not run its own MQTT cluster or certificate authority for device connections. Architecture questions about it usually come down to three parts: the broker, the registry and the rules.\n\n## The main parts\n\n- **Message broker.** Devices publish and subscribe over MQTT, the primary device protocol. Other access options are documented, so check the current list before designing around one.\n- **Device registry.** A Thing is the registry entry for a device or logical entity. Attributes, type and group membership make fleet queries and bulk operations possible.\n- **Authentication and authorization.** Certificates authenticate the device. IoT policies authorize what it can do.\n- **Rules engine.** Rules select messages by topic and content, then send them to actions such as a data stream, a database, a function or a storage service.\n\n## How the pieces relate\n\nA Thing does not connect by itself. A device presents a certificate that is attached to the Thing, and policies attached to the certificate or the identity decide which topics it can use. Deleting a Thing does not automatically disconnect a live device, so the certificate lifecycle needs its own process.\n\n## Trade-offs and common mistakes\n\n- Using Thing names that encode secrets or personal data. Names and attributes are visible to anyone with registry permissions.\n- Treating the registry as the source of live status. The registry describes devices, while connection state is observed through the broker and lifecycle signals.\n- Creating one shared Thing for many devices, which makes per-device revocation and grouping impossible.\n\n## Practical example\n\nA smart-meter fleet registers each meter as a Thing with attributes for region and hardware revision. Meters are placed in a thing group per region. An operator can target a firmware job at one group, and the rules engine forwards each meter's readings to a stream while the registry remains the lookup for metadata.",
+      "followUps": [
+        "How would you model a gateway that manages many sensors behind it?",
+        "What happens to a live connection when you delete its Thing?",
+        "Why would you use thing groups instead of tags alone?"
+      ],
+      "related": [
+        "device-identity-and-topic-security",
+        "rules-engine-routing"
+      ]
+    },
+    {
+      "slug": "device-identity-and-topic-security",
+      "title": "How do you secure device identity and MQTT topic access in AWS IoT Core?",
+      "topic": "Device identity, IoT policies and topic security",
+      "difficulty": "advanced",
+      "type": "conceptual",
+      "tags": [
+        "security",
+        "x509",
+        "mutual-tls",
+        "iot-policy",
+        "mqtt-topics",
+        "least-privilege"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            15,
+            16,
+            17
+          ]
+        }
+      ],
+      "quick": "Each device gets a unique X.509 certificate, and the connection uses mutual TLS, so the broker verifies the device and the device verifies the broker. The certificate must be attached to the device's Thing and be active. Authentication answers who the device is; IoT policies answer what it may do. They allow connecting for a specific client identity, and publishing or subscribing only on that device's topics. I would build topic namespaces around device identity and avoid broad wildcards, so one compromised device cannot read another device's commands.",
+      "revision": "Unique certificate per device for identity, mutual TLS to connect, and least-privilege policies that tie each topic to that device.",
+      "detailed": "Securing an IoT fleet means three things working together: a unique cryptographic identity for each device, a connection that proves that identity in both directions, and authorization rules that limit what each identity can touch. Missing any one leaves a path to impersonation or lateral movement.\n\n## Identity and connection\n\nEach device gets its own X.509 certificate and private key. The private key should be generated on the device or in secure hardware where possible, and should never be shared across devices. During the TLS handshake the device presents its certificate, which proves possession of the key, and the device checks the broker's certificate. The certificate is attached to a Thing and must be active.\n\n## Authorization with IoT policies\n\nAuthorization is separate from authentication. A policy might look like this:\n\n```json\n{\n  \"Version\": \"2012-10-17\",\n  \"Statement\": [\n    {\n      \"Effect\": \"Allow\",\n      \"Action\": \"iot:Connect\",\n      \"Resource\": \"arn:aws:iot:REGION:ACCOUNT:client/${iot:Connection.Thing.ThingName}\"\n    },\n    {\n      \"Effect\": \"Allow\",\n      \"Action\": \"iot:Publish\",\n      \"Resource\": \"arn:aws:iot:REGION:ACCOUNT:topic/telemetry/${iot:Connection.Thing.ThingName}/*\"\n    }\n  ]\n}\n```\n\nPolicy variables let one template serve the whole fleet, while each device still gets only its own topics. Use the exact policy syntax and variables from the current documentation, and replace the placeholders with your region and account.\n\n## Topic namespace design\n\nBuild namespaces around the identity: telemetry from a device goes under a device-specific path, and commands to a device go under a path only that device may subscribe to. Avoid a single wildcard such as all topics, because one compromised device could then read or publish across the fleet.\n\n## Common mistakes\n\n- Sharing one certificate or private key across a product line.\n- Writing policies that allow every topic, or granting subscribe on a command topic to every device.\n- Forgetting revocation: an identity that cannot be deactivated quickly is a risk.\n- Using client identifiers that do not match the policy's expectations, so connections are refused in production.\n\n## Practical example\n\nA connected appliance has certificate identity \"appliance-0042\". Its policy lets it connect only with that client identifier, publish only to its telemetry path, and subscribe only to its command path. If the certificate leaks, deactivating that one certificate affects one appliance.",
+      "followUps": [
+        "How would you audit that policies are not too broad across the fleet?",
+        "What is the difference between authentication and authorization in this setup?",
+        "Why would a shared certificate be a problem even with good topic policies?"
+      ],
+      "related": [
+        "provision-devices-at-fleet-scale",
+        "rotate-compromised-device-certificates"
+      ]
+    },
+    {
+      "slug": "provision-devices-at-fleet-scale",
+      "title": "How do you provision thousands of IoT devices securely?",
+      "topic": "Fleet provisioning and manufacturing identity",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "provisioning",
+        "fleet",
+        "certificates",
+        "manufacturing",
+        "claim-certificate"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "reference-derived",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            16
+          ]
+        }
+      ],
+      "quick": "I would use a controlled provisioning workflow in which every device gets a unique identity, and no device ever shares a long-lived credential. In a common pattern, the factory installs a limited claim credential that can only request enrollment. On first boot the device uses it to obtain its own unique certificate, which never leaves the device, and a provisioning template then registers the Thing and attaches a restricted policy. I would log every enrollment with its serial number and batch, reject unknown or duplicate devices, and keep the claim credential's permissions as narrow as possible. The goal is that a stolen claim credential cannot create a trusted device with broad access.",
+      "revision": "Unique identity per device, a narrow claim credential that only enrolls, and auditable enrollment with restricted policies.",
+      "detailed": "Provisioning is where fleet security is either built in or quietly lost. The question has two parts: how each device proves it is genuine when it first connects, and how the platform turns that proof into a registered Thing with the right policy, without handing out broad access.\n\n## A workable pattern\n\n1. **Manufacture with a unique identity.** Each device gets a unique key pair in secure storage, where practical in a hardware secure element. The private key should not be exportable.\n2. **Enroll with a claim credential.** The factory installs a provisioning credential that is valid only for enrollment. Its policy allows the enrollment operation and nothing else.\n3. **Issue a device certificate.** On first boot the device uses the claim credential to request its own certificate. The device generates or receives the key material, and the platform issues a unique certificate.\n4. **Register through a template.** A provisioning template creates the Thing, attaches the device policy and records attributes such as serial number, model and batch.\n5. **Lock down the claim.** After enrollment, the device uses only its own certificate, and the claim credential becomes useless for connecting data.\n\nFleet provisioning features in managed IoT platforms follow this model, but check current documentation for the exact flow and any hooks available to validate devices during enrollment.\n\n## Trade-offs\n\n- **Pre-provisioned certificates** installed at manufacture are simpler at runtime but need a secure factory process and careful key custody.\n- **Claim-based enrollment** tolerates devices that are provisioned later, but the claim credential is a bearer secret, so it must be narrow and rotatable.\n- **Batch registration** is efficient for large lots, but each device still needs its own identity.\n\n## Common mistakes\n\n- Burning one shared secret into every firmware image.\n- Letting the claim credential connect data or read device state.\n- Creating devices without recording serial numbers or batch IDs, which makes recall and audit hard.\n- Enrolling devices without a rule for rejecting unknown or duplicate serial numbers.\n\n## Practical example\n\nA factory provisions a batch of gateways. Each gateway enrolls on first power-up through the claim credential, receives a unique certificate, and is registered with its serial number. An enrollment log entry records the batch, and any serial that appears twice is rejected for review.",
+      "followUps": [
+        "How would you revoke a claim credential that leaked from a factory?",
+        "Where would you key-store the private key on a constrained device?",
+        "How would you handle devices that are provisioned months after they are shipped?"
+      ],
+      "related": [
+        "device-identity-and-topic-security",
+        "rotate-compromised-device-certificates"
+      ]
+    },
+    {
+      "slug": "rotate-compromised-device-certificates",
+      "title": "How do you rotate compromised IoT device certificates?",
+      "topic": "Credential rotation and revocation",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "certificates",
+        "revocation",
+        "rotation",
+        "incident-response",
+        "fleet"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            16
+          ]
+        }
+      ],
+      "quick": "First I would contain the damage by deactivating the certificate so the broker refuses new connections, and restricting the identity's policy if it looks related to other credentials. Then I would scope the compromise: which devices share the credential, which topics they reached, and which commands moved, using connection and authorization logs. Next I would issue replacements through the normal provisioning path, install them through a controlled rollout, and give offline devices a defined re-enrollment path. Finally I would fix how the key was exposed and make future credentials unique per device.",
+      "revision": "Deactivate first to contain, scope what the credential reached, reissue through the normal provisioning path, and fix the exposure.",
+      "detailed": "A compromised device certificate is an incident, not a configuration change. The aim is to stop the misuse quickly, understand the blast radius, restore trust through a controlled process and prevent recurrence. Rotation is the last of those steps, not the first.\n\n## Step by step\n\n1. **Contain.** Deactivate the certificate so new connections are refused. Existing sessions may need to be closed too. Restrict the identity's policy if the attacker might have a related credential.\n2. **Scope.** Use connection, authentication and authorization logs to find every session that used the credential, every topic it touched and every command it issued or accepted. Determine whether other devices share the key. If they do, the scope grows to all of them.\n3. **Reissue.** Issue a new certificate and key through the normal provisioning path, with its own unique identity. Do not reuse the old key.\n4. **Install.** Deliver the new credential through a secure channel, or re-enroll the device if its key was exposed. Use a staged approach for large groups so a faulty install does not cut off the fleet.\n5. **Handle offline devices.** Devices that are unreachable keep the old credential blocked. They re-enroll on return through a defined path, and the platform records that the old identity is retired.\n6. **Learn.** Find how the key was exposed, such as a shared image or weak key storage, and fix the source.\n\n## Trade-offs\n\n- **Overlapping credentials** let a device keep working through a planned rotation, but they widen the window in which an old credential is valid. Use them for planned rotation, and not for incident response.\n- **Immediate deactivation** stops an attacker quickly but may strand devices that need a replacement installed first. Plan for that trade-off in advance.\n\n## Common mistakes\n\n- Revoking a credential without knowing whether other devices share it.\n- Rotating in a way that leaves no tested path for installing the new credential.\n- Forgetting that the old certificate may still be attached to other policies or groups.\n\n## Practical example\n\nA batch of gateways is found to share one private key. The team deactivates that certificate, identifies all gateways in the batch, and re-enrolls each one with a unique certificate in staged groups. Gateways that are offline are marked as pending, and their old identity stays blocked until they re-enroll.",
+      "followUps": [
+        "How would you rotate certificates on a schedule without causing downtime?",
+        "What logs would you check first when scoping a compromise?",
+        "How would you handle a device that is offline for months during a rotation?"
+      ],
+      "related": [
+        "provision-devices-at-fleet-scale",
+        "device-identity-and-topic-security"
+      ]
+    },
+    {
+      "slug": "device-shadow-desired-state",
+      "title": "What is a Device Shadow, and how do desired and reported state work?",
+      "topic": "Device Shadow",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "device-shadow",
+        "state",
+        "sync",
+        "iot-core",
+        "desired-state"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            16
+          ]
+        }
+      ],
+      "quick": "A Device Shadow is a cloud-side JSON document that represents a device's state. The desired section holds the state applications want, the reported section holds what the device says it is, and a delta shows the difference. A device that was offline reads the delta on reconnect, applies it and reports back. The shadow keeps the latest state rather than history, and it carries a version so concurrent writes can be detected. I would use it for settings where the newest value matters, not for one-off actions that must run once and be tracked.",
+      "revision": "Shadow holds latest desired and reported state, so reconnecting devices reconcile; it suits configuration, not discrete actions.",
+      "detailed": "A Device Shadow separates \"what should be true\" from \"what is true\" for a device, and lets both sides work at different times. The cloud can record a desired value even when the device is offline. When the device connects, it reads the difference and brings itself into line, then reports the result.\n\n## Structure\n\n```json\n{\n  \"state\": {\n    \"desired\": { \"samplingSeconds\": 30 },\n    \"reported\": { \"samplingSeconds\": 10 },\n    \"delta\": { \"samplingSeconds\": 30 }\n  },\n  \"version\": 7\n}\n```\n\nThe delta is the part of desired state that differs from reported state. A device applies the change, then writes its new reported value, which clears the delta.\n\n## Why it works for intermittent devices\n\nBecause the shadow persists the desired value, a device that was offline during an update does not need to be online when the update is written. Version numbers let a writer detect that it is overwriting a newer change, which helps avoid lost updates when two systems write the same field.\n\n## Trade-offs\n\n- **Latest-wins semantics.** Intermediate values are lost. If three configuration changes arrive while a device is offline, it applies only the final desired value. That is usually what you want for settings.\n- **Not a command queue.** A shadow cannot express \"run this action once and report the outcome\" well. Use a command with an identifier, expiry and acknowledgement for that.\n- **Size and structure.** Keep the document small and structured. Storing large logs or histories in the shadow is a design smell.\n\n## Common mistakes\n\n- Writing reported state from the cloud, which hides the device's real state.\n- Ignoring the version field and overwriting concurrent updates.\n- Using the shadow as a time-series store.\n\n## Practical example\n\nAn operator lowers the sampling interval for a fleet of soil sensors during a field study by writing a desired value to each shadow. Sensors that are offline pick up the change when they reconnect, apply it and report the new value. The dashboard compares desired and reported values to show which sensors are still pending.",
+      "followUps": [
+        "How would you handle a device that receives a desired value it cannot apply?",
+        "Why does versioning matter when two services update the same shadow?",
+        "When would you rather use a command queue than a shadow?"
+      ],
+      "related": [
+        "command-and-control-design",
+        "intermittent-connectivity-design"
+      ]
+    },
+    {
+      "slug": "rules-engine-routing",
+      "title": "What is the AWS IoT Rules Engine, and when would you use it?",
+      "topic": "Message routing with the Rules Engine",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "rules-engine",
+        "routing",
+        "sql",
+        "iot-core",
+        "decoupling"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            16
+          ]
+        }
+      ],
+      "quick": "The Rules Engine evaluates each incoming message against configured rules. A rule selects messages with a topic filter and a SQL-like statement, can reshape the payload, and sends matches to actions such as a stream, a database, a function or storage. It decouples the device protocol from downstream processing, so I can change a consumer without touching firmware. I would keep rules to filtering, light reshaping and routing, move heavy logic into a service, configure error actions so failed deliveries are captured, and decide deliberately what happens to unmatched messages.",
+      "revision": "Rules filter and route device messages to downstream actions, decoupling firmware from consumers; keep logic light and handle failures explicitly.",
+      "detailed": "The Rules Engine sits between the device-facing broker and the rest of the platform. It lets you write routing decisions as configuration rather than code in every consumer, which keeps devices independent of how the backend evolves.\n\n## How a rule works\n\nA rule has a topic filter, a SQL-like statement that selects and transforms fields, and one or more actions. For example:\n\n```sql\nSELECT *, topic(2) AS deviceId, timestamp() AS receivedAt\nFROM 'sensors/+/telemetry'\nWHERE temperature > 80\n```\n\nThis selects alarm readings from every sensor, adds the device identifier taken from the topic and a timestamp, and sends matches to an action. Check the current function list and syntax in the documentation before you rely on specific functions.\n\n## Design guidance\n\n- **Use rules for routing and light shaping.** Filtering, renaming fields and forwarding to a stream are good uses.\n- **Move heavy logic out.** Aggregation over windows, joins with reference data and business rules belong in a stream processor or service.\n- **Configure error actions.** A failed delivery should go somewhere you can inspect and replay, not into a void.\n- **Think about unmatched messages.** A message that matches no rule is silently not routed. Decide whether that is intended, and monitor it.\n\n## Trade-offs\n\nRules are fast to set up and easy to review, but complex logic in SQL is hard to test and version. Keeping rules small makes them easier to reason about, and each rule adds cost and a dependency to watch.\n\n## Common mistakes\n\n- Putting business logic inside rule expressions that nobody can test.\n- Routing directly into a database without a buffer, which couples device spikes to database capacity.\n- Forgetting error actions, so delivery failures disappear.\n\n## Practical example\n\nA rule forwards every telemetry message to a durable stream and a second rule forwards only high-temperature alarms to a notification function. Downstream teams subscribe to the stream for their own processing without any change on the devices.",
+      "followUps": [
+        "How would you test a rule before you deploy it?",
+        "What would you do with messages that match no rule?",
+        "Where would you draw the line between a rule and a stream processor?"
+      ],
+      "related": [
+        "high-volume-ingestion-design",
+        "aws-iot-core-and-things"
+      ]
+    },
+    {
+      "slug": "firmware-rollouts-with-iot-jobs",
+      "title": "How do you roll out firmware updates safely across a fleet?",
+      "topic": "Firmware updates and IoT Jobs",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "firmware",
+        "ota",
+        "iot-jobs",
+        "rollout",
+        "code-signing",
+        "rollback"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            16,
+            17
+          ]
+        }
+      ],
+      "quick": "I would use IoT Jobs to target a defined group, never the whole fleet. Each image is signed, and the device verifies the signature and a version check before installing. It keeps the previous image for rollback. The rollout proceeds in stages, a small canary group first, with each next stage gated on health reported after reboot. I would watch job success, failure and timeout rates, and stop automatically when they cross thresholds agreed before the rollout started.",
+      "revision": "Signed images, staged cohorts gated on device health, a rollback path on every device, and automatic stop when failure rates rise.",
+      "detailed": "A firmware update is the riskiest operation in a fleet. A bad image can brick devices that cannot be reached physically. Safety comes from three layers: the image is trustworthy, the rollout is gradual and observable, and every device can recover when something goes wrong.\n\n## Trust the image\n\nSign firmware with a key that the device trusts, and verify the signature before installation. Include a version number that the device checks, so an attacker or a mistake cannot push an older, vulnerable image. Deliver the image over an authenticated channel and verify its integrity after download.\n\n## Roll out in stages\n\nIoT Jobs describes the work to do and the devices it targets, such as a thing group. Target a small canary cohort first, then widen in stages. The next stage should start only when the previous one is healthy. Chosen cohort sizes and waiting periods are a judgement call that depends on fleet size and risk, so set them before the rollout and write them down.\n\n## Health gates and rollback\n\nEach device should report its firmware version and a health status after it boots. The rollout controller watches job execution results, timeouts and health reports. If failures exceed the agreed threshold, the rollout stops and no further cohorts start. Devices should keep the previous image on a separate slot, such as an A/B partition, and revert if the new image does not boot or does not report healthy within a deadline.\n\n## Common mistakes\n\n- Updating a whole fleet at once, so one bad image reaches every device.\n- Treating \"download succeeded\" as \"update succeeded\" and ignoring whether the device booted correctly.\n- Having no rollback path, which turns a bad release into a field service visit.\n- Rebooting large numbers of devices in the same minute, which can overload recovery paths.\n\n## Practical example\n\nA new image for a fleet of gateways goes first to a few devices in a test site. After reboot they report healthy, so the next cohort receives it. A regional cohort shows a rising timeout rate, the job stops, and devices that already updated fall back to their previous slot if their health check fails.",
+      "followUps": [
+        "How would you design the rollback if a device bricks mid-install?",
+        "What metrics would you watch during a rollout?",
+        "How do you prevent an attacker from installing an older, vulnerable image?"
+      ],
+      "related": [
+        "monitor-iot-platform",
+        "device-shadow-desired-state"
+      ]
+    }
+  ]
+}

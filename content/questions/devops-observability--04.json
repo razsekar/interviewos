@@ -1,0 +1,121 @@
+{
+  "category": "devops-observability",
+  "questions": [
+    {
+      "slug": "logs-metrics-and-traces",
+      "title": "What is the difference between logs, metrics and traces?",
+      "topic": "Observability signals",
+      "difficulty": "beginner",
+      "type": "comparison",
+      "tags": [
+        "logs",
+        "metrics",
+        "traces",
+        "observability",
+        "telemetry"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            21
+          ]
+        }
+      ],
+      "quick": "They are three telemetry signals that answer different questions. Logs are timestamped records of discrete events, such as a failed payment with its error code and request ID, so they give detail about one occurrence. Metrics are numeric measurements aggregated over time, such as request rate, error ratio and latency percentiles. They are cheap to store and suit dashboards and alerts. Traces follow one request across every service it touches, with timing for each step, so they show where latency or failure sits in the path. I alert on metrics, use traces to find the slow hop, and read logs for the specific detail.",
+      "revision": "Metrics say something is wrong, traces show where on the path, and logs explain what happened at that step.",
+      "detailed": "Logs, metrics and traces are the three main observability signals. Each answers a different question, and mature systems use all three together.\n\n## Comparison\n\n| Signal | Shape | Answers | Typical cost driver | Typical use |\n|---|---|---|---|---|\n| Logs | Discrete, timestamped events with context | What happened in this specific case? | Volume of text ingested and retained | Debugging, audit trails, error detail |\n| Metrics | Numeric time series, often aggregated | Is the system healthy right now, and is it trending badly? | Number of distinct label combinations | Dashboards, alarms, capacity planning |\n| Traces | A tree of timed spans for one request | Where did this request spend its time or fail? | Span volume, usually reduced by sampling | Latency analysis across services |\n\n## How they work together\n\nAlert on metrics because they are cheap to evaluate continuously. When an alarm fires on error ratio or p99 latency, open a trace sample from that window to find the slow or failing service. Then read the logs for that trace ID to see the exact error. Correlation depends on passing a shared identifier, such as a trace ID or request ID, through each service and into each log line.\n\n## Trade-offs and common mistakes\n\n- **High-cardinality labels in metrics.** Using user IDs or raw URLs as metric labels multiplies series and cost. Use bounded labels such as route template and status class.\n- **Logs as metrics.** Counting log lines to build alerts is expensive and slow. Emit a metric instead.\n- **Unstructured logs.** Free text is hard to filter. Structured JSON with consistent fields makes queries reliable.\n- **Full-fidelity traces everywhere.** Sampling controls cost, but make sure errors and slow requests are kept.\n\n## Practical example (hypothetical)\n\nA checkout API emits a metric for requests and errors by route template. An alarm fires when the error ratio passes a threshold for five minutes. The on-call engineer opens a sampled trace and sees that the payment call is slow. A log line tagged with the same trace ID reveals a timeout from the payment provider client.\n\nNaming and tooling differ by platform, so check the documentation for the services you use.",
+      "followUps": [
+        "Why should high-cardinality values stay out of metric labels?",
+        "How would you connect a spike in an alarm to a specific log line?",
+        "Which signal would you use to alert on user impact, and why?"
+      ],
+      "related": [
+        "distributed-tracing-opentelemetry",
+        "monitor-production-application",
+        "readiness-vs-liveness-probes-and-health-checks"
+      ]
+    },
+    {
+      "slug": "what-is-aws-config",
+      "title": "What is AWS Config, and how does it differ from CloudTrail?",
+      "topic": "Governance and compliance",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "aws-config",
+        "compliance",
+        "configuration",
+        "drift",
+        "audit"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            21
+          ]
+        }
+      ],
+      "quick": "AWS Config records the configuration of supported AWS resources over time and evaluates them against rules. I can see what a security group or bucket looked like at a given moment and how it changed. Managed or custom rules flag non-compliant resources, such as an unencrypted volume or a bucket that allows public access, and can trigger remediation. CloudTrail answers a different question. It records who made which API call, from where and when. I use them together: CloudTrail identifies the change and the identity, and AWS Config shows the resource's before and after state and whether it complies.",
+      "revision": "AWS Config answers what a resource looked like and whether it complies; CloudTrail answers who made which API call.",
+      "detailed": "**AWS Config** records configuration state for supported AWS resources and evaluates that state against rules. It is a governance and drift tool. **AWS CloudTrail** records API activity in the account. It is an audit tool. They overlap in time but answer different questions.\n\n## Comparison\n\n| Aspect | AWS Config | AWS CloudTrail |\n|---|---|---|\n| Records | Configuration snapshots and changes of resources | API calls and account activity events |\n| Question answered | What did the resource look like, and does it comply? | Who called which API, when, and from where? |\n| Evaluation | Managed and custom rules, conformance packs | Not an evaluator; you query and alert on events |\n| Typical use | Compliance, drift detection, configuration history | Security investigation, audit trails |\n\n## How they work together\n\nWhen a security group opens port 22 to the internet, CloudTrail shows the `AuthorizeSecurityGroupIngress` call and the identity that made it. AWS Config shows the rule state before and after the change and flags the resource as non-compliant if a rule forbids open SSH. Remediation can then be triggered automatically or by a ticket.\n\n## Trade-offs\n\nConfig records resources and charges per configuration item and per rule evaluation, so scope recording to the resource types and regions that matter. It evaluates a supported set of resource types, so check the current list before depending on it for a particular service. Rules report compliance; they do not prevent a change, so pair them with preventive controls such as service control policies where needed.\n\n## Common mistakes\n\n- Treating Config as an audit log. It shows state changes, not every action, and the identity behind a change comes from CloudTrail.\n- Enabling rules without an owner. Non-compliant findings that nobody acts on create noise.\n- Forgetting to record global resources such as IAM in the right Region.\n\n## Practical example (hypothetical)\n\nA team enables managed rules for encrypted volumes and for buckets that block public access, then routes non-compliant findings to a chat channel and a ticket queue. When a finding appears, the team uses CloudTrail to see who changed the resource and Config to confirm the before and after state.",
+      "followUps": [
+        "How would you use AWS Config and CloudTrail together in one investigation?",
+        "What is the difference between a managed rule and a custom rule?",
+        "Does a Config rule prevent a non-compliant change? What would you add to prevent it?"
+      ],
+      "related": [
+        "monitor-production-application",
+        "investigate-production-outage"
+      ]
+    },
+    {
+      "slug": "respond-to-production-security-incident",
+      "title": "How do you respond to a production security incident?",
+      "topic": "Incident response",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "security-incident",
+        "incident-response",
+        "containment",
+        "forensics",
+        "rca"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            22
+          ]
+        }
+      ],
+      "quick": "I follow a structured sequence. First I contain the incident: isolate affected resources, block the attack path, and revoke or rotate credentials that may be compromised. While I do that I preserve evidence such as logs, snapshots and configuration history, because rushing can destroy the trail. Next I assess scope: which accounts, identities, data and services were touched, using CloudTrail, flow logs and application logs. I restore service from known-good state, communicate with stakeholders and any regulatory obligations, and after recovery I run a blameless root-cause analysis and add preventive controls. Recovery should not finish until the entry point is closed.",
+      "revision": "Contain first, preserve evidence, scope the impact, revoke credentials, recover from known-good state, then learn and prevent.",
+      "detailed": "A security incident needs a different pace from an ordinary outage. The priorities are to stop the attacker, keep evidence intact, and restore trust in the system before normal operations resume. Follow the organisation's incident response plan and its legal and notification obligations.\n\n## Phases\n\n| Phase | Goal | Typical actions |\n|---|---|---|\n| Detect and triage | Confirm it is real and assign an incident lead | Review alerts, separate false positives, open an incident channel |\n| Contain | Stop further damage | Isolate instances, restrict security groups, disable exposed keys, block malicious IPs or patterns |\n| Preserve | Keep evidence | Snapshot volumes, export logs, record configuration state before changes |\n| Eradicate and assess scope | Remove the access path and find the blast radius | Rotate secrets, review IAM activity, search logs for indicators, check data access |\n| Recover | Return to known-good service | Redeploy from trusted images, restore data from clean backups, monitor closely |\n| Learn | Prevent recurrence | Blameless root-cause analysis, control changes, tests and training |\n\n## Practical guidance\n\nRevoke and rotate credentials that may be exposed, including those used by automation. Use CloudTrail to see which identities made calls during the window, and flow logs or application logs to see data movement. Avoid terminating instances before capturing what you need, because that destroys memory and local evidence.\n\n## Trade-offs\n\nContainment can disrupt customers. Isolating a service may be the right call even when it causes downtime, and the decision belongs to the incident lead with security and business input. Communicate clearly about what is known, what is unknown and when the next update will come.\n\n## Common mistakes\n\n- Rebuilding before containing, so the attacker still has a valid key.\n- Deleting logs or resources to \"clean up\" during the incident.\n- Declaring recovery before the entry point and the persistence mechanisms are removed.\n- Skipping the root-cause analysis, which leaves the same weakness in place.\n\n## Practical example (hypothetical)\n\nAn alert shows an unexpected role assumed from an unfamiliar region. The team disables the affected access key, restricts the role's trust policy, snapshots the affected instance and exports the relevant CloudTrail events. It then checks what data the role read, redeploys the service from a trusted image, and schedules a blameless review that adds an alert on the same pattern.",
+      "followUps": [
+        "What would you do first if you suspected a leaked access key?",
+        "How do you decide whether to shut down a compromised service?",
+        "What belongs in a blameless root-cause analysis for a security incident?"
+      ],
+      "related": [
+        "investigate-production-outage",
+        "slis-slos-error-budgets-and-incident-rca",
+        "monitor-production-application"
+      ]
+    }
+  ]
+}

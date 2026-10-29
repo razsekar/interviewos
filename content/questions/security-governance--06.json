@@ -1,0 +1,89 @@
+{
+  "category": "security-governance",
+  "questions": [
+    {
+      "slug": "oauth-2-0-vs-openid-connect",
+      "title": "What is OAuth 2.0, and how does OpenID Connect extend it?",
+      "topic": "OAuth 2.0 and OpenID Connect",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "oauth2",
+        "oidc",
+        "authorization",
+        "authentication",
+        "id-token"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            20,
+            21
+          ]
+        }
+      ],
+      "quick": "OAuth 2.0 is an authorization framework. It lets a client application obtain a scoped access token so that it can call an API on a user's behalf, without ever seeing the user's password. OpenID Connect sits on top of OAuth 2.0 as an identity layer. It adds the openid scope and an ID token, a signed JWT that tells the application who signed in and how. I would put it this way: OAuth decides what a client may access, and OIDC establishes who the user is. For browser apps I use authorization code with PKCE, validate the ID token's signature, issuer, audience and expiry, and never treat an access token as proof of login.",
+      "revision": "OAuth 2.0 delegates access with scoped access tokens; OpenID Connect adds authentication through an ID token. Access versus identity.",
+      "detailed": "OAuth 2.0 is an authorization framework. It lets a client application obtain limited, scoped access to a protected resource, such as an API, either on behalf of a user (the resource owner) or on its own behalf. OpenID Connect (OIDC) is an identity layer built on top of OAuth 2.0. It adds a standard way to authenticate the user and to return verified information about them through an ID token. In short, OAuth answers what a client may access, and OIDC answers who the user is.\n\n{{diagram:oauth-oidc-tokens}}\n\n## How the pieces fit\n\n- OAuth 2.0 defines the roles (resource owner, client, authorization server and resource server), the grant types or flows, and scopes.\n- The client receives an access token and presents it to the resource server. An access token is meant for the API, not for the client to inspect.\n- OIDC adds the `openid` scope, an ID token that the client validates and reads, and a UserInfo endpoint for extra profile claims.\n\n| Question | OAuth 2.0 | OpenID Connect |\n|---|---|---|\n| Purpose | Delegated access to resources | Authentication and user identity |\n| Main artefact | Access token | ID token, alongside the access token |\n| Who consumes it | Resource server (API) | Client application |\n\n## Trade-offs and common mistakes\n\n- **Using an access token as proof of login.** A token issued for an API is not a verified statement about the user. Sign-in should rely on a validated ID token.\n- **Treating scopes as identity.** Scopes describe permissions, not who signed in.\n- **Choosing the wrong flow.** Browser and mobile apps should use authorization code with PKCE. Implicit and resource owner password grants are generally discouraged in current guidance.\n\n## Practical example\n\nA retail site offers sign-in through an external identity provider. The app requests the scopes `openid profile email` and receives an ID token, which it validates to create a session. The same login also yields an access token with the scope `orders:read`, which the app sends to an orders API. The API checks the access token and its scope, and does not rely on the ID token at all.",
+      "diagrams": [
+        {
+          "id": "oauth-oidc-tokens",
+          "title": "Sign-in and API access with OIDC and OAuth tokens",
+          "alt": "The user signs in at the authorization server, which returns tokens to the client app. The client uses the access token to call the resource server API, while the ID token is used by the client to confirm who signed in.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "user",
+              "label": "User"
+            },
+            {
+              "id": "client",
+              "label": "Client app"
+            },
+            {
+              "id": "auth",
+              "label": "Authorization server (OIDC)"
+            },
+            {
+              "id": "api",
+              "label": "Resource server (API)"
+            }
+          ],
+          "edges": [
+            {
+              "from": "user",
+              "to": "auth",
+              "label": "signs in"
+            },
+            {
+              "from": "auth",
+              "to": "client",
+              "label": "ID token and access token"
+            },
+            {
+              "from": "client",
+              "to": "api",
+              "label": "access token"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Why should an application not use an access token to decide who the user is?",
+        "Which ID token claims would you validate, and why?",
+        "When would you use OAuth 2.0 without OpenID Connect?"
+      ],
+      "related": [
+        "oauth2-oidc-flows-which-to-use",
+        "oauth2-oidc-authorisation-code-pkce-for-spas-and-ssr",
+        "jwt-structure-validation-expiry-and-key-rotation",
+        "authentication-vs-authorisation-in-web-architecture"
+      ]
+    }
+  ]
+}

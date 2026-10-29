@@ -1,0 +1,572 @@
+{
+  "category": "aws-cdk-iac",
+  "questions": [
+    {
+      "slug": "what-is-aws-cdk",
+      "title": "What is AWS CDK, and how does it relate to CloudFormation and Terraform?",
+      "topic": "CDK fundamentals",
+      "difficulty": "beginner",
+      "type": "comparison",
+      "tags": [
+        "aws-cdk",
+        "cloudformation",
+        "terraform",
+        "infrastructure-as-code"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            6
+          ]
+        }
+      ],
+      "quick": "AWS CDK is an open-source framework for defining cloud infrastructure in a general-purpose language such as TypeScript. You write classes and function calls, and CDK synthesizes them into CloudFormation templates, which CloudFormation then deploys and manages. CloudFormation is the provisioning engine; CDK is a higher-level authoring model on top of it. Compared with Terraform, CDK for AWS is tied to AWS and to CloudFormation's stack lifecycle, while Terraform uses providers and its own state and works across many clouds. I would choose based on whether the team wants AWS-native tooling with language-level reuse, or a multi-cloud workflow that already exists.",
+      "revision": "CDK authors infrastructure in code and synthesizes CloudFormation; CloudFormation does the provisioning, while Terraform is provider-and-state based across clouds.",
+      "detailed": "AWS CDK (Cloud Development Kit) lets you define AWS infrastructure in a programming language such as TypeScript, Python or Java. The CDK CLI runs your program, builds a tree of constructs, and synthesizes that tree into CloudFormation templates. CloudFormation then performs the provisioning, change tracking and rollback. CDK is an authoring layer, not a separate deployment engine.\n\nHow the layers fit together:\n\n- **Your code**: classes, loops and functions that describe resources.\n- **CDK**: the construct library (`aws-cdk-lib`) turns those definitions into resource properties and sensible defaults.\n- **CloudFormation**: a declarative engine that creates, updates and deletes a stack's resources as one unit.\n\nCompared with hand-written CloudFormation, CDK adds reusable abstractions, type checking and editor completion. You keep CloudFormation's guarantees, and you can always inspect the generated template to see exactly what will be deployed.\n\nCompared with Terraform, the differences are mostly architectural:\n\n| Aspect | AWS CDK | Terraform |\n|---|---|---|\n| Authoring | General-purpose language | HCL, a declarative configuration language |\n| Engine | CloudFormation, which tracks stack state for you | Providers, plus a state file you manage |\n| Scope | AWS-focused | Multi-cloud and many SaaS providers |\n| History and drift | CloudFormation stack events and drift detection | Plan and apply against state |\n\nTrade-offs: CDK suits AWS-only teams that want application-style code reuse. Terraform suits platforms that span several clouds or that already standardise on it. Neither is universally better.\n\nCommon mistakes\n- Assuming CDK removes CloudFormation's constraints. Quotas and stack-level behaviour still apply.\n- Treating the synthesized template as optional. Reviewing it is how you catch surprises.\n- Confusing CDK for AWS with CDK for Terraform (CDKTF), a separate project whose current status you should check.\n\nPractical example: a `StorageStack` class creates an encrypted S3 bucket with a lifecycle rule. `cdk synth` emits an `AWS::S3::Bucket` resource in the template, and CloudFormation creates it on deploy.",
+      "followUps": [
+        "When would you choose Terraform over CDK for an AWS-only team?",
+        "What does CDK add on top of a plain CloudFormation template?",
+        "What is the risk of assuming the generated template is correct without reading it?"
+      ],
+      "related": [
+        "cdk-app-stack-construct",
+        "cdk-synth-diff-deploy"
+      ]
+    },
+    {
+      "slug": "cdk-app-stack-construct",
+      "title": "How do App, Stack and Construct relate in a CDK application?",
+      "topic": "CDK fundamentals",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "aws-cdk",
+        "constructs",
+        "stacks"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            6
+          ]
+        }
+      ],
+      "quick": "A CDK application is a tree. The App is the root, stacks sit directly under it, and constructs are the reusable pieces nested inside stacks or inside other constructs. Each stack maps to one CloudFormation stack, so it is the unit you deploy, roll back and reason about. A construct can be a single bucket or a whole service with networking, compute and permissions. Constructs are identified by their path in the tree, so renaming an id or moving a construct can make CloudFormation see a new resource. I would split stacks by lifecycle, so that things that change together deploy together.",
+      "revision": "App is the root, stacks are deployable units that map to CloudFormation stacks, and constructs are the reusable parts; ids define resource identity.",
+      "detailed": "The **App** is the root of a CDK program. It drives synthesis and owns the output directory. A single app usually contains several **stacks**, and each stack maps to one CloudFormation stack with its own template, lifecycle and deployment. A **construct** is anything in the tree: a single bucket, a queue, or a service built from many resources. Constructs take a scope, an id and props.\n\n{{diagram:stack-tree}}\n\n```ts\nconst app = new cdk.App();\nconst network = new NetworkStack(app, 'Network');\nnew AppStack(app, 'App', { vpc: network.vpc });\n```\n\nHow the tree matters: a construct's logical id in the template is derived from its path. Renaming an id, or moving a construct under a different scope, can therefore make CloudFormation treat the resource as new. The old one is then deleted, which for a stateful resource can mean data loss. Treat ids as part of the deployed contract and check `cdk diff` after any refactor.\n\nTrade-offs: more stacks mean a smaller blast radius and quicker deploys, but more cross-stack references to manage. Fewer, larger stacks simplify wiring but make each change riskier. Large stacks can also approach CloudFormation's per-stack limits, so check current quotas.\n\nCommon mistakes\n- Putting unrelated lifecycles in one stack, such as a stateful database alongside an API that deploys several times a day.\n- Renaming construct ids during a refactor without reading the diff.\n- Creating resources in ad hoc scopes, which makes ownership and testing harder.\n\nExample: a `Network` stack owns the VPC, a `Data` stack owns the database, and an `App` stack owns the service. The app stack receives the VPC and database through props.",
+      "diagrams": [
+        {
+          "id": "stack-tree",
+          "title": "CDK construct tree",
+          "alt": "Tree diagram: an App node has three stack children, Network, Data and App. Constructs such as a VPC and a Fargate service sit inside those stacks.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "app",
+              "label": "App"
+            },
+            {
+              "id": "net",
+              "label": "Network stack"
+            },
+            {
+              "id": "data",
+              "label": "Data stack"
+            },
+            {
+              "id": "appstk",
+              "label": "App stack"
+            },
+            {
+              "id": "vpc",
+              "label": "VPC construct"
+            },
+            {
+              "id": "svc",
+              "label": "Fargate service construct"
+            }
+          ],
+          "edges": [
+            {
+              "from": "app",
+              "to": "net"
+            },
+            {
+              "from": "app",
+              "to": "data"
+            },
+            {
+              "from": "app",
+              "to": "appstk"
+            },
+            {
+              "from": "net",
+              "to": "vpc"
+            },
+            {
+              "from": "appstk",
+              "to": "svc"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Why would you split an application into several stacks?",
+        "What happens if you rename a construct id during a refactor?",
+        "How does a construct's scope affect its logical id?"
+      ],
+      "related": [
+        "what-is-aws-cdk",
+        "l1-l2-l3-constructs",
+        "cdk-synth-diff-deploy"
+      ]
+    },
+    {
+      "slug": "l1-l2-l3-constructs",
+      "title": "What are L1, L2 and L3 constructs, and when do you use an escape hatch?",
+      "topic": "Construct levels",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "aws-cdk",
+        "constructs",
+        "escape-hatch",
+        "cloudformation"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            6,
+            7
+          ]
+        }
+      ],
+      "quick": "CDK offers three levels of construct. L1 constructs, named with a Cfn prefix such as s3.CfnBucket, map one-to-one to CloudFormation resource types and expose the raw properties. L2 constructs, such as s3.Bucket, add defaults, validation and helper methods like grantRead, and they are where most application code should live. L3 patterns compose several L2s into a working shape, such as a load balancer in front of a Fargate service. When an L2 does not expose a property you need, an escape hatch lets you reach the L1 underneath. I would keep those overrides in one reviewed place.",
+      "revision": "L1 maps one-to-one to CloudFormation, L2 adds defaults and helpers, L3 composes whole solutions, and escape hatches reach the L1 beneath.",
+      "detailed": "The three levels describe how much abstraction a construct adds on top of CloudFormation.\n\n- **L1 (`Cfn*` classes, such as `s3.CfnBucket`)**: generated from the CloudFormation resource schema. Properties match the template exactly, with no extra logic. A CDK construct is an abstraction; the L1 is the thin wrapper around one concrete CloudFormation resource.\n- **L2 (`s3.Bucket`, `lambda.Function`, `dynamodb.Table`)**: curated classes with secure or practical defaults, validation, and helpers such as `grantRead`. An L2 can create several CloudFormation resources, for example a bucket policy alongside the bucket.\n- **L3 patterns (for example `ApplicationLoadBalancedFargateService` in `aws-cdk-lib/aws-ecs-patterns`)**: opinionated compositions of several L2s, such as a cluster, task definition, load balancer and listener. They save time, but their internal choices are harder to change.\n\nEscape hatches let you reach below an L2 or L3 when its API lacks a property:\n\n```ts\nconst bucket = new s3.Bucket(this, 'Assets', {\n  encryption: s3.BucketEncryption.S3_MANAGED,\n});\nconst raw = bucket.node.defaultChild as s3.CfnBucket; // the underlying L1\nraw.addPropertyOverride('Tags', [{ Key: 'owner', Value: 'platform' }]);\n```\n\nUse escape hatches sparingly. Overrides bypass the construct's validation, can conflict with what the L2 generates, and must be re-checked when the construct library is upgraded.\n\nTrade-offs: start with L2 and drop to L1 only for a missing or new property. Use L3 for common shapes, but read the resources it generates before relying on them.\n\nCommon mistakes\n- Treating an L2 as a thin wrapper and never checking the synthesized template.\n- Scattering raw overrides through the code base instead of wrapping them in a single reviewed construct.\n- Forcing an L3 pattern onto a shape that needs custom networking, then fighting its defaults.",
+      "followUps": [
+        "When would you avoid an L3 pattern?",
+        "What are the risks of a property override on an L2 construct?",
+        "How would you check what resources an L2 construct generates?"
+      ],
+      "related": [
+        "cdk-app-stack-construct",
+        "cdk-aspects-and-cdk-nag",
+        "cdk-tokens"
+      ]
+    },
+    {
+      "slug": "cdk-synth-diff-deploy",
+      "title": "What do cdk synth, cdk diff and cdk deploy do, and how do you use them safely?",
+      "topic": "CDK workflow",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "aws-cdk",
+        "synth",
+        "diff",
+        "deploy",
+        "change-review"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            6
+          ]
+        }
+      ],
+      "quick": "The three commands form one review pipeline. cdk synth runs the app and writes CloudFormation templates into the cdk.out directory without changing anything in AWS. cdk diff compares those templates with the deployed stack and lists what would be added, changed or removed. cdk deploy then applies the reviewed change through CloudFormation, normally via a change set. In production I look hardest at replacements, deletions of stateful resources and widened IAM permissions, and I deploy the same synthesized output that was reviewed.",
+      "revision": "Synth writes templates locally, diff compares them with what is deployed, and deploy applies the reviewed change; read the diff for replacements and deletions.",
+      "detailed": "`cdk synth`, `cdk diff` and `cdk deploy` are three stages of one workflow. Each reduces the uncertainty before the next, more consequential step.\n\n{{diagram:synth-flow}}\n\n- **`cdk synth`** runs your app and writes the CloudFormation templates and asset manifests to `cdk.out`. It does not change AWS resources. It is the cheapest check available: it catches errors in construct logic and shows the exact template.\n- **`cdk diff`** compares the synthesized templates with the currently deployed stack and prints the proposed changes, including IAM and security group changes. Read it as a risk report. Replacements are the most important signal, because a replaced stateful resource may lose data. Replacement is often flagged explicitly in the output.\n- **`cdk deploy`** uploads any assets and deploys the stack through CloudFormation. By default CDK creates a change set and executes it, so CloudFormation's own progress and rollback behaviour apply.\n\n```bash\nnpx cdk synth AppStack\nnpx cdk diff AppStack\nnpx cdk deploy AppStack --require-approval broadening\n```\n\nTrade-offs: `--require-approval broadening` pauses the CLI when IAM or security group rules widen, which is a useful gate for interactive use. Pipelines usually pair a reviewed diff with an approved deploy rather than deploying straight from an unreviewed branch.\n\nCommon mistakes\n- Deploying without reading the diff, especially after a refactor that changes construct ids.\n- Assuming `synth` validates runtime behaviour. It validates construction and generates templates, not your application logic.\n- Running `diff` against the wrong account or profile, so the comparison is meaningless.\n\nIn production, run synth and diff in the pipeline for every change, attach the diff to the review, require approval for stateful or security-relevant changes, and deploy the artifact that was reviewed.",
+      "diagrams": [
+        {
+          "id": "synth-flow",
+          "title": "Synth, diff and deploy",
+          "alt": "Left to right: CDK app code is run by cdk synth, which writes templates to cdk.out; cdk diff compares those templates with the deployed stack, and deploy applies them through CloudFormation.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "code",
+              "label": "CDK app code"
+            },
+            {
+              "id": "synth",
+              "label": "cdk synth"
+            },
+            {
+              "id": "tmpl",
+              "label": "Templates in cdk.out"
+            },
+            {
+              "id": "diff",
+              "label": "cdk diff vs deployed stack"
+            },
+            {
+              "id": "cfn",
+              "label": "CloudFormation change set"
+            }
+          ],
+          "edges": [
+            {
+              "from": "code",
+              "to": "synth",
+              "label": "runs"
+            },
+            {
+              "from": "synth",
+              "to": "tmpl",
+              "label": "writes"
+            },
+            {
+              "from": "tmpl",
+              "to": "diff",
+              "label": "compares"
+            },
+            {
+              "from": "tmpl",
+              "to": "cfn",
+              "label": "deploy"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "What would you look for first in a cdk diff?",
+        "Why can a refactor that only renames a construct produce a replacement?",
+        "What does --require-approval broadening do?"
+      ],
+      "related": [
+        "cdk-app-stack-construct",
+        "cdk-bootstrap-and-environments",
+        "safe-production-cdk-deployments"
+      ]
+    },
+    {
+      "slug": "cdk-bootstrap-and-environments",
+      "title": "What does cdk bootstrap create, and how do environments decide where a stack deploys?",
+      "topic": "Bootstrap and environments",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "aws-cdk",
+        "bootstrap",
+        "environments",
+        "accounts"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            7
+          ]
+        }
+      ],
+      "quick": "cdk bootstrap is the one-time setup that lets CDK deploy into an AWS account and Region. It creates a CDKToolkit CloudFormation stack with supporting resources, typically an S3 bucket for templates and file assets, an ECR repository for container image assets, and IAM roles that CDK uses to deploy and publish. Environments decide the target: an explicit env with an account and Region is what I would use, because it makes the destination visible in code, enables lookups, and stops a stack from silently landing in whatever credentials happen to be active.",
+      "revision": "Bootstrap creates the deploy roles and asset storage per account and Region; explicit environments pin each stack to a known account and Region.",
+      "detailed": "`cdk bootstrap` prepares an account and Region for CDK deployments. It creates a `CDKToolkit` CloudFormation stack that holds the supporting resources. Depending on the bootstrap template version, these typically include an S3 staging bucket for templates and file assets, an ECR repository for container images, and IAM roles for deployment, asset publishing and lookups. The exact set changes between bootstrap template versions, so check the documentation for your CDK version.\n\n```bash\nnpx cdk bootstrap aws://123456789012/eu-west-1\n```\n\nAn environment tells CDK which account and Region a stack targets:\n\n```ts\nnew AppStack(app, 'AppProd', {\n  env: { account: '210987654321', region: 'eu-west-1' },\n});\n```\n\nExplicit environments are the safer default. They let CDK resolve account-specific values, such as VPC lookups, and they make the target reviewable. A stack without an `env` is environment-agnostic: it cannot perform lookups that need a concrete account and Region, and some values remain tokens until deployment.\n\nTrade-offs: bootstrapping is one-off setup per account and Region, but it creates a dependency you must version. Upgrading the bootstrap template is a deliberate step. For a central pipeline deploying into other accounts, `cdk bootstrap --trust` lets the pipeline account's roles deploy there; keep that trust narrow and documented.\n\nCommon mistakes\n- Deploying to a Region that was never bootstrapped, which fails with an error about a missing bootstrap version parameter.\n- Relying on ambient credentials, so a stack lands in an unintended account. An explicit `env` prevents this.\n- Deleting the bootstrap stack while deployments still depend on it.\n\nExample: a dev account and a prod account are both bootstrapped in `eu-west-1`. The same `AppStack` class is instantiated twice, each with its own `env` and configuration.",
+      "followUps": [
+        "What happens if you deploy to a Region that has not been bootstrapped?",
+        "How does an environment-agnostic stack differ from one with an explicit env?",
+        "How would you bootstrap a target account for a central pipeline?"
+      ],
+      "related": [
+        "cdk-synth-diff-deploy",
+        "multi-environment-and-context",
+        "multi-account-cdk"
+      ]
+    },
+    {
+      "slug": "cdk-tokens",
+      "title": "What is a CDK token, and why can't you treat a token like a normal string?",
+      "topic": "CDK tokens",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "aws-cdk",
+        "tokens",
+        "synthesis"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            7
+          ]
+        }
+      ],
+      "quick": "A token is a placeholder for a value that CDK only knows later, such as a generated bucket name or an attribute of another resource. During synthesis, CDK replaces the token with a CloudFormation reference such as Ref or Fn::GetAtt. So a property like bucketName looks like a string in TypeScript but is not one at build time. I would never parse or slice it in application code. I would use CDK functions such as Fn.join or Fn.select, use Token.isUnresolved to check whether a value is still a placeholder, and use Lazy for values that should be computed after the tree is built.",
+      "revision": "A token is a build-time placeholder that synthesis turns into a CloudFormation reference, so use CDK functions rather than string operations on it.",
+      "detailed": "A token is a placeholder that CDK resolves during synthesis. Many values are not known while your code runs: the name CloudFormation will generate for a bucket, the ARN of a role created in the same template, or a value that only exists at deploy time. The construct gives you a token instead, and CDK later replaces it with a CloudFormation intrinsic such as `Ref` or `Fn::GetAtt`.\n\n```ts\nconst bucket = new s3.Bucket(this, 'Logs');\nnew CfnOutput(this, 'BucketName', { value: bucket.bucketName });\n```\n\n`bucket.bucketName` looks like a string, but it is a token. Several consequences follow:\n\n- Do not parse or manipulate token strings in TypeScript. Splitting or taking substrings operates on the placeholder, not on the eventual value.\n- Use CDK helpers instead. `Fn.join`, `Fn.select` and `Fn.split` produce CloudFormation intrinsics that resolve at deploy time.\n- Use `Token.isUnresolved(value)` when you need to know whether a value is still a placeholder, for example before using it as a map key or a condition.\n- Use `Lazy` when a value should be computed at synthesis, after the rest of the tree has been built.\n\nTrade-offs: tokens are what let resources reference each other without hard-coded names, which keeps stacks portable. The cost is indirection. A value you cannot inspect in code can only be checked in the template or at deploy time.\n\nCommon mistakes\n- Building a name by concatenating a token into a string, then wondering why the log shows an unresolved placeholder.\n- Using a token-derived value as a construct id. Ids should be stable, known strings.\n- Expecting `cdk synth` to show a concrete value for a generated name. The template contains an intrinsic function instead.\n\nExample: an output that exposes a bucket's name is written as a token, and CloudFormation fills in the real name when the stack is created.",
+      "followUps": [
+        "Why does a token appear as a Ref in the synthesized template?",
+        "When would you use Lazy.string?",
+        "What goes wrong if you compare a token to a literal string in code?"
+      ],
+      "related": [
+        "l1-l2-l3-constructs",
+        "cross-stack-dependencies"
+      ]
+    },
+    {
+      "slug": "cdk-aspects-and-cdk-nag",
+      "title": "What are CDK Aspects, and how does cdk-nag use them to check security rules?",
+      "topic": "Governance and checks",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "aws-cdk",
+        "aspects",
+        "cdk-nag",
+        "governance",
+        "security"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            7,
+            9
+          ]
+        }
+      ],
+      "quick": "An Aspect is an object that visits every construct under a scope, usually the app, and either checks or changes it. Aspects run during synthesis, after the constructs are defined and before templates are written, so a policy sees the whole tree, including constructs created by shared libraries. For governance I use aspects that report errors, such as failing synthesis when a bucket lacks encryption. cdk-nag is a set of rule packs built on this mechanism, checking constructs against well-known security and compliance rules. Genuine exceptions get a suppression on the specific resource, with a written reason, rather than a disabled pack.",
+      "revision": "Aspects visit every construct at synth time; cdk-nag uses them to enforce security rules, and exceptions are suppressed per resource with a reason.",
+      "detailed": "An **Aspect** implements `IAspect` and has a `visit` method that CDK calls for every construct in its scope. Aspects run during synthesis, after the construct tree is built and before templates are written. That timing lets a rule see the entire tree, including constructs created by shared libraries.\n\n```ts\nimport { Annotations, Aspects, IAspect } from 'aws-cdk-lib';\nimport * as s3 from 'aws-cdk-lib/aws-s3';\nimport { IConstruct } from 'constructs';\n\nclass RequireBucketEncryption implements IAspect {\n  visit(node: IConstruct): void {\n    if (node instanceof s3.CfnBucket && !node.bucketEncryption) {\n      Annotations.of(node).addError('Buckets must define default encryption');\n    }\n  }\n}\n\nAspects.of(app).add(new RequireBucketEncryption());\n```\n\nAspects can check or mutate. Checking, which reports errors with `Annotations`, fits governance: the synth fails before anything deploys. Mutating, such as setting a tag or property on every resource, applies a default across a scope. That is harder to audit, because the template no longer matches the code a reviewer read, so prefer checks.\n\n**cdk-nag** is a library of rule packs, implemented as aspects, that check constructs against established security and compliance rule sets. Its packs include an AWS Solutions set and others aligned with frameworks such as NIST and HIPAA; check its documentation for the current list and rule ids. Findings appear as synthesis errors or warnings. When a finding is a justified exception, you suppress that rule on that resource with a documented reason.\n\nTrade-offs: aspects give centralised, code-level policy that cannot be forgotten, but they only apply where they are attached, and a broad mutating aspect surprises readers. Keep shared aspects in a versioned library and run them in CI.\n\nCommon mistakes\n- Attaching an aspect to a child scope and assuming it governs the whole app.\n- Suppressing whole packs to get a green build, which removes the value of the check.\n- Writing a mutating aspect that silently changes resources.",
+      "followUps": [
+        "Why does an aspect run at synthesis rather than at construction time?",
+        "How would you justify a cdk-nag suppression in a review?",
+        "What is the risk of a mutating aspect?"
+      ],
+      "related": [
+        "l1-l2-l3-constructs",
+        "test-cdk-with-assertions",
+        "least-privilege-in-cdk"
+      ]
+    },
+    {
+      "slug": "organize-large-cdk-app",
+      "title": "How do you organise a large CDK application?",
+      "topic": "Application structure",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "aws-cdk",
+        "structure",
+        "constructs",
+        "monorepo",
+        "ownership"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            7
+          ]
+        }
+      ],
+      "quick": "I organise a large CDK app around lifecycle and ownership first, and technology second. Network, stateful data and application compute each get their own stack, so a release does not touch the database stack. Shared patterns, such as a secure bucket or a standard service, live in a versioned construct library that encodes encryption, logging and tagging defaults. Each environment supplies typed configuration rather than branching in code, and governance aspects are applied once at the app level. The result is a small, reviewable diff for each change.",
+      "revision": "Split stacks by lifecycle and ownership, share defaults through versioned constructs, keep per-environment config typed, and apply guardrails once at the app root.",
+      "detailed": "The goal is that a change in one area rarely forces a deploy of another, and that each change produces a small, reviewable diff.\n\nA workable structure:\n\n- **Stacks by lifecycle**: network changes rarely, stateful data needs protection, and the application changes with every release. Keeping them apart limits blast radius.\n- **Constructs as libraries**: a reusable secure bucket or standard service construct encapsulates encryption, logging and tagging, so teams share one baseline instead of copying code.\n- **Typed configuration**: each environment supplies a typed object (sizes, replica counts, domain names, retention), validated when the app starts, instead of scattered `if (env === 'prod')` checks.\n- **Shared guardrails**: aspects and cdk-nag rules are applied once at the app root, so they cover every stack.\n\n```\ninfra/\n  bin/app.ts        # creates the App and stacks per environment\n  lib/network.ts    # NetworkStack\n  lib/data.ts       # DataStack (stateful)\n  lib/service.ts    # AppStack (compute)\n  lib/constructs/   # shared, versioned constructs\n  config/           # typed per-environment config\n```\n\nTrade-offs: more stacks and shared libraries mean more wiring and versioning discipline. A shared construct library gives consistency, but one change can affect many consumers, so version it and test it. Cross-stack references are the main cost, so pass only stable interfaces between stacks.\n\nCommon mistakes\n- One large stack that combines a database with a frequently deployed service.\n- Copy-pasting constructs between repositories, so security defaults drift apart.\n- Hiding environment differences in code paths, which makes diffs hard to review.\n\nA practical rule: resources that are always deployed together and owned by one team can share a stack. Data that must survive releases gets its own stack, with protection.",
+      "followUps": [
+        "How do you share a construct library across repositories?",
+        "When would you put two resources in the same stack?",
+        "How do you keep stacks from becoming tightly coupled?"
+      ],
+      "related": [
+        "cdk-app-stack-construct",
+        "cross-stack-dependencies",
+        "multi-environment-and-context"
+      ]
+    },
+    {
+      "slug": "test-cdk-with-assertions",
+      "title": "How do you test a CDK application, and what do assertions check?",
+      "topic": "Testing CDK",
+      "difficulty": "intermediate",
+      "type": "coding",
+      "tags": [
+        "aws-cdk",
+        "testing",
+        "assertions",
+        "jest"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            7
+          ]
+        }
+      ],
+      "quick": "CDK code is testable because synthesis is deterministic. A test builds a stack and inspects the resulting CloudFormation template without deploying anything, using Template from aws-cdk-lib/assertions. I use resourceCountIs to catch unexpected resources, and hasResourceProperties with Match.objectLike to check security-relevant settings such as encryption and public access blocks. I also assert that IAM policies avoid wildcard actions on sensitive resources, and that stateful resources keep their removal policy. These run on every pull request and complement a deployment test in a non-production account.",
+      "revision": "Assertions inspect the synthesized template in unit tests, verifying counts, properties and permissions without deploying anything.",
+      "detailed": "CDK synthesis is deterministic, so you can test a stack by building it in a test and inspecting the template it produces. Nothing is deployed. The `aws-cdk-lib/assertions` module provides `Template` for that purpose.\n\n```ts\nimport { App } from 'aws-cdk-lib';\nimport { Match, Template } from 'aws-cdk-lib/assertions';\nimport { DataStack } from '../lib/data';\n\ntest('audit bucket is encrypted and blocks public access', () => {\n  const app = new App();\n  const stack = new DataStack(app, 'Data');\n  const template = Template.fromStack(stack);\n\n  template.resourceCountIs('AWS::S3::Bucket', 1);\n  template.hasResourceProperties('AWS::S3::Bucket', {\n    BucketEncryption: Match.objectLike({}),\n    PublicAccessBlockConfiguration: Match.objectLike({ BlockPublicAcls: true }),\n  });\n});\n```\n\nUseful assertions:\n- **Presence and count**: `resourceCountIs` and `hasResource` catch accidental additions or removals.\n- **Properties**: `hasResourceProperties` checks a subset of properties. `Match.objectLike` keeps the test focused on what matters rather than on every default.\n- **Permissions**: check that IAM policies do not grant wildcard actions on sensitive resources.\n- **Stateful safety**: assert deletion and update-replacement policies on databases and buckets that hold data.\n\nTest layers: assertion tests for security-relevant settings run on every pull request, cdk-nag runs in the same job, and a real deployment test runs in a non-production account after merge. Assertions do not prove the application works, and they cannot tell you whether a permission that is valid in the template is right for the workload.\n\nCommon mistakes\n- Snapshot-testing a whole template, so every harmless change requires reviewing hundreds of lines.\n- Testing constructs from libraries you do not own rather than your own configuration.\n- Asserting on generated logical ids, which change during refactors.",
+      "followUps": [
+        "Why is snapshot testing a whole template risky?",
+        "How would you assert that a database cannot be deleted?",
+        "What do assertion tests not prove?"
+      ],
+      "related": [
+        "cdk-aspects-and-cdk-nag",
+        "least-privilege-in-cdk",
+        "protect-production-database"
+      ]
+    },
+    {
+      "slug": "multi-environment-and-context",
+      "title": "How do you manage multiple environments and context values in a CDK app?",
+      "topic": "Environment configuration",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "aws-cdk",
+        "environments",
+        "context",
+        "configuration"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            7,
+            8
+          ]
+        }
+      ],
+      "quick": "I keep one set of infrastructure code and vary only typed per-environment configuration: sizes, replica counts, domains and retention, along with the account and Region. The app validates that configuration at startup, so a missing production setting fails the synth rather than falling back silently. Context values supply overrides and cached lookup results, set through cdk.json or the -c flag, and lookup results belong in a committed cdk.context.json so synthesis is reproducible. Secrets stay out of context entirely.",
+      "revision": "One codebase, typed per-environment config, and context for overrides and cached lookups; commit the context file and never put secrets in it.",
+      "detailed": "The aim is one codebase whose only per-environment differences are explicit, typed inputs. Two mechanisms help.\n\n- **Typed environment configuration**: a per-environment object holding sizes, replica counts, domain names, retention periods and the target account and Region. The app reads it at startup and validates it, so a missing production value fails at synthesis instead of deploying a default.\n- **CDK context**: key-value pairs that supply configuration or cache lookup results. You can set them in `cdk.json`, pass them with `-c key=value`, and read them with `this.node.tryGetContext`. Results of lookups, such as a VPC lookup, are cached in `cdk.context.json`, which you should commit so synthesis is reproducible.\n\n```ts\nconst envName = app.node.tryGetContext('env') ?? 'dev';\nconst config = configs[envName];\nif (!config) throw new Error(`Unknown environment: ${envName}`);\nnew AppStack(app, `App-${envName}`, { config, env: config.env });\n```\n\nContext is powerful but easy to misuse. Lookup results that differ between machines, or values set in one developer's shell, make synthesis irreproducible. Keep secrets out of context; reference them from a secret store instead.\n\nTrade-offs: a config file per environment is easy to review but can drift. Generating every environment from one typed schema keeps them aligned. Lookups make stacks depend on account state at synthesis time, so they need a committed cache and a clear refresh process.\n\nCommon mistakes\n- Branching on `prod` deep inside constructs, which hides the difference from reviewers.\n- Not committing `cdk.context.json`, so each developer synthesizes against different lookup results.\n- Storing secrets in context or in `cdk.json`.\n\nExample: dev, staging and prod configs set the same typed fields. Prod sets longer log retention and a larger instance class, and the pipeline passes the environment name only when deploying to the production account.",
+      "followUps": [
+        "What does cdk.context.json contain, and why commit it?",
+        "How would you stop a production deploy from using development defaults?",
+        "When would you use context rather than a config file?"
+      ],
+      "related": [
+        "cdk-bootstrap-and-environments",
+        "multi-account-cdk",
+        "secrets-in-cdk"
+      ]
+    },
+    {
+      "slug": "least-privilege-in-cdk",
+      "title": "How do you apply least privilege in CDK?",
+      "topic": "IAM and least privilege",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "aws-cdk",
+        "iam",
+        "least-privilege",
+        "security"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            8
+          ]
+        }
+      ],
+      "quick": "Least privilege in CDK means each component gets only the actions it needs on the resources it touches. I start with L2 grant methods, such as table.grantReadWriteData(fn), which generate scoped policies rather than wildcards. When I must write a statement by hand, I name the actions and resource ARNs explicitly. Then I review the synthesized IAM policies, and I use diffs and assertion tests to catch wildcard actions and widened trust, so every permission change is visible before it deploys.",
+      "revision": "Use CDK grant methods for scoped policies, write explicit actions and ARNs when you must, and check synthesized IAM in diffs and tests.",
+      "detailed": "Least privilege means each role has the specific actions on the specific resources it needs and nothing more. CDK helps in two ways: L2 grant methods generate scoped policies, and synthesized templates make the result reviewable.\n\n```ts\nconst orders = new dynamodb.Table(this, 'Orders', {\n  partitionKey: { name: 'id', type: dynamodb.AttributeType.STRING },\n});\norders.grantReadWriteData(handler); // scoped to this table and its indexes\n```\n\nThe grant produces data-access actions on this table's ARN, not `dynamodb:*` on `*`. Prefer grants to hand-written wildcard policies. When you must write a statement yourself, name the actions and resources:\n\n```ts\nhandler.addToRolePolicy(new iam.PolicyStatement({\n  actions: ['s3:GetObject'],\n  resources: [bucket.arnForObjects('reports/*')],\n}));\n```\n\nReview the synthesized policies, not only the source. Check for wildcard actions or resources on data-bearing services, and for trust policies that allow more principals than intended. `cdk diff` shows IAM changes, and `--require-approval broadening` pauses when permissions widen.\n\nTrade-offs: resource-level scoping means more statements and occasional friction when a new resource is added. That friction is the point. Some actions do not support resource-level scoping, so a broad resource is sometimes unavoidable; document why it is there and limit it to that action.\n\nCommon mistakes\n- Giving a deployment role or an application role administrator access.\n- Sharing one role across unrelated functions, so one compromise reaches every resource.\n- Writing a wildcard policy because the scoped form was harder to write.\n\nAutomated checks, such as assertions or cdk-nag rules that reject wildcard actions, turn least privilege from a guideline into something the build enforces.",
+      "followUps": [
+        "When is a wildcard action acceptable?",
+        "What does a grant method generate under the hood?",
+        "How would you enforce the absence of wildcard permissions in CI?"
+      ],
+      "related": [
+        "test-cdk-with-assertions",
+        "secrets-in-cdk",
+        "cdk-aspects-and-cdk-nag"
+      ]
+    },
+    {
+      "slug": "secrets-in-cdk",
+      "title": "How do you handle secrets in CDK applications?",
+      "topic": "Secrets management",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "aws-cdk",
+        "secrets",
+        "secrets-manager",
+        "parameter-store",
+        "security"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            8
+          ]
+        }
+      ],
+      "quick": "I never put secret values in CDK code, context, cdk.json or templates, because the synthesized template is plain text that anyone with read access to the stack can see. Instead I reference a secret that already exists in a managed store and grant read on that one secret. Secrets Manager suits rotated credentials; Parameter Store SecureString suits configuration. For containers I inject the value through the platform's secrets mapping at start-up. I also make sure no step unwraps a secret value during synthesis, since that writes it into the template.",
+      "revision": "Reference secrets from a managed store, grant read on the one secret, inject at runtime; never let a value reach code, context or the synthesized template.",
+      "detailed": "Never embed secret values in CDK code, context, `cdk.json`, or environment values that end up in a template. Synthesized templates are plain text, and anyone who can view the stack can read them. A value written there is effectively published to that audience.\n\nThe pattern is to reference a secret that already exists in a managed store and grant read access to it:\n\n```ts\nconst dbSecret = secretsmanager.Secret.fromSecretNameV2(this, 'DbSecret', 'prod/orders/db');\nhandler.addEnvironment('DB_SECRET_NAME', dbSecret.secretName);\ndbSecret.grantRead(handler);\n```\n\nFor ECS containers, reference the secret as a container secret so the platform injects it at start-up:\n\n```ts\ncontainer.addSecret('DB_PASSWORD', ecs.Secret.fromSecretsManager(dbSecret, 'password'));\n```\n\nChoose the store deliberately. Secrets Manager suits credentials that need rotation and controlled sharing. Systems Manager Parameter Store suits configuration and simpler values, and SecureString parameters are encrypted with KMS. Document the rotation schedule, the access policy and the encryption key for each secret.\n\nTrade-offs: referencing secrets at runtime means the application depends on the store, and access problems surface as start-up failures. Rotation works best when the application reads the secret at start-up or refreshes it periodically, rather than baking the value into an environment variable that changes only on redeploy.\n\nCommon mistakes\n- Calling `unsafeUnwrap` on a `SecretValue`, which exposes the plain value where it can end up in the template.\n- Passing a password as a plain environment value to a Lambda function or container.\n- Granting `secretsmanager:*` to a whole role instead of read on one secret.",
+      "followUps": [
+        "How does a secret rotation affect a running ECS task?",
+        "When would you choose Parameter Store over Secrets Manager?",
+        "What is the risk of calling SecretValue.unsafeUnwrap?"
+      ],
+      "related": [
+        "least-privilege-in-cdk",
+        "deploy-nestjs-on-ecs-fargate-with-cdk",
+        "multi-environment-and-context"
+      ]
+    }
+  ]
+}

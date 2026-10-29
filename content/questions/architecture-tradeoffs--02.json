@@ -1,0 +1,82 @@
+{
+  "category": "architecture-tradeoffs",
+  "questions": [
+    {
+      "slug": "balance-performance-reliability-and-cost",
+      "title": "How do you balance performance, reliability and cost in an architecture?",
+      "topic": "Quality attribute trade-offs",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "cost",
+        "performance",
+        "reliability",
+        "trade-offs",
+        "slo"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            24
+          ]
+        }
+      ],
+      "quick": "I would make each attribute measurable first. Performance means a percentile latency for a named user journey. Reliability means availability and recovery objectives tied to what an outage costs. Cost means a budget or a unit cost per transaction. Then I ask which misses are expensive, because that shows where to spend. Extra replicas may be justified for checkout, while an internal reporting job can accept a cheaper recovery model. I choose the least expensive design that meets each target with some margin, and I check it with load tests, failure drills and cost reports. Maximising every attribute at once is not the goal.",
+      "revision": "Turn performance, reliability and cost into targets, spend where a miss is expensive, and meet the rest at the lowest cost.",
+      "detailed": "Balance the three by first turning each into a measurable target tied to business impact. Then choose the cheapest architecture that meets those targets with margin. Maximising every quality attribute at once is not a sensible goal, because each one is paid for in complexity and money.\n\n## Make the targets concrete\n\n- Performance: latency at a percentile for a named journey, such as the p95 time to load a product page.\n- Reliability: an availability objective and a recovery objective for each service, derived from what an outage costs.\n- Cost: a monthly budget, a cost per transaction, or a limit on how cost grows with traffic.\n\nAsk what a missed target costs. A checkout that fails for five minutes during a sale is far more expensive than an internal report that finishes a few minutes late. The answer shows where extra spend is justified.\n\n## Where the trade-offs bite\n\n| Lever | Helps | Costs |\n|---|---|---|\n| Caching | Latency and database load | Staleness and invalidation complexity |\n| Extra replicas across zones | Availability | Ongoing infrastructure spend |\n| Provisioning for peak load | Latency during spikes | Idle capacity between peaks |\n| Autoscaling and scale-to-zero | Cost at low traffic | Cold starts and slower scale-out |\n| Multi-region failover | Resilience to regional failure | Duplicate infrastructure and data-sync complexity |\n\nMatch each lever to a target. A second region is not justified by a general wish for reliability if the business accepts a longer recovery time.\n\n## A practical method\n\n1. Define one target per quality attribute for each critical journey.\n2. Estimate the cost of meeting each target, including the operational effort.\n3. Choose the cheapest option that meets the target with a margin for error.\n4. Validate with load tests, failure injection and cost reports, and revisit as traffic changes.\n\n## Common mistakes\n\n- Buying headroom for a peak that happens twice a year, without considering queues or scheduled scaling.\n- Optimising a metric users do not feel, such as average latency, while the tail latency drives complaints.\n- Treating a cost cut as free. Removing a replica quietly lowers availability.\n\nThe strongest answer is not the most performant architecture. It is the one whose targets are explicit and met at a defensible cost.",
+      "followUps": [
+        "How would you choose a latency percentile for a service-level objective?",
+        "When is paying for multi-region failover justified?",
+        "How would you show that a cost reduction did not reduce reliability?"
+      ],
+      "related": [
+        "single-region-vs-multi-region",
+        "cdn-caching-vs-application-caching",
+        "blue-green-vs-canary-deployment"
+      ]
+    },
+    {
+      "slug": "build-versus-buy-decision",
+      "title": "How do you decide between building a capability and buying or using a managed service?",
+      "topic": "Build versus buy",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "build-vs-buy",
+        "total-cost-of-ownership",
+        "vendor-lock-in",
+        "managed-services"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            27
+          ]
+        }
+      ],
+      "quick": "I start by asking whether the capability differentiates the business. If it does and no product fits the requirements, I would build it. If it is commodity work, such as email delivery, authentication or a managed queue, I would strongly prefer a managed service, because running it yourself usually costs more than the fee. I compare total cost of ownership over several years, integration effort, security and compliance fit, documented limits and exit options. I run the same proof of concept against each candidate and score the results against weights agreed beforehand. Often the answer is to buy the infrastructure and build the domain logic.",
+      "revision": "Build what differentiates the business; buy or use managed services for commodity work, judged on total cost of ownership and exit options.",
+      "detailed": "Build when the capability differentiates the business or no product can meet the requirements. Buy, or use a managed service, when the capability is commodity work and operating it would distract the team. The decision is about total cost of ownership and strategic fit, not the price on a vendor invoice.\n\n## Criteria to compare\n\n- Differentiation: does the capability create value competitors cannot easily copy? Pricing logic in a marketplace often does. A login form usually does not.\n- Total cost of ownership: licence or usage fees, plus build cost, plus the cost of operating, upgrading, securing and supporting the software for years.\n- Integration effort: how well the product fits the existing data model, identity provider and deployment approach.\n- Security and compliance: whether the vendor can meet the certifications, data residency rules and audit requirements.\n- Scalability and performance: documented limits, and whether they can be verified in a test.\n- Vendor dependency: data portability, pricing changes and the effort required to switch later.\n\n## How to run the comparison\n\nWrite requirements as measurable criteria. Shortlist two or three options, including building. Run the same proof of concept against each, focused on the riskiest requirement. Vendor claims should be tested rather than accepted, and any price or limit should be checked against current documentation because it changes.\n\n## Trade-offs\n\nA managed service removes patching and capacity planning, but adds a dependency and a pricing model you must understand. A build gives control and fit, but creates a permanent maintenance obligation. A common middle path is to buy the commodity infrastructure and build the domain logic that makes the product distinctive.\n\n## Common mistakes\n\n- Comparing the licence fee with the build estimate and ignoring operations.\n- Building an authentication system or message broker out of preference, when a managed option meets the requirements.\n- Buying a platform for flexibility it does not provide, then discovering that customisation depends on workarounds.\n\n## Example\n\nSuppose (as an illustrative example) a retail team needs to send transactional email. That is commodity work, so a managed email service is the sensible choice. The rules that decide which promotional campaigns a customer receives are a differentiator, so those stay in-house.",
+      "followUps": [
+        "How would you estimate the total cost of ownership of building something in-house?",
+        "What exit terms would you require before adopting a platform?",
+        "Describe a buy decision you would reverse, and what would trigger the reversal."
+      ],
+      "related": [
+        "lambda-vs-ecs-fargate-vs-eks",
+        "sqs-vs-kafka",
+        "balance-performance-reliability-and-cost"
+      ]
+    }
+  ]
+}

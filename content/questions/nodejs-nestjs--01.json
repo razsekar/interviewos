@@ -16,7 +16,8 @@
       "sources": [],
       "companies": [
         "valuemomentum",
-        "epam"
+        "epam",
+        "happiest-minds"
       ],
       "quick": "I would say libuv is the C library underneath Node that provides the event loop and cross-platform asynchronous I/O. For network sockets it uses the operating system's readiness mechanisms, so no thread is blocked per connection. For operations that lack good async OS support, such as many file system calls, DNS lookups via getaddrinfo, and some crypto and compression work, it uses a small thread pool. That is why a heavy file or crypto workload can queue up even though JavaScript itself is single threaded.",
       "revision": "libuv is Node's C library for the event loop and async I/O. Sockets use OS notification; some fs, DNS, crypto and zlib work runs on a small thread pool.",
@@ -46,7 +47,8 @@
       "sources": [],
       "companies": [
         "valuemomentum",
-        "epam"
+        "epam",
+        "happiest-minds"
       ],
       "quick": "I would explain that anything that keeps the main thread busy synchronously delays every other request. Typical culprits are long loops, parsing or stringifying very large JSON, catastrophic regular expressions, synchronous file or crypto APIs, and heavy sorting. I would detect it by measuring event loop delay and CPU profiles, then fix it by chunking the work, streaming data, validating regex patterns, moving CPU-bound work to worker threads or a separate service, and limiting payload sizes.",
       "revision": "Any long synchronous JavaScript stalls all requests. Common causes: big JSON, bad regexes, sync APIs, heavy loops. Measure event loop delay, then chunk, stream or offload to workers.",
@@ -76,7 +78,8 @@
       "sources": [],
       "companies": [
         "valuemomentum",
-        "epam"
+        "epam",
+        "happiest-minds"
       ],
       "quick": "I would use worker threads when I need to run CPU-heavy JavaScript in parallel inside one application, for example image processing or large computations. They live in the same process, can share memory through SharedArrayBuffer, and are cheaper than processes. I would use child processes when I need stronger isolation, a different runtime or binary, or protection from crashes and memory problems. If the work is large or critical, a separate worker service fed by a queue is often better still.",
       "revision": "Worker threads: parallel CPU-bound JS inside one process, lighter, can share memory. Child processes: separate processes, stronger isolation, can run other programs. Heavy jobs may deserve a separate service.",
@@ -135,7 +138,8 @@
       "sources": [],
       "companies": [
         "valuemomentum",
-        "epam"
+        "epam",
+        "happiest-minds"
       ],
       "quick": "I would explain that streams process data in chunks as it arrives instead of loading the whole payload into memory. They keep memory use roughly constant for large files, downloads, exports and uploads, and they let the first bytes flow to the consumer sooner. I would use pipeline from node:stream/promises to connect them, because it propagates errors and cleans up properly, and I would rely on streams' built-in backpressure so a slow consumer slows the producer.",
       "revision": "Streams process data chunk by chunk, so memory stays flat for big files or exports and output starts earlier. Use stream pipeline for error handling and backpressure.",
@@ -165,7 +169,8 @@
       "sources": [],
       "companies": [
         "valuemomentum",
-        "epam"
+        "epam",
+        "happiest-minds"
       ],
       "quick": "I would define backpressure as the mechanism that lets a slow consumer tell a fast producer to slow down, so buffers do not grow without limit. In Node streams, write returns false when the internal buffer passes the high-water mark, and the producer should wait for the drain event. Using pipeline handles this automatically. The same principle applies to queues and consumers generally: without limits, memory climbs and the process eventually fails.",
       "revision": "Backpressure lets a slow consumer throttle a fast producer so buffers stay bounded. In Node, honour write() returning false and wait for drain, or use pipeline.",
@@ -195,7 +200,8 @@
       "sources": [],
       "companies": [
         "valuemomentum",
-        "epam"
+        "epam",
+        "happiest-minds"
       ],
       "quick": "I would put a bound between the work and the resources it uses. Instead of starting thousands of promises at once, I would use a concurrency limiter or worker pool sized to the real constraint, such as database connections or a third-party rate limit. I would cap queue length, add per-task deadlines, and apply backpressure or return 429 when the system is saturated. Load testing then tells me whether the chosen limit protects downstream services.",
       "revision": "Cap in-flight work with a limiter or pool sized to downstream capacity, bound queues, set deadlines, and shed or delay load when full. Never fire thousands of promises at once.",
@@ -319,7 +325,8 @@
       "sources": [],
       "companies": [
         "valuemomentum",
-        "epam"
+        "epam",
+        "happiest-minds"
       ],
       "quick": "I would first confirm it is a leak by watching heap usage and garbage collection over time under steady load: a growing baseline after collections means retained objects. Then I would reproduce the workload, take heap snapshots at intervals, compare them to see which object types grow and what retains them. Common causes are unbounded caches, listeners that are never removed, global maps, timers and closures. I would fix the retention, add bounds, and confirm with a repeat test.",
       "revision": "Confirm a rising heap baseline after GC, reproduce under load, compare heap snapshots to find growing objects and their retainers, fix the retention, and re-test.",
@@ -349,7 +356,8 @@
       "sources": [],
       "companies": [
         "valuemomentum",
-        "epam"
+        "epam",
+        "happiest-minds"
       ],
       "quick": "I would handle SIGTERM by marking the instance not ready so the load balancer stops sending traffic, then stop accepting new connections, let in-flight requests finish, stop message consumers, close database and cache connections, and exit. All of this runs under a hard deadline shorter than the orchestrator's kill timeout, after which I force exit and log what was left. The goal is that deployments and scale-in events do not drop requests or leave half-processed work.",
       "revision": "On SIGTERM: fail readiness, stop accepting traffic, drain in-flight requests, stop consumers, close connections, and exit within a bounded deadline shorter than the platform's kill timeout.",

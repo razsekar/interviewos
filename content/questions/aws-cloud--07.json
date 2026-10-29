@@ -1,0 +1,523 @@
+{
+  "category": "aws-cloud",
+  "questions": [
+    {
+      "slug": "shared-responsibility-model",
+      "title": "What is the AWS shared responsibility model?",
+      "topic": "Security and responsibility",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "shared-responsibility",
+        "security",
+        "cloud-basics",
+        "iam"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            1
+          ]
+        }
+      ],
+      "quick": "The shared responsibility model divides security work between AWS and the customer. AWS is responsible for security of the cloud: the data centres, hardware, global network and the underlying software of its services. I am responsible for security in the cloud: IAM policies, data classification and encryption settings, network configuration, application code and, for EC2, operating system patching. The split moves with the service type. With a managed database AWS takes on more patching, but I still own access control, encryption settings and backups. I would stress in an interview that managed services reduce my workload without transferring accountability for my data or configuration.",
+      "revision": "AWS secures the cloud infrastructure; you secure what you build and configure in it, and the boundary moves with the service type.",
+      "detailed": "**Shared responsibility** divides security duties between AWS and the customer. AWS is responsible for security *of* the cloud: the facilities, hardware, global network and the software behind its managed services. The customer is responsible for security *in* the cloud: the data placed on that infrastructure, who can access it, and how each resource is configured.\n\n## Where the line sits\n\n| Service type | AWS manages | Customer manages |\n|---|---|---|\n| EC2 (infrastructure) | Hardware, hypervisor, physical network | OS patching, runtime, application, data, IAM, security group rules |\n| RDS (managed database) | Host, OS and engine patching, hardware | Access control, encryption settings, parameter choices, data, backups policy |\n| Lambda (serverless) | Runtime, OS, scaling | Function code, dependencies, execution role, input validation |\n\nWhatever the service, the customer always owns its data, identities and the configuration of its resources.\n\n## Trade-offs\n\nManaged services reduce operational work but do not remove accountability. A common mistake is assuming a managed database is secure by default. A publicly reachable instance behind a permissive security group is still a customer configuration failure. Another mistake is treating AWS compliance reports as proof that the customer's own application is compliant.\n\n## Practical example (hypothetical)\n\nA team stores customer documents in S3. AWS keeps the storage fleet durable and physically secure. The team must block public access, enforce TLS, restrict bucket policies to the right roles, enable encryption and log access. If a bucket is exposed, the failure sits on the customer side even though the service itself is healthy.\n\n## Interview framing\n\nName the split for each service in the design. Mention that AWS Config and Security Hub can check the customer side continuously, so the customer's responsibilities are measured rather than assumed.",
+      "followUps": [
+        "Who is responsible for patching an EC2 instance compared with an RDS database?",
+        "How does the shared responsibility split change for a Lambda function?",
+        "What would you check first if an S3 bucket turned out to be publicly readable?"
+      ],
+      "related": [
+        "well-architected-framework",
+        "secure-aws-application",
+        "iam-least-privilege"
+      ]
+    },
+    {
+      "slug": "scalability-and-elasticity",
+      "title": "What is the difference between scalability and elasticity?",
+      "topic": "Scaling fundamentals",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "scalability",
+        "elasticity",
+        "scaling",
+        "capacity"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            1,
+            2
+          ]
+        }
+      ],
+      "quick": "Scalability is the ability of a system to handle more load by adding capacity. It is a property of the design: the architecture should keep working, with predictable performance, as demand grows. Elasticity is the ability to add and remove capacity automatically as demand changes, so spend follows usage and the system neither overloads nor sits idle. A system can be scalable without being elastic, for example a fixed fleet that could grow if someone added servers by hand. On AWS I would get elasticity from Auto Scaling and managed services, and get scalability from stateless services and partitioned data.",
+      "revision": "Scalability is how far a design can grow; elasticity is how automatically capacity follows demand up and down.",
+      "detailed": "**Scalability** is the capacity of a system to handle growing load by adding resources while keeping performance acceptable. **Elasticity** is the ability to adjust capacity automatically, in both directions, as demand rises and falls. Scalability is a property of the design. Elasticity is an operating behaviour built on top of it.\n\n## The difference in practice\n\n| Concept | Question it answers | Example on AWS |\n|---|---|---|\n| Scalability | Can the design absorb ten times the load? | Stateless API tasks behind a load balancer, data partitioned by key |\n| Elasticity | Does capacity follow demand without a person acting? | Target-tracking Auto Scaling on an ECS service or EC2 group |\n\nA system can be scalable but not elastic: you could double the fleet by hand before a launch. It can also be elastic but not scalable: automatic scaling of a single database writer does not help if every request writes to the same row.\n\n## What makes a design scalable\n\n- **Stateless application tier**, so any instance can serve any request.\n- **Externalised state** in managed stores such as RDS, DynamoDB or ElastiCache.\n- **Asynchronous work** through queues, so spikes are absorbed rather than passed straight to the database.\n- **Partitioned data and caching** for hot reads.\n\n## Trade-offs and common mistakes\n\nElasticity takes time. Instances boot, containers start and caches warm, so spiky traffic needs headroom, scheduled scaling or predictive scaling. Scaling out a component that depends on a shared bottleneck only moves the bottleneck. Scaling on CPU alone can miss a database that is the real constraint.\n\n## Practical example (hypothetical)\n\nA ticket-booking site runs stateless containers behind an Application Load Balancer. Target tracking keeps average CPU near a chosen target. Confirmation emails are processed by a worker group whose size follows queue depth. The design is scalable because state lives outside the containers, and elastic because capacity changes without a person.",
+      "followUps": [
+        "Can a system be elastic but not scalable? Give an example.",
+        "Why does stateless design matter for elasticity?",
+        "Which metric would you scale a worker fleet on, and why?"
+      ],
+      "related": [
+        "what-is-auto-scaling",
+        "vertical-vs-horizontal-scaling",
+        "ten-x-traffic-spike"
+      ]
+    },
+    {
+      "slug": "vertical-vs-horizontal-scaling",
+      "title": "What is the difference between vertical and horizontal scaling?",
+      "topic": "Scaling fundamentals",
+      "difficulty": "beginner",
+      "type": "comparison",
+      "tags": [
+        "vertical-scaling",
+        "horizontal-scaling",
+        "scaling",
+        "rds"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            2
+          ]
+        }
+      ],
+      "quick": "Vertical scaling makes one resource bigger, with more CPU, memory or I/O. It is simple and needs no application changes, but it has a hard ceiling, usually needs a restart or failover, and leaves one large node as a single point of failure. Horizontal scaling adds more instances or nodes and spreads the load across them. It gives better fault isolation and a higher ceiling, but the application must be stateless, or the data layer must support distribution. In practice I scale stateless services horizontally by default, and I scale a relational primary up first, then add read replicas or caching for read-heavy load.",
+      "revision": "Vertical adds size to one machine; horizontal adds machines. Horizontal needs statelessness, vertical hits a ceiling.",
+      "detailed": "**Vertical scaling** (scale up) increases the capacity of one resource, such as moving an instance to a larger type or an RDS instance to a bigger class. **Horizontal scaling** (scale out) adds more resources and distributes work among them. Vertical is usually the quicker change; horizontal is usually the more resilient long-term shape.\n\n## Comparison\n\n| Aspect | Vertical | Horizontal |\n|---|---|---|\n| Change required | Resize, often with a restart or failover | Add nodes, usually without downtime |\n| Ceiling | The largest available size | Higher, limited by coordination and data design |\n| Failure impact | Losing the big node is severe | Losing one node reduces capacity only slightly |\n| Application changes | Usually none | Stateless design, session handling, data partitioning |\n| Cost shape | Price rises steeply at the top end | Scales roughly with node count |\n\n## Examples on AWS\n\n- An EC2 web tier scales out behind an ALB. A Fargate service scales out by task count.\n- An RDS primary is commonly scaled up to a larger instance class. Reads can then be spread across read replicas, while writes stay on the primary, which is usually the real limit.\n- A caching layer can add nodes or shards. Check the service's current documented limits before sizing.\n\n## Common mistakes\n\n- Adding instances to a service that keeps sessions in memory, so users lose state or land on the wrong node.\n- Assuming horizontal scaling fixes everything. A shared database or a single lock still serialises the work.\n- Scaling one node up with no failover plan, which leaves a single point of failure.\n\n## Interview answer shape\n\nStart with the workload. Stateless compute scales out. A relational primary usually scales up first, then gets read replicas, caching or sharding when writes outgrow one machine.",
+      "followUps": [
+        "Why is the write path of a relational database harder to scale horizontally?",
+        "What changes in an application when you move from one server to ten?",
+        "When would you choose vertical scaling on purpose?"
+      ],
+      "related": [
+        "scalability-and-elasticity",
+        "scale-rds",
+        "what-is-auto-scaling"
+      ]
+    },
+    {
+      "slug": "fault-tolerance-vs-high-availability",
+      "title": "What is the difference between fault tolerance and high availability?",
+      "topic": "Resilience fundamentals",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "fault-tolerance",
+        "high-availability",
+        "resilience",
+        "redundancy"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            1
+          ]
+        }
+      ],
+      "quick": "High availability means a service stays usable for its target share of time. It accepts that components fail and aims to detect and recover quickly, for example with two Availability Zones and health-checked load balancing, so users see at most a brief disruption. Fault tolerance is stronger: the system keeps operating correctly through a component failure with no visible interruption, because redundancy is built in and there is no failover window. Fault tolerance costs more and suits the few paths where any pause is unacceptable. For most web applications I would design for high availability and reserve fault tolerance for narrow critical components.",
+      "revision": "High availability recovers fast from failure with brief disruption; fault tolerance keeps running through failure with no visible impact.",
+      "detailed": "**High availability (HA)** is a goal: keep a service usable for the target share of time, accepting that failures happen and that short interruptions may occur while the system detects and recovers. **Fault tolerance** is a stronger property: the system continues to operate correctly through a component failure, with no or negligible user-visible impact.\n\n## The distinction\n\n| Dimension | High availability | Fault tolerance |\n|---|---|---|\n| Behaviour on failure | Detect, route around, recover in seconds to minutes | Continues without interruption |\n| Typical mechanism | Multi-AZ deployment, health checks, automatic replacement, failover | Fully redundant active components, replicated state, quorum |\n| Cost and complexity | Moderate | High |\n| Typical use | Most web APIs and databases | Control systems and a few critical paths |\n\n## Examples on AWS\n\nA web tier spread across two Availability Zones behind an ALB is highly available. If one zone fails, health checks remove its targets and the other zone serves traffic, although in-flight requests may fail and be retried. A design where every request keeps succeeding during a failure, with replicated state and no failover step, moves toward fault tolerance.\n\nA Multi-AZ database deployment is also usually high availability rather than fault tolerance, because there is a failover period. Its length depends on the engine and configuration, so check current documentation.\n\n## Trade-offs\n\nFault tolerance usually means running duplicate capacity at all times and accepting extra consistency work. HA is usually good enough and much cheaper. Pushing for fault tolerance everywhere is a common form of over-engineering.\n\n## Common mistakes\n\n- Calling a single-AZ setup with auto-restart highly available. Restarting after a failure is recovery, and a zone outage removes the whole stack.\n- Assuming redundancy alone gives fault tolerance. If failover is manual, or the replicas share one dependency, a single failure still spreads.\n\n## Interview answer shape\n\nDefine the availability target first. Then choose HA for most of the system and fault tolerance only for components where any interruption is unacceptable.",
+      "followUps": [
+        "Which AWS design would you call fault tolerant rather than highly available?",
+        "How would you measure whether a service meets its availability target?",
+        "Why is a single-AZ deployment with auto-recovery not highly available?"
+      ],
+      "related": [
+        "high-availability-design",
+        "az-vs-region",
+        "multi-az-vs-multi-region"
+      ]
+    },
+    {
+      "slug": "alb-vs-nlb",
+      "title": "Elastic Load Balancing: when do you choose an ALB versus an NLB?",
+      "topic": "Load balancing",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "elb",
+        "alb",
+        "nlb",
+        "load-balancing",
+        "layer-4",
+        "layer-7"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            2
+          ]
+        }
+      ],
+      "quick": "Elastic Load Balancing distributes traffic across healthy targets such as instances, containers or IP addresses, with health checks and placement across Availability Zones. For web and API traffic I choose an Application Load Balancer. It works at Layer 7, so I can route by host, path or headers, and it supports HTTP, HTTPS, gRPC and WebSockets. I choose a Network Load Balancer for TCP, UDP or TLS traffic that is not HTTP, needs very high throughput or low latency, or needs static IP addresses that clients can allow-list. For most web APIs the ALB is the default, and I add an NLB only when the protocol or performance requires it.",
+      "revision": "ALB routes HTTP by content at Layer 7; NLB forwards TCP, UDP or TLS at Layer 4 with static addresses and very high throughput.",
+      "detailed": "Elastic Load Balancing (ELB) is the managed service that spreads incoming traffic across registered targets, such as EC2 instances, ECS tasks, Lambda functions or IP addresses. It runs health checks and spreads capacity across Availability Zones. For most design questions the choice is between the Application Load Balancer and the Network Load Balancer.\n\n## Comparison\n\n| Aspect | Application Load Balancer | Network Load Balancer |\n|---|---|---|\n| OSI layer | 7 (HTTP, HTTPS, gRPC, WebSockets) | 4 (TCP, UDP, TLS) |\n| Routing | Host, path, header, query and method rules | Port and protocol based |\n| TLS | Terminates TLS with certificates from ACM | Can pass TLS through or terminate it |\n| Addresses | DNS name only; the IPs change | Static IP per AZ, or Elastic IP |\n| Typical use | Web apps, REST and gRPC microservices | Non-HTTP protocols, extreme throughput, PrivateLink endpoint services |\n\n## Choosing\n\nUse an ALB when routing depends on request content, such as sending /api to one service and /static to another, or when you want OIDC authentication at the listener. Use an NLB when the protocol is not HTTP, when clients need a fixed IP address, when you must expose a PrivateLink endpoint service, or when a Layer 4 proxy is the better fit for raw transport.\n\n## Trade-offs and common mistakes\n\nAn ALB inspects each request, so it does more work and costs more per unit of traffic than a pass-through Layer 4 device. An NLB is simpler and faster for transport. A common mistake is placing an NLB in front of a web app that needs path routing, then rebuilding routing inside every service. Another is assuming an ALB has a static IP. Clients should resolve its DNS name instead.\n\n## Practical example (hypothetical)\n\nA retail site routes /checkout and /search to separate ECS services through one ALB with listener rules. A multiplayer game server fleet that uses UDP sits behind an NLB, so players can allow-list fixed addresses.\n\nQuotas and pricing differ by load balancer type, so check current documentation before sizing.",
+      "followUps": [
+        "Why can an ALB not give clients a fixed IP address?",
+        "How would you route /api and /static to different services behind one load balancer?",
+        "When is an NLB required for PrivateLink?"
+      ],
+      "related": [
+        "what-is-alb",
+        "alb-vs-api-gateway",
+        "vpc-endpoints-and-privatelink"
+      ]
+    },
+    {
+      "slug": "what-is-cloudformation",
+      "title": "What is AWS CloudFormation and how do stacks and change sets work?",
+      "topic": "Infrastructure as code",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "cloudformation",
+        "iac",
+        "stacks",
+        "change-sets",
+        "drift"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            4
+          ]
+        }
+      ],
+      "quick": "CloudFormation is AWS's native infrastructure as code service. I describe resources declaratively in a template, and CloudFormation creates them as a stack, works out the order from dependencies and tracks every resource it owns. To change infrastructure I edit the template and create a change set, which previews what will be added, modified or replaced before I execute it. If an update fails, CloudFormation rolls back to the last good state by default. It suits teams that want AWS-managed state and no extra tooling. I would compare it with Terraform for multi-cloud estates and with the CDK when developers prefer code that synthesises templates.",
+      "revision": "CloudFormation turns declarative templates into stacks, previews updates with change sets, and rolls back failed updates by default.",
+      "detailed": "**AWS CloudFormation** provisions and manages AWS resources from declarative templates written in YAML or JSON. You describe the desired end state. CloudFormation works out the creation order from dependencies, calls the service APIs and records what it created.\n\n## Core concepts\n\n- **Template**: the description of resources, parameters, conditions, mappings and outputs.\n- **Stack**: one deployed instance of a template. Resources in a stack share a lifecycle, so deleting the stack deletes them.\n- **Change set**: a preview of what an update will add, modify or replace. Replacement of a stateful resource, such as a database, is the change to look for.\n- **Drift detection**: compares live resources with the template to find manual changes.\n- **Stack policies and termination protection**: guard against accidental updates or deletes.\n\n## How an update works\n\nYou edit the template and create a change set. CloudFormation compares the new template with the deployed stack, computes the actions and waits for approval. If an update fails, it rolls back to the previous known-good state by default. That makes it safer than a sequence of ad hoc scripts.\n\n## Trade-offs\n\nCloudFormation is AWS-native, needs no separate state backend, and works with IAM, Service Catalog and StackSets for multi-account deployment. The costs are AWS-only scope, a verbose syntax and slower iteration than some alternatives. Large designs use nested stacks or CDK constructs to stay manageable. Check current limits on template size and resources per stack.\n\n## Common mistakes\n\n- Changing resources in the console, which causes drift and failed updates later.\n- Hard-coding per-environment values instead of using parameters or mappings.\n- Skipping the change set review, so a replacement that deletes a database goes unnoticed.\n\n## Practical example (hypothetical)\n\nA team defines a VPC, an ECS service and a load balancer in one template per environment, with parameters for instance counts. A pull request includes the change set, and the pipeline executes it after review.",
+      "followUps": [
+        "How does CloudFormation decide the order in which to create resources?",
+        "What does a change set show, and why does it matter for databases?",
+        "When would you choose Terraform over CloudFormation?"
+      ],
+      "related": [
+        "infrastructure-as-code",
+        "secure-aws-application"
+      ]
+    },
+    {
+      "slug": "s3-vs-ebs-vs-efs",
+      "title": "What is the difference between S3, EBS and EFS?",
+      "topic": "Storage",
+      "difficulty": "beginner",
+      "type": "comparison",
+      "tags": [
+        "s3",
+        "ebs",
+        "efs",
+        "storage",
+        "block-storage",
+        "file-storage"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            5
+          ]
+        }
+      ],
+      "quick": "They are three different storage shapes, and the access pattern decides between them. S3 is object storage: I store whole objects in buckets and read them over HTTP APIs, which suits assets, backups, logs and data lakes. EBS is block storage: a volume is typically attached to one EC2 instance and behaves like a disk with a filesystem, which suits database files and boot volumes that need low latency. EFS is a managed NFS file system that many instances or containers can mount at once, which suits shared content. My rule: objects for API access, blocks for one machine's disk, files for shared trees.",
+      "revision": "S3 stores objects behind an API, EBS gives one instance a disk, and EFS gives many instances one shared file system.",
+      "detailed": "These three services cover different storage shapes. Choose by how the data is accessed, not only by its size.\n\n| Aspect | Amazon S3 | Amazon EBS | Amazon EFS |\n|---|---|---|---|\n| Model | Object storage | Block storage volumes | Managed NFS file system |\n| Access | HTTP API, SDK, CLI | Attached to an instance as a disk | Mounted by many instances and containers |\n| Typical attachment | Any client with permission | Usually one EC2 instance | Many clients across AZs in a Region |\n| Typical use | Assets, backups, data lakes, logs | Database files, boot volumes | Shared content, home directories, CMS files |\n| Latency | Higher per request | Lowest of the three | Higher than EBS, suited to shared access |\n\n## How to decide\n\nIf the application reads and writes whole objects through an API and needs durability at scale, use S3. If an operating system or database engine needs a raw disk with its own filesystem, use EBS and take snapshots for backup. If several servers need the same directory tree at once, use EFS.\n\n## Trade-offs\n\nS3 is usually the cheapest per gigabyte and needs no provisioning, but you replace an object rather than editing part of it. EBS is fast but tied to one Availability Zone in most cases. EFS removes the need to run a file server, but costs more per gigabyte than S3 and has higher latency than a local disk.\n\n## Common mistakes\n\n- Putting a relational database on EFS. It is not designed for the small random I/O and locking that databases need.\n- Using S3 as a live filesystem with frequent small writes.\n- Forgetting that an EBS volume belongs to one Availability Zone, so a replacement instance in another zone needs a snapshot restore.\n\n## Practical example (hypothetical)\n\nA media site stores uploaded images in S3 and serves them through CloudFront. Its PostgreSQL host keeps data files on EBS with regular snapshots. A set of render workers that all read one template directory mounts EFS.\n\nPerformance and pricing depend on configuration, so check current documentation.",
+      "followUps": [
+        "Why is an EBS volume bound to a single Availability Zone?",
+        "Why is EFS usually a poor choice for a relational database?",
+        "How would you back up each of these three storage types?"
+      ],
+      "related": [
+        "what-is-s3",
+        "high-availability-design",
+        "cloudfront-with-s3"
+      ]
+    },
+    {
+      "slug": "vpc-endpoints-and-privatelink",
+      "title": "What are VPC endpoints and AWS PrivateLink, and when do you use them?",
+      "topic": "Private connectivity",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "vpc-endpoint",
+        "privatelink",
+        "private-connectivity",
+        "s3",
+        "security"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            4
+          ]
+        }
+      ],
+      "quick": "A VPC endpoint gives resources in my VPC private access to a service, so the traffic does not cross the public internet. There are two kinds. Gateway endpoints exist for S3 and DynamoDB and work through a route-table entry; they generally have no hourly charge. Interface endpoints place elastic network interfaces with private IPs in my subnets and are built on AWS PrivateLink, which covers many AWS services and services that other accounts or partners publish. I use them to keep S3 or Secrets Manager traffic off a NAT gateway, and I use PrivateLink to expose one internal service to another VPC without peering. Supported services and charges change, so I check current documentation.",
+      "revision": "Gateway endpoints reach S3 and DynamoDB through route tables; interface endpoints use PrivateLink to reach services on private IPs.",
+      "detailed": "A **VPC endpoint** lets resources in a VPC reach supported services privately, so traffic stays on the AWS network instead of crossing the public internet. **AWS PrivateLink** is the technology behind interface endpoints and endpoint services, which let one VPC expose a service to another without VPC peering or public routing.\n\n## Two endpoint types\n\n| Type | How it works | Supported targets | Notes |\n|---|---|---|---|\n| Gateway endpoint | Route-table entry pointing at the service | S3, DynamoDB | Generally no hourly charge; controlled by an endpoint policy |\n| Interface endpoint | Elastic network interface with a private IP in your subnets | Many AWS services and PrivateLink endpoint services | Uses security groups and DNS; has hourly and data charges |\n\n## How it works in practice\n\nFor an interface endpoint, enable private DNS so the standard service hostname resolves to the private IP. Application code usually does not change. Access is controlled by IAM together with the endpoint policy.\n\n## Why use them\n\n- Keep S3, ECR or Secrets Manager traffic off a NAT gateway, which reduces data processing charges and keeps the traffic private.\n- Keep private subnets fully private while still reaching AWS APIs.\n- Give another team or account access to one internal service, without routing their whole network into yours.\n\n## Trade-offs and common mistakes\n\nEndpoints add cost and DNS and policy configuration. A missing or overly broad endpoint policy can allow more access than intended. Interface endpoints need subnets in each Availability Zone you use, and private DNS must be enabled for the normal hostnames to resolve. Gateway endpoints cover only S3 and DynamoDB, so do not expect them to cover other services.\n\n## Practical example (hypothetical)\n\nA private ECS cluster reads images from S3 through a gateway endpoint and fetches secrets through an interface endpoint for Secrets Manager. An internal reporting API is exposed to a second account through a PrivateLink endpoint service in front of a Network Load Balancer.\n\nCheck the current list of supported services and quotas in the documentation.",
+      "followUps": [
+        "How does a gateway endpoint differ from an interface endpoint?",
+        "How would you give another account access to one internal API without peering?",
+        "What happens to S3 traffic from a private subnet with no endpoint and no NAT gateway?"
+      ],
+      "related": [
+        "vpc-fundamentals",
+        "public-vs-private-subnets",
+        "alb-vs-nlb"
+      ]
+    },
+    {
+      "slug": "transit-gateway",
+      "title": "What is AWS Transit Gateway, and when do you use it instead of VPC peering?",
+      "topic": "Network architecture",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "transit-gateway",
+        "vpc-peering",
+        "networking",
+        "hub-and-spoke"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            4
+          ]
+        }
+      ],
+      "quick": "Transit Gateway is a regional network hub. Each VPC, VPN connection or Direct Connect gateway attaches to it once, and the hub's route tables decide which attachments can reach each other. Peering connects two VPCs directly and is not transitive: if A peers with B and B peers with C, A cannot reach C through B. A full mesh of many VPCs therefore needs many peerings. I use Transit Gateway when there are several VPCs or accounts, shared egress or on-premises connectivity, and I need central routing and segmentation. For two or three VPCs with simple needs, peering is cheaper and simpler. I check current quotas and charges before committing.",
+      "revision": "Transit Gateway is a hub that connects many VPCs and on-premises networks through shared route tables; peering is pairwise and non-transitive.",
+      "detailed": "**AWS Transit Gateway** is a regional network hub. You attach VPCs, VPN connections and Direct Connect gateways to it, and it routes traffic between them according to its route tables. It replaces a mesh of point-to-point connections with a hub-and-spoke topology.\n\n{{diagram:tgw}}\n\n## Why not just peer?\n\nVPC peering connects two VPCs directly. It is simple and low-latency, but it is **not transitive**. Full connectivity among N VPCs needs N(N-1)/2 peerings, each with its own routes, and this becomes hard to audit as accounts grow.\n\n| Concern | VPC peering | Transit Gateway |\n|---|---|---|\n| Topology | Point to point | Hub and spoke |\n| Transitive routing | No | Yes, through hub route tables |\n| Management effort | Grows quickly with pairs | One attachment per VPC |\n| On-premises links | Not a hub | Attaches VPN and Direct Connect |\n| Segmentation | Route tables and security groups in each VPC | Separate hub route tables per segment |\n\n## How to use it well\n\nUse separate route tables for segments such as production, non-production and shared services, so only intended attachments can reach each other. Centralise egress or inspection in a shared VPC when the security model requires it. Share the gateway across accounts with AWS Resource Access Manager.\n\n## Trade-offs\n\nTransit Gateway adds charges for attachments and data processed, and the hub becomes a shared dependency, so monitor it. Peering remains the better choice for a small, stable pair of VPCs.\n\n## Common mistakes\n\n- Assuming routes work everywhere automatically. Each VPC route table still needs an entry pointing at the gateway.\n- Overlapping CIDR ranges, which block routing between attachments.\n- Using one flat route table, which lets every attachment reach every other.\n\n## Practical example (hypothetical)\n\nAn organisation runs production, staging and shared-services VPCs, plus an office network over Direct Connect. Each VPC attaches once to the hub. Production route tables never include staging routes, and shared services can reach both.",
+      "diagrams": [
+        {
+          "id": "tgw",
+          "title": "Hub-and-spoke network through Transit Gateway",
+          "alt": "Production, staging and shared-services VPCs and an on-premises network each attach to one central Transit Gateway. Traffic between spokes passes through the hub, governed by its route tables.",
+          "direction": "TB",
+          "nodes": [
+            {
+              "id": "hub",
+              "label": "Transit Gateway"
+            },
+            {
+              "id": "prod",
+              "label": "Production VPC"
+            },
+            {
+              "id": "stg",
+              "label": "Staging VPC"
+            },
+            {
+              "id": "shared",
+              "label": "Shared services VPC"
+            },
+            {
+              "id": "onprem",
+              "label": "On-premises network"
+            }
+          ],
+          "edges": [
+            {
+              "from": "prod",
+              "to": "hub",
+              "label": "attachment"
+            },
+            {
+              "from": "stg",
+              "to": "hub",
+              "label": "attachment"
+            },
+            {
+              "from": "shared",
+              "to": "hub",
+              "label": "attachment"
+            },
+            {
+              "from": "onprem",
+              "to": "hub",
+              "label": "VPN or Direct Connect"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Why is VPC peering not transitive?",
+        "How would you keep production and staging isolated on a Transit Gateway?",
+        "What breaks when two attached networks use overlapping CIDR ranges?"
+      ],
+      "related": [
+        "vpc-fundamentals",
+        "hybrid-connectivity-vpn-vs-direct-connect",
+        "vpc-endpoints-and-privatelink"
+      ]
+    },
+    {
+      "slug": "hybrid-connectivity-vpn-vs-direct-connect",
+      "title": "How do you connect an on-premises data centre to AWS: Site-to-Site VPN or Direct Connect?",
+      "topic": "Hybrid networking",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "hybrid",
+        "vpn",
+        "direct-connect",
+        "on-premises",
+        "networking"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            4
+          ]
+        }
+      ],
+      "quick": "I choose by the requirements. Site-to-Site VPN builds IPsec tunnels over the public internet between my VPC or Transit Gateway and the customer gateway. It is quick and inexpensive to set up, but bandwidth and latency depend on the internet path. Direct Connect is a dedicated private connection through a provider location, with steadier latency and higher bandwidth options, but it takes longer to order and costs more. Direct Connect is not encrypted by default, so where encryption in transit is required I add an encryption layer. A common design uses Direct Connect as the primary path with a VPN as backup. I also weigh bandwidth, resilience and provisioning time.",
+      "revision": "Site-to-Site VPN is encrypted over the internet and quick to set up; Direct Connect is a dedicated link with steadier latency but slower to order.",
+      "detailed": "Hybrid connectivity links on-premises networks to a VPC or Transit Gateway. The two main options are **AWS Site-to-Site VPN** and **AWS Direct Connect**. They solve the same routing problem in different ways.\n\n## Comparison\n\n| Aspect | Site-to-Site VPN | Direct Connect |\n|---|---|---|\n| Path | Encrypted IPsec tunnels over the public internet | Dedicated private connection at a Direct Connect location |\n| Setup time | Typically hours to days | Typically longer, because circuits must be ordered |\n| Performance | Varies with internet conditions; per-tunnel limits apply | Dedicated capacity options with steadier latency |\n| Encryption | Built in with IPsec | Not encrypted by default; add MACsec or a VPN over the connection where required |\n| Cost | Lower fixed cost; hourly plus data charges | Port charges plus data transfer; higher fixed cost |\n\nCheck current service documentation for exact limits and supported options.\n\n## Designing for resilience\n\nA single connection is a single point of failure. A common pattern uses two Direct Connect connections at separate locations, with a Site-to-Site VPN as a backup path. BGP route preferences select the primary. Both options terminate on a virtual private gateway or a Transit Gateway, which keeps routing consistent.\n\n## Choosing\n\nUse a VPN for early phases, small workloads, backup paths or quick proof-of-concept links. Use Direct Connect when steady throughput, predictable latency or large transfers make the internet path unsuitable. Ask early whether data must be encrypted end to end, because that often decides the design.\n\n## Common mistakes\n\n- Assuming Direct Connect is encrypted, and sending sensitive traffic without an added control.\n- Running one connection with no backup, then calling the design highly available.\n- Overlapping CIDR ranges between on-premises networks and VPCs, which block routing.\n\n## Practical example (hypothetical)\n\nAn organisation moving a reporting database to AWS starts with a Site-to-Site VPN for the migration. It then adds Direct Connect for nightly bulk transfers and keeps the VPN as failover.",
+      "followUps": [
+        "Why keep a VPN as a backup path when Direct Connect is the primary?",
+        "Is Direct Connect encrypted by default, and how would you add encryption?",
+        "How does BGP influence which path traffic takes?"
+      ],
+      "related": [
+        "transit-gateway",
+        "vpc-fundamentals",
+        "multi-az-vs-multi-region"
+      ]
+    },
+    {
+      "slug": "sqs-standard-vs-fifo-queues",
+      "title": "What is the difference between Amazon SQS Standard and FIFO queues?",
+      "topic": "Messaging",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "sqs",
+        "fifo",
+        "standard-queue",
+        "ordering",
+        "deduplication"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            5
+          ]
+        }
+      ],
+      "quick": "Both are managed queues that decouple producers from consumers, but they make different guarantees. A Standard queue offers very high throughput and at-least-once delivery, with best-effort ordering, so messages can arrive out of order or more than once. A FIFO queue preserves order within a message group and deduplicates sends within a time window, at a lower maximum throughput. Deduplication does not make side effects safe, so consumers still need to be idempotent. I choose Standard by default, and FIFO when order per entity matters, such as updates for one customer. I check current throughput quotas before committing.",
+      "revision": "Standard: high throughput, at-least-once, best-effort order. FIFO: ordered per message group, deduplicated sends, lower throughput ceiling.",
+      "detailed": "Amazon SQS offers two queue types. Both hold messages until a consumer processes and deletes them, but their delivery guarantees differ.\n\n| Aspect | Standard queue | FIFO queue |\n|---|---|---|\n| Throughput | Very high; effectively unconstrained for most workloads | Lower ceiling; check current quotas and high-throughput options |\n| Ordering | Best-effort; may arrive out of order | Strict order within a message group |\n| Delivery | At-least-once; duplicates are possible | Sends are deduplicated within a window (five minutes by default) |\n| Naming | Any name | Name must end in .fifo |\n| Typical use | Background jobs and worker pools | Per-customer updates and ordered workflows |\n\n## Message groups\n\nFIFO ordering applies within a **message group ID**. Messages in different groups can be processed in parallel, which keeps throughput useful. Choose the group ID carefully: one group for the whole queue serialises all the work.\n\n## Trade-offs\n\nFIFO gives stronger ordering but a lower ceiling and tighter limits on consumer parallelism. Standard gives scale and simplicity and moves correctness into the consumer. In both cases, make handlers idempotent. A consumer can crash after doing its work and before deleting the message, and then the message reappears.\n\n## Common mistakes\n\n- Choosing FIFO for safety when the business logic does not need ordering.\n- Assuming FIFO means exactly-once processing. Deduplication covers sends. Side effects still need idempotency keys.\n- Using one message group for everything, which removes parallelism.\n\n## Practical example (hypothetical)\n\nAn order-status service uses a FIFO queue with the customer ID as the group ID, so each customer's updates arrive in sequence. Email notifications use a Standard queue, because an out-of-order send is harmless and throughput matters more.\n\nThe deduplication window and throughput figures can change, so confirm them in the current documentation.",
+      "followUps": [
+        "Why does FIFO ordering depend on the message group ID?",
+        "How would you make a Standard queue consumer safe against duplicates?",
+        "What happens to a message if the consumer crashes before deleting it?"
+      ],
+      "related": [
+        "sqs-vs-sns-vs-eventbridge",
+        "async-work-with-queues",
+        "process-order-events-asynchronously"
+      ]
+    },
+    {
+      "slug": "kinesis-data-streams-vs-msk",
+      "title": "Kinesis Data Streams or Amazon MSK: how do you choose a managed streaming service?",
+      "topic": "Streaming",
+      "difficulty": "advanced",
+      "type": "comparison",
+      "tags": [
+        "kinesis",
+        "msk",
+        "kafka",
+        "streaming",
+        "shards",
+        "partitions"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            5
+          ]
+        }
+      ],
+      "quick": "Both services ingest high-volume event streams, keep records in order within a shard or partition, and let consumers replay within a retention window. Kinesis Data Streams is AWS-native, uses shards, and integrates closely with Lambda, Firehose and other AWS tools. Amazon MSK runs managed Apache Kafka, so I keep Kafka's APIs, consumer groups, partitions, Kafka Connect and the wide client ecosystem. I would choose Kinesis for an AWS-centric pipeline with a small team, and MSK when existing Kafka skills, tooling or portability are real requirements. Operating effort, limits and cost usually decide the close calls.",
+      "revision": "Kinesis is AWS-native streaming with shards; MSK is managed Kafka with partitions, consumer groups and the Kafka ecosystem.",
+      "detailed": "Both **Kinesis Data Streams** and **Amazon MSK** (Managed Streaming for Apache Kafka) provide durable, ordered and replayable event streams. They differ in API, ecosystem and how much you operate.\n\n## Comparison\n\n| Aspect | Kinesis Data Streams | Amazon MSK |\n|---|---|---|\n| Unit of parallelism | Shard | Partition |\n| API | AWS APIs and SDKs; Kinesis Client Library | Kafka protocol; any Kafka client |\n| Ordering | Within a shard, by partition key | Within a partition, by key |\n| Replay | Within the retention window | Within retention, by offset |\n| Consumers | Enhanced fan-out, Lambda, Firehose, Managed Service for Apache Flink | Consumer groups, Kafka Connect, Kafka Streams |\n| Operations | Mostly managed; capacity by shard or on-demand mode | Managed brokers; you plan broker sizes, versions and configuration |\n\n## How to choose\n\nChoose Kinesis when the pipeline is AWS-centric, the team is small, and integration with Lambda or Firehose is the main requirement. Choose MSK when the team already runs Kafka, needs Kafka-specific features, wants portability between Kafka environments, or depends on Kafka tooling.\n\n## Trade-offs\n\nKinesis hides more of the broker management but ties you to AWS APIs. MSK keeps portability and the ecosystem, but you still plan partitions, replication, broker capacity and upgrades. In both services the shard or partition count limits parallelism, and changing it needs planning.\n\n## Common mistakes\n\n- Choosing a stream when a queue would do. If you need only work distribution with no replay, SQS is simpler.\n- Picking partition or shard keys with heavy skew, so one partition becomes a hot spot.\n- Assuming replay is unlimited. Both services keep data for a configured retention period.\n\n## Practical example (hypothetical)\n\nClickstream events from a web app go to a stream partitioned by session ID. A Lambda consumer enriches the events, and Firehose writes them to S3. A team that already runs Kafka for other systems would use MSK topics instead, so existing consumers and tooling carry over.\n\nLimits, retention options and pricing change over time, so check current documentation before sizing.",
+      "followUps": [
+        "How do partition and shard keys affect ordering and parallelism?",
+        "When would you choose SQS instead of a stream?",
+        "What does a consumer need in order to replay events after a bug fix?"
+      ],
+      "related": [
+        "choosing-messaging-services",
+        "sqs-vs-sns-vs-eventbridge",
+        "what-is-eventbridge"
+      ]
+    }
+  ]
+}

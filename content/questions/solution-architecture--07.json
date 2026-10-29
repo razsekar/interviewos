@@ -1,0 +1,83 @@
+{
+  "category": "solution-architecture",
+  "questions": [
+    {
+      "slug": "migrate-ec2-to-managed-services",
+      "title": "How would you migrate an application from EC2 to AWS managed services?",
+      "topic": "Cloud migration",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "aws",
+        "ec2",
+        "migration",
+        "managed-services",
+        "rollback"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            24
+          ]
+        }
+      ],
+      "quick": "I would start with an inventory of what the EC2 estate does: its processes, where state lives, its dependencies, the compliance constraints, and the operational pain we want to remove. Then I would map each component to a managed equivalent, such as a managed container service behind a load balancer, a managed database, object storage for files, and a managed queue or cache where it fits. I would migrate one stateless component at a time, shifting traffic gradually with old and new running side by side. The database gets a rehearsed cutover plan, and EC2 is retired only after the new path has run through a full business cycle.",
+      "revision": "Inventory first, move one stateless piece at a time to managed services, keep a rollback path, and retire EC2 last.",
+      "detailed": "Migrate in increments. Start from a dependency map and a measured problem, and keep a rollback path at every step. Replacing every EC2 instance at once concentrates risk and makes failures hard to diagnose.\n\n## Start with an inventory\n\nBefore choosing services, document what the EC2 estate does:\n\n- Which processes run on each instance, and which of them keep state on local disk.\n- Which databases, queues, file stores and scheduled jobs each one depends on.\n- Operational constraints: licensing, OS-level customisation, compliance requirements, peak load and recovery targets.\n- The pain points that justify the change, such as manual patching, slow scaling or hand-run failover. Measure them so the migration has a success criterion.\n\n## Map components to managed equivalents\n\n| Current pattern | Typical managed target |\n|---|---|\n| Web or app servers behind a load balancer | Load balancer with a managed container service, or a platform-as-a-service runtime |\n| Self-managed database on EC2 | A managed relational database service |\n| Self-hosted cache or message broker | A managed cache, queue or broker |\n| Cron jobs on a server | A managed scheduler triggering a task or function |\n| Files on local disk | Object storage |\n\nTreat the table as a starting point. Check each mapping against real requirements, such as whether the managed database supports a required extension or parameter. Service features change over time, so confirm them in current AWS documentation before committing.\n\n## Migration sequence\n\n1. Put the application behind a load balancer, and move session state and file storage off the instance.\n2. Move one stateless component at a time to a managed runtime, running old and new in parallel.\n3. Migrate the database with replication and a planned cutover window, with a rollback that has been rehearsed.\n4. Retire EC2 instances only after the new path has run through a full business cycle.\n\nEach step needs a way back: weighted traffic shifting, a feature flag, or a retained EC2 fleet until confidence is established.\n\n## Common mistakes\n\n- Moving an instance into a container without removing local state.\n- Leaving the database for last and never rehearsing the cutover.\n- Changing runtime, platform and architecture in one step, so a failure has too many possible causes.\n\nIn short: inventory, move one piece, measure, keep the rollback, then decommission.",
+      "followUps": [
+        "How would you handle session state when moving from EC2 to containers?",
+        "How do you cut over a production database with minimal downtime?",
+        "When is it reasonable to keep a component on EC2?"
+      ],
+      "related": [
+        "legacy-application-modernization",
+        "strangler-pattern",
+        "high-availability-design"
+      ]
+    },
+    {
+      "slug": "architecture-change-during-implementation",
+      "title": "How do you handle an architecture change once implementation has started?",
+      "topic": "Architecture change management",
+      "difficulty": "intermediate",
+      "type": "scenario",
+      "tags": [
+        "architecture-change",
+        "adr",
+        "migration",
+        "compatibility",
+        "delivery"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            27
+          ]
+        }
+      ],
+      "quick": "I start by assessing what the change touches: interfaces other teams depend on, data ownership and schemas, security boundaries, cost and operations, and the delivery plan. A change that stays inside one service can be absorbed by the team. A change to a shared contract or data owner needs review with every affected team. I record the trigger, the options and the chosen path in a decision record, then deliver the change compatibly. I add the new path beside the old one, migrate consumers gradually, and remove the old path only after it is unused. That keeps delivery moving while the design shifts underneath.",
+      "revision": "Assess the blast radius, record the decision, and deliver the change side by side so the old path can be removed later.",
+      "detailed": "Treat a mid-implementation architecture change as a decision with a blast radius. Assess what it touches, record it, update the artifacts that depend on it, and deliver it through a compatibility path rather than a sudden switch.\n\n## Step 1: assess the impact\n\nTrace the change through the areas it can affect:\n\n- Interfaces: APIs and events that other teams consume.\n- Data: schemas, ownership, and whether existing records need transformation.\n- Security and compliance: new trust boundaries, data flows or credentials.\n- Cost and operations: new services, dashboards, alerts and runbooks.\n- Delivery: which teams, sprints and dependencies move with it.\n\nA change confined to one service's internals is a small decision. A change that alters a shared contract or moves data ownership needs review with all affected teams.\n\n## Step 2: decide and record\n\nWrite a short decision record. Capture the trigger (for example, a load test result or a constraint discovered during build), the options considered, the chosen path, and the evidence that would justify reversing it. An architecture decision record is the usual format. It stops the same debate from recurring later and tells new team members why the code looks the way it does.\n\n## Step 3: deliver with compatibility\n\nPrefer changes that can be introduced in parallel:\n\n1. Add the new path alongside the old one, behind a flag.\n2. Migrate consumers and data incrementally.\n3. Remove the old path once usage has dropped to zero and the rollback window has passed.\n\nThis is the expand-and-contract idea. It lets the team keep delivering while the design changes.\n\n## Common mistakes\n\n- Changing the design silently in code, so the documentation and the team's understanding drift apart.\n- Treating every mid-course change as a restart. Most changes are local and can be absorbed.\n- Continuing a flawed design only because work has already been spent on it. Past cost should not drive the decision; future cost and risk should.\n\n## Example\n\nSuppose (as an illustrative example) a team finds that a synchronous call between two services cannot meet its latency target under peak load. The change is to publish an event instead. The team records a decision, adds the event beside the call, moves the consumer first, and removes the synchronous call only after the event path has been stable through a full release cycle.\n\nThe principle is to change the architecture as deliberately as the code, with the same review, record and rollback discipline.",
+      "followUps": [
+        "How do you decide whether a mid-sprint architecture change is worth the disruption?",
+        "How would you tell teams that have already built against the old design?",
+        "What does expand-and-contract look like for a database schema?"
+      ],
+      "related": [
+        "architecture-decision-record",
+        "legacy-application-modernization",
+        "strangler-pattern"
+      ]
+    }
+  ]
+}

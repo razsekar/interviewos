@@ -1,0 +1,88 @@
+{
+  "category": "aws-cloud",
+  "questions": [
+    {
+      "slug": "choosing-messaging-services",
+      "title": "How do you choose between SQS, SNS, EventBridge, Kinesis and Kafka?",
+      "topic": "Messaging design",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "sqs",
+        "sns",
+        "eventbridge",
+        "kinesis",
+        "kafka",
+        "messaging",
+        "event-driven"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            5
+          ]
+        }
+      ],
+      "quick": "I start with what the message means. SQS is a work queue: a pool of consumers processes each message once, and the queue buffers load. SNS fans one message out to many subscribers, push-style. EventBridge routes events by content across services, accounts and SaaS sources, with schedules and archive and replay. Kinesis and MSK are high-volume streams: ordered per partition, retained for replay and read by several independent consumers. I then weigh throughput, ordering, replay, operating effort and integrations. Real designs often combine them, such as EventBridge routing events to a queue per consumer.",
+      "revision": "Queues distribute work, topics fan out, event buses route by pattern, and streams keep ordered history for replay.",
+      "detailed": "Each service fits a different question. Ask what the message represents before asking which product to use.\n\n| Need | Good fit | Why |\n|---|---|---|\n| Hand tasks to a worker pool, each processed once | SQS | Buffers load, visibility timeout, dead-letter queue |\n| Send one notification to several subscribers | SNS | Push fan-out with subscription filters |\n| Route business events by content across services or accounts | EventBridge | Rules, targets, archive and replay |\n| Ingest high-volume telemetry or clickstreams with replay | Kinesis Data Streams | Ordered shards, several independent readers |\n| Kafka APIs and ecosystem | Amazon MSK | Partitions, consumer groups, Kafka Connect |\n\n## Decision steps\n\n1. **Command or fact?** A request for one worker to do something is a queued job. A statement that something happened is an event.\n2. **How many consumers, and do they need their own copy?** Several independent readers suggest a topic, bus or stream. A single worker pool suggests a queue.\n3. **Does history matter?** If consumers must re-read the past, use a stream or EventBridge archive. A queue deletes messages once processed.\n4. **Throughput and ordering?** Streams and FIFO queues suit ordered work per key. Check current quotas.\n5. **Who operates it?** A managed AWS-native service usually carries less operational load than a self-managed Kafka cluster. MSK sits between the two.\n\n## Trade-offs\n\nCombining services is normal. A common pattern is EventBridge routing events to an SQS queue per consumer, so each team gets its own retries and dead-letter queue. Every added service adds failure modes and cost, so start with the simplest choice that meets the requirement.\n\n## Common mistakes\n\n- Using SQS as an event log. Messages disappear once consumed, so there is no replay.\n- Using a stream for simple background jobs, which adds shard management with no benefit.\n- Treating EventBridge as an ordered stream processor. It is built for routing events.\n\n## Practical example (hypothetical)\n\nAn order service publishes OrderPlaced to EventBridge. Rules route it to a payments queue and to an analytics stream. Each queue has its own dead-letter queue and retry policy. Analytics consumers replay history from the stream when they need to rebuild a report.",
+      "followUps": [
+        "When would you pick SNS over EventBridge for fan-out?",
+        "How does replay differ between SQS and Kinesis?",
+        "How would you combine EventBridge with a queue per consumer?"
+      ],
+      "related": [
+        "sqs-vs-sns-vs-eventbridge",
+        "kinesis-data-streams-vs-msk",
+        "sqs-standard-vs-fifo-queues",
+        "what-is-eventbridge"
+      ]
+    },
+    {
+      "slug": "preventing-message-loss-in-event-driven-systems",
+      "title": "How do you prevent message loss in an event-driven system?",
+      "topic": "Messaging reliability",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "message-loss",
+        "dead-letter-queue",
+        "outbox",
+        "at-least-once",
+        "idempotency",
+        "retries"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            5
+          ]
+        }
+      ],
+      "quick": "I defend in layers. First, durable transport: the broker must confirm the write before the producer reports success. Second, a consumer acknowledges or deletes a message only after it has processed it, so a crash causes redelivery rather than loss, and handlers are idempotent so redelivery is safe. Third, retries are bounded, and poison messages move to a dead-letter queue with alarms on age and depth, so one bad message does not block the rest. For the gap between a database write and its event, I use a transactional outbox, so the change and the event commit together. After a fix I replay from the dead-letter queue or the stream.",
+      "revision": "Persist before acknowledging, acknowledge after processing, dead-letter what keeps failing, and use an outbox so the write and event never diverge.",
+      "detailed": "Messages can be lost at four points: when the producer publishes, inside the broker, when a consumer receives the message, and in the gap between a database write and the event for that write. Durable transport alone does not protect business state, so the defence is a combination of design choices.\n\n## 1. Durable transport\n\nUse a durable service such as SQS, SNS with SQS subscriptions, EventBridge, Kinesis or MSK with suitable replication. Report success to the caller only after the broker confirms the write, and retry transient publish errors.\n\n## 2. Acknowledge after processing\n\nWith SQS, a consumer deletes a message only after its work completes. If the process crashes first, the message becomes visible again after the visibility timeout. This gives at-least-once processing, so handlers must be **idempotent**, for example by recording processed message IDs and skipping duplicates.\n\n## 3. Bounded retries and dead-letter queues\n\nRetry transient failures with backoff and a maximum receive count. After that, move the message to a dead-letter queue instead of retrying forever. Alarm on DLQ depth and the age of the oldest message, keep DLQ retention long enough to investigate, and redrive messages after the fix.\n\n## 4. The dual-write problem\n\nSaving an order and then publishing OrderCreated are two separate operations. If the publish fails after the commit, the event is lost. A **transactional outbox** writes the event row in the same database transaction as the order. A relay then publishes the outbox rows and marks them sent. The relay can publish a row twice, so consumers must still be idempotent.\n\n## Trade-offs\n\nEach layer adds latency and code. Outbox relays add operational work. Retention and replay add storage cost. Together, though, the layers turn most failures into delays rather than lost data.\n\n## Common mistakes\n\n- Deleting a message on receipt, before processing it.\n- Retrying forever with no dead-letter queue, which blocks the queue behind a poison message.\n- Writing to the database and publishing in two steps with no outbox.\n- Assuming durable transport means no duplicates.\n\n## Practical example (hypothetical)\n\nA checkout service writes the order and an outbox row in one transaction. A relay publishes the event to EventBridge, which routes it to a payments queue. Payment handlers check a processed-ID table and delete each message only after success. Repeated failures land in a dead-letter queue with an alarm.",
+      "followUps": [
+        "How does a transactional outbox avoid the dual-write problem?",
+        "What is the difference between a visibility timeout and a retry policy?",
+        "How would you replay messages from a dead-letter queue safely?"
+      ],
+      "related": [
+        "async-work-with-queues",
+        "process-order-events-asynchronously",
+        "sqs-standard-vs-fifo-queues",
+        "choosing-messaging-services"
+      ]
+    }
+  ]
+}

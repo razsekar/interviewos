@@ -1,0 +1,445 @@
+{
+  "category": "microservices-distributed",
+  "questions": [
+    {
+      "slug": "what-is-microservices-architecture",
+      "title": "What is a microservices architecture?",
+      "topic": "Architecture fundamentals",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "microservices",
+        "architecture",
+        "distributed-systems"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            13
+          ]
+        }
+      ],
+      "quick": "Microservices is an architecture where an application is split into independently deployable services, usually aligned with business capabilities such as orders, payments or catalogue. Each service owns its behaviour and its data, and it talks to other services through explicit APIs or events. The benefits are independent deployment, team autonomy and scaling hot components separately. The costs are real: network calls can fail or be slow, data is no longer updated in one transaction, and observability, versioning and operations become harder. I treat microservices as a way to manage organisational and scaling complexity, not as a default that makes a system better.",
+      "revision": "Microservices split a system into independently deployable services aligned to business capabilities, each owning its data. You gain autonomy and scaling; you pay with network failure, distributed data and operations.",
+      "detailed": "A microservices architecture organises an application as a set of small, independently deployable services. Each service has a well-defined responsibility, usually mapped to a business capability, and it exposes that capability through an API or publishes events for others to consume.\n\n## Defining properties\n\n- **Business alignment:** a service is named and bounded by what the business does, such as pricing or shipping, not by a technical layer.\n- **Owned data:** the service is the only writer of its data. Other services read through its API or its events.\n- **Independent deployment:** a change to one service can be released without coordinating a release of the whole system.\n- **Explicit contracts:** interactions happen through versioned APIs or events rather than shared in-memory objects.\n\n## What it buys\n\nTeams can release at their own pace, scale the parts of the system that need capacity, and choose technology per service where it is justified.\n\n## What it costs\n\n| Area | Monolith | Microservices |\n|---|---|---|\n| Calls between components | In-process | Network, can fail or be slow |\n| Transactions | One database transaction | Usually multiple local transactions |\n| Debugging | One stack trace | Traces spanning several services |\n| Deployment | One pipeline | Many pipelines and versions to coordinate |\n\n## Common mistakes\n\n- Splitting by technical layer, such as a UI service and a database service. Every feature then crosses every service.\n- Sharing one database across services, which keeps the coupling while adding the network.\n- Creating very small services whose operational overhead exceeds their value.\n\n## Example\n\nAn online store might have catalogue, orders, payments and shipping services. Each owns its data, and orders publishes an event when payment succeeds so shipping can react. That split only pays off if the teams and release cadences really differ.",
+      "diagrams": [],
+      "followUps": [
+        "How is a microservice different from a module inside a monolith?",
+        "What signals tell you that a service boundary is in the wrong place?"
+      ],
+      "related": [
+        "sync-vs-async-communication",
+        "distributed-transactions-microservices",
+        "modular-monolith-vs-microservices"
+      ]
+    },
+    {
+      "slug": "modular-monolith-vs-microservices",
+      "title": "Modular monolith or microservices: how do you decide?",
+      "topic": "Architecture decisions",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "architecture",
+        "modular-monolith",
+        "microservices",
+        "trade-offs"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            13
+          ]
+        }
+      ],
+      "quick": "I would choose a modular monolith when the domain is still being learned, the team is small and everything deploys together without pain. It gives clear module boundaries, one deployment, in-process calls and one database transaction, which keeps delivery fast. I would move toward microservices when particular modules need independent scaling, separate release cadences, different technology or stronger isolation, and when teams are blocked by each other. Boundary discipline matters most. If modules are already well separated, extracting one later is far cheaper than splitting a tangled monolith up front.",
+      "revision": "A modular monolith gives strict module boundaries in one deployable. Microservices buy independence with network calls and distributed data, so extract only when independence is needed.",
+      "detailed": "The decision is less about fashion and more about where the costs of coupling and the costs of distribution hurt most. A modular monolith is one deployable unit with enforced internal boundaries. Microservices are separately deployed services that communicate over the network.\n\n## Comparison\n\n| Concern | Modular monolith | Microservices |\n|---|---|---|\n| Deployment | One artefact, one pipeline | Independent pipelines per service |\n| Data | Module-owned schemas, one database | Service-owned databases |\n| Consistency | Local transactions across modules | Sagas, outbox and eventual consistency |\n| Calls | In-process function calls | Network calls with timeouts and retries |\n| Team scaling | Works well for a few teams | Needed when many teams must release independently |\n| Operational cost | Low | Higher: tracing, deployment and versioning |\n\n## When the monolith is the better choice\n\nThe domain is uncertain, so boundaries will move. The team is small enough that coordination is cheap. Most features span several modules and benefit from one transaction.\n\n## When to extract\n\nA module needs to scale very differently from the rest, such as video processing. A release cadence or compliance requirement must be isolated. Several teams block each other on one codebase.\n\n## Making the monolith modular\n\nEnforce boundaries with package visibility rules, lint checks that forbid importing another module's internals, and one public interface per module. Without enforcement, a modular monolith quietly becomes a regular one.\n\n## Common mistakes\n\n- Calling a monolith modular when every module imports every other module's database tables.\n- Choosing microservices to fix poor code quality. Distribution makes tangled code harder to change.\n- Extracting services before the boundaries are understood, which creates a distributed monolith.\n\n## Example\n\nAn online course platform starts as a modular monolith with modules for accounts, catalogue, billing and progress. When video transcoding needs GPU-backed capacity and its own release schedule, that module is extracted first, while the rest stay together.",
+      "diagrams": [],
+      "followUps": [
+        "What enforces module boundaries inside a monolith?",
+        "Which module would you extract first, and why?"
+      ],
+      "related": [
+        "what-is-microservices-architecture",
+        "distributed-transactions-microservices",
+        "sync-vs-async-communication"
+      ]
+    },
+    {
+      "slug": "domain-driven-design-service-boundaries",
+      "title": "What is Domain-Driven Design, and how does it help define service boundaries?",
+      "topic": "Domain modelling",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "ddd",
+        "bounded-context",
+        "aggregates",
+        "service-boundaries"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            13
+          ]
+        }
+      ],
+      "quick": "Domain-Driven Design models software around the business domain, using the language of the people who run it. Strategically, it defines bounded contexts, where each term has one precise meaning, and a ubiquitous language inside each context. An order in sales may carry different data from an order in shipping, so they can be separate models. Tactically, it uses entities, value objects and aggregates. An aggregate is a consistency boundary whose parts change together in one transaction. I use these ideas to find service boundaries from business responsibilities rather than from database tables or technical layers. I would not apply the full toolkit to simple CRUD areas, because the modelling effort would exceed the benefit.",
+      "revision": "DDD derives boundaries from business meaning: bounded contexts give each term one meaning, and aggregates define what must change together. Skip the heavy toolkit for simple CRUD.",
+      "detailed": "Domain-Driven Design is an approach to complex software in which the model follows the business domain. It has a strategic part, which decides where the boundaries are, and a tactical part, which shapes the code inside a boundary.\n\n## Strategic design\n\n- **Ubiquitous language:** developers and domain experts use the same terms, and the code uses them too.\n- **Bounded context:** a boundary inside which a model and its terms have one meaning. \"Customer\" may mean a billing account in one context and a delivery recipient in another.\n- **Context mapping:** describes how contexts relate, such as one upstream context publishing data that a downstream context consumes.\n\nA bounded context is a strong candidate for a service, provided it owns its data and can change without waiting for others.\n\n## Tactical design\n\n- **Value object:** defined by its value and immutable, such as money or a postal address.\n- **Entity:** has identity that persists over time, such as an order.\n- **Aggregate:** a cluster of objects with one root that enforces invariants. Changes to an aggregate are committed together.\n\nA small value object in TypeScript shows the idea:\n\n```ts\nclass Money {\n  private constructor(readonly amountMinor: number, readonly currency: string) {}\n\n  static of(amountMinor: number, currency: string): Money {\n    if (!Number.isInteger(amountMinor) || amountMinor < 0) {\n      throw new RangeError(\"amount must be a non-negative integer\");\n    }\n    return new Money(amountMinor, currency);\n  }\n\n  add(other: Money): Money {\n    if (other.currency !== this.currency) throw new Error(\"currency mismatch\");\n    return new Money(this.amountMinor + other.amountMinor, this.currency);\n  }\n}\n```\n\n## Trade-offs\n\nDDD improves fit between software and business for complex domains, but it adds vocabulary, modelling workshops and design effort. For a generic CRUD administration screen, that effort rarely pays back.\n\n## Common mistakes\n\n- Creating one service per database table, which yields services that cannot make a business decision alone.\n- Drawing boundaries around technical layers, such as an API service and a data service.\n- Letting aggregates grow so large that every change contends for one transaction.\n\n## Example\n\nIn a retail platform, the sales context owns pricing rules and promotions, while the shipping context owns parcels and carriers. Both refer to a product, but each keeps only the attributes it needs, and the boundary follows the business decisions.",
+      "diagrams": [],
+      "followUps": [
+        "How do you find a bounded context in an existing system?",
+        "What makes an aggregate boundary different from a database table?"
+      ],
+      "related": [
+        "what-is-microservices-architecture",
+        "modular-monolith-vs-microservices",
+        "distributed-transactions-microservices"
+      ]
+    },
+    {
+      "slug": "api-gateway-pattern",
+      "title": "What is the API gateway pattern, and what should it not do?",
+      "topic": "Edge and routing",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "api-gateway",
+        "routing",
+        "security",
+        "rate-limiting"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            13
+          ]
+        }
+      ],
+      "quick": "An API gateway is the single entry point that clients call before requests reach internal services. It routes each request to the right service, terminates TLS and applies cross-cutting concerns such as authentication checks, rate limiting, request size limits and response shaping. That keeps these policies in one place and hides the internal topology from clients. I would keep business rules out of it, because a gateway full of logic becomes a second monolith. I would also treat it as a critical component, with redundancy, its own latency and error monitoring and clear ownership. Internal service-to-service traffic usually should not be forced through the public gateway.",
+      "revision": "A gateway is the single client entry point: routing, TLS, auth checks and rate limits at the edge. Keep business logic out and make it highly available.",
+      "detailed": "An API gateway sits between clients and backend services. Clients see one stable address and a consistent interface, while the gateway forwards each request to whichever service owns it.\n\n## Responsibilities\n\n- **Routing:** map public paths, such as `/orders` or `/products`, to internal services.\n- **Edge security:** terminate TLS, validate tokens or delegate to an identity provider, and reject malformed requests early.\n- **Traffic control:** apply rate limits and quotas per client or route.\n- **Shaping:** transform requests or responses, or aggregate calls for a specific client type.\n\n{{diagram:gateway}}\n\n## What it should not do\n\nBusiness rules such as pricing, eligibility or order state belong in services. Once they move into the gateway, changes need a gateway release, and the gateway team becomes a bottleneck.\n\n## Variants and trade-offs\n\nA backend-for-frontend gives each client type, such as web or mobile, its own gateway so each can be shaped without affecting others. The benefit is tailored responses; the cost is more components to run. The main trade-offs of a single gateway are an extra network hop, a potential single point of failure and a shared release point. Redundancy, health checks and capacity planning address the first two.\n\n## Common mistakes\n\n- Chaining several synchronous service calls inside the gateway to build a response, which hides latency and couples services.\n- Exposing internal services directly to the internet and relying on the gateway being optional.\n- Giving one central gateway team ownership of every route, which slows independent teams.\n\n## Example\n\nA retail API gateway validates the access token, applies per-client rate limits and routes `/orders` to the orders service. The orders service still checks that the caller may view a specific order, because the gateway cannot know object-level rules.",
+      "diagrams": [
+        {
+          "id": "gateway",
+          "title": "Clients call one gateway that routes to internal services",
+          "alt": "Web and mobile clients send HTTPS requests to one API gateway. The gateway routes the orders, catalog and payments paths to separate internal services, so clients never call those services directly.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "clients",
+              "label": "Web and mobile clients"
+            },
+            {
+              "id": "gw",
+              "label": "API gateway"
+            },
+            {
+              "id": "orders",
+              "label": "Orders service"
+            },
+            {
+              "id": "catalog",
+              "label": "Catalog service"
+            },
+            {
+              "id": "payments",
+              "label": "Payments service"
+            }
+          ],
+          "edges": [
+            {
+              "from": "clients",
+              "to": "gw",
+              "label": "HTTPS"
+            },
+            {
+              "from": "gw",
+              "to": "orders",
+              "label": "/orders"
+            },
+            {
+              "from": "gw",
+              "to": "catalog",
+              "label": "/products"
+            },
+            {
+              "from": "gw",
+              "to": "payments",
+              "label": "/payments"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How does an API gateway differ from a load balancer?",
+        "Should service-to-service calls go through the public gateway?"
+      ],
+      "related": [
+        "service-discovery",
+        "rate-limiting-and-backpressure-in-service-calls",
+        "secure-service-to-service-communication"
+      ]
+    },
+    {
+      "slug": "circuit-breaker-pattern",
+      "title": "What is a circuit breaker, and how do its states work?",
+      "topic": "Resilience patterns",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "resilience",
+        "circuit-breaker",
+        "timeouts",
+        "fault-tolerance"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            14
+          ]
+        }
+      ],
+      "quick": "A circuit breaker wraps calls to a dependency and tracks their failures. While closed, calls pass through. When failures pass a threshold, the breaker opens, so calls fail fast or go to a fallback. That protects the caller's threads and connections and gives the dependency room to recover. After a cool-down the breaker becomes half-open and lets a few trial calls through. If they succeed it closes again; if they fail it reopens. I always pair it with timeouts, because a breaker cannot count a call that never returns. I keep one breaker per dependency and expose its state as a metric, so the team can see when it trips.",
+      "revision": "A circuit breaker stops calling a failing dependency: closed to open on failures, half-open trial after a cool-down, closed again on success. It needs timeouts and one breaker per dependency.",
+      "detailed": "A circuit breaker is a guard around a remote call. Its purpose is to stop a caller from repeatedly hitting a dependency that is already failing, which would consume threads, connections and time while achieving nothing.\n\n## The three states\n\n{{diagram:states}}\n\n- **Closed:** normal operation. Calls pass through, and failures are counted, usually over a rolling window.\n- **Open:** the failure threshold has been reached. Calls fail immediately or use a fallback, without touching the dependency.\n- **Half-open:** after the cool-down, a limited number of trial calls are allowed. Success closes the breaker; failure opens it again.\n\nA simplified sketch shows the transitions:\n\n```ts\ntype State = \"closed\" | \"open\" | \"half-open\";\n\nclass CircuitBreaker {\n  private state: State = \"closed\";\n  private failures = 0;\n  private openedAt = 0;\n\n  constructor(private readonly threshold = 5, private readonly resetMs = 30_000) {}\n\n  async call<T>(fn: () => Promise<T>): Promise<T> {\n    if (this.state === \"open\") {\n      if (Date.now() - this.openedAt < this.resetMs) throw new Error(\"circuit open\");\n      this.state = \"half-open\";\n    }\n    try {\n      const result = await fn();\n      this.failures = 0;\n      this.state = \"closed\";\n      return result;\n    } catch (err) {\n      this.failures += 1;\n      if (this.state === \"half-open\" || this.failures >= this.threshold) {\n        this.state = \"open\";\n        this.openedAt = Date.now();\n      }\n      throw err;\n    }\n  }\n}\n```\n\nThis sketch lets every call through while half-open. Production libraries limit trial calls and use rolling statistics, so treat it as a model of the state machine rather than a drop-in implementation.\n\n## Trade-offs\n\nA breaker protects callers and gives dependencies time to recover, but it can also reject valid traffic during a brief blip. Thresholds and cool-downs need tuning against real behaviour.\n\n## Common mistakes\n\n- No timeout on the call, so the breaker never sees a failure and stays closed while threads pile up.\n- Counting client errors such as validation failures as dependency failures.\n- One breaker shared across every endpoint of a service, so a single broken route blocks healthy ones.\n- No fallback decision, so the open state simply produces errors with no degraded behaviour.\n\n## Example\n\nA checkout service calls a recommendation service. After repeated timeouts the breaker opens, and checkout proceeds without recommendations. After the cool-down a trial call succeeds, and the breaker closes.",
+      "diagrams": [
+        {
+          "id": "states",
+          "title": "Circuit breaker state transitions",
+          "alt": "A closed breaker moves to open when failures exceed the threshold. An open breaker moves to half-open after the cool-down. A half-open breaker closes on a successful trial call and reopens on a failed one.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "closed",
+              "label": "Closed: calls pass through"
+            },
+            {
+              "id": "open",
+              "label": "Open: calls fail fast"
+            },
+            {
+              "id": "half",
+              "label": "Half-open: trial calls"
+            }
+          ],
+          "edges": [
+            {
+              "from": "closed",
+              "to": "open",
+              "label": "failures over threshold"
+            },
+            {
+              "from": "open",
+              "to": "half",
+              "label": "cool-down elapsed"
+            },
+            {
+              "from": "half",
+              "to": "closed",
+              "label": "trial succeeds"
+            },
+            {
+              "from": "half",
+              "to": "open",
+              "label": "trial fails"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "Which errors should count toward opening the circuit?",
+        "How does a circuit breaker differ from a retry policy?"
+      ],
+      "related": [
+        "bulkhead-pattern",
+        "preventing-cascading-failures",
+        "retry-storms"
+      ]
+    },
+    {
+      "slug": "distributed-tracing",
+      "title": "What is distributed tracing, and how does it work across services?",
+      "topic": "Observability",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "observability",
+        "tracing",
+        "opentelemetry",
+        "correlation"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            13
+          ]
+        }
+      ],
+      "quick": "Distributed tracing follows one request across many services. A trace is the whole journey, made of spans, and each span records one operation, such as an HTTP call, a database query or a message publish, with its timing and status. Each service passes the trace ID and parent span ID to the next one through propagation headers, typically the W3C traceparent header, and through message attributes when a queue is involved. With those links I can see which hop added latency or failed. I would instrument with OpenTelemetry, keep span attributes low in cardinality, and choose a sampling strategy that keeps errors and slow traces.",
+      "revision": "Distributed tracing links spans across services with a shared trace ID carried in headers and message attributes, showing where latency and failures occur.",
+      "detailed": "A single user request in a microservices system may touch a gateway, several services, a queue and a database. Logs from each component are separate. A trace stitches them into one timeline so you can see the whole path.\n\n## Core concepts\n\n- **Trace:** the complete record of one request, identified by a trace ID.\n- **Span:** one unit of work inside the trace, with a start time, duration, status and attributes.\n- **Parent span:** the span that caused this one, which makes the trace a tree.\n- **Propagation:** the mechanism that carries the trace ID and parent span ID between processes.\n\n## Propagation\n\nThe W3C `traceparent` header carries the version, trace ID, parent span ID and flags in one value:\n\n```text\ntraceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01\n```\n\nEach service reads the incoming header, creates its own span as a child, and sends the updated context on outgoing calls. For queues, the same context is written into message headers or attributes, and the consumer continues the trace from there. Breaks in propagation are the most common reason a trace appears truncated.\n\n## Sampling\n\nTracing every request at high volume can be expensive. Head-based sampling decides at the start of a request, which is simple but may drop rare failures. Tail-based sampling decides after the trace completes, so it can keep errors and slow traces, but it needs more infrastructure.\n\n## Common mistakes\n\n- Propagating context over HTTP but not through queues or scheduled jobs.\n- Putting high-cardinality values such as user IDs into span names, which overwhelms backends. Use them as attributes with care.\n- Relying on logs with a correlation ID alone. Logs help, but a trace shows timing and parent-child structure.\n\n## Example\n\nA checkout request passes through the gateway, the orders service, a payments call and a queue consumer that sends a confirmation. The trace shows that the payments span accounts for most of the latency, while the consumer's span shows that confirmation is delayed by a backlog, which the team can then address separately.",
+      "diagrams": [],
+      "followUps": [
+        "How do you propagate trace context through a message queue?",
+        "How would you decide what to sample?"
+      ],
+      "related": [
+        "handling-partial-failure",
+        "preventing-cascading-failures",
+        "at-most-once-at-least-once-exactly-once"
+      ]
+    },
+    {
+      "slug": "strangler-fig-monolith-migration",
+      "title": "How do you migrate a monolith to microservices without a big-bang rewrite?",
+      "topic": "Migration",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "migration",
+        "strangler-fig",
+        "monolith",
+        "decomposition"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            14,
+            15
+          ]
+        }
+      ],
+      "quick": "I migrate with a strangler approach. I put a routing facade in front of the monolith, choose one business capability with clear boundaries, and build it as a new service. The facade sends that capability's traffic to the new service and everything else to the monolith. I move the data deliberately, for example with change data capture and reconciliation, then switch ownership, keep a routing rollback and retire the old code. I repeat one capability at a time. I avoid a big-bang rewrite, and I avoid extracting by technical layer, because that usually leaves services tightly coupled.",
+      "revision": "Strangler migration: route one capability at a time through a facade to a new service, move its data deliberately, keep a rollback route, then retire the old code.",
+      "detailed": "The strangler fig pattern replaces a legacy system gradually. New functionality, or one capability at a time, is built outside the monolith and routed to by a facade. Over time the monolith shrinks until it can be removed. Because every step keeps the system running, rollback is a routing change rather than a restoration from backup.\n\n{{diagram:strangler}}\n\n## Steps for one capability\n\n1. Pick a capability with clear inputs and outputs and a defined business boundary, such as product search or notifications.\n2. Put the facade in front of the monolith if it is not already there, and route all traffic to the monolith.\n3. Build the new service, then run it in shadow mode or compare results for a sample of requests.\n4. Move data ownership in a planned way. Change data capture or an explicit sync with reconciliation checks are safer than ad hoc dual writes.\n5. Switch the route for that capability, keeping the monolith path available for rollback.\n6. Remove the old code once the new path has run reliably.\n\n## Choosing the first slice\n\nGood first candidates are capabilities with a clear boundary, low coupling to the rest of the monolith and a measurable benefit, such as independent scaling. Poor first candidates are shared core tables that many modules write to.\n\n## Trade-offs\n\nA strangler migration takes longer than a rewrite and keeps two systems running. It is far less risky, because each cut-over is small and reversible. Temporary synchronisation code is a cost to plan for.\n\n## Common mistakes\n\n- Extracting by layer, such as all controllers or all repositories, which leaves every feature spanning both systems.\n- Leaving the shared database in place, so the new service cannot own its data and still depends on the monolith's schema.\n- Switching all traffic at once without a rollback route.\n\n## Example\n\nA retailer extracts product search first. The facade routes search requests to the new service, which builds its index from catalogue events. Orders stay in the monolith until the search cut-over has run cleanly for a period.",
+      "diagrams": [
+        {
+          "id": "strangler",
+          "title": "Facade routes traffic between monolith and new service",
+          "alt": "Users send requests to a routing facade. Most routes go to the legacy monolith, while the catalog routes go to an extracted catalog service. The facade is the only point that changes during each cut-over.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "users",
+              "label": "Users"
+            },
+            {
+              "id": "facade",
+              "label": "Routing facade"
+            },
+            {
+              "id": "legacy",
+              "label": "Legacy monolith"
+            },
+            {
+              "id": "extracted",
+              "label": "Extracted catalog service"
+            }
+          ],
+          "edges": [
+            {
+              "from": "users",
+              "to": "facade"
+            },
+            {
+              "from": "facade",
+              "to": "legacy",
+              "label": "most routes"
+            },
+            {
+              "from": "facade",
+              "to": "extracted",
+              "label": "catalog routes"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you handle data ownership during the migration?",
+        "How would you roll back a cut-over that goes wrong?"
+      ],
+      "related": [
+        "modular-monolith-vs-microservices",
+        "what-is-microservices-architecture",
+        "distributed-transactions-microservices"
+      ]
+    },
+    {
+      "slug": "secure-service-to-service-communication",
+      "title": "How do you secure service-to-service communication?",
+      "topic": "Security",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "security",
+        "mtls",
+        "service-identity",
+        "zero-trust",
+        "authorisation"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            15
+          ]
+        }
+      ],
+      "quick": "I do not treat the internal network as trusted. Each service gets its own workload identity, such as a cloud service identity or a certificate, and mutual TLS authenticates both ends while encrypting traffic. Authentication is only half the job, so each endpoint also checks which callers may perform which actions, using least-privilege scopes or policies. I use short-lived credentials with automated rotation, keep secrets in a managed store rather than in configuration files, restrict network paths with private networking and security rules, and log authorisation decisions for audit. The goal is that a compromised service has limited reach.",
+      "revision": "Give each service its own identity (mTLS or workload tokens), authorise every call with least privilege, use short-lived rotated credentials, and restrict network paths.",
+      "detailed": "Service-to-service traffic is often less protected than traffic from users, because it happens inside a network and is easy to forget. A secure design assumes any single network segment or service can be compromised and limits what that compromise can reach.\n\n## Layers of control\n\n- **Identity:** every service has its own identity, so logs and policies refer to a specific caller rather than to a shared key.\n- **Transport:** mutual TLS encrypts traffic and proves both parties' identities. Certificates must be rotated automatically.\n- **Authorisation:** each endpoint checks whether that caller may perform that action on that resource.\n- **Network:** private subnets, security rules and service-mesh policies limit which services can reach which.\n- **Secrets:** credentials come from a managed secret store and are short-lived where possible.\n\n## Comparing common approaches\n\n| Approach | Strength | Weakness |\n|---|---|---|\n| One shared static API key | Simple to set up | Cannot tell callers apart; leaks are hard to contain |\n| Per-service mTLS certificates | Strong identity and encryption | Certificate lifecycle needs automation |\n| Short-lived workload tokens | Limited lifetime; scoped claims | Token validation must be enforced on every call |\n\nMany systems combine them: mTLS for identity and encryption, plus scoped tokens or policies for authorisation.\n\n## Common mistakes\n\n- Trusting any request that arrives from inside the network.\n- Authenticating the service but never checking whether it may perform the requested action.\n- Long-lived credentials embedded in images or configuration, with no rotation plan.\n- Letting certificates expire silently, which causes outages that look like network faults.\n\n## Example\n\nThe orders service may call the payments service to charge a payment, using a short-lived token that carries a payments-charge scope. The payments service accepts that call only over mutual TLS from the orders identity, and it logs the decision. A refunds service with a different identity cannot charge payments, even if it is on the same network.",
+      "diagrams": [],
+      "followUps": [
+        "What is the difference between authentication and authorisation between services?",
+        "How do you rotate certificates without downtime?"
+      ],
+      "related": [
+        "api-gateway-pattern",
+        "rate-limiting-and-backpressure-in-service-calls",
+        "service-discovery"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,427 @@
+{
+  "category": "backend-databases",
+  "questions": [
+    {
+      "slug": "dynamodb-partition-and-sort-keys",
+      "title": "How do DynamoDB partition keys and sort keys work?",
+      "topic": "DynamoDB data modelling",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "dynamodb",
+        "partition-key",
+        "sort-key",
+        "nosql",
+        "aws"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            18
+          ]
+        }
+      ],
+      "quick": "In DynamoDB the partition key is hashed to choose the physical partition that stores an item. The optional sort key orders the items that share a partition key, so one query can read a contiguous range inside a single partition. Together they form the primary key. I design the keys around the queries I must serve. For a device's readings, a partition key for the device and a sort key for the timestamp let me fetch one device's time window with a single Query. The partition key also decides how evenly traffic spreads, so it needs high cardinality as well as the right grouping.",
+      "revision": "Partition key picks the partition by hash; sort key orders items within it for range queries. Design keys around the queries, not the entities.",
+      "detailed": "## Short answer\n\nThe partition key is hashed to choose the physical partition that stores an item. The optional sort key orders the items that share that partition key, which lets one query read a contiguous range inside a single partition. Together they form the primary key when a table has a sort key.\n\n## How it works\n\n- A `Query` requires an exact partition key value and can add a condition on the sort key, such as `begins_with`, `between` or a comparison.\n- A `GetItem` needs the full primary key.\n- Items with the same partition key are stored together and returned in sort-key order.\n- A `Scan` reads the whole table or index. It is a poor default for production access paths.\n\n## Designing the keys\n\nStart from the access patterns, not from the entities. In an illustrative telemetry table:\n\n| Attribute | Example value | Role |\n|---|---|---|\n| `pk` | `DEVICE#dev-1042` | partition key, spreads devices across partitions |\n| `sk` | `READING#2026-10-29T08:00:00Z` | sort key, orders readings for one device |\n\nReading one device's readings in a time window is a single `Query` on `pk` with a `between` condition on `sk`. ISO-8601 timestamps keep lexical order equal to time order.\n\n## Trade-offs and common mistakes\n\n- A low-cardinality partition key, such as a status flag, concentrates traffic on few partitions.\n- Using a bare timestamp as the partition key sends all current writes to one key.\n- Several entity types can share one table if their key prefixes are designed consistently up front.\n- Sort-key order is fixed by the stored key value. Sorting by any other attribute needs an index.\n\n## Practical example\n\nAn order table might use `pk = CUSTOMER#<id>` and `sk = ORDER#<createdAt>`. Then \"all orders for a customer, newest first\" is one `Query` with `ScanIndexForward` set to `false`.",
+      "followUps": [
+        "How would you model a many-to-many relationship in a single DynamoDB table?",
+        "Why is Scan usually avoided on production access paths?",
+        "When would a composite sort key be better than a separate table?"
+      ],
+      "related": [
+        "dynamodb-global-secondary-index",
+        "dynamodb-hot-partitions",
+        "sql-vs-nosql-selection"
+      ]
+    },
+    {
+      "slug": "dynamodb-global-secondary-index",
+      "title": "What is a DynamoDB Global Secondary Index and what does it cost?",
+      "topic": "DynamoDB data modelling",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "dynamodb",
+        "gsi",
+        "secondary-index",
+        "eventual-consistency",
+        "aws"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            18
+          ]
+        }
+      ],
+      "quick": "A Global Secondary Index gives a DynamoDB table a second key schema, with its own partition key and optional sort key, so I can query by another access pattern. The index is a maintained copy of selected attributes, so writes to the base table propagate to it. That adds write cost and storage. Reads from an index are eventually consistent, so strongly consistent reads are not available on it. Items without the index key attributes are simply not indexed, which makes a sparse index possible. I add an index only for a specific, measured query rather than for every attribute.",
+      "revision": "A GSI adds a second key schema for another query pattern. It costs writes and storage, reads are eventually consistent, and items without its keys are skipped.",
+      "detailed": "## Short answer\n\nA Global Secondary Index (GSI) gives a table a second key schema, with its own partition key and optional sort key. It lets the table answer queries that the base key cannot serve. The index is a maintained copy of selected attributes, which is why it adds cost.\n\n## How it works\n\n- Changes to the base table propagate to each GSI asynchronously.\n- You choose a projection: keys only, selected attributes, or all attributes. Projecting less keeps storage and read costs down.\n- Reads from a GSI are eventually consistent. Strongly consistent reads are not supported on a GSI.\n- An item is indexed only if it carries the index key attributes. This makes a sparse index possible, for example an index on a `flaggedAt` attribute that only flagged orders carry.\n\n## Trade-offs\n\n- Each GSI has its own read and write capacity, so an under-sized index can throttle writes to the base table.\n- Projected attributes are stored again in the index, which adds storage.\n- GSI keys are not unique, so an index cannot enforce uniqueness. Uniqueness needs a conditional-write design on the base table.\n\n## Common mistakes\n\nAdding an index for every attribute, letting index design replace the base key design, and assuming an index read reflects a write that just completed. When the freshest value matters, read from the base table or design the flow to tolerate brief staleness.\n\n## Practical example\n\nAn orders table keyed by customer can have a GSI with partition key `status` and sort key `createdAt`, so operations staff can query pending orders oldest first. If the `status` attribute is removed when an order completes, the index holds only open orders and stays small.",
+      "followUps": [
+        "How does a sparse index help when only some items need a secondary lookup?",
+        "How does a Local Secondary Index differ from a Global Secondary Index?",
+        "How would you handle a read that must see a write made a moment ago?"
+      ],
+      "related": [
+        "dynamodb-partition-and-sort-keys",
+        "dynamodb-hot-partitions",
+        "read-replicas-replication-lag"
+      ]
+    },
+    {
+      "slug": "dynamodb-hot-partitions",
+      "title": "What is a hot partition in DynamoDB and how do you prevent it?",
+      "topic": "DynamoDB data modelling",
+      "difficulty": "advanced",
+      "type": "scenario",
+      "tags": [
+        "dynamodb",
+        "hot-partition",
+        "throttling",
+        "write-sharding",
+        "aws"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            18
+          ]
+        }
+      ],
+      "quick": "A hot partition is one that receives a disproportionate share of reads or writes, so requests to that key are throttled even when the table has spare capacity overall. I prevent it first through the partition key: a high-cardinality key that matches the access pattern. For keys that must be hot, such as a global counter, I use write sharding, spreading writes over suffixed keys and aggregating on read. I also watch per-key access metrics, because averages hide skew. Adaptive capacity helps with uneven load, but it does not replace a sound key design.",
+      "revision": "A hot partition gets disproportionate traffic and throttles. Fix it with a high-cardinality key, spread the load, and use write sharding for keys that must be hot.",
+      "detailed": "## Short answer\n\nA hot partition receives a disproportionate share of reads or writes. Requests to its key are throttled even when the table as a whole has spare capacity. The fix starts with the partition key design, and only then adds techniques such as write sharding.\n\n## How it works\n\nDynamoDB distributes data and throughput across partitions based on the partition key. Each partition has a throughput ceiling, so traffic concentrated on one key value hits that ceiling regardless of table-level capacity. The exact per-partition figures are documented by AWS and can change, so I check current documentation rather than rely on a number from memory.\n\n## Common causes\n\n- A low-cardinality key, such as a region or status value, where most traffic shares one value.\n- A bare date or timestamp key, so all of today's writes land on one partition.\n- A single popular entity, such as a global configuration item or counter, read on every request.\n\n## Detection and fixes\n\n- Use CloudWatch metrics and Contributor Insights to find the most accessed keys.\n- Choose a higher-cardinality key that matches the access pattern.\n- Cache read-heavy hot items in front of DynamoDB where staleness is acceptable.\n- For a counter that must be hot, shard the writes:\n\n```ts\nconst SHARD_COUNT = 10;\n\n// Write: a random shard spreads writes across partitions.\nfunction counterKeyForWrite(name: string): string {\n  const shard = Math.floor(Math.random() * SHARD_COUNT);\n  return `COUNTER#${name}#${shard}`;\n}\n// Read: query every shard key for the name and sum the results.\n```\n\nThe cost of sharding is that reads become a scatter-gather over `SHARD_COUNT` keys.\n\n## Common mistakes\n\nRelying on adaptive capacity to rescue a poor key, sharding before measuring, and using random suffixes without a plan for reading the total.\n\n## Practical example\n\nA page-view counter for one popular article is a clear case for write sharding. A user-profile table keyed by user identifier is usually not hot, because traffic spreads across many keys.",
+      "followUps": [
+        "How would you find which keys are hot in a production table?",
+        "What does write sharding cost on the read side?",
+        "Can adaptive capacity fully solve a skewed partition key?"
+      ],
+      "related": [
+        "dynamodb-partition-and-sort-keys",
+        "dynamodb-global-secondary-index",
+        "sharding-vs-partitioning"
+      ]
+    },
+    {
+      "slug": "mongodb-vs-dynamodb",
+      "title": "How do MongoDB and DynamoDB differ?",
+      "topic": "NoSQL database choice",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "mongodb",
+        "dynamodb",
+        "nosql",
+        "document-database",
+        "data-modelling"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            18
+          ]
+        }
+      ],
+      "quick": "MongoDB is a document database built around flexible documents, rich secondary indexes and an aggregation pipeline, so it suits evolving schemas and ad hoc queries. DynamoDB is a managed key-value and document service built around known access patterns. I design its keys and indexes to serve each query, and AWS handles scaling and most operations. MongoDB gives more query flexibility, while DynamoDB gives less operational work and predictable scaling if I can express every access pattern up front. The real decision is the access pattern and the operating model.",
+      "revision": "MongoDB: flexible queries over documents, and you run or host it. DynamoDB: managed, key-based access that you must model around known patterns.",
+      "detailed": "## Short answer\n\nBoth store documents, but they are built around different trade-offs. MongoDB favours flexible queries over documents and a rich indexing and aggregation model. DynamoDB favours managed, predictable key-based access and scaling, and it expects you to design the table around known access patterns.\n\n## Comparison\n\n| Aspect | MongoDB | DynamoDB |\n|---|---|---|\n| Data model | Documents in collections, flexible schema | Items in tables, flexible attributes, key-based design |\n| Querying | Rich query language and aggregation pipeline | Queries on the primary key and indexes; Scan is costly |\n| Indexing | Secondary indexes added as needed | Primary key plus GSIs, designed up front |\n| Operations | Self-managed, or a managed service such as MongoDB Atlas | Fully managed by AWS |\n| Scaling | Sharding on a chosen shard key | Partitioned by the partition key |\n\n## How to choose\n\n- If queries evolve and are hard to predict, MongoDB's flexibility helps.\n- If access patterns are stable, known and key-based, DynamoDB's operating model is attractive.\n- If the team already runs MongoDB and needs its query features, staying put is often the lower-risk choice.\n- Amazon DocumentDB is MongoDB-compatible but not identical, so I verify feature support before assuming a migration is simple.\n\n## Trade-offs and common mistakes\n\nMoving between the two is mainly a data-modelling change, not a driver change. Teams sometimes copy a document shape into DynamoDB and then find that a new query needs a new index or a table redesign. Both support transactions, but their limits and costs differ, so I check current documentation for the specific operation.\n\n## Practical example\n\nA product catalogue with frequently changing filters suits MongoDB or a relational store with indexes. A shopping-cart store read by a known customer key suits DynamoDB well.",
+      "followUps": [
+        "When would you keep MongoDB for a team that already uses it?",
+        "How does the modelling effort differ between the two?",
+        "What happens to a DynamoDB design when a new query appears after launch?"
+      ],
+      "related": [
+        "postgres-vs-mongodb-ecommerce-polyglot",
+        "sql-vs-nosql-selection",
+        "mongodb-embed-vs-reference-modelling"
+      ]
+    },
+    {
+      "slug": "rds-multi-az-vs-read-replicas",
+      "title": "What is the difference between RDS Multi-AZ and read replicas?",
+      "topic": "Relational databases on AWS",
+      "difficulty": "intermediate",
+      "type": "comparison",
+      "tags": [
+        "rds",
+        "multi-az",
+        "read-replica",
+        "availability",
+        "replication"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            19
+          ]
+        }
+      ],
+      "quick": "Multi-AZ is an availability feature and read replicas are a scaling feature. Multi-AZ keeps a standby in another Availability Zone and fails over to it automatically when the primary has a problem, while the application keeps using the same endpoint. Read replicas copy changes asynchronously from the primary so read traffic can be sent to them, and they can lag. A replica can be promoted during recovery, but I would not treat that as the main high-availability design. I use Multi-AZ for resilience to instance or zone failure and read replicas to offload reads, often both together.",
+      "revision": "Multi-AZ protects availability with a standby and automatic failover; read replicas scale reads with asynchronous copies that can lag.",
+      "detailed": "## Short answer\n\nMulti-AZ is an availability feature. Read replicas are a scaling feature. Multi-AZ keeps a standby in another Availability Zone and fails over to it automatically. Read replicas receive changes from the primary so read traffic can go elsewhere, but they are not the primary high-availability design.\n\n## How it works\n\n- In a classic Multi-AZ instance deployment, RDS replicates to a standby in another AZ. On failure, the endpoint's DNS record moves to the standby, so the application reconnects to the same endpoint.\n- The standby in that deployment type serves no read traffic. Other Multi-AZ deployment types differ, so I check the documentation for the one in use.\n- A read replica receives changes asynchronously. Read queries that tolerate some staleness can be routed to it, which reduces load on the primary. Supported engines allow replicas in the same or another region.\n- In standard RDS setups, promoting a read replica is a deliberate recovery step, not an automatic failover.\n\n## Comparison\n\n| | Multi-AZ | Read replica |\n|---|---|---|\n| Main purpose | Availability | Read scaling, with a recovery option |\n| Replication | Synchronous to standby in the instance deployment | Asynchronous |\n| Serves reads | No, in the classic instance deployment | Yes |\n| Failover | Automatic | Manual promotion |\n\n## Trade-offs and common mistakes\n\nReplicas can lag, so reads that must see the latest write belong on the primary. Using a replica as a backup is a mistake, because backups and point-in-time recovery are separate features. Multi-AZ also does not protect against logical errors such as an accidental delete, since that change replicates.\n\n## Practical example\n\nA catalogue service can keep a Multi-AZ primary for availability and send analytical or listing reads to a replica that tolerates a few seconds of lag. The write path and any read-your-writes flow stay on the primary.",
+      "followUps": [
+        "Does a Multi-AZ standby help with read scaling?",
+        "What would you check when a read replica lags during a traffic peak?",
+        "How does Multi-AZ fit into a multi-region disaster recovery plan?"
+      ],
+      "related": [
+        "read-replicas-replication-lag",
+        "connection-pooling",
+        "sharding-vs-partitioning"
+      ]
+    },
+    {
+      "slug": "what-is-a-database-index",
+      "title": "What is a database index and what does it cost?",
+      "topic": "Query performance",
+      "difficulty": "beginner",
+      "type": "conceptual",
+      "tags": [
+        "indexing",
+        "b-tree",
+        "query-performance",
+        "postgresql",
+        "sql"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            19
+          ]
+        }
+      ],
+      "quick": "An index is an additional data structure that lets the database find rows matching a condition without scanning the whole table. It speeds up selective reads, joins and ordered lookups. The cost is storage and slower writes, because every insert, update or delete must maintain each index. An index is not guaranteed to be used: when a query returns a large share of the table, a sequential scan can be cheaper. I add indexes for measured queries rather than indexing every column, and I confirm the effect with EXPLAIN ANALYZE.",
+      "revision": "An index trades write cost and storage for faster lookups on selected columns; add it for a measured query and verify with the plan.",
+      "detailed": "## Short answer\n\nAn index is an additional data structure that lets the database locate rows matching a condition without scanning the whole table. It speeds up selective reads, joins and ordered lookups. Every insert, update or delete must also maintain each index, so the speed-up has a write-side and storage cost.\n\n## How it works\n\nIn PostgreSQL the default index type is a B-tree, a sorted, balanced structure. A lookup walks the tree to the matching entries and then fetches those rows from the table. The planner estimates how many rows match and chooses a plan. When a query returns a large share of the table, a sequential scan can be cheaper, so an index is never guaranteed to be used.\n\n## Useful variants\n\n- Composite index: several columns in a fixed order, useful for equality on the leading columns and ordering after them.\n- Unique index: enforces that values do not repeat, so it protects data integrity as well as speed.\n- Partial index: covers only rows matching a condition, such as open orders, which keeps it small.\n\n```sql\nCREATE INDEX idx_orders_customer_created\n  ON orders (customer_id, created_at);\n\nSELECT id, total\nFROM orders\nWHERE customer_id = $1\nORDER BY created_at DESC\nLIMIT 20;\n```\n\nThis index lets the database find one customer's orders in index order and stop after 20 rows.\n\n## Trade-offs and common mistakes\n\n- Indexing every column slows writes and wastes storage. I add indexes for measured queries.\n- An index on a low-selectivity column, such as a boolean, rarely helps on its own.\n- Wrapping an indexed column in a function, such as `lower(email)`, stops a plain index from being used unless a matching expression index exists.\n- Adding an index without checking the plan. EXPLAIN ANALYZE shows whether it is used and what it saved.\n\n## Practical example\n\nBefore adding an index, I run EXPLAIN ANALYZE on the slow query and confirm the sequential scan. I then add the index on a copy with realistic data and compare the plan and timing.",
+      "followUps": [
+        "Why might the planner ignore an index you created?",
+        "How would you choose between one composite index and two single-column indexes?",
+        "What is the difference between a clustered and a non-clustered index?"
+      ],
+      "related": [
+        "composite-and-covering-indexes",
+        "reading-explain-analyze-plans",
+        "postgresql-slow-query"
+      ]
+    },
+    {
+      "slug": "what-is-opensearch",
+      "title": "What is OpenSearch used for, and how does it differ from the primary database?",
+      "topic": "Search and analytics",
+      "difficulty": "intermediate",
+      "type": "conceptual",
+      "tags": [
+        "opensearch",
+        "search",
+        "inverted-index",
+        "read-model",
+        "elasticsearch"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            19
+          ]
+        }
+      ],
+      "quick": "OpenSearch is a distributed search and analytics engine derived from Elasticsearch. It builds inverted indexes over text and keyword fields, so it answers full-text queries, relevance-ranked results, faceted filters and aggregations quickly. It is a strong read model for search, but not a transactional system of record. Its documents are denormalised, updates arrive from elsewhere and become searchable near real time. So I keep authoritative data in the primary database and treat OpenSearch as a derived index that can be rebuilt from it.",
+      "revision": "OpenSearch serves full-text search, filtering and aggregations from a derived index; the authoritative data stays in the transactional database.",
+      "detailed": "## Short answer\n\nOpenSearch is a distributed search and analytics engine. It stores documents in inverted indexes, so it answers full-text queries, relevance-ranked results, filtered and faceted searches and aggregations quickly. It is an effective read model for search, but it is not the transactional system of record.\n\n## How it works\n\nText fields pass through analysers that tokenise, lower-case and stem terms. The engine then builds an inverted index that maps each term to the documents containing it. Queries combine full-text matching, filters and aggregations. New writes become searchable after a refresh, which happens near real time rather than instantly.\n\n## Typical uses\n\n- Product or content search with ranking, synonyms and typo tolerance.\n- Faceted navigation, where counts per attribute are computed alongside results.\n- Log and event analytics across large volumes of semi-structured data.\n\n## Why it is not the source of truth\n\n- Documents are denormalised for query speed, so one fact can appear in many documents.\n- Updates arrive from elsewhere and can be delayed, duplicated or out of order.\n- Index mappings change over time and sometimes require a reindex.\n\nSo the authoritative data stays in the transactional database, and the search index is derived from it and can be rebuilt.\n\n## Common mistakes\n\nReading from the index when a write must be visible immediately, relying on it for uniqueness checks, and choosing mappings without considering how a field is filtered or sorted. Keyword fields suit exact filters and facets, while text fields suit full-text matching.\n\n## Practical example\n\nA product catalogue writes changes to PostgreSQL. The search page queries OpenSearch with a full-text term, a price range and a brand facet. The product detail page reads the current price from PostgreSQL before checkout.",
+      "followUps": [
+        "How would you keep the search index in sync with the primary database?",
+        "Which fields would you map as keyword and which as text?",
+        "When would OpenSearch be a poor choice?"
+      ],
+      "related": [
+        "keeping-search-index-consistent-with-database",
+        "transactional-outbox",
+        "eventual-consistency"
+      ]
+    },
+    {
+      "slug": "keeping-search-index-consistent-with-database",
+      "title": "How do you keep a search index consistent with a PostgreSQL database?",
+      "topic": "Search and analytics",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "opensearch",
+        "postgresql",
+        "outbox",
+        "idempotency",
+        "reconciliation"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            19,
+            20
+          ]
+        }
+      ],
+      "quick": "I treat the search index as a derived copy and keep it in step through events rather than a second write in the request path. The business change and an outbox record commit in one PostgreSQL transaction, and an asynchronous indexer applies them to OpenSearch. Deliveries can repeat or arrive late, so indexing must be idempotent: each document carries the source version, and an older event cannot overwrite a newer one. I also run periodic reconciliation and keep a rebuild path, such as reindexing into a new index and switching an alias. Search may lag briefly, and the design accepts that.",
+      "revision": "Publish changes through an outbox, index asynchronously and idempotently using versions, then reconcile and rebuild when drift appears.",
+      "detailed": "## Short answer\n\nI treat the search index as a derived copy and keep it in step through events, not through a second write inside the request. The business change and an outbox record commit in one PostgreSQL transaction, and an asynchronous indexer applies them to OpenSearch. The design accepts brief staleness in exchange for not losing or corrupting data.\n\n## How it works\n\n{{diagram:sync-flow}}\n\n1. The service updates the order and inserts an outbox row in the same transaction, so both commit or neither does.\n2. A publisher reads unsent outbox rows, sends them to an event stream or queue, and marks them as sent.\n3. The indexer consumes events and upserts documents in OpenSearch.\n4. A reconciliation job periodically compares source rows with the index and repairs differences.\n\n## Why idempotency and versions matter\n\nDelivery is usually at-least-once, so an event can arrive twice, and events can arrive out of order. Each document should carry the source row's version, and the indexer should write only when the incoming version is newer. Replays then become harmless, and a stale event cannot overwrite fresher data. Deletes need the same treatment.\n\n## Trade-offs and common mistakes\n\n- Dual writes from the application to PostgreSQL and OpenSearch can succeed in one place and fail in the other, and the two cannot share a transaction.\n- Skipping reconciliation lets drift from bugs or lost messages go unnoticed.\n- Without a rebuild path, a mapping change becomes a risky in-place migration. Building a new index, populating it and switching an alias avoids downtime.\n\n## Practical example\n\nSuppose a product price changes and its outbox row carries version 42. The indexer writes version 42. If a redelivered version 41 event arrives later, the indexer ignores it.",
+      "followUps": [
+        "What happens if a delete event is processed before an earlier update event?",
+        "Why not update OpenSearch inside the same request as the database write?",
+        "How often would you run reconciliation, and what would it compare?"
+      ],
+      "related": [
+        "transactional-outbox",
+        "eventual-consistency",
+        "what-is-opensearch"
+      ],
+      "diagrams": [
+        {
+          "id": "sync-flow",
+          "title": "Outbox-based search indexing",
+          "alt": "The order service writes orders and outbox rows in one PostgreSQL transaction; a publisher sends events to an indexer that upserts OpenSearch, and a reconciliation job repairs drift.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "app",
+              "label": "Order service"
+            },
+            {
+              "id": "db",
+              "label": "PostgreSQL: orders and outbox"
+            },
+            {
+              "id": "pub",
+              "label": "Outbox publisher"
+            },
+            {
+              "id": "bus",
+              "label": "Event stream"
+            },
+            {
+              "id": "idx",
+              "label": "Indexer worker"
+            },
+            {
+              "id": "os",
+              "label": "OpenSearch index"
+            },
+            {
+              "id": "rec",
+              "label": "Reconciliation job"
+            }
+          ],
+          "edges": [
+            {
+              "from": "app",
+              "to": "db",
+              "label": "one transaction"
+            },
+            {
+              "from": "db",
+              "to": "pub",
+              "label": "unsent rows"
+            },
+            {
+              "from": "pub",
+              "to": "bus",
+              "label": "publish"
+            },
+            {
+              "from": "bus",
+              "to": "idx",
+              "label": "consume"
+            },
+            {
+              "from": "idx",
+              "to": "os",
+              "label": "versioned upsert"
+            },
+            {
+              "from": "rec",
+              "to": "os",
+              "label": "compare and repair"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "s3-vs-database-for-iot-telemetry",
+      "title": "When should IoT telemetry go to S3 instead of a database?",
+      "topic": "Data storage for IoT",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "iot",
+        "telemetry",
+        "s3",
+        "data-lake",
+        "time-series"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            20
+          ]
+        }
+      ],
+      "quick": "I store raw telemetry in S3 when I need cheap, durable, long-term retention and later batch or analytical processing. I keep an operational database for low-latency queries on recent or derived state, such as the latest status of each device. The two serve different access patterns, so most IoT platforms use both. Raw data is batched and partitioned by device and date in S3, with lifecycle rules for older objects, while the database holds what the dashboards and alerts need.",
+      "revision": "S3 stores raw telemetry cheaply for long-term and analytical use; databases serve low-latency operational queries on recent or derived state.",
+      "detailed": "## Short answer\n\nI store raw telemetry in S3 when I need cheap, durable, long-term retention and later batch or analytical processing. I keep an operational database for low-latency queries on recent or derived state, such as the latest status of each device. Most IoT platforms use both, because the access patterns differ.\n\n## How it works\n\nRaw messages are batched and written as objects under partitioned key prefixes, for example by date and device:\n\n```text\ns3://telemetry-bucket/raw/year=2026/month=10/day=29/device=dev-1042/part-0001.json.gz\n```\n\nLifecycle rules can move older objects to colder, cheaper storage classes. Analytical engines can query the files in place, scanning only the partitions a query needs. The operational store answers point lookups and recent-window queries using indexes.\n\n## Choosing between them\n\n- Latency: S3 is not designed for low-latency lookups across many small objects, so dashboards should not read it directly.\n- Retention and cost: long history with rare access suits S3 and lifecycle policies.\n- Access shape: indexed lookups by device and time suit a database.\n- Write pattern: one object per message is expensive to write and read. Batch the data, for example through a buffered delivery service.\n\n## Trade-offs and common mistakes\n\nWriting one object per message is a common mistake. Storing all raw telemetry in an operational database with no retention plan is another, because storage and index maintenance grow with every message. I also define which store is the system of record for which data, so the two copies do not drift apart without anyone knowing.\n\n## Practical example\n\nAn example sensor fleet sends readings every few seconds. The platform keeps recent readings, for example the last 30 days, in a time-partitioned database for dashboards and alerts. Raw batches go to S3, and older batches move to colder storage classes for analysis.",
+      "followUps": [
+        "How would you avoid writing millions of tiny objects to S3?",
+        "How would you serve the latest status of a device with low latency?",
+        "Which partitioning would you use for querying history by device and date?"
+      ],
+      "related": [
+        "eventual-consistency",
+        "sharding-vs-partitioning",
+        "data-retention-and-archival"
+      ]
+    }
+  ]
+}

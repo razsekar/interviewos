@@ -1,0 +1,433 @@
+{
+  "category": "solution-architecture",
+  "questions": [
+    {
+      "slug": "design-scalable-rest-api-on-aws",
+      "title": "How would you design a scalable REST API on AWS?",
+      "topic": "System design on AWS",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "aws",
+        "rest",
+        "api-gateway",
+        "lambda",
+        "ecs",
+        "scalability"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            23
+          ]
+        }
+      ],
+      "quick": "I would start from the access pattern and the availability target, then keep the API stateless. Clients call API Gateway or an Application Load Balancer, which handles TLS, routing, throttling and authentication. Behind it I would run Lambda for spiky or event-style endpoints, or ECS on Fargate for steady services with longer requests. Data goes to a managed store chosen for the query pattern. I would add caching, queues and extra tiers only where measurements justify them, and monitor latency percentiles and error rates from the start.",
+      "revision": "Managed entry point, stateless compute, a data store matched to the access pattern, and caching or queues added only when measurements justify them.",
+      "detailed": "A scalable REST API on AWS comes from three choices: a managed entry point that handles traffic and security concerns, stateless compute that can run many copies, and a data store matched to the access pattern. Caching and asynchronous work come later, and only where measurements justify them.\n\n{{diagram:rest-api}}\n\n## Request path\n\n1. **Entry point.** API Gateway or an Application Load Balancer terminates TLS, routes by path, and applies throttling and authentication (for example a JWT authorizer or IAM).\n2. **Compute.** Lambda suits spiky or event-style endpoints because it scales with concurrent requests. ECS on Fargate suits steady services, longer requests, or workloads that need more runtime control.\n3. **Data.** DynamoDB fits key-based access with predictable latency. A relational store such as Aurora fits joins and transactional queries.\n4. **Reads.** Add a cache or CDN for responses that tolerate staleness, with explicit expiry rules.\n\n## Design rules\n\n- Keep handlers stateless. Session state belongs in a token or a store.\n- Set a timeout on every downstream call, and make writes idempotent so client retries are safe.\n- Use cursor-based pagination and bounded payload sizes.\n- Version the API and publish its contract so changes do not break clients.\n\n## Common mistakes\n\n- Adding caching before measuring where latency actually comes from.\n- Letting Lambda open unbounded connections to a relational database, which exhausts connection limits. Use a proxy or a connection-friendly store.\n- Relying on account-level concurrency without per-client throttling, so one caller can starve the others.\n\n## Example (hypothetical)\n\nA product catalogue API serves GET requests from a cache with a short time-to-live, while order POST requests validate synchronously, write an order record, and publish an event for fulfilment. Each route has its own timeout and throttle, and dashboards show p95 latency per route.\n",
+      "diagrams": [
+        {
+          "id": "rest-api",
+          "title": "Scalable REST API request path",
+          "alt": "Client requests enter an API Gateway or ALB, which forwards them to stateless Lambda or ECS compute. The compute reads from an optional cache and writes to a managed database, and all tiers emit logs and metrics to CloudWatch.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "client",
+              "label": "Client app"
+            },
+            {
+              "id": "gw",
+              "label": "API Gateway or ALB"
+            },
+            {
+              "id": "fn",
+              "label": "Lambda or ECS service"
+            },
+            {
+              "id": "cache",
+              "label": "Cache (optional)"
+            },
+            {
+              "id": "db",
+              "label": "DynamoDB or Aurora"
+            },
+            {
+              "id": "mon",
+              "label": "CloudWatch metrics and logs"
+            }
+          ],
+          "edges": [
+            {
+              "from": "client",
+              "to": "gw",
+              "label": "HTTPS"
+            },
+            {
+              "from": "gw",
+              "to": "fn",
+              "label": "authorised request"
+            },
+            {
+              "from": "fn",
+              "to": "cache",
+              "label": "read"
+            },
+            {
+              "from": "cache",
+              "to": "db",
+              "label": "miss"
+            },
+            {
+              "from": "fn",
+              "to": "db",
+              "label": "read and write"
+            },
+            {
+              "from": "fn",
+              "to": "mon",
+              "label": "logs and metrics"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How would you decide between Lambda and Fargate for one of these endpoints?",
+        "How do you stop one client from consuming the whole API capacity?",
+        "Where does the database connection limit become a problem, and how do you handle it?"
+      ],
+      "related": [
+        "design-scalable-enterprise-application",
+        "high-availability-design",
+        "api-first-and-contract-first-development"
+      ]
+    },
+    {
+      "slug": "design-file-upload-service",
+      "title": "How would you design a file-upload service?",
+      "topic": "Storage and upload design",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "s3",
+        "presigned-url",
+        "upload",
+        "security",
+        "async-processing"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            23
+          ]
+        }
+      ],
+      "quick": "I would let clients upload straight to S3 with short-lived presigned URLs, so file bytes never pass through the API. The API checks permission and quota, creates a pending record, and returns the URL. After upload, an S3 event triggers asynchronous validation and malware scanning, and only then does the file become available. Object keys are generated on the server, never taken from user file names. Large files use multipart upload, and downloads use short-lived signed URLs. Abandoned pending uploads are cleaned up on a schedule.",
+      "revision": "Clients upload directly to S3 with short-lived presigned URLs; the API authorises and tracks state; asynchronous scanning gates availability.",
+      "detailed": "Let the client send file bytes directly to object storage using a short-lived presigned URL, and keep the API responsible only for authorisation, metadata and state. Asynchronous processing then handles validation and scanning without holding API connections open for the length of the upload.\n\n{{diagram:upload}}\n\n## Flow\n\n1. The client asks the API to start an upload with a file name, size and content type. The API checks the user's permission and quota, creates a record in state `pending`, and returns a presigned URL.\n2. The client uploads directly to S3. Presigned URLs should expire quickly and be scoped to one object key.\n3. An S3 event notification, or an EventBridge rule, triggers a worker that checks the object: size, real file type (content inspection rather than the extension), and malware.\n4. The record moves to `available` or `rejected`. The client polls or receives a notification.\n\n## Details that matter\n\n- Generate object keys on the server from a random identifier. Never use the user's file name as the key path.\n- Presigned POST policies can enforce size and content-type conditions. A presigned PUT is harder to constrain, so validate size in the processing step as well and reject oversized objects.\n- Use multipart upload for large files so that a failed part can be retried alone.\n- Keep the bucket private and serve downloads through short-lived presigned GET URLs or a CDN with signed access.\n- Apply lifecycle rules to temporary and rejected objects.\n\n## Trade-offs\n\nDirect upload removes the API as a bottleneck and reduces its cost, but it adds a state machine and eventual availability. Proxying bytes through the API is simpler to reason about, but it holds compute and connection capacity for the whole duration of each upload.\n\n## Common mistakes\n\n- Treating the presigned URL as the only control. Authorisation must be checked again when the file is downloaded.\n- Marking a file as usable before scanning finishes.\n- Leaving orphaned objects after failed uploads. A scheduled cleanup of stale `pending` records is needed.\n\n## Example (hypothetical)\n\nIn a document portal, members upload receipts. A receipt becomes visible to reviewers only after the scan passes, and rejected files are deleted after a short retention window.\n",
+      "diagrams": [
+        {
+          "id": "upload",
+          "title": "Direct-to-S3 upload flow",
+          "alt": "The client asks the API for a presigned URL, then uploads directly to a private S3 bucket. An S3 event triggers a worker that validates and scans the object, then records the file as available or rejected in the metadata store.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "client",
+              "label": "Client"
+            },
+            {
+              "id": "api",
+              "label": "API"
+            },
+            {
+              "id": "s3",
+              "label": "S3 bucket (private)"
+            },
+            {
+              "id": "event",
+              "label": "S3 event"
+            },
+            {
+              "id": "worker",
+              "label": "Scan and validate worker"
+            },
+            {
+              "id": "meta",
+              "label": "Metadata store"
+            }
+          ],
+          "edges": [
+            {
+              "from": "client",
+              "to": "api",
+              "label": "request upload URL"
+            },
+            {
+              "from": "api",
+              "to": "client",
+              "label": "presigned URL"
+            },
+            {
+              "from": "client",
+              "to": "s3",
+              "label": "direct PUT"
+            },
+            {
+              "from": "s3",
+              "to": "event",
+              "label": "object created"
+            },
+            {
+              "from": "event",
+              "to": "worker",
+              "label": "trigger"
+            },
+            {
+              "from": "worker",
+              "to": "meta",
+              "label": "available or rejected"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "How do you prevent a user from uploading a file to another user's key?",
+        "How would you handle an upload that stays pending after the client disconnects?",
+        "How do you serve downloads to many viewers without exposing the bucket?"
+      ],
+      "related": [
+        "design-scalable-rest-api-on-aws",
+        "design-notification-system",
+        "design-scalable-enterprise-application"
+      ]
+    },
+    {
+      "slug": "design-resilient-payment-workflow",
+      "title": "How would you design a resilient payment workflow?",
+      "topic": "Payments and workflows",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "payments",
+        "idempotency",
+        "state-machine",
+        "reconciliation",
+        "audit"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            24
+          ]
+        }
+      ],
+      "quick": "I would model each payment as a state machine with durable transitions and an unknown state for uncertain outcomes. Each attempt gets an idempotency key that is stored before the provider call and sent on every retry. A timeout moves the payment to unknown, not failed, and a job looks up its outcome through the provider's API or webhooks before any retry. A ledger of append-only entries records authorisations, captures and refunds, and a daily reconciliation compares it with the provider's settlement report. Card data stays with the provider.",
+      "revision": "Payment as a state machine: idempotency keys, an unknown state instead of failed on timeout, lookup before retry, and daily reconciliation.",
+      "detailed": "Treat a payment as a state machine that you own, not as a single API call. The requirements are that no customer is charged twice, that an uncertain outcome is never treated as a failure, and that every money movement can be reconciled against the provider's records.\n\n## State model\n\nA payment attempt moves through states such as `created`, `authorising`, `authorised`, `captured`, `failed` and `unknown`. Write each transition to durable storage before and after the provider call. The `unknown` state matters most: a timeout or dropped connection does not tell you whether the charge happened.\n\n## Idempotency\n\n- Generate an idempotency key per payment attempt and store it before calling the provider.\n- Send the same key on every retry. Many providers document an idempotency mechanism; confirm the exact behaviour and how long keys are kept.\n- Reuse a key only for the same request. Reject a reused key that arrives with a different body.\n\n## Resolving uncertainty\n\nUse provider webhooks as the normal path, plus a scheduled job that queries the provider for payments that have stayed in `unknown` or `authorising` beyond a threshold. Do not retry a charge from `unknown` blindly; look up its outcome first.\n\n## Reconciliation and audit\n\n- Keep an append-only ledger of entries (authorisation, capture, refund) rather than overwriting balances.\n- Run a daily reconciliation that compares the internal ledger with the provider's settlement report, and route differences to an operations queue.\n- Compensate with a refund or void recorded as a new ledger entry. Never delete history.\n\n## Security scope\n\nKeep card data out of your systems by using provider-hosted fields or tokens. This narrows compliance scope and limits what a breach could expose.\n\n## Trade-offs and mistakes\n\nSynchronous authorisation gives the user an immediate answer but ties the request to provider latency. Asynchronous confirmation is more resilient but needs a clear pending state in the user interface. Common mistakes include marking a timed-out payment as failed, retrying without a key, and assuming webhooks arrive once and in order.\n\n## Example (hypothetical)\n\nA subscription renewal charges a stored token. If the response times out, the job checks the provider by the stored key before deciding whether to retry, and the ledger shows one authorisation regardless of how many attempts were made.\n",
+      "followUps": [
+        "How would you handle a webhook that arrives before the synchronous response?",
+        "What does a daily reconciliation do when the totals differ?",
+        "How would you keep card data out of your services entirely?"
+      ],
+      "related": [
+        "design-order-processing-microservices",
+        "design-notification-system",
+        "high-availability-design"
+      ]
+    },
+    {
+      "slug": "design-order-processing-microservices",
+      "title": "How would you design an order-processing system using microservices?",
+      "topic": "Microservices workflows",
+      "difficulty": "advanced",
+      "type": "design",
+      "tags": [
+        "microservices",
+        "saga",
+        "orchestration",
+        "outbox",
+        "compensation"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            24
+          ]
+        }
+      ],
+      "quick": "I would give each service its own data and coordinate the order with a saga. The order service creates a pending order, then an orchestrator reserves stock, authorises payment and schedules fulfilment. If a later step fails, earlier steps are compensated: the stock is released and the order is cancelled. Every step is idempotent and has a timeout, and events are published through an outbox so state and messages stay consistent. I would avoid a distributed transaction across databases, and I would show customers the order status during long steps.",
+      "revision": "Service-owned data, a saga coordinating the order, compensating actions for failures, idempotent steps, and an outbox for published events.",
+      "detailed": "Give each service ownership of its own data, and coordinate the order through a saga: a sequence of local transactions, each with a compensating action if a later step fails. Avoid a shared database, and avoid a distributed two-phase commit across services.\n\n{{diagram:order-saga}}\n\n## Responsibilities\n\n- **Order service** owns the order record and its status, for example `PENDING`, `CONFIRMED` or `CANCELLED`.\n- **Inventory service** reserves stock with a time-limited hold.\n- **Payment service** authorises and captures funds.\n- **Fulfilment service** schedules shipment once the order is confirmed.\n\n## Saga flow\n\n1. The order service creates the order as `PENDING` and starts a saga.\n2. The orchestrator asks inventory to reserve stock, then asks payment to authorise.\n3. If both succeed, the order becomes `CONFIRMED` and fulfilment is requested.\n4. If payment fails, the orchestrator releases the stock reservation and marks the order `CANCELLED`.\n\n## Orchestration or choreography\n\nAn orchestrator keeps the sequence visible and simplifies timeouts and compensation, at the cost of a coordinating component. Choreography, where services react to each other's events, removes the central coordinator but makes the overall flow harder to trace. For a flow involving money and several compensations, orchestration is usually easier to reason about.\n\n## Reliability rules\n\n- Make each step idempotent, keyed by order identifier, so redelivered messages are safe.\n- Publish events through a transactional outbox, so an event is recorded in the same local transaction that changes state.\n- Give every step a timeout. A silent service must not leave an order in `PENDING` indefinitely.\n- Make compensations retryable too.\n\n## Common mistakes\n\n- Treating a compensation as an exact undo. A refund is a new transaction, and a released stock hold may already have been taken by another customer.\n- Coupling services through shared tables.\n- Hiding order status from customers during long-running steps.\n\n## Example (hypothetical)\n\nAn online shop's payment provider times out after stock has been reserved. The orchestrator looks up the authorisation outcome. If it cannot be confirmed, the orchestrator releases the reservation and tells the customer the order was not placed.\n",
+      "diagrams": [
+        {
+          "id": "order-saga",
+          "title": "Order saga with an orchestrator",
+          "alt": "A customer places an order with the order service, which starts a saga orchestrator. The orchestrator asks inventory to reserve stock, payment to authorise funds, and fulfilment to schedule shipment, and it compensates earlier steps if a later step fails.",
+          "direction": "LR",
+          "nodes": [
+            {
+              "id": "client",
+              "label": "Customer app"
+            },
+            {
+              "id": "order",
+              "label": "Order service"
+            },
+            {
+              "id": "orch",
+              "label": "Saga orchestrator"
+            },
+            {
+              "id": "inv",
+              "label": "Inventory service"
+            },
+            {
+              "id": "pay",
+              "label": "Payment service"
+            },
+            {
+              "id": "ful",
+              "label": "Fulfilment service"
+            }
+          ],
+          "edges": [
+            {
+              "from": "client",
+              "to": "order",
+              "label": "place order"
+            },
+            {
+              "from": "order",
+              "to": "orch",
+              "label": "start saga"
+            },
+            {
+              "from": "orch",
+              "to": "inv",
+              "label": "reserve stock"
+            },
+            {
+              "from": "orch",
+              "to": "pay",
+              "label": "authorise payment"
+            },
+            {
+              "from": "orch",
+              "to": "ful",
+              "label": "schedule shipment"
+            }
+          ]
+        }
+      ],
+      "followUps": [
+        "When would you choose choreography instead of an orchestrator?",
+        "How do you make a compensation safe when the original step is only partly complete?",
+        "How would you show a customer the status of an order that is still in progress?"
+      ],
+      "related": [
+        "design-resilient-payment-workflow",
+        "define-non-functional-requirements",
+        "monolith-vs-microservices-decision"
+      ]
+    },
+    {
+      "slug": "design-notification-system",
+      "title": "How would you design a notification system?",
+      "topic": "Messaging and delivery",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "notifications",
+        "queues",
+        "retries",
+        "idempotency",
+        "rate-limits"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            24
+          ]
+        }
+      ],
+      "quick": "I would accept notification requests quickly, store them durably with an idempotency key, and deliver through separate queues per channel so one slow provider cannot block the others. Workers check consent and preferences, then send with retries that use exponential backoff and jitter, within provider rate limits. Provider webhooks update delivery status. Permanent failures go to a dead-letter queue for review and replay. Time-sensitive messages such as one-time codes use priority lanes, so bulk campaigns cannot delay them. Delivery is at-least-once, so duplicates must be harmless.",
+      "revision": "Durable intake, per-channel queues for isolation, retries with jitter inside provider limits, status webhooks, and dead-letter replay.",
+      "detailed": "Accept notification requests quickly, store them durably, and deliver through separate queues per channel so that one slow provider cannot block the others. Most providers cannot guarantee exactly-once delivery, so the system promises at-least-once delivery and makes duplicates harmless.\n\n## Pipeline\n\n1. **Intake.** An API or event consumer validates the request, assigns a notification ID and records the notification as `queued`. The caller may send an idempotency key so that retries create one notification.\n2. **Preferences.** A worker checks consent, channel preferences, quiet hours and suppression lists before sending.\n3. **Channel queues.** Email, SMS and push each have their own queue and workers, scaled independently.\n4. **Send.** A worker calls the provider and stores the provider's message ID.\n5. **Status.** Provider webhooks or polling move the status to `delivered`, `bounced` or `failed`.\n\n## Reliability\n\n- Retry transient errors with exponential backoff and jitter, and cap the number of attempts.\n- Treat provider rate limits as a budget. Apply a token bucket per provider and per recipient.\n- Send messages that exhaust their retries to a dead-letter queue, with a tool to replay them once the cause is fixed.\n- Check the notification ID before sending. A worker can crash after the provider accepted a message but before the status is saved, and a retry would otherwise send it twice.\n\n## Priority\n\nTime-sensitive messages, such as one-time passwords, should not wait behind bulk marketing sends. Separate queues or priority lanes stop bulk traffic from starving critical messages.\n\n## Trade-offs\n\nA single generic queue is simpler, but a provider outage then blocks unrelated channels. Per-channel queues add operational components and isolate failures. The cost is more to operate.\n\n## Common mistakes\n\n- Sending from the request thread, so a provider slowdown slows the user's request.\n- Retrying a permanent error such as an invalid address.\n- Ignoring unsubscribe and consent rules, which creates legal and reputational risk.\n\n## Example (hypothetical)\n\nA bank sends one-time codes on a priority queue and monthly statement emails through a bulk queue. A large statement run therefore cannot delay login codes, and a provider outage affects only the channel it impacts.\n",
+      "followUps": [
+        "How would you prevent a single large campaign from exhausting the provider's rate limit?",
+        "How do you deduplicate a notification if the provider accepted it but the status write failed?",
+        "What should happen to a message that bounces permanently?"
+      ],
+      "related": [
+        "design-order-processing-microservices",
+        "design-file-upload-service",
+        "design-resilient-payment-workflow"
+      ]
+    },
+    {
+      "slug": "design-centralized-logging-platform",
+      "title": "How would you design a centralized logging platform?",
+      "topic": "Observability design",
+      "difficulty": "intermediate",
+      "type": "design",
+      "tags": [
+        "logging",
+        "observability",
+        "retention",
+        "redaction",
+        "cost"
+      ],
+      "companies": [
+        "happiest-minds"
+      ],
+      "sourceType": "enhanced",
+      "sources": [
+        {
+          "file": "ref-aws-architect",
+          "pages": [
+            24
+          ]
+        }
+      ],
+      "quick": "I would standardise structured JSON logs first, with service, environment, version and trace ID on every line. Agents or native drivers ship logs through a buffered pipeline, so an ingestion outage does not block applications. Recent logs go to a searchable store with short retention, and older logs move to low-cost object storage under lifecycle rules. Access is role-based, secrets and personal data are redacted at the source, and high-volume debug output is controlled with sampling. I would treat ingestion cost as an architectural concern from day one.",
+      "revision": "Structured correlated logs, buffered collection, tiered retention, redaction at source, and cost control designed in from the start.",
+      "detailed": "A centralised logging platform works only when every service emits structured, correlated and redacted logs. Standardise the format first, then decide how logs are collected, stored, searched and retained.\n\n## Log format\n\nEmit JSON with a fixed set of fields: timestamp, level, service, environment, version, request or trace ID, and a message with structured attributes. Free-text lines are hard to filter reliably, so they should not be the main format.\n\n## Pipeline\n\n1. **Collection.** Each host or container ships logs through an agent or the platform's native driver. Serverless functions write to their platform log group.\n2. **Transport.** A buffered shipper or stream absorbs bursts and handles retries, so an ingestion outage does not block applications.\n3. **Storage tiers.** Recent logs go to a searchable store with short retention. Older logs go to low-cost object storage with lifecycle rules and a defined retention period.\n4. **Access.** Access is role-based, and teams can be limited to their own services where policy requires it.\n\n## Governance\n\n- Redact secrets and personal data at the source, and add a second check in the pipeline.\n- Set retention per log class. Security and audit logs often have different retention and immutability rules from debug logs.\n- Use sampling or level policies for high-volume debug output. Logs are often the largest observability cost.\n- Prefer metrics for alerting where possible, and use logs for investigation and for alerts that need event detail.\n\n## Trade-offs\n\nManaged services reduce operational work but charge by ingestion and retention, so volume control becomes an architecture concern. Self-hosted stacks give more control but need capacity planning and upgrades.\n\n## Common mistakes\n\n- Logging full request bodies, which captures personal data and credentials.\n- No correlation ID, so one request cannot be followed across services.\n- Treating the log platform as a backup for business data.\n\n## Example (hypothetical)\n\nAn order service writes a structured line for every state change, including the order ID and trace ID. An investigation can then follow one order across four services with a single query.\n",
+      "followUps": [
+        "How do you keep logs useful when a service emits a very high volume of debug lines?",
+        "What belongs in a separate audit log, and why?",
+        "How would you correlate logs from serverless functions and containers?"
+      ],
+      "related": [
+        "high-availability-design",
+        "define-non-functional-requirements",
+        "design-scalable-enterprise-application"
+      ]
+    }
+  ]
+}
